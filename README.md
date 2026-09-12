@@ -26,8 +26,6 @@
   <img src="docs/images/showcase-dark.png" width="100%" alt="Lunavect: active and waiting sessions beside usage limits and a Claude/Codex activity chart">
 </picture>
 
-<p align="center"><a href="https://github.com/lovach/Lunavect/raw/refs/heads/main/docs/images/lunavect-demo.mp4">▶ 18-second native interface demo · MP4</a></p>
-
 ## A little less switching. A lot more clarity.
 
 Keep your work in the official clients. Lunavect is a native macOS status bar app that gives you a shared view of Claude Code and Codex, with desktop widgets for usage limits and activity. Connect either client or both.
@@ -38,7 +36,7 @@ Keep your work in the official clients. Lunavect is a native macOS status bar ap
 
 ## Take a closer look
 
-Real native interface, shown with fictional sessions and sample data. Click any image to view it at full size. The short demo illustrates session-state changes with sample data. Widget images show the app's native layouts; macOS controls desktop placement and refresh.
+Real native interface, shown with fictional sessions and sample data. Click any image to view it at full size. Widget images show the app's native layouts; macOS controls desktop placement and refresh.
 
 ### Your sessions, at a glance
 
