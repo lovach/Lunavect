@@ -26,7 +26,8 @@ final class ReleaseScreenshots: XCTestCase {
         let waiting = AgentSession(provider: .codex, sessionID: "demo-permission", title: "Review the release checklist", cwd: "/Users/demo/Projects/Lunavect", client: .desktop, phase: .permission, updatedAt: now, observedAt: now, runtimeConfirmed: true)
         let ready = AgentSession(provider: .codex, sessionID: "demo-ready", title: "Polish the settings screen", cwd: "/Users/demo/Projects/Atlas", client: .desktop, phase: .ready, updatedAt: now, observedAt: now, runtimeConfirmed: true)
         sessions.acceptSessions([work, waiting, ready])
-        try render(SessionsView(store: sessions, onSettings: {}).defaultAppStorage(defaults), size: CGSize(width: 360, height: 355), to: output.appendingPathComponent("sessions.png"))
+        let sessionView = SessionsView(store: sessions, onSettings: {}).defaultAppStorage(defaults)
+        try render(sessionView, size: CGSize(width: 360, height: 355), to: output.appendingPathComponent("sessions.png"))
         let claude = UsageSnapshot(provider: .claude,
             weekly: try QuotaWindow(usedPercent: 32, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3 * 86400)),
             fiveHour: try QuotaWindow(usedPercent: 16, durationMinutes: 300, resetsAt: now.addingTimeInterval(2 * 3600)), fetchedAt: now, source: "Claude Code /usage")
@@ -34,21 +35,162 @@ final class ReleaseScreenshots: XCTestCase {
             weekly: try QuotaWindow(usedPercent: 46, durationMinutes: 10080, resetsAt: now.addingTimeInterval(5 * 86400)),
             fiveHour: try QuotaWindow(usedPercent: 9, durationMinutes: 300, resetsAt: now.addingTimeInterval(4 * 3600)), fetchedAt: now, source: "Codex app-server")
         var preferences = WidgetPreferences(); preferences.enabledProviders = [.claude, .codex]; preferences.showFiveHour = true
+        var history = ActivityHistory()
+        var records: [ActivityInterval] = []
+        let today = Calendar.current.startOfDay(for: now)
+        _ = history.prepareImport(now: today)
+        for day in -29...0 {
+            for hour in [9, 10, 14, 15, 16] {
+                let start = today.addingTimeInterval(Double(day * 86400 + hour * 3600))
+                let seconds = Double((((day + 30) * (day + 30) * (hour + 3) + hour * 7) % 50 + 5) * 60)
+                let end = min(start.addingTimeInterval(seconds), now)
+                guard end > start else { continue }
+                let mask = hour < 12 ? 1 : hour == 15 ? 3 : 2
+                records.append(ActivityInterval(start: start, end: end, providers: mask))
+            }
+        }
+        history.mergeRecovered(records, now: now, limited: false)
+        var details = ActivityDetails()
+        details.merge([
+            .init(provider: .claude, sessionID: "demo-working", title: work.title, cwd: work.cwd,
+                  intervals: records.filter { $0.providers == 1 }),
+            .init(provider: .codex, sessionID: "demo-ready", title: ready.title, cwd: ready.cwd,
+                  intervals: records.filter { $0.providers == 2 })
+        ], now: now)
         let store = AppStore(state: SharedState(snapshots: [claude, codex], preferences: preferences), savesChanges: false,
-            activityHistory: ActivityHistory(), activityDetails: ActivityDetails())
-        defaults.set("limits", forKey: "settingsSection")
-        try render(SettingsView(store: store, menuBarAppearance: MenuBarAppearance(defaults: defaults), sessions: sessions).defaultAppStorage(defaults), size: CGSize(width: 880, height: 740), to: output.appendingPathComponent("limits.png"))
+            activityHistory: history, activityDetails: details)
+        let appearance = MenuBarAppearance(defaults: defaults)
+        for section in ["limits", "statistics"] {
+            defaults.set(section, forKey: "settingsSection")
+            try render(SettingsView(store: store, menuBarAppearance: appearance, sessions: sessions).defaultAppStorage(defaults),
+                       size: CGSize(width: 920, height: 780), to: output.appendingPathComponent(section == "limits" ? "limits.png" : "activity.png"))
+        }
+
+        func widget(_ content: LunavectWidgetContent, _ family: LunavectWidgetSize, source: ActivitySource = .all) -> some View {
+            LunavectWidgetCard(snapshots: [claude, codex], preferences: preferences, history: history,
+                               content: content, family: family, now: now, source: source)
+                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.12), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.22), radius: 18, y: 10)
+        }
+        func caption(_ text: String) -> some View {
+            Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+        }
+        let showcase = VStack(alignment: .leading, spacing: 34) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Your AI work, in view.").font(.system(size: 42, weight: .semibold, design: .rounded))
+                Text("Sessions, usage and activity. One quiet place on your Mac.")
+                    .font(.system(size: 17)).foregroundStyle(.secondary)
+            }
+            HStack(alignment: .top, spacing: 40) {
+                VStack(alignment: .leading, spacing: 14) {
+                    caption("KNOW WHAT NEEDS YOU")
+                    sessionView.frame(width: 360, height: 355)
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.primary.opacity(0.1), lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.18), radius: 20, y: 12)
+                }
+                VStack(alignment: .leading, spacing: 14) {
+                    caption("SEE HOW MUCH ROOM YOU HAVE")
+                    widget(.limits, .medium)
+                    widget(.activity, .medium, source: .comparison)
+                }
+            }
+            HStack(spacing: 26) {
+                caption("NATIVE macOS APP")
+                caption("CLAUDE CODE + CODEX")
+                caption("LOCAL DATA")
+            }
+        }.padding(54).frame(width: 920, height: 640, alignment: .leading)
+        for scheme in [ColorScheme.dark, .light] {
+            try render(showcase, size: CGSize(width: 920, height: 640),
+                       to: output.appendingPathComponent("showcase-\(scheme == .dark ? "dark" : "light").png"), scheme: scheme, backdrop: true)
+        }
+        let themes = HStack(alignment: .top, spacing: 32) {
+            ForEach([false, true], id: \.self) { dark in
+                VStack(alignment: .leading, spacing: 16) {
+                    caption(dark ? "DARK" : "LIGHT")
+                    sessionView.frame(width: 360, height: 355)
+                        .background(dark ? Color(white: 0.12) : Color(white: 0.96))
+                        .environment(\.colorScheme, dark ? .dark : .light)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.primary.opacity(0.08), lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.15), radius: 14, y: 8)
+                }
+            }
+        }.padding(40)
+        try render(themes, size: CGSize(width: 832, height: 465), to: output.appendingPathComponent("sessions-themes.png"), backdrop: true)
+        let widgets = VStack(alignment: .leading, spacing: 26) {
+            Text("Make room for what matters.").font(.system(size: 30, weight: .semibold, design: .rounded))
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 16) {
+                    caption("SMALL · AT A GLANCE")
+                    HStack(spacing: 16) { widget(.limits, .small); widget(.activity, .small) }
+                    caption("MEDIUM · COMPARE YOUR ACTIVITY")
+                    widget(.activity, .medium, source: .comparison)
+                }
+                VStack(alignment: .leading, spacing: 16) {
+                    caption("LARGE · LIMITS + ACTIVITY")
+                    widget(.overview, .large)
+                }
+            }
+            Text("Choose limits, activity or both. Show Claude, Codex or the two together.")
+                .font(.system(size: 14)).foregroundStyle(.secondary)
+        }.padding(44)
+        try render(widgets, size: CGSize(width: 820, height: 580), to: output.appendingPathComponent("widgets.png"), backdrop: true)
+        let social = HStack(spacing: 64) {
+            VStack(alignment: .leading, spacing: 26) {
+                HStack(spacing: 18) {
+                    if let mark = AppArtwork.brandMark {
+                        Image(nsImage: mark).resizable().scaledToFit().frame(width: 76, height: 76)
+                    }
+                    Text("Lunavect").font(.system(size: 48, weight: .semibold, design: .rounded))
+                }
+                Text("Claude Code & Codex").font(.system(size: 31, weight: .medium))
+                Text("Status bar.\nUsage limits.\nDesktop widgets.")
+                    .font(.system(size: 42, weight: .semibold)).lineSpacing(6)
+                Text("Free & open source  ·  macOS 14+")
+                    .font(.system(size: 18)).foregroundStyle(.secondary)
+                Text("github.com/lovach/Lunavect")
+                    .font(.system(size: 16)).foregroundStyle(.secondary)
+            }.frame(width: 480, alignment: .leading)
+            ZStack(alignment: .topLeading) {
+                sessionView.frame(width: 360, height: 355)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.12), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.3), radius: 24, y: 16)
+                widget(.limits, .small).offset(x: 276, y: 244)
+            }.frame(width: 440, height: 408)
+        }.padding(64)
+        try render(social, size: CGSize(width: 1280, height: 640), to: output.appendingPathComponent("social-preview.png"), backdrop: true, scale: 1)
     }
 
-    @MainActor private func render<V: View>(_ view: V, size: CGSize, to path: URL) throws {
-        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height).background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark).environment(\.controlActiveState, .key))
-        host.appearance = NSAppearance(named: .darkAqua); host.frame = CGRect(origin: .zero, size: size)
+    @MainActor private func render<V: View>(_ view: V, size: CGSize, to path: URL, scheme: ColorScheme = .dark, backdrop: Bool = false, scale: CGFloat? = nil) throws {
+        let root = view.frame(width: size.width, height: size.height).background {
+            if backdrop {
+                LinearGradient(colors: scheme == .dark ? [Color(red: 0.07, green: 0.10, blue: 0.15), Color(red: 0.13, green: 0.12, blue: 0.15)] : [Color(red: 0.92, green: 0.95, blue: 0.99), Color(red: 0.98, green: 0.95, blue: 0.92)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            } else { Color(nsColor: .windowBackgroundColor) }
+        }.preferredColorScheme(scheme).environment(\.colorScheme, scheme).environment(\.controlActiveState, .key)
+        let host = NSHostingView(rootView: root)
+        host.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua); host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = host; window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
         defer { window.orderOut(nil); window.contentView = nil }
         for _ in 0..<3 { RunLoop.main.run(until: Date().addingTimeInterval(0.07)); host.layoutSubtreeIfNeeded() }
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
-        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: path)
+        if let scale {
+            let result = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: result)
+            NSGraphicsContext.current?.imageInterpolation = .high
+            NSImage(cgImage: try XCTUnwrap(bitmap.cgImage), size: size).draw(in: CGRect(origin: .zero, size: CGSize(width: size.width * scale, height: size.height * scale)))
+            NSGraphicsContext.restoreGraphicsState()
+            try XCTUnwrap(result.representation(using: .png, properties: [:])).write(to: path)
+        } else {
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: path)
+        }
     }
 }

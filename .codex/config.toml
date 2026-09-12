@@ -1,9 +1,0 @@
-# Model and reasoning effort are selected by the user in Codex.
-# Do not override model, model_reasoning_effort, or review_model here.
-
-# Keep answers concise; AGENTS.md defines the language and evidence expected.
-model_verbosity = "low"
-# Check current official documentation when working on provider integrations.
-web_search = "live"
-
-# Image generation has its own model selection; see AGENTS.md.

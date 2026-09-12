@@ -1,0 +1,28 @@
+name: Suggest an improvement
+description: Tell us what would make Lunavect more useful in your workflow.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task or inconvenience, and how you handle it today.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Your suggestion
+      description: What would you like Lunavect to do? Sketches or examples are welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Sessions and status bar
+        - Usage limits
+        - Desktop widgets
+        - Activity statistics
+        - Connections and setup
+        - Other

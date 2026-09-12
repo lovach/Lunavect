@@ -51,3 +51,12 @@ __pycache__/
 /LOCAL_ARCHIVE.md
 /design/*RESEARCH.md
 /design/*AUDIT.md
+
+# Private development instructions, design notes and release working history.
+/AGENTS.md
+/.codex/
+/.claude/
+/CLAUDE.md
+/RELEASE.md
+/design/ICON_BRIEF.md
+/docs/mascot-permissions.md
