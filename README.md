@@ -20,11 +20,11 @@
   <a href="https://github.com/lovach/Lunavect/issues">Report a problem</a>
 </p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/showcase-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/showcase-light.png">
-  <img src="docs/images/showcase-dark.png" width="100%" alt="Lunavect: active and waiting sessions beside usage limits and a Claude/Codex activity chart">
-</picture>
+<p align="center">
+  <a href="docs/images/macos-menu-bar.png"><img src="docs/images/macos-menu-bar.png" width="100%" alt="Lunavect open from the macOS menu bar, showing running sessions and usage indicators against the desktop wallpaper"></a>
+</p>
+
+<p align="center"><sub>Retouched macOS screenshot with sample session names, paths and usage values. Development preview: menu-bar usage indicators are not included in 0.1.0.</sub></p>
 
 ## A little less switching. A lot more clarity.
 

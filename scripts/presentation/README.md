@@ -15,3 +15,9 @@ LUNAVECT_RELEASE_SCREENSHOTS="$PWD/docs/images" swift test --filter ReleaseScree
 ```
 
 Inspect the exported images and the beginning, permission state and end of the video before publishing. Never replace fictional fixtures with local session history. The renderer is an opt-in asset tool, not an end-to-end provider or WidgetKit test.
+
+## Retouched desktop capture
+
+`docs/images/macos-menu-bar.png` is based on the owner's macOS screenshot of a local development build. The built-in image editing tool removed the Comfy Desktop shortcut and a stray desktop icon fragment, substituted English sample session titles, project paths and quota values, and balanced the framing. This is a retouched capture, not an untouched screenshot or a new native-render validation. The original private capture is not included in Git.
+
+The menu-bar usage indicators shown in this image are a development preview and are not included in the 0.1.0 installer. The other README close-ups remain native renders with fictional data.
