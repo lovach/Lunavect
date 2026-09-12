@@ -13,7 +13,7 @@ macOS 14+ · Apple silicon & Intel · Free and open source
 [Install](#install) · [Screenshots](#screenshots) · [Release notes](CHANGELOG.md) · [Report a bug](https://github.com/lovach/Lunavect/issues/new?template=bug.yml)
 
 <p>
-  <a href="docs/images/macos-menu-bar.png"><img src="docs/images/macos-menu-bar.png" align="right" width="420" alt="Lunavect open from the macOS menu bar, with sample sessions — development preview"></a>
+  <a href="docs/images/macos-menu-bar.png"><img src="docs/images/macos-menu-bar.png" align="right" width="50%" alt="Lunavect open from the macOS menu bar, with sample sessions — development preview"></a>
 </p>
 
 ## Features
