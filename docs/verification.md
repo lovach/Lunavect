@@ -44,7 +44,7 @@ Missing or expired allowances are shown as unavailable, never interpreted as unl
 
 ## Public screenshots
 
-The README uses native SwiftUI renders with fictional sessions, allowances and activity. The opt-in `ReleaseScreenshots.testRenderPublicScreenshots` renderer passed on September 12, 2026, and the resulting light/dark panels and widget layouts were visually inspected. The 18-second video renders native views in a separate media app with fictional state transitions. It does not establish live provider behavior, returning to an external session or desktop WidgetKit placement. See the [media source notes](../scripts/presentation/README.md).
+The README uses native SwiftUI renders with fictional sessions, allowances and activity. The opt-in `ReleaseScreenshots.testRenderPublicScreenshots` renderer passed on September 12, 2026, and the resulting light/dark panels and widget layouts were visually inspected. The 18-second video renders native views in a separate media app with fictional state transitions. It does not establish live provider behavior, returning to an external session or desktop WidgetKit placement. Stills and video share one fixture: current-day work is retained, provider/project totals include overlapping sessions consistently, and unrelated session timers survive demo transitions. Regression checks cover these cases. See the [media source notes](../scripts/presentation/README.md).
 
 ## Reporting a problem
 

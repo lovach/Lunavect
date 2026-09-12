@@ -20,7 +20,7 @@ struct WeekleftCard: View {
         } else {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(L("Осталось на неделю")).font(.system(size: 10, weight: .regular))
+                Text(L("Недельный остаток")).font(.system(size: 10, weight: .regular))
                 Spacer()
                 if demo { Text(L("Демо")).font(.system(size: 9)) }
                 else if snapshots.contains(where: { $0.issue != nil || ($0.fetchedAt != nil && $0.isStale(now: now)) }) {
@@ -149,9 +149,9 @@ struct SingleProviderLimitsCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(weekly.map { "\(Int($0.remaining.rounded()))%" } ?? "—")
                     .font(.system(size: compact ? 28 : 36, weight: .semibold)).monospacedDigit()
-                if !compact { Text(L("Осталось на неделю")).font(.system(size: 11)).foregroundStyle(.secondary) }
+                if !compact { Text(L("Недельный остаток")).font(.system(size: 11)).foregroundStyle(.secondary) }
             }.lineLimit(1).minimumScaleFactor(0.8)
-            if compact { Text(L("Осталось на неделю")).font(.system(size: 9)).foregroundStyle(.secondary) }
+            if compact { Text(L("Недельный остаток")).font(.system(size: 9)).foregroundStyle(.secondary) }
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.12))

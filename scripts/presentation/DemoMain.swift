@@ -7,41 +7,22 @@ import WeekleftCore
 @MainActor final class DemoState: ObservableObject {
     @Published var stage = 0
     let sessions: SessionStore
-    let snapshots: [UsageSnapshot]
-    var history = ActivityHistory()
-    var preferences = WidgetPreferences()
-    let now = Date()
+    let fixture = try! PresentationFixture()
+    var snapshots: [UsageSnapshot] { fixture.snapshots }
+    var history: ActivityHistory { fixture.history }
+    var preferences: WidgetPreferences { fixture.preferences }
+    var now: Date { fixture.now }
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LunavectMedia-" + UUID().uuidString)
     let defaults = UserDefaults(suiteName: "LunavectMedia-" + UUID().uuidString)!
     init() {
         sessions = SessionStore(directory: directory, defaults: defaults)
-        preferences.enabledProviders = [.claude, .codex]; preferences.showFiveHour = true
-        snapshots = try! [
-            UsageSnapshot(provider: .claude, weekly: QuotaWindow(usedPercent: 32, durationMinutes: 10080, resetsAt: now.addingTimeInterval(259200)), fiveHour: QuotaWindow(usedPercent: 16, durationMinutes: 300, resetsAt: now.addingTimeInterval(7200)), fetchedAt: now, source: "Claude Code /usage"),
-            UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 46, durationMinutes: 10080, resetsAt: now.addingTimeInterval(432000)), fiveHour: QuotaWindow(usedPercent: 9, durationMinutes: 300, resetsAt: now.addingTimeInterval(14400)), fetchedAt: now, source: "Codex app-server")
-        ]
-        let today = Calendar.current.startOfDay(for: now)
-        _ = history.prepareImport(now: today)
-        var intervals: [ActivityInterval] = []
-        for day in -6...0 {
-            for hour in [9, 10, 14, 15, 16] {
-                let start = today.addingTimeInterval(Double(day * 86400 + hour * 3600))
-                let end = min(now, start.addingTimeInterval(Double(((day + 8) * (hour + 3) % 35 + 15) * 60)))
-                if end > start { intervals.append(.init(start: start, end: end, providers: hour < 12 ? 1 : hour == 15 ? 3 : 2)) }
-            }
-        }
-        history.mergeRecovered(intervals, now: now, limited: false)
         setStage(0)
     }
     func setStage(_ value: Int) {
         stage = value
-        let time = Date()
-        var working = AgentSession(provider: .claude, sessionID: "sample-onboarding", title: "Build the onboarding flow", cwd: "/Users/demo/Projects/Lunavect", client: .desktop, phase: .running, updatedAt: time, observedAt: time, runtimeConfirmed: true)
-        working.turnStartedAt = time.addingTimeInterval(-72)
-        let task = AgentSession(provider: .codex, sessionID: "sample-release", title: "Review the release checklist", cwd: "/Users/demo/Projects/Lunavect", client: .desktop, phase: value == 0 ? .running : value == 1 ? .permission : .ready, updatedAt: time, observedAt: time, runtimeConfirmed: true)
-        let done = AgentSession(provider: .codex, sessionID: "sample-settings", title: "Polish the settings screen", cwd: "/Users/demo/Projects/Atlas", client: .desktop, phase: .ready, updatedAt: time, observedAt: time, runtimeConfirmed: true)
-        sessions.acceptSessions([working, task, done])
+        sessions.acceptSessions(fixture.sessions(stage: value, observedAt: Date()))
     }
+
 }
 
 struct StatusPreview: NSViewRepresentable {
@@ -121,9 +102,9 @@ struct DemoScene: View {
             timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    if self.frame == 15 { self.state.setStage(0); self.updateStatus() }
-                    if self.frame == 75 { self.state.setStage(1); self.updateStatus() }
-                    if self.frame == 135 { self.state.setStage(2); self.updateStatus() }
+                    if self.frame == 14 { self.state.setStage(0); self.updateStatus() }
+                    if self.frame == 74 { self.state.setStage(1); self.updateStatus() }
+                    if self.frame == 134 { self.state.setStage(2); self.updateStatus() }
                     if self.frame >= 15 && self.frame < 195 {
                         self.capture(to: dir.appendingPathComponent(String(format: "%04d.png", self.frame - 15)))
                     }

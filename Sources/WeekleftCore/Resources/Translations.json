@@ -1,4 +1,18 @@
 {
+  "Активность по дням": {
+    "de": "Aktivität pro Tag",
+    "en": "Daily activity",
+    "es": "Actividad diaria",
+    "fr": "Activité par jour",
+    "zh-Hans": "每日活动"
+  },
+  "Активность по часам": {
+    "de": "Aktivität pro Stunde",
+    "en": "Hourly activity",
+    "es": "Actividad por hora",
+    "fr": "Activité par heure",
+    "zh-Hans": "每小时活动"
+  },
   " {0} в ожидании": {
     "de": " {0} warten",
     "en": " {0} waiting",
@@ -2441,6 +2455,13 @@
     "es": "Límites semanales y estadísticas de actividad en un widget grande.",
     "fr": "Limites hebdomadaires et statistiques d’activité dans un grand widget.",
     "zh-Hans": "在一个大小组件中查看每周用量限制和活动统计。"
+  },
+  "Недельный остаток": {
+    "de": "Wochenkontingent übrig",
+    "en": "Weekly remaining",
+    "es": "Saldo semanal",
+    "fr": "Quota hebdo restant",
+    "zh-Hans": "每周剩余额度"
   },
   "Недельный лимит недоступен": {
     "de": "Wochenlimit nicht verfügbar",

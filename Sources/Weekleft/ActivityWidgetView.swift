@@ -98,7 +98,7 @@ private struct SmallLimitsCard: View {
         } else {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
-                Text(L("На неделю")).font(.system(size: 10))
+                Text(L("Недельный остаток")).font(.system(size: 10))
                 Spacer(minLength: 0)
                 if stale { Image(systemName: "exclamationmark.circle").font(.system(size: 10)) }
             }.foregroundStyle(.white.opacity(0.8))
@@ -165,7 +165,7 @@ struct OverviewLimitsCard: View {
     let now: Date
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L("Осталось на неделю")).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.8))
+            Text(L("Недельный остаток")).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.8))
             ForEach(preferences.providers) { id in
                 let snapshot = snapshots.first { $0.provider == id } ?? UsageSnapshot(provider: id)
                 let weekly = snapshot.weekly.flatMap { $0.isExpired(at: now) ? nil : $0 }
@@ -216,7 +216,10 @@ struct ActivityCard: View {
     var pointNavigation: ((ActivityChartData, Date) -> AnyView)? = nil
     private var small: Bool { family == .small }
     private var selected: Date? { small ? nil : data.validSelection(selectedDate) }
-    private var title: String { data.series.count == 1 ? data.series[0].provider.title : L("Активность") }
+    private var title: String {
+        if data.series.count == 1 { return data.series[0].provider.title }
+        return L(data.summary.period == .day ? "Активность по часам" : "Активность по дням")
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {

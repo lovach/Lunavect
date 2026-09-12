@@ -20,45 +20,16 @@ final class ReleaseScreenshots: XCTestCase {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
         defer { try? FileManager.default.removeItem(at: temporary) }
         let sessions = SessionStore(directory: temporary, defaults: defaults)
-        let now = Date()
-        var work = AgentSession(provider: .claude, sessionID: "demo-working", title: "Build the onboarding flow", cwd: "/Users/demo/Projects/Lunavect", client: .desktop, phase: .running, updatedAt: now, observedAt: now, runtimeConfirmed: true)
-        work.turnStartedAt = now.addingTimeInterval(-72)
-        let waiting = AgentSession(provider: .codex, sessionID: "demo-permission", title: "Review the release checklist", cwd: "/Users/demo/Projects/Lunavect", client: .desktop, phase: .permission, updatedAt: now, observedAt: now, runtimeConfirmed: true)
-        let ready = AgentSession(provider: .codex, sessionID: "demo-ready", title: "Polish the settings screen", cwd: "/Users/demo/Projects/Atlas", client: .desktop, phase: .ready, updatedAt: now, observedAt: now, runtimeConfirmed: true)
-        sessions.acceptSessions([work, waiting, ready])
+        let fixture = try PresentationFixture()
+        let now = fixture.now
+        let history = fixture.history
+        let preferences = fixture.preferences
+        let claude = fixture.snapshots[0], codex = fixture.snapshots[1]
+        sessions.acceptSessions(fixture.sessions())
         let sessionView = SessionsView(store: sessions, onSettings: {}).defaultAppStorage(defaults)
         try render(sessionView, size: CGSize(width: 360, height: 355), to: output.appendingPathComponent("sessions.png"))
-        let claude = UsageSnapshot(provider: .claude,
-            weekly: try QuotaWindow(usedPercent: 32, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3 * 86400)),
-            fiveHour: try QuotaWindow(usedPercent: 16, durationMinutes: 300, resetsAt: now.addingTimeInterval(2 * 3600)), fetchedAt: now, source: "Claude Code /usage")
-        let codex = UsageSnapshot(provider: .codex,
-            weekly: try QuotaWindow(usedPercent: 46, durationMinutes: 10080, resetsAt: now.addingTimeInterval(5 * 86400)),
-            fiveHour: try QuotaWindow(usedPercent: 9, durationMinutes: 300, resetsAt: now.addingTimeInterval(4 * 3600)), fetchedAt: now, source: "Codex app-server")
-        var preferences = WidgetPreferences(); preferences.enabledProviders = [.claude, .codex]; preferences.showFiveHour = true
-        var history = ActivityHistory()
-        var records: [ActivityInterval] = []
-        let today = Calendar.current.startOfDay(for: now)
-        _ = history.prepareImport(now: today)
-        for day in -29...0 {
-            for hour in [9, 10, 14, 15, 16] {
-                let start = today.addingTimeInterval(Double(day * 86400 + hour * 3600))
-                let seconds = Double((((day + 30) * (day + 30) * (hour + 3) + hour * 7) % 50 + 5) * 60)
-                let end = min(start.addingTimeInterval(seconds), now)
-                guard end > start else { continue }
-                let mask = hour < 12 ? 1 : hour == 15 ? 3 : 2
-                records.append(ActivityInterval(start: start, end: end, providers: mask))
-            }
-        }
-        history.mergeRecovered(records, now: now, limited: false)
-        var details = ActivityDetails()
-        details.merge([
-            .init(provider: .claude, sessionID: "demo-working", title: work.title, cwd: work.cwd,
-                  intervals: records.filter { $0.providers == 1 }),
-            .init(provider: .codex, sessionID: "demo-ready", title: ready.title, cwd: ready.cwd,
-                  intervals: records.filter { $0.providers == 2 })
-        ], now: now)
-        let store = AppStore(state: SharedState(snapshots: [claude, codex], preferences: preferences), savesChanges: false,
-            activityHistory: history, activityDetails: details)
+        let store = AppStore(state: SharedState(snapshots: fixture.snapshots, preferences: preferences), savesChanges: false,
+            activityHistory: history, activityDetails: fixture.details)
         let appearance = MenuBarAppearance(defaults: defaults)
         for section in ["limits", "statistics"] {
             defaults.set(section, forKey: "settingsSection")

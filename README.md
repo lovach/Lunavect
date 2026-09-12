@@ -54,7 +54,7 @@ Small, medium and large. Choose limits, activity or both; show one service or co
 
 ### See where the work happened
 
-A closer look at locally observed working time. Explore days, weeks and months, with project and session breakdowns in the app.
+The lines show working time for each day; the legend shows totals for the displayed period. The current day is still in progress. Explore days, weeks and months, with project and session breakdowns in the app.
 
 [![Weekly activity chart comparing Claude and Codex working time](docs/images/activity-detail.png)](docs/images/activity-detail.png)
 
