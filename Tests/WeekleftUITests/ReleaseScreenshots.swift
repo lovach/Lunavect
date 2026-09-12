@@ -35,6 +35,10 @@ final class ReleaseScreenshots: XCTestCase {
             defaults.set(section, forKey: "settingsSection")
             try render(SettingsView(store: store, menuBarAppearance: appearance, sessions: sessions).defaultAppStorage(defaults),
                        size: CGSize(width: 920, height: 780), to: output.appendingPathComponent(section == "limits" ? "limits.png" : "activity.png"))
+            if section == "statistics" {
+                try render(SettingsView(store: store, menuBarAppearance: appearance, sessions: sessions).defaultAppStorage(defaults),
+                           size: CGSize(width: 920, height: 1060), to: output.appendingPathComponent("readme-activity.png"))
+            }
         }
 
         func widget(_ content: LunavectWidgetContent, _ family: LunavectWidgetSize, source: ActivitySource = .all) -> some View {
@@ -53,10 +57,19 @@ final class ReleaseScreenshots: XCTestCase {
                 widget(.limits, .medium)
                 widget(.activity, .medium, source: .comparison)
             }
-        }.padding(40)
+        }
         for scheme in [ColorScheme.dark, .light] {
-            try render(showcase, size: CGSize(width: 832, height: 456),
+            try render(showcase.padding(40), size: CGSize(width: 832, height: 456),
                        to: output.appendingPathComponent("showcase-\(scheme == .dark ? "dark" : "light").png"), scheme: scheme, backdrop: true)
+            try render(showcase.padding(24), size: CGSize(width: 784, height: 403),
+                       to: output.appendingPathComponent("readme-overview-\(scheme == .dark ? "dark" : "light").png"), scheme: scheme, transparent: true)
+            let panel = sessionView.frame(width: 360, height: 355)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+                .padding(16)
+            try render(panel, size: CGSize(width: 392, height: 387),
+                       to: output.appendingPathComponent("readme-sessions-\(scheme == .dark ? "dark" : "light").png"), scheme: scheme, transparent: true)
         }
         let themes = HStack(alignment: .top, spacing: 32) {
             ForEach([false, true], id: \.self) { dark in
@@ -66,16 +79,18 @@ final class ReleaseScreenshots: XCTestCase {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .shadow(color: .black.opacity(0.15), radius: 14, y: 8)
             }
-        }.padding(40)
-        try render(themes, size: CGSize(width: 832, height: 456), to: output.appendingPathComponent("sessions-themes.png"), backdrop: true)
+        }
+        try render(themes.padding(40), size: CGSize(width: 832, height: 456), to: output.appendingPathComponent("sessions-themes.png"), backdrop: true)
         let widgets = HStack(alignment: .top, spacing: 32) {
             VStack(spacing: 16) {
                 HStack(spacing: 16) { widget(.limits, .small); widget(.activity, .small) }
                 widget(.activity, .medium, source: .comparison)
             }
             widget(.overview, .large)
-        }.padding(40)
-        try render(widgets, size: CGSize(width: 832, height: 456), to: output.appendingPathComponent("widgets.png"), backdrop: true)
+        }
+        try render(widgets.padding(40), size: CGSize(width: 832, height: 456), to: output.appendingPathComponent("widgets.png"), backdrop: true)
+        try render(widgets.padding(24), size: CGSize(width: 800, height: 408),
+                   to: output.appendingPathComponent("readme-widgets.png"), transparent: true)
         let activityDetail = ActivityDetailChart(
             data: ActivityChartData(history: history, now: now, period: .week, providers: [.claude, .codex]),
             chartHeight: 140)
@@ -110,20 +125,28 @@ final class ReleaseScreenshots: XCTestCase {
         try render(social, size: CGSize(width: 1280, height: 640), to: output.appendingPathComponent("social-preview.png"), backdrop: true, scale: 1)
     }
 
-    @MainActor private func render<V: View>(_ view: V, size: CGSize, to path: URL, scheme: ColorScheme = .dark, backdrop: Bool = false, scale: CGFloat? = nil) throws {
+    @MainActor private func render<V: View>(_ view: V, size: CGSize, to path: URL, scheme: ColorScheme = .dark, backdrop: Bool = false, transparent: Bool = false, scale: CGFloat? = nil) throws {
         let root = view.frame(width: size.width, height: size.height).background {
-            if backdrop {
+            if transparent {
+                Color.clear
+            } else if backdrop {
                 LinearGradient(colors: scheme == .dark ? [Color(red: 0.07, green: 0.10, blue: 0.15), Color(red: 0.13, green: 0.12, blue: 0.15)] : [Color(red: 0.92, green: 0.95, blue: 0.99), Color(red: 0.98, green: 0.95, blue: 0.92)], startPoint: .topLeading, endPoint: .bottomTrailing)
             } else { Color(nsColor: .windowBackgroundColor) }
         }.preferredColorScheme(scheme).environment(\.colorScheme, scheme).environment(\.controlActiveState, .key)
         let host = NSHostingView(rootView: root)
         host.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua); host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        if transparent { window.isOpaque = false; window.backgroundColor = .clear }
         window.contentView = host; window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
         defer { window.orderOut(nil); window.contentView = nil }
         for _ in 0..<3 { RunLoop.main.run(until: Date().addingTimeInterval(0.07)); host.layoutSubtreeIfNeeded() }
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
+        if transparent {
+            // README images need native Retina pixels; do not enlarge a 1x capture.
+            XCTAssertGreaterThanOrEqual(bitmap.pixelsWide, Int(size.width * 2))
+            XCTAssertGreaterThanOrEqual(bitmap.pixelsHigh, Int(size.height * 2))
+        }
         if let scale {
             let result = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
             NSGraphicsContext.saveGraphicsState()

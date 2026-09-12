@@ -16,6 +16,12 @@ LUNAVECT_RELEASE_SCREENSHOTS="$PWD/docs/images" swift test --filter ReleaseScree
 
 Inspect the exported images and the beginning, permission state and end of the video before publishing. Never replace fictional fixtures with local session history. The renderer is an opt-in asset tool, not an end-to-end provider or WidgetKit test.
 
+## README gallery
+
+The `readme-*.png` exports use the same native components and fictional fixture. Overview and session panels have separate light and dark exports. Their outer canvas is transparent so the page background shows through; the application and widget surfaces retain their native appearance. The renderer requires at least two native pixels per layout point for these transparent exports and does not upscale them.
+
+The README displays the overview at 784 points and individual panels at 392 points. On narrow screens the overview uses a single session panel, and the light/dark panels wrap onto separate rows. The full activity window is captured at 920 × 1060 points so the project breakdown is visible. Keep all gallery exports from one renderer run so their activity totals agree.
+
 ## Retouched desktop capture
 
 `docs/images/macos-menu-bar.png` is based on the owner's macOS screenshot of a local development build. The built-in image editing tool removed the Comfy Desktop shortcut and a stray desktop icon fragment, substituted English sample session titles, project paths and quota values, and balanced the framing. This is a retouched capture, not an untouched screenshot or a new native-render validation. The original private capture is not included in Git.

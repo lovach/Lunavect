@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="design/selected/lunavect-appicon-1024.png" width="64" alt="Lunavect icon">
+<img src="design/selected/lunavect-appicon-1024.png" width="192" height="192" alt="Lunavect icon">
 
 # Lunavect
 
@@ -12,23 +12,21 @@ A macOS menu bar app and desktop widgets for **Claude Code** and **Codex**.
 
 macOS 14+ · Apple silicon & Intel · Free and open source
 
-[Install](#install) · [Screenshots](#screenshots) · [Release notes](CHANGELOG.md) · [Report a bug](https://github.com/lovach/Lunavect/issues/new?template=bug.yml)
-
-## Features
+[Sessions](#sessions) · [Usage limits](#usage-limits) · [Widgets](#desktop-widgets) · [Install](#install) · [Release notes](CHANGELOG.md)
 
 <p>
-  <a href="docs/images/macos-menu-bar.png"><img src="docs/images/macos-menu-bar.png" width="560" alt="Lunavect open from the macOS menu bar, with sample sessions — development preview"></a>
+  <a href="docs/images/readme-overview-dark.png">
+    <picture>
+      <source media="(max-width: 600px) and (prefers-color-scheme: light)" srcset="docs/images/readme-sessions-light.png">
+      <source media="(max-width: 600px)" srcset="docs/images/readme-sessions-dark.png">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme-overview-dark.png">
+      <source media="(prefers-color-scheme: light)" srcset="docs/images/readme-overview-light.png">
+      <img src="docs/images/readme-overview-dark.png" width="784" alt="Lunavect session panel beside weekly usage limits and daily activity for Claude Code and Codex">
+    </picture>
+  </a>
 </p>
 
-<p>
-Claude Code and Codex sessions in one panel: working, waiting for input, or response ready.<br>
-Search by session or project. Filter, pin, reorder and hide sessions.<br>
-Weekly and five-hour usage limits with reset times.<br>
-Small, medium and large desktop widgets for limits and activity.<br>
-Activity charts by day, week or month, with available project and session breakdowns.
-</p>
-
-<sub>Retouched macOS capture with sample data. Menu-bar usage indicators are a development preview and are not in 0.1.0. [Screenshot notes](docs/verification.md#public-screenshots).</sub>
+<sub>Native interface with sample data. [About the screenshots](docs/verification.md#public-screenshots).</sub>
 
 ## Install
 
@@ -52,31 +50,52 @@ Open **Connect Claude** or **Connect Codex** in Lunavect. Claude requires **Clau
 
 ## Screenshots
 
-Native interface with sample sessions and usage data. Click an image to enlarge it.
+### Sessions
+
+See which task is working, needs input or has finished.<br>
+Search by session or project. Filter, pin, reorder and hide sessions.
+
+<p>
+  <a href="docs/images/readme-sessions-light.png"><img src="docs/images/readme-sessions-light.png" width="392" alt="Claude Code and Codex session panel in light appearance"></a>
+  <a href="docs/images/readme-sessions-dark.png"><img src="docs/images/readme-sessions-dark.png" width="392" alt="Claude Code and Codex session panel in dark appearance"></a>
+</p>
+
+### Usage limits
+
+Weekly and five-hour allowances, with a reset time for each provider.<br>
+Missing or expired limits stay marked as unavailable.
+
+<p>
+  <a href="docs/images/limits.png"><img src="docs/images/limits.png" width="800" alt="Usage settings showing weekly and five-hour remaining allowances and reset times for Claude and Codex"></a>
+</p>
 
 ### Desktop widgets
 
-Limits, activity, or a combined overview. macOS manages placement and refresh.
+Small, medium and large layouts for limits, activity or both.<br>
+macOS manages placement and refresh.
 
 <p>
-  <a href="docs/images/widgets.png"><img src="docs/images/widgets.png" width="800" alt="Small limits and activity widgets, a medium comparison and a large overview"></a>
+  <a href="docs/images/readme-widgets.png"><img src="docs/images/readme-widgets.png" width="800" alt="Small limits and activity widgets, a medium comparison and a large overview"></a>
 </p>
 
-<details>
-<summary>Session panel — light and dark</summary>
+### Activity
 
-[![Lunavect session panel in light and dark appearances](docs/images/sessions-themes.png)](docs/images/sessions-themes.png)
+Working time by day, week and month, with project and session breakdowns.<br>
+Recovered history is marked as approximate.
 
-</details>
+<p>
+  <a href="docs/images/readme-activity.png"><img src="docs/images/readme-activity.png" width="800" alt="Activity statistics with provider totals, a daily chart, recovered history and a project breakdown"></a>
+</p>
 
-<details>
-<summary>Usage limits and activity details</summary>
+### On your Mac
 
-[![Weekly and five-hour allowances for Claude and Codex](docs/images/limits.png)](docs/images/limits.png)
+<p>
+  <a href="docs/images/macos-menu-bar.png"><img src="docs/images/macos-menu-bar.png" width="640" alt="Lunavect open from the macOS menu bar on a Mac desktop — development preview with sample sessions"></a>
+</p>
 
-[![Claude and Codex daily working time and totals for the displayed week](docs/images/activity-detail.png)](docs/images/activity-detail.png)
+<sub>Retouched macOS capture with sample data. Menu-bar usage indicators are a development preview and are not in 0.1.0. [Screenshot notes](docs/verification.md#public-screenshots).</sub>
 
-</details>
+All images open at full resolution when clicked. Session names, paths and usage values are samples.
 
 ## Data and connections
 
