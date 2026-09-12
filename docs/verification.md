@@ -19,6 +19,15 @@ Lunavect 0.1.0 (103) is the first public release. This page separates recorded r
 
 These are records of the 0.1.0 release checks, not a claim that every check is rerun for each documentation change.
 
+## Branded installer, revision 2
+
+The refreshed DMG contains the same signed and notarized app, version 0.1.0 (103). It does not announce an app update through Sparkle.
+
+- The actual Finder window was inspected after opening and after ejecting/reopening the image: large app and Applications icons, a transfer arrow, and a cyan/amber background. [Installer screenshot](images/installer.jpg).
+- Finder metadata, window dimensions, icon positions, the 1×/2× background and the `/Applications` link were checked. All app files and symlinks matched the notarized source; the selected app icon was unchanged.
+- The DMG and `SHA256SUMS-installer-2.txt` were downloaded from GitHub without authentication. SHA-256 matched: `e23e4eb272b6aadbefdbc9cdcced23720d9cd82c421bd06871497d3a8df1baf2`. The downloaded image passed integrity, strict codesign, Gatekeeper, stapler and saved-layout checks.
+- The original DMG, ZIP, appcast and checksum assets were preserved at their existing URLs and their server-side digests remained unchanged. This packaging check is not a new app-installation test or a desktop-widget test on another Mac.
+
 ## What still needs testing
 
 | Area | Current limit |

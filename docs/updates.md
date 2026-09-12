@@ -66,11 +66,19 @@ python3 scripts/package-update.py \
 Упаковка DMG с уже notarized-приложением:
 
 ```sh
-python3 scripts/package-dmg.py \
+python3 -m venv /path/outside-repository/dmg-venv
+/path/outside-repository/dmg-venv/bin/pip install -r scripts/dmg/requirements.txt
+/path/outside-repository/dmg-venv/bin/python scripts/package-dmg.py \
   --app '/path/to/Notarized-103/Lunavect.app' \
   --output '/path/to/release-assets/Lunavect-0.1.0.dmg'
 ```
 
-DMG — read-only контейнер с приложением и ссылкой Applications. Скрипт проверяет Developer ID, ticket и Gatekeeper до упаковки и внутри смонтированного DMG. Подпись и notarization относятся к приложению; отдельная подпись самого DMG этим скриптом не создаётся. Для автообновления используйте ZIP/appcast от `package-update.py`; загрузите DMG, ZIP и appcast в один релиз.
+DMG — read-only контейнер с приложением и ссылкой Applications. Открывается компактное окно Finder с крупными значками, стрелкой и фирменным фоном. Видимые объекты остаются настоящими файлами Finder: приложение можно перетащить в Applications. [Снимок окна](images/installer.jpg).
 
-Проверка скачанного файла: сопоставить SHA-256 с `SHA256SUMS.txt`, смонтировать DMG, проверить `codesign --verify --deep --strict`, `spctl --assess --type execute` и `xcrun stapler validate` для приложения. Затем проверить запуск, сохранённые настройки, свежие события/лимиты и установленный системный виджет. Не считать локальную упаковку проверкой скачивания с GitHub.
+Геометрия хранится в `scripts/dmg/layout.json`. Фон рисуется AppKit из `render-background.swift` в 1× и 2×; [dmgbuild](https://dmgbuild.readthedocs.io/en/latest/settings.html) объединяет их в Retina TIFF и записывает `.DS_Store` прямо в образ. Зависимости закреплены в `scripts/dmg/requirements.txt`, используются только при упаковке и не входят в приложение. Кэши, Python-окружение и DMG держите вне репозитория. Оформление не управляет Finder через AppleScript и не требует разрешений Accessibility/Automation. Выбранная иконка приложения не перерисовывается.
+
+Скрипт проверяет Developer ID, ticket и Gatekeeper до упаковки и внутри смонтированного DMG, затем проверяет фон, размеры окна, позиции значков и состав видимых файлов. Не задавайте `hide_extensions` для подписанного `.app`: SetFile добавляет FinderInfo к bundle, что нарушает строгую проверку codesign. Finder сам показывает имя приложения без расширения.
+
+Подпись и notarization относятся к приложению; отдельная подпись самого DMG этим скриптом не создаётся. Для автообновления используйте ZIP/appcast от `package-update.py`; загрузите DMG, ZIP и appcast в один релиз. Косметическая переупаковка DMG не требует изменения версии приложения или подписанного ZIP. Для уже опубликованной версии используйте новое имя DMG и отдельную контрольную сумму, сохраняя прежние файлы по их адресам.
+
+Проверка скачанного файла: сопоставить SHA-256 с опубликованным файлом контрольных сумм для этого установщика, смонтировать DMG, проверить `codesign --verify --deep --strict`, `spctl --assess --type execute` и `xcrun stapler validate` для приложения. Затем проверить запуск, сохранённые настройки, свежие события/лимиты и установленный системный виджет. Не считать локальную упаковку проверкой скачивания с GitHub.

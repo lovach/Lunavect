@@ -1,0 +1,9 @@
+{
+  "window_rect": [[240, 240], [680, 420]],
+  "icon_size": 128,
+  "text_size": 13,
+  "icon_locations": {
+    "Lunavect.app": [174, 214],
+    "Applications": [506, 214]
+  }
+}

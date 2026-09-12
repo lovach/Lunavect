@@ -2,10 +2,14 @@
 """Package a notarized Lunavect app in a read-only drag-to-Applications DMG."""
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
+
+ARTWORK = Path(__file__).resolve().parent / 'dmg'
+REGISTER = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
 
 
 def checked(*command):
@@ -25,11 +29,38 @@ def verify_app(app):
     return info
 
 
+def verify_layout(mount, layout):
+    from ds_store import DSStore
+
+    with DSStore.open(str(mount / '.DS_Store'), 'r') as store:
+        window = store['.']['bwsp']
+        icons = store['.']['icvp']
+        (x, y), (width, height) = layout['window_rect']
+        if window['WindowBounds'] != f'{{{{{x}, {y}}}, {{{width}, {height}}}}}':
+            raise ValueError('Installer window dimensions were not saved')
+        if any(window[key] for key in ('ShowToolbar', 'ShowSidebar', 'ShowStatusBar', 'ShowPathbar')):
+            raise ValueError('Installer must open as a compact icon window')
+        if icons['backgroundType'] != 2 or icons['iconSize'] != layout['icon_size']:
+            raise ValueError('Installer artwork or icon size is missing')
+        for name, position in layout['icon_locations'].items():
+            if tuple(store[name]['Iloc'])[:2] != tuple(position):
+                raise ValueError(f'Installer icon is misplaced: {name}')
+    if not (mount / '.background.tiff').is_file():
+        raise ValueError('Retina installer background is missing')
+    visible = {p.name for p in mount.iterdir() if not p.name.startswith('.')}
+    if visible != {'Lunavect.app', 'Applications'}:
+        raise ValueError(f'Unexpected visible installer files: {visible}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    try:
+        import dmgbuild
+    except ImportError:
+        raise ValueError('Install the release-only dependencies from scripts/dmg/requirements.txt in a virtual environment')
     app, output = args.app.resolve(), args.output.resolve()
     info = verify_app(app)
     if output.exists() or output.suffix != '.dmg':
@@ -37,23 +68,40 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='lunavect-dmg-', dir=output.parent) as temporary:
         temporary = Path(temporary)
-        contents, mount = temporary / 'contents', temporary / 'mount'
-        contents.mkdir(); mount.mkdir()
-        checked('ditto', str(app), str(contents / 'Lunavect.app'))
-        (contents / 'Applications').symlink_to('/Applications', target_is_directory=True)
-        (contents / 'Read Me.txt').write_text(
-            'Lunavect ' + info['CFBundleShortVersionString'] + '\n\n'
-            'Drag Lunavect to Applications, then open it from Applications.\n'
-            'Connect Claude Code, Codex, or both using the setup guide.\n'
-            'Sign in only inside the official client.\n\n'
-            'Updating: quit Lunavect and replace your existing copy.\n'
-            'Keep a single installed copy so the widget gallery stays unambiguous.\n\n'
-            'Source and help: https://github.com/lovach/Lunavect\n')
+        mount = temporary / 'mount'
+        mount.mkdir()
+        checked('swift', str(ARTWORK / 'render-background.swift'), str(temporary))
+        layout = json.loads((ARTWORK / 'layout.json').read_text())
         image = temporary / output.name
-        checked('hdiutil', 'create', '-quiet', '-fs', 'APFS', '-format', 'ULFO',
-                '-volname', 'Lunavect', '-srcfolder', str(contents), str(image))
+        temporary_apps = set()
+
+        def packaging_event(event):
+            if event.get('type') == 'operation::start' and event.get('operation') == 'file::add':
+                temporary_apps.add(event['file'])
+            if event.get('type') == 'operation::finished' and event.get('operation') == 'dsstore::create':
+                for copied in temporary_apps:
+                    subprocess.run([REGISTER, '-u', copied], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Write Finder metadata directly, without asking for Automation or
+        # Accessibility permissions or changing the build Mac's Finder settings.
+        try:
+            dmgbuild.build_dmg(str(image), 'Lunavect', settings={
+                **layout,
+                'filesystem': 'APFS', 'format': 'ULFO',
+                'files': [(str(app), 'Lunavect.app')],
+                'symlinks': {'Applications': '/Applications'},
+                'icon': str(app / 'Contents/Resources/AppIcon.icns'),
+                'background': str(temporary / 'background.png'),
+                'default_view': 'icon-view', 'grid_spacing': 80,
+                'show_toolbar': False, 'show_sidebar': False,
+                'show_status_bar': False, 'show_tab_view': False,
+                'show_pathbar': False,
+            }, callback=packaging_event)
+        finally:
+            for copied in temporary_apps:
+                subprocess.run([REGISTER, '-u', copied], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         checked('hdiutil', 'verify', str(image))
-        checked('hdiutil', 'attach', '-quiet', '-readonly', '-nobrowse', '-mountpoint', str(mount), str(image))
+        checked('hdiutil', 'attach', '-quiet', '-readonly', '-noautoopen', '-nobrowse', '-mountpoint', str(mount), str(image))
         try:
             mounted = mount / 'Lunavect.app'
             verify_app(mounted)
@@ -61,9 +109,9 @@ def main():
                 raise ValueError('Invalid Applications link')
             if (mounted / 'Contents/Info.plist').read_bytes() != (app / 'Contents/Info.plist').read_bytes():
                 raise ValueError('Mounted app metadata differs from the release')
+            verify_layout(mount, layout)
         finally:
-            register = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
-            subprocess.run([register, '-u', str(mount / 'Lunavect.app')], check=False)
+            subprocess.run([REGISTER, '-u', str(mount / 'Lunavect.app')], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             checked('hdiutil', 'detach', '-quiet', str(mount))
         image.rename(output)
     digest = hashlib.sha256(output.read_bytes()).hexdigest()

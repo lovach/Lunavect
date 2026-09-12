@@ -8,7 +8,7 @@
 Know what's working, what needs you, and how much usage you have left.</p>
 
 <p align="center">
-  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
+  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0-installer-2.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
 </p>
 
 <p align="center">
@@ -67,7 +67,7 @@ Real native interface, shown with fictional sessions and sample data. Click any 
 
 ## Install
 
-1. **[Download Lunavect for macOS](https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0.dmg)** (DMG, about 10 MB).
+1. **[Download Lunavect for macOS](https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0-installer-2.dmg)** (DMG, about 11 MB).
 2. Open the DMG, drag **Lunavect** to **Applications**, then open it there.
 3. Choose **Connect Claude** or **Connect Codex**. The guide helps you find or install the official client and sign in through it.
 
@@ -81,7 +81,7 @@ Claude usage requires **Claude Code CLI**; Claude Desktop alone is not enough. C
 <summary><strong>Downloads, updates and troubleshooting</strong></summary>
 
 - The **DMG** is the installer to download. The ZIP and `appcast.xml` on the release page support the built-in updater; you don't need them for installation.
-- Find every version and `SHA256SUMS.txt` on the [Releases page](https://github.com/lovach/Lunavect/releases).
+- Find every version and its SHA-256 checksum file on the [Releases page](https://github.com/lovach/Lunavect/releases).
 - Use **Settings → Updates** to check for a newer version or change automatic download preferences.
 - If a service stops updating, open **Settings → Connections** and follow its repair guidance. See [connections and removal](docs/connections.md).
 - Before deleting Lunavect, disconnect its event handlers in **Settings → Connections** so the previous Claude status line can be restored.
