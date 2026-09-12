@@ -1,0 +1,480 @@
+import XCTest
+import AppKit
+import SwiftUI
+import WeekleftCore
+@testable import Weekleft
+
+final class MenuBarStatusTests: XCTestCase {
+    @MainActor func testSessionPopoverDismissesOnDeactivationAndCanReopen() async throws {
+        let app = NSApplication.shared
+        let policy = app.activationPolicy()
+        app.setActivationPolicy(.accessory)
+        let item = NSStatusBar.system.statusItem(withLength: 32)
+        let popover = NSPopover()
+        popover.animates = false
+        // Exercise our fallback independently of AppKit's transient behavior,
+        // including the applicationDefined mode used while reordering a row.
+        popover.behavior = .applicationDefined
+        let controller = NSViewController()
+        controller.view = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        popover.contentViewController = controller
+        popover.contentSize = controller.view.frame.size
+        let dismissal = SessionPopoverDismissal()
+        defer {
+            dismissal.stop(); popover.close()
+            NSStatusBar.system.removeStatusItem(item)
+            app.setActivationPolicy(policy)
+        }
+        let button = try XCTUnwrap(item.button)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<2 {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            XCTAssertTrue(popover.isShown)
+            dismissal.start(for: popover)
+            dismissal.start(for: popover) // Reinstallation must remove old observers.
+            NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: app)
+            XCTAssertFalse(popover.isShown)
+            dismissal.stop()
+        }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: app)
+        XCTAssertTrue(popover.isShown, "Closing the panel must remove its activation observer")
+    }
+
+    @MainActor func testOpenPopoverStaysInPlaceAcrossStatusWidths() async throws {
+        let app = NSApplication.shared
+        let policy = app.activationPolicy()
+        app.setActivationPolicy(.accessory)
+        defer { app.setActivationPolicy(policy) }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let animator = MenuBarAnimator(statusItem: item)
+        let popover = NSPopover()
+        popover.animates = false
+        popover.behavior = .applicationDefined
+        let controller = NSViewController()
+        controller.view = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 240))
+        popover.contentViewController = controller
+        popover.contentSize = controller.view.frame.size
+        defer { popover.close(); NSStatusBar.system.removeStatusItem(item) }
+        animator.update(icon: .claude, onlyWhileWorking: true, thinkingPhrases: false, running: 0, waiting: 1)
+        let button = try XCTUnwrap(item.button)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        animator.setPopoverOpen(true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let window = try XCTUnwrap(controller.view.window)
+        let initialFrame = window.frame
+        let initialWidth = item.length
+        for (running, waiting) in [(999, 999), (0, 0), (1, 7), (25, 9999)] {
+            animator.update(icon: .claude, onlyWhileWorking: true, thinkingPhrases: false, running: running, waiting: waiting)
+            try await Task.sleep(nanoseconds: 80_000_000)
+            XCTAssertEqual(item.length, initialWidth)
+            XCTAssertEqual(window.frame, initialFrame, "The open native popover must not follow changing text widths")
+            XCTAssertEqual(animator.content.waiting, waiting)
+        }
+        // The phrase keeps changing inside the reserved slot; inspect clipping
+        // using the production NSView, including its real 13 pt font.
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] {
+            animator.content.running = 1; animator.content.waiting = 0
+            animator.content.thinkingPhrase = "following the breadcrumbs"
+            animator.content.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(animator.content.bitmapImageRepForCachingDisplay(in: animator.content.bounds))
+            animator.content.cacheDisplay(in: animator.content.bounds, to: bitmap)
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("fixed-open-status.png"))
+        }
+        popover.close()
+        animator.setPopoverOpen(false)
+        XCTAssertEqual(item.length, animator.content.preferredWidth)
+        XCTAssertNotEqual(item.length, initialWidth)
+        XCTAssertFalse(animator.content.constrainsSummaryWidth)
+        animator.setPopoverOpen(true)
+        let reopenedWidth = item.length
+        animator.setPopoverOpen(true)
+        XCTAssertEqual(item.length, reopenedWidth, "Repeated opening must preserve the same anchor")
+        animator.setPopoverOpen(false)
+    }
+
+    @MainActor func testWaitingUpdatesStatusWithTheSameClaudeFrame() throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let animator = MenuBarAnimator(statusItem: item)
+        animator.update(icon: .claude, onlyWhileWorking: true, thinkingPhrases: false, running: 0, waiting: 0)
+        let original = try XCTUnwrap(animator.content.artwork.image)
+        let initialText = animator.content.summaryText.string
+        animator.update(icon: .claude, onlyWhileWorking: true, thinkingPhrases: false, running: 0, waiting: 0)
+        XCTAssertTrue(animator.content.artwork.image === original)
+        XCTAssertEqual(animator.content.summaryText.string, initialText)
+        animator.update(icon: .claude, onlyWhileWorking: true, thinkingPhrases: false, running: 0, waiting: 1)
+        XCTAssertTrue(animator.content.artwork.image === original)
+        XCTAssertNotEqual(animator.content.summaryText.string, initialText)
+        XCTAssertEqual(animator.content.waiting, 1)
+        XCTAssertEqual(item.length, animator.content.preferredWidth)
+    }
+
+    @MainActor func testLargerCharactersAndTextFitMenuBarHeights() throws {
+        _ = NSApplication.shared
+        let board = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 236))
+        board.appearance = NSAppearance(named: .darkAqua)
+        board.wantsLayer = true
+        board.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        let window = NSWindow(contentRect: board.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = board
+        defer { window.contentView = nil }
+        for (row, height) in [CGFloat(22), 28, 32].enumerated() {
+            for (column, icon) in [MenuBarIcon.claude, .codex].enumerated() {
+                let view = MenuBarStatusContent(frame: NSRect(x: 12 + column * 290, y: 178 - row * 68, width: 280, height: Int(height)))
+                view.running = 1; view.thinkingPhrase = "finding flow"
+                view.pixelAlignedArtwork = icon == .claude
+                let size = MenuBarStatusContent.artworkSize(for: icon, barHeight: height)
+                let image = try XCTUnwrap(MenuBarArtwork.image(icon, frame: 0, size: size))
+                view.artwork.image = image; view.iconWidth = image.size.width
+                view.frame.size.width = view.preferredWidth
+                board.addSubview(view)
+                view.needsLayout = true
+                XCTAssertLessThanOrEqual(view.summaryText.size().height, height)
+                XCTAssertLessThanOrEqual(view.badgeFrame.maxY, height)
+                XCTAssertLessThan(view.badgeFrame.maxX, view.textOriginX)
+                XCTAssertLessThanOrEqual(view.textOriginX + view.summaryText.size().width, view.preferredWidth)
+                let font = try XCTUnwrap(view.summaryText.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+                XCTAssertEqual(font.pointSize, 13)
+                let label = NSTextField(labelWithString: "\(icon.title) · \(Int(height)) pt")
+                label.font = .systemFont(ofSize: 11)
+                label.frame = NSRect(x: view.frame.minX, y: view.frame.minY - 22, width: 270, height: 16)
+                board.addSubview(label)
+            }
+        }
+        board.layoutSubtreeIfNeeded()
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] {
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let bitmap = try XCTUnwrap(board.bitmapImageRepForCachingDisplay(in: board.bounds))
+            board.cacheDisplay(in: board.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                .write(to: directory.appendingPathComponent("larger-characters.png"))
+        }
+    }
+
+    @MainActor func testActivityBubbleAnimatesWithoutPhrasesAndPrioritizesWaiting() async throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let animator = MenuBarAnimator(statusItem: item)
+        animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, thinkingPhrases: false, running: 2, waiting: 0)
+        let view = animator.content
+        XCTAssertTrue(view.activityBubbleVisible)
+        XCTAssertFalse(view.showsThinkingPhrase)
+        let width = item.length
+        let workingColor = view.activityBubbleColor
+        let dots = view.activityDotCount
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            try await Task.sleep(nanoseconds: 650_000_000)
+            XCTAssertNotEqual(view.activityDotCount, dots, "The bubble has its own timer even with a static icon and phrases disabled")
+        } else { XCTAssertEqual(dots, 0) }
+        XCTAssertEqual(item.length, width)
+        animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, thinkingPhrases: false, running: 2, waiting: 1)
+        XCTAssertTrue(view.activityBubbleVisible)
+        XCTAssertNotEqual(view.activityBubbleColor, workingColor)
+        XCTAssertEqual(view.activityDotCount, 0)
+        XCTAssertEqual(item.length, width)
+        XCTAssertLessThanOrEqual(view.activityBubbleFrame.maxX, view.preferredWidth)
+        XCTAssertTrue(item.button?.toolTip?.contains("2") == true)
+        XCTAssertTrue(item.button?.toolTip?.contains("1") == true)
+        animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, running: 0, waiting: 0)
+        XCTAssertFalse(view.activityBubbleVisible)
+        XCTAssertLessThan(item.length, width)
+    }
+
+    @MainActor func testAnimatedDotsKeepWordAndGeometrySteady() {
+        var cycle = ThinkingPhraseCycle()
+        let view = MenuBarStatusContent(frame: NSRect(x: 0, y: 0, width: 250, height: 22))
+        view.running = 1
+        cycle.update(active: true, at: 0)
+        let word = cycle.current
+        view.thinkingPhrase = word
+        let width = view.preferredWidth
+        for (time, dots) in [(0.0, 1), (0.5, 2), (1.0, 3), (1.5, 1), (2.0, 2), (3.49, 1)] {
+            cycle.update(active: true, at: time)
+            XCTAssertEqual(cycle.current, word)
+            XCTAssertEqual(cycle.dotCount, dots)
+            view.thinkingDotCount = cycle.dotCount
+            XCTAssertEqual(view.preferredWidth, width)
+            let text = view.summaryText
+            for index in 0..<3 {
+                let color = text.attribute(.foregroundColor, at: text.length - 3 + index, effectiveRange: nil) as? NSColor
+                XCTAssertEqual(color == .clear, index >= dots)
+            }
+        }
+        cycle.update(active: true, at: 3.5)
+        XCTAssertNotEqual(cycle.current, word)
+        cycle.update(active: true, at: 10, rotates: false)
+        XCTAssertEqual(cycle.dotCount, 3)
+        cycle.update(active: false, at: 11)
+        XCTAssertNil(cycle.current)
+        cycle.update(active: true, at: 12)
+        XCTAssertEqual(cycle.dotCount, 1)
+    }
+
+    func testThinkingCycleExhaustsDeckAndDoesNotResetOnPolling() {
+        XCTAssertEqual(ThinkingPhrases.all.count, 70)
+        XCTAssertEqual(Set(ThinkingPhrases.all).count, 70)
+        var cycle = ThinkingPhraseCycle()
+        cycle.update(active: true, at: 0)
+        let first = cycle.current
+        for time in [0.5, 1, 1.5, 2, 2.5, 3, 3.49] { cycle.update(active: true, at: time); XCTAssertEqual(cycle.current, first) }
+        var seen = [first!]
+        for index in 1..<70 {
+            cycle.update(active: true, at: Double(index) * 3.5)
+            seen.append(cycle.current!)
+        }
+        XCTAssertEqual(Set(seen), Set(ThinkingPhrases.all))
+        cycle.update(active: true, at: 245)
+        XCTAssertNotEqual(cycle.current, seen.last)
+        let frozen = cycle.current
+        cycle.update(active: true, at: 600, rotates: false)
+        XCTAssertEqual(cycle.current, frozen)
+        cycle.update(active: false, at: 601)
+        XCTAssertNil(cycle.current)
+        cycle.update(active: true, at: 602)
+        XCTAssertNotNil(cycle.current)
+        XCTAssertNotEqual(cycle.current, frozen)
+    }
+
+    @MainActor func testPhrasesFitCurrentWordAndYieldToRealStatus() throws {
+        let view = MenuBarStatusContent(frame: NSRect(x: 0, y: 0, width: 260, height: 22))
+        view.running = 2; view.thinkingPhrase = "vibing"
+        let shortWidth = view.preferredWidth
+        view.thinkingPhrase = "connecting dots"
+        XCTAssertGreaterThan(view.preferredWidth, shortWidth)
+        for phrase in ThinkingPhrases.all {
+            view.thinkingPhrase = phrase
+            XCTAssertEqual(view.statusWidth, ceil(view.summaryText.size().width) + 2)
+            let font = try XCTUnwrap(view.summaryText.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+            XCTAssertGreaterThan(("www" as NSString).size(withAttributes: [.font: font]).width,
+                                 ("iii" as NSString).size(withAttributes: [.font: font]).width)
+            XCTAssertEqual(view.preferredWidth - view.textOriginX - view.summaryText.size().width, 8, accuracy: 1)
+            XCTAssertEqual(view.summaryText.string, phrase.prefix(1).uppercased() + phrase.dropFirst() + "...")
+            XCTAssertNil(view.summaryText.attribute(.shadow, at: 0, effectiveRange: nil))
+            XCTAssertEqual(view.badgeText.string, "2")
+            XCTAssertFalse(view.summaryText.string.contains("·"))
+            XCTAssertLessThanOrEqual(view.summaryText.size().width + 2, view.statusWidth)
+        }
+        for count in [1, 12, 123] {
+            view.running = count
+            XCTAssertEqual(view.badgeText.string, String(count))
+            XCTAssertGreaterThanOrEqual(view.badgeWidth, view.badgeText.size().width + 6)
+            XCTAssertLessThan(view.badgeFrame.maxX, view.textOriginX)
+        }
+        view.waiting = 1
+        XCTAssertEqual(view.badgeWidth, 0)
+        XCTAssertFalse(view.showsThinkingPhrase)
+        XCTAssertTrue(view.summaryText.string.contains("1"))
+        view.waiting = 0; view.running = 0
+        XCTAssertEqual(view.statusWidth, 0)
+        view.running = 2; view.style = .activity
+        XCTAssertFalse(view.showsThinkingPhrase)
+
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let animator = MenuBarAnimator(statusItem: item)
+        animator.update(icon: .system, onlyWhileWorking: true, running: 2, waiting: 0)
+        XCTAssertTrue(animator.content.showsThinkingPhrase)
+        let tooltip = item.button?.toolTip
+        animator.update(icon: .system, onlyWhileWorking: true, thinkingPhrases: false, running: 2, waiting: 0)
+        XCTAssertNil(animator.content.thinkingPhrase)
+        XCTAssertEqual(item.button?.toolTip, tooltip)
+    }
+
+    @MainActor func testStylePersistsWithoutChangingIconOrAnimation() throws {
+        let suite = "Lunavect.StatusTest." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("codex", forKey: "menuBarIcon")
+        defaults.set(false, forKey: "menuBarAnimationOnlyWhileWorking")
+        let settings = MenuBarAppearance(defaults: defaults)
+        XCTAssertTrue(settings.thinkingPhrases)
+        settings.thinkingPhrases = false
+        XCTAssertEqual(settings.statusStyle, .summary)
+        settings.statusStyle = .activity
+        let restored = MenuBarAppearance(defaults: defaults)
+        XCTAssertFalse(restored.thinkingPhrases)
+        XCTAssertEqual(restored.statusStyle, .activity)
+        XCTAssertEqual(restored.icon, .codex)
+        XCTAssertFalse(restored.onlyWhileWorking)
+        defaults.set("unsupported", forKey: "menuBarStatusStyle")
+        XCTAssertEqual(MenuBarAppearance(defaults: defaults).statusStyle, .summary)
+        defaults.set("counters", forKey: "menuBarStatusStyle")
+        XCTAssertEqual(MenuBarAppearance(defaults: defaults).statusStyle, .counters, "The previous layout remains available")
+    }
+
+    @MainActor func testNativeButtonKeepsActionsCountsAndTooltipAcrossModes() throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let button = try XCTUnwrap(item.button)
+        let action = NSSelectorFromString("testStatusClick:")
+        button.action = action
+        let animator = MenuBarAnimator(statusItem: item)
+        animator.update(icon: .system, onlyWhileWorking: true, running: 12, waiting: 3)
+        XCTAssertEqual(button.action, action)
+        XCTAssertNil(animator.content.hitTest(NSPoint(x: 15, y: 10)))
+        XCTAssertEqual(animator.content.running, 12)
+        XCTAssertEqual(animator.content.waiting, 3)
+        let tooltip = try XCTUnwrap(button.toolTip)
+        XCTAssertTrue(tooltip.contains("12")); XCTAssertTrue(tooltip.contains("3"))
+        let countersWidth = item.length
+        animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, running: 12, waiting: 3)
+        XCTAssertLessThan(item.length, countersWidth)
+        XCTAssertEqual(button.toolTip, tooltip)
+        let activeWidth = item.length
+        animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, running: 0, waiting: 0)
+        XCTAssertLessThan(item.length, activeWidth)
+        XCTAssertEqual(button.action, action)
+    }
+
+    @MainActor func testSummaryKeepsCountsReadableAndSettingsSectionsReachable() {
+        let view = MenuBarStatusContent(frame: NSRect(x: 0, y: 0, width: 250, height: 22))
+        for language in ["ru", "en", "de", "es", "fr", "zh-Hans"] {
+            view.language = language
+            view.running = 12; view.waiting = 3
+            XCTAssertTrue(view.summaryText.string.contains("12"))
+            XCTAssertTrue(view.summaryText.string.contains("3"))
+            view.summaryText.enumerateAttribute(.font, in: NSRange(location: 0, length: view.summaryText.length)) { value, _, _ in
+                XCTAssertGreaterThanOrEqual((value as? NSFont)?.pointSize ?? 0, 13)
+            }
+            view.running = 0; view.waiting = 1
+            XCTAssertFalse(view.summaryText.string.contains("0"))
+            XCTAssertTrue(view.summaryText.string.contains("1"))
+            view.waiting = 0
+            XCTAssertEqual(view.statusWidth, 0)
+        }
+        // Updates is pinned below the scrollable section groups.
+        let sections = SettingsSectionGroup.allCases.flatMap(\.sections) + [.updates]
+        XCTAssertEqual(Set(sections), Set(SettingsSection.allCases))
+        XCTAssertEqual(sections.count, Set(sections).count)
+    }
+
+    @MainActor func testRenderReadableSummaryOnWallpapers() throws {
+        guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] else { throw XCTSkip("Opt-in native wallpaper rendering") }
+        _ = NSApplication.shared
+        let directory = URL(fileURLWithPath: output)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for theme in [NSAppearance.Name.aqua, .darkAqua] {
+            let board = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 300))
+            board.appearance = NSAppearance(named: theme)
+            board.wantsLayer = true
+            board.layer?.backgroundColor = NSColor(white: 0.14, alpha: 1).cgColor
+            let window = NSWindow(contentRect: board.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.contentView = board
+            for (index, language) in ["ru", "en", "de", "es", "fr", "zh-Hans"].enumerated() {
+                let row = NSView(frame: NSRect(x: 0, y: CGFloat(250 - index * 48), width: 420, height: 44))
+                row.wantsLayer = true
+                row.layer?.backgroundColor = (index % 2 == 0 ? NSColor(white: 0.95, alpha: 1) : NSColor(white: 0.04, alpha: 1)).cgColor
+                let band = NSView(frame: NSRect(x: 205, y: 0, width: 110, height: 44))
+                band.wantsLayer = true; band.layer?.backgroundColor = NSColor(srgbRed: 0.67, green: 0.38, blue: 0.82, alpha: 1).cgColor
+                row.addSubview(band)
+                let label = NSTextField(labelWithString: language)
+                label.font = .systemFont(ofSize: 11); label.textColor = index % 2 == 0 ? .black : .white
+                label.frame = NSRect(x: 10, y: 12, width: 60, height: 20); row.addSubview(label)
+                let status = MenuBarStatusContent(frame: NSRect(x: 75, y: 11, width: 300, height: 22))
+                status.language = language; status.running = 2; status.waiting = 1
+                if index < 4 {
+                    status.waiting = 0
+                    status.thinkingPhrase = ["vibing", "lollygagging", "connecting dots", "brewing"][index]
+                    status.thinkingDotCount = index % 3 + 1
+                }
+                status.artwork.image = MenuBarArtwork.image(.codex, frame: 0, size: 26)
+                row.addSubview(status); board.addSubview(row)
+                status.frame.size.width = status.preferredWidth; status.needsLayout = true
+                // macOS menu items grow toward the left from their right edge.
+                status.frame.origin.x = 400 - status.preferredWidth
+                XCTAssertLessThan(status.preferredWidth, 340)
+            }
+            board.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(board.bitmapImageRepForCachingDisplay(in: board.bounds))
+            board.cacheDisplay(in: board.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("wallpapers-\(theme.rawValue).png"))
+            window.contentView = nil
+        }
+    }
+
+    @MainActor func testRenderNativeStylesAndLanguages() async throws {
+        guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] else {
+            throw XCTSkip("Opt-in native menu status rendering")
+        }
+        _ = NSApplication.shared
+        let directory = URL(fileURLWithPath: output)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let languages = ["ru", "en", "de", "es", "fr", "zh-Hans"]
+        for theme in [NSAppearance.Name.aqua, .darkAqua] {
+            for height: CGFloat in [22, 28] {
+                let board = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 420))
+                board.appearance = NSAppearance(named: theme)
+                board.wantsLayer = true
+                board.appearance?.performAsCurrentDrawingAppearance {
+                    board.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+                }
+                let window = NSWindow(contentRect: board.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                window.contentView = board
+                for (index, language) in languages.enumerated() {
+                    let y = CGFloat(365 - index * 54)
+                    let label = NSTextField(labelWithString: language)
+                    label.frame = NSRect(x: 12, y: y + 4, width: 68, height: 20)
+                    board.addSubview(label)
+                    for (column, pair) in [(2, 1), (12, 0), (0, 3), (0, 0)].enumerated() {
+                        let view = MenuBarStatusContent(frame: NSRect(x: 0, y: 0, width: 120, height: height))
+                        view.language = language; view.running = pair.0; view.waiting = pair.1
+                        view.style = column == 0 ? .counters : .activity
+                        view.artwork.image = MenuBarArtwork.image(.codex, frame: 0, size: 26)
+                        view.frame = NSRect(x: 80 + CGFloat(column * 138), y: y, width: view.preferredWidth, height: height)
+                        board.addSubview(view)
+                        XCTAssertLessThan(view.preferredWidth, 138, language)
+                        view.needsLayout = true
+                    }
+                }
+                board.layoutSubtreeIfNeeded()
+                let bitmap = try XCTUnwrap(board.bitmapImageRepForCachingDisplay(in: board.bounds))
+                board.cacheDisplay(in: board.bounds, to: bitmap)
+                try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: directory.appendingPathComponent("\(theme.rawValue)-\(Int(height)).png"))
+                window.contentView = nil
+            }
+        }
+        let suite = "Lunavect.StatusSettingsRender." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let appearance = MenuBarAppearance(defaults: defaults)
+        for style in MenuBarStatusStyle.allCases {
+            appearance.statusStyle = style
+            let host = NSHostingView(rootView: MenuBarAppearanceView(appearance: appearance).padding(16).frame(width: 600)
+                .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark))
+            host.appearance = NSAppearance(named: .darkAqua)
+            host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.contentView = host; host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 200_000_000)
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                .write(to: directory.appendingPathComponent("settings-\(style.rawValue).png"))
+            window.contentView = nil
+        }
+        defaults.set(SettingsSection.menuBar.rawValue, forKey: "settingsSection")
+        appearance.statusStyle = .summary
+        let settings = NSHostingView(rootView: SettingsView(store: AppStore(), menuBarAppearance: appearance, sessions: SessionStore())
+            .defaultAppStorage(defaults).preferredColorScheme(.dark))
+        settings.frame = NSRect(x: 0, y: 0, width: 840, height: 680)
+        let window = NSWindow(contentRect: settings.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = settings; settings.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 200_000_000)
+        settings.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(settings.bitmapImageRepForCachingDisplay(in: settings.bounds))
+        settings.cacheDisplay(in: settings.bounds, to: bitmap)
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            .write(to: directory.appendingPathComponent("settings-navigation.png"))
+        window.contentView = nil
+    }
+}

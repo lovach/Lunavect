@@ -1,0 +1,41 @@
+name: Report a problem
+description: Help us reproduce a problem with Lunavect.
+body:
+  - type: markdown
+    attributes:
+      value: Please do not include passwords, tokens, private chats, or unredacted logs. Use fictional session names and paths where possible.
+  - type: input
+    id: version
+    attributes:
+      label: Lunavect version and build
+      placeholder: 0.1.0 (103)
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: macOS version and Mac architecture
+      placeholder: macOS 26, Apple silicon
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Connected client
+      options:
+        - Claude Code
+        - Codex
+        - Both
+        - Neither / setup problem
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, what happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional details
+      description: Official client version, connection status, or a redacted screenshot may help. Attaching logs is optional.

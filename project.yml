@@ -1,0 +1,130 @@
+name: Weekleft
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.9.6
+options:
+  deploymentTarget:
+    macOS: '14.0'
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MACOSX_DEPLOYMENT_TARGET: '14.0'
+    CODE_SIGN_STYLE: Automatic
+    REGISTER_APP_GROUPS: YES
+    WEEKLEFT_APP_GROUP: group.com.weekleft.shared
+    ENABLE_HARDENED_RUNTIME: YES
+    CURRENT_PROJECT_VERSION: 103
+    MARKETING_VERSION: 0.1.0
+    GENERATE_INFOPLIST_FILE: NO
+targets:
+  Weekleft:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/AwakeService/AwakeProtocol.swift
+      - path: Sources/WeekleftCore
+      - path: Sources/Weekleft
+        excludes: ['Resources']
+      - path: Sources/Weekleft/Resources
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.weekleft.app
+        PRODUCT_NAME: Lunavect
+        INFOPLIST_FILE: Config/App-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/App.entitlements
+        ENABLE_APP_SANDBOX: NO
+    dependencies:
+      - target: LunavectHook
+        embed: false
+      - target: LunavectAwakeHelper
+        embed: false
+      - package: Sparkle
+      - target: WeekleftWidget
+        embed: true
+    postBuildScripts:
+      - name: Embed session hook
+        script: |
+          mkdir -p "${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Helpers"
+          cp "${BUILT_PRODUCTS_DIR}/LunavectHook" "${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Helpers/LunavectHook"
+        basedOnDependencyAnalysis: false
+      - name: Embed awake service
+        script: |
+          mkdir -p "${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Library/LaunchServices" "${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Library/LaunchDaemons"
+          cp "${BUILT_PRODUCTS_DIR}/LunavectAwakeHelper" "${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Library/LaunchServices/LunavectAwakeHelper"
+          cp "${SRCROOT}/Config/com.weekleft.awake-helper.plist" "${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Library/LaunchDaemons/com.weekleft.awake-helper.plist"
+        basedOnDependencyAnalysis: false
+      - name: Preserve installed hook executable path
+        script: |
+          ln -sf Lunavect "${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/MacOS/Weekleft"
+        basedOnDependencyAnalysis: false
+  LunavectHook:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/WeekleftCore
+        excludes: ['Resources']
+      - path: Sources/LunavectHook
+    settings:
+      base:
+        PRODUCT_NAME: LunavectHook
+        PRODUCT_BUNDLE_IDENTIFIER: com.weekleft.hook
+        OTHER_CODE_SIGN_FLAGS: --identifier com.weekleft.hook
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        ENABLE_APP_SANDBOX: NO
+        SKIP_INSTALL: YES
+  LunavectAwakeHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/AwakeService
+      - path: Sources/LunavectAwakeHelper
+    settings:
+      base:
+        PRODUCT_NAME: LunavectAwakeHelper
+        PRODUCT_BUNDLE_IDENTIFIER: com.weekleft.awake-helper
+        OTHER_CODE_SIGN_FLAGS: --identifier com.weekleft.awake-helper
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Lunavect Awake
+        ENABLE_APP_SANDBOX: NO
+        SKIP_INSTALL: YES
+  WeekleftWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widget
+      - path: Sources/WeekleftCore/Localization.swift
+      - path: Sources/WeekleftCore/Resources
+        buildPhase: resources
+      - path: Sources/WeekleftCore/Models.swift
+      - path: Sources/WeekleftCore/Storage.swift
+      - path: Sources/WeekleftCore/ActivityHistory.swift
+      - path: Sources/WeekleftCore/ActivityPresentation.swift
+      - path: Sources/Weekleft/WidgetView.swift
+      - path: Sources/Weekleft/ActivityWidgetView.swift
+      - path: Sources/Weekleft/ActivityWidgetIntents.swift
+      - path: Sources/Weekleft/Resources
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.weekleft.app.widget
+        PRODUCT_NAME: LunavectWidget
+        SWIFT_OBJC_BRIDGING_HEADER: Widget/WidgetBackground.h
+        CLANG_ENABLE_OBJC_ARC: YES
+        INFOPLIST_FILE: Config/Widget-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/Widget.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        ENABLE_APP_SANDBOX: YES
+        SKIP_INSTALL: YES
+schemes:
+  Weekleft:
+    build:
+      targets:
+        Weekleft: all

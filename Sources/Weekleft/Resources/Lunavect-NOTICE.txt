@@ -1,0 +1,8 @@
+Lunavect source code is licensed under the MIT license in Lunavect-LICENSE.txt.
+
+This does not relicense third-party artwork, animations or trademarks.
+LobeHub provider icons: MIT, see ThirdParty-LICENSE.txt.
+Sparkle: see Sparkle-LICENSE.txt and notices in the bundled Sparkle framework.
+Clawd animations belong to Anthropic; the Codex companion belongs to OpenAI.
+Their provenance is recorded in IconSources.md. Lunavect grants no additional
+rights to these assets or marks and does not imply endorsement by their owners.

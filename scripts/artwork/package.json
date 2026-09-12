@@ -1,0 +1,6 @@
+{
+  "name": "lunavect-artwork-export",
+  "private": true,
+  "description": "Deterministic transparent SVG exports; not needed to build the app",
+  "dependencies": { "@resvg/resvg-js": "2.6.2" }
+}

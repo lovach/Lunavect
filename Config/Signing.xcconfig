@@ -1,0 +1,2 @@
+// Set your Apple development team in the ignored Local.xcconfig.
+#include? "Local.xcconfig"

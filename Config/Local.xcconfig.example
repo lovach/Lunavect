@@ -1,0 +1,4 @@
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+// macOS team-scoped group avoids registering the official app's identifiers.
+REGISTER_APP_GROUPS = NO
+WEEKLEFT_APP_GROUP = $(DEVELOPMENT_TEAM).com.lunavect.shared
