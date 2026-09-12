@@ -2,10 +2,11 @@
   <img src="design/selected/lunavect-appicon-1024.png" width="88" alt="Lunavect icon">
 </p>
 
-<h1 align="center">Lunavect — Claude Code &amp; Codex<br>Status Bar + Widgets for macOS</h1>
+<h1 align="center">Lunavect</h1>
 
-<p align="center"><strong>Your AI coding sessions, usage limits and activity in one place.</strong><br>
-Know what's working, what needs you, and how much usage you have left.</p>
+<p align="center"><strong>Claude Code &amp; Codex · Status bar + desktop widgets for macOS</strong></p>
+
+<p align="center">See which session needs you and how much usage is left.</p>
 
 <p align="center">
   <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0-installer-2.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
@@ -13,6 +14,7 @@ Know what's working, what needs you, and how much usage you have left.</p>
 
 <p align="center">
   macOS 14+ · Apple silicon &amp; Intel · Free &amp; open source<br>
+  Developer ID signed · Apple notarized · Local session data<br>
   <a href="https://github.com/lovach/Lunavect/releases/latest">Release notes</a> ·
   <a href="#install">Installation</a> ·
   <a href="https://github.com/lovach/Lunavect/issues">Report a problem</a>
@@ -24,6 +26,8 @@ Know what's working, what needs you, and how much usage you have left.</p>
   <img src="docs/images/showcase-dark.png" width="100%" alt="Lunavect: active and waiting sessions beside usage limits and a Claude/Codex activity chart">
 </picture>
 
+<p align="center"><a href="https://github.com/lovach/Lunavect/raw/refs/heads/main/docs/images/lunavect-demo.mp4">▶ 18-second native interface demo · MP4</a></p>
+
 ## A little less switching. A lot more clarity.
 
 Keep your work in the official clients. Lunavect is a native macOS status bar app that gives you a shared view of Claude Code and Codex, with desktop widgets for usage limits and activity. Connect either client or both.
@@ -34,34 +38,25 @@ Keep your work in the official clients. Lunavect is a native macOS status bar ap
 
 ## Take a closer look
 
-Real native interface, shown with fictional sessions and sample data. Click any image to view it at full size. Widget images show the app's native layouts; macOS controls desktop placement and refresh.
+Real native interface, shown with fictional sessions and sample data. Click any image to view it at full size. The short demo illustrates session-state changes with sample data. Widget images show the app's native layouts; macOS controls desktop placement and refresh.
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="docs/images/sessions-themes.png"><img src="docs/images/sessions-themes.png" width="100%" alt="Claude Code and Codex session status bar panel in light and dark appearances"></a>
-      <strong>Your sessions, at a glance</strong><br>
-      Working, waiting and ready states. Light and dark appearances.
-    </td>
-    <td width="50%" valign="top">
-      <a href="docs/images/widgets.png"><img src="docs/images/widgets.png" width="100%" alt="Small usage and activity widgets, a medium comparison chart and a large combined overview for macOS"></a>
-      <strong>Widgets that fit your desktop</strong><br>
-      Small, medium and large. Limits, activity, or both.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="docs/images/limits.png"><img src="docs/images/limits.png" width="100%" alt="Lunavect usage screen with weekly and five-hour allowances for Claude Code and Codex"></a>
-      <strong>Know your remaining allowance</strong><br>
-      Both services and their next reset times in one view.
-    </td>
-    <td width="50%" valign="top">
-      <a href="docs/images/activity.png"><img src="docs/images/activity.png" width="100%" alt="Lunavect activity statistics with a weekly Claude and Codex chart"></a>
-      <strong>See where the work happened</strong><br>
-      Activity over time, with detail by project and session.
-    </td>
-  </tr>
-</table>
+### Your sessions, at a glance
+
+Working, waiting and ready. Search, filter, pin, reorder or hide sessions. Light and dark appearances.
+
+[![Claude Code and Codex session panels in light and dark appearance](docs/images/sessions-themes.png)](docs/images/sessions-themes.png)
+
+### Widgets that fit your desktop
+
+Small, medium and large. Choose limits, activity or both; show one service or compare the two.
+
+[![Small usage and activity widgets, a medium comparison and a large overview](docs/images/widgets.png)](docs/images/widgets.png)
+
+### See where the work happened
+
+A closer look at locally observed working time. Explore days, weeks and months, with project and session breakdowns in the app.
+
+[![Weekly activity chart comparing Claude and Codex working time](docs/images/activity-detail.png)](docs/images/activity-detail.png)
 
 **Make it yours.** Choose a menu-bar companion, a compact status layout, and optional sounds or notifications. Use English, Russian, German, Spanish, French, or Simplified Chinese. Signed updates arrive through the app.
 
@@ -110,7 +105,7 @@ Use a full Xcode installation with a compatible Swift toolchain, then run:
 
 This runs tests and builds the universal Release app, helpers and WidgetKit extension without a signing account. See the [development guide](docs/development.md) for setup and focused checks, and [update packaging](docs/updates.md) for distribution.
 
-Found a bug? [Open an issue](https://github.com/lovach/Lunavect/issues/new/choose) with your macOS version and steps to reproduce. Please remove private session titles, paths and credentials from attachments.
+Found a bug? [Open an issue](https://github.com/lovach/Lunavect/issues/new/choose) with your macOS version and steps to reproduce. Please remove private session titles, paths and credentials from attachments. Trying Lunavect on another Mac? The [first-install checklist](docs/first-install-check.md) helps capture useful feedback.
 
 ## License and credits
 

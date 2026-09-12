@@ -73,72 +73,44 @@ final class ReleaseScreenshots: XCTestCase {
                 .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.12), lineWidth: 0.5))
                 .shadow(color: .black.opacity(0.22), radius: 18, y: 10)
         }
-        func caption(_ text: String) -> some View {
-            Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-        }
-        let showcase = VStack(alignment: .leading, spacing: 34) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Your AI work, in view.").font(.system(size: 42, weight: .semibold, design: .rounded))
-                Text("Sessions, usage and activity. One quiet place on your Mac.")
-                    .font(.system(size: 17)).foregroundStyle(.secondary)
+        let showcase = HStack(alignment: .top, spacing: 32) {
+            sessionView.frame(width: 360, height: 355)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+            VStack(spacing: 24) {
+                widget(.limits, .medium)
+                widget(.activity, .medium, source: .comparison)
             }
-            HStack(alignment: .top, spacing: 40) {
-                VStack(alignment: .leading, spacing: 14) {
-                    caption("KNOW WHAT NEEDS YOU")
-                    sessionView.frame(width: 360, height: 355)
-                        .background(Color(nsColor: .windowBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.primary.opacity(0.1), lineWidth: 0.5))
-                        .shadow(color: .black.opacity(0.18), radius: 20, y: 12)
-                }
-                VStack(alignment: .leading, spacing: 14) {
-                    caption("SEE HOW MUCH ROOM YOU HAVE")
-                    widget(.limits, .medium)
-                    widget(.activity, .medium, source: .comparison)
-                }
-            }
-            HStack(spacing: 26) {
-                caption("NATIVE macOS APP")
-                caption("CLAUDE CODE + CODEX")
-                caption("LOCAL DATA")
-            }
-        }.padding(54).frame(width: 920, height: 640, alignment: .leading)
+        }.padding(40)
         for scheme in [ColorScheme.dark, .light] {
-            try render(showcase, size: CGSize(width: 920, height: 640),
+            try render(showcase, size: CGSize(width: 832, height: 456),
                        to: output.appendingPathComponent("showcase-\(scheme == .dark ? "dark" : "light").png"), scheme: scheme, backdrop: true)
         }
         let themes = HStack(alignment: .top, spacing: 32) {
             ForEach([false, true], id: \.self) { dark in
-                VStack(alignment: .leading, spacing: 16) {
-                    caption(dark ? "DARK" : "LIGHT")
-                    sessionView.frame(width: 360, height: 355)
-                        .background(dark ? Color(white: 0.12) : Color(white: 0.96))
-                        .environment(\.colorScheme, dark ? .dark : .light)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.primary.opacity(0.08), lineWidth: 0.5))
-                        .shadow(color: .black.opacity(0.15), radius: 14, y: 8)
-                }
+                sessionView.frame(width: 360, height: 355)
+                    .background(dark ? Color(white: 0.12) : Color(white: 0.96))
+                    .environment(\.colorScheme, dark ? .dark : .light)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: .black.opacity(0.15), radius: 14, y: 8)
             }
         }.padding(40)
-        try render(themes, size: CGSize(width: 832, height: 465), to: output.appendingPathComponent("sessions-themes.png"), backdrop: true)
-        let widgets = VStack(alignment: .leading, spacing: 26) {
-            Text("Make room for what matters.").font(.system(size: 30, weight: .semibold, design: .rounded))
-            HStack(alignment: .top, spacing: 24) {
-                VStack(alignment: .leading, spacing: 16) {
-                    caption("SMALL · AT A GLANCE")
-                    HStack(spacing: 16) { widget(.limits, .small); widget(.activity, .small) }
-                    caption("MEDIUM · COMPARE YOUR ACTIVITY")
-                    widget(.activity, .medium, source: .comparison)
-                }
-                VStack(alignment: .leading, spacing: 16) {
-                    caption("LARGE · LIMITS + ACTIVITY")
-                    widget(.overview, .large)
-                }
+        try render(themes, size: CGSize(width: 832, height: 456), to: output.appendingPathComponent("sessions-themes.png"), backdrop: true)
+        let widgets = HStack(alignment: .top, spacing: 32) {
+            VStack(spacing: 16) {
+                HStack(spacing: 16) { widget(.limits, .small); widget(.activity, .small) }
+                widget(.activity, .medium, source: .comparison)
             }
-            Text("Choose limits, activity or both. Show Claude, Codex or the two together.")
-                .font(.system(size: 14)).foregroundStyle(.secondary)
-        }.padding(44)
-        try render(widgets, size: CGSize(width: 820, height: 580), to: output.appendingPathComponent("widgets.png"), backdrop: true)
+            widget(.overview, .large)
+        }.padding(40)
+        try render(widgets, size: CGSize(width: 832, height: 456), to: output.appendingPathComponent("widgets.png"), backdrop: true)
+        let activityDetail = ActivityDetailChart(
+            data: ActivityChartData(history: history, now: now, period: .week, providers: [.claude, .codex]),
+            chartHeight: 140)
+            .frame(width: 670).padding(28)
+        try render(activityDetail, size: CGSize(width: 832, height: 520),
+                   to: output.appendingPathComponent("activity-detail.png"), backdrop: true)
         let social = HStack(spacing: 64) {
             VStack(alignment: .leading, spacing: 26) {
                 HStack(spacing: 18) {
