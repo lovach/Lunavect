@@ -1,4 +1,6 @@
-<img src="design/selected/lunavect-appicon-1024.png" align="right" width="64" alt="Lunavect icon">
+<div align="center">
+
+<img src="design/selected/lunavect-appicon-1024.png" width="64" alt="Lunavect icon">
 
 # Lunavect
 
@@ -15,16 +17,16 @@ macOS 14+ · Apple silicon & Intel · Free and open source
 ## Features
 
 <p>
-  <a href="docs/images/macos-menu-bar.png"><img src="docs/images/macos-menu-bar.png" align="right" width="50%" alt="Lunavect open from the macOS menu bar, with sample sessions — development preview"></a>
+  <a href="docs/images/macos-menu-bar.png"><img src="docs/images/macos-menu-bar.png" width="560" alt="Lunavect open from the macOS menu bar, with sample sessions — development preview"></a>
 </p>
 
-- Claude Code and Codex sessions in one panel: working, waiting for input, or response ready.
-- Search by session or project. Filter, pin, reorder and hide sessions.
-- Weekly and five-hour usage limits with reset times.
-- Small, medium and large desktop widgets for limits and activity.
-- Activity charts by day, week or month, with available project and session breakdowns.
-
-<br clear="all">
+<p>
+Claude Code and Codex sessions in one panel: working, waiting for input, or response ready.<br>
+Search by session or project. Filter, pin, reorder and hide sessions.<br>
+Weekly and five-hour usage limits with reset times.<br>
+Small, medium and large desktop widgets for limits and activity.<br>
+Activity charts by day, week or month, with available project and session breakdowns.
+</p>
 
 <sub>Retouched macOS capture with sample data. Menu-bar usage indicators are a development preview and are not in 0.1.0. [Screenshot notes](docs/verification.md#public-screenshots).</sub>
 
@@ -32,11 +34,15 @@ macOS 14+ · Apple silicon & Intel · Free and open source
 
 ### Install with Homebrew
 
+<div align="left">
+
 ```sh
 brew tap lovach/lunavect https://github.com/lovach/Lunavect
 brew install --cask lovach/lunavect/lunavect
 open -a Lunavect
 ```
+
+</div>
 
 Or [download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0-installer-2.dmg) and drag **Lunavect** to **Applications**. The release is Developer ID signed and notarized by Apple.
 
@@ -84,11 +90,15 @@ Activity measures working intervals. Recovered history is marked as approximate.
 
 Requires full Xcode and a compatible Swift toolchain.
 
+<div align="left">
+
 ```sh
 git clone https://github.com/lovach/Lunavect.git
 cd Lunavect
 ./scripts/check.sh
 ```
+
+</div>
 
 The check runs tests and builds the universal Release app, helpers and WidgetKit extension without a signing account.
 
@@ -99,3 +109,5 @@ Bug reports should include the macOS version and steps to reproduce. Remove priv
 ## License
 
 [MIT](LICENSE) for original Lunavect code. Third-party software and artwork are covered separately in [NOTICE](NOTICE). Lunavect is independent of Anthropic and OpenAI.
+
+</div>
