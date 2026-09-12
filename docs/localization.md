@@ -1,27 +1,31 @@
-# Языки интерфейса
+# Interface languages
 
-Доступны русский, английский, немецкий, испанский, французский и упрощённый китайский. По умолчанию используется первый поддерживаемый язык в системном списке; если совпадений нет — английский. Любой вариант китайского системного языка выбирает упрощённый китайский: отдельного традиционного перевода пока нет.
+Lunavect supports English, Russian, German, Spanish, French and Simplified Chinese. On first use it selects the first supported language in the system preferences, falling back to English. Chinese system variants currently select Simplified Chinese; there is no separate Traditional Chinese translation.
 
-Выбор находится в начале «Лимиты и настройки», применяется без перезапуска и хранится в разрешённом App Group. Смена языка обновляет интерфейс приложения и запрашивает новый timeline WidgetKit. Окончательное время перерисовки виджета определяет macOS. Названия пользовательских проектов и сессий остаются исходными. Стандартные диалоги macOS могут использовать язык самой системы.
+Choose a language in **Settings → General**. The app updates without a restart and requests a WidgetKit refresh. macOS decides when the placed widget redraws. Session titles and project names remain as supplied by the clients; standard macOS dialogs may follow the system language.
 
-Каталог `Sources/WeekleftCore/Resources/Translations.json` общий для приложения, Swift Package и виджета. Русская строка — стабильный ключ; переводы должны существовать для `en`, `de`, `es`, `fr`, `zh-Hans`. Подстановки `{0}`, `{1}` сохраняются во всех языках и вставляются одним проходом без повторной интерпретации содержимого аргументов.
+## Contributing a translation
 
-Термины: session → Sitzung / sesión / session / 会话; usage limit → Limit / límite / quota / 额度. Claude, Claude Code, Codex, Lunavect, имена инструментов и команды `/hooks` не переводятся. Немецкий и французский используют вежливую форму обращения; испанский — последовательную форму tú. Счётчики статусов используют нейтральные подписи, не зависящие от единственного/множественного числа. Даты форматируются по выбранной локали, даты подписок остаются ручными.
+The app and widget share [Translations.json](../Sources/WeekleftCore/Resources/Translations.json). Russian source strings are stable lookup keys. Each translated entry has `en`, `de`, `es`, `fr` and `zh-Hans` values.
 
-Проверки: `LocalizationTests` проверяет полноту набора языков, отсутствие русских строк в переводах, идентичность подстановок, разрешение локалей и сохранение смысла квот. Для визуальной проверки Debug-сборка поддерживает изолированную от настроек пользователя команду:
+Preserve placeholders such as `{0}` and `{1}`. Keep Lunavect, Claude, Claude Code, Codex, tool names and commands such as `/hooks` unchanged. German and French use polite forms of address; Spanish uses a consistent tú form. Prefer short status labels that fit both compact session rows and widgets.
+
+Dates use the selected locale. Manually entered subscription dates and user content must not be translated into different values. Decorative [thinking phrases](thinking-phrases.md) remain English in every interface language.
+
+## Verification
+
+```sh
+swift test --filter LocalizationTests
+```
+
+The suite checks language coverage, placeholder consistency and locale selection. Also inspect affected native views for truncation and incorrect terminology.
+
+A Debug build can render a widget preview without changing the saved language:
 
 ```sh
 LUNAVECT_PREVIEW_LANGUAGE=fr /path/to/Lunavect.app/Contents/MacOS/Lunavect --render-native /tmp/lunavect-widget-fr.png
 ```
 
-Это отрисовка содержимого виджета, а не снимок рабочего стола. Работа системного материала и переключателя языка проверяется дополнительно в приложении. Язык, выбранный пользователем, диагностическая команда не меняет.
+Replace the app path with your Debug build. This renders native widget content; it does not verify a widget placed on the desktop or change macOS language settings.
 
-# Упрощённое подключение
-
-В начале настроек находится общий раздел Claude Code / Codex. Он различает обнаружение приложения, наличие настроек сбора, свежие квоты и текущие сессии. Кнопка «Подключить» ставит недостающие локальные обработчики событий и, для Claude, мост statusLine. Уже установленные команды не переписываются: это сохраняет существующее доверие Codex. Перед изменением конфигурации работают прежние резервные копии и сохранение сторонних обработчиков.
-
-«Проверить» повторяет поиск Codex и чтение источников; «Открыть Claude/Codex» ведёт в установленное приложение. Если CLI отсутствует, доступна ссылка на официальную установку. Ручной путь Codex и отключение событий перенесены в дополнительные настройки. Кнопка подключения доступна и из пустого списка сессий.
-
-Вход остаётся в приложениях провайдеров. Claude использует документированный `statusLine.rate_limits`, Codex — `account/rateLimits/read`. Для новых hooks Codex может требовать `/hooks`; интерфейс предлагает скопировать эту команду и не объявляет доверие подтверждённым по одному наличию hooks.json. Одного Claude Desktop недостаточно для этого источника лимитов.
-
-Источники проверены 2026-09-10: [Claude statusLine](https://code.claude.com/docs/en/statusline), [правила доступа Claude](https://code.claude.com/docs/en/legal-and-compliance), [Codex App Server](https://learn.chatgpt.com/docs/app-server), [доверие hooks](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+[Contributing](../CONTRIBUTING.md) · [Development](development.md)

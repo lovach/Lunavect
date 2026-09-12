@@ -2,6 +2,8 @@
 
 Lunavect is a native macOS app for Claude Code and Codex sessions, usage limits and activity, with a WidgetKit extension. It requires macOS 14 or later.
 
+See [Contributing](../CONTRIBUTING.md) for proposing changes and submitting a pull request.
+
 ## Requirements
 
 - A full Xcode installation, selected with `xcode-select`.

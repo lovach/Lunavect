@@ -1,35 +1,60 @@
-# Подключение Claude и Codex
+# Connecting Claude Code and Codex
 
-В настройках есть отдельные кнопки «Подключить Claude» и «Подключить Codex». Мастер сначала проверяет существующую настройку и начинает с первого незавершённого шага. Полностью настроенное подключение сразу показывает результат и обновляет данные выбранного источника. Возможные шаги:
+Connect either provider or both in **Settings → Connections**. Lunavect checks each provider separately: finding the client, confirming sign-in, configuring local events and receiving fresh usage data are different steps.
 
-1. **Компонент.** Уже установленный клиент используется повторно. Если клиента нет, пользователь нажимает «Установить»: Terminal запускает официальный установщик с `claude.ai/install.sh` или `chatgpt.com/codex/install.sh`. Вводить команды не требуется. Перед запуском показаны источник, ссылка на официальную инструкцию и пояснение, что устанавливается отдельный клиент на условиях провайдера.
-2. **Вход.** Состояние проверяется штатной командой `claude auth status` либо `codex login status`. Lunavect получает только код завершения; stdin/stdout/stderr направлены в null. При необходимости кнопка запускает `claude auth login` или `codex login` в Terminal. Форму, браузерный callback и хранение учётных данных обслуживает официальный клиент; вывода окна Lunavect не читает. Существующий вход не заменяется автоматически.
-3. **Локальные данные.** Перед кнопкой «Включить лимиты и сессии» перечислены изменения: собственные lifecycle hooks, дополнительно Claude statusLine, резервирование и сохранение прежних настроек. Повторное подключение не переписывает установленные команды, чтобы сохранить их доверие. Для новых Codex hooks остаётся штатное разрешение через `/hooks`; наличие конфигурации не считается полученным событием.
+## Requirements
 
-После установки и входа мастер автоматически проверяет результат и возвращает Lunavect на передний план. То же происходит после завершения первого запуска Claude через штатный `/usage` в изолированной папке проверки. Проверка работает, пока открыт мастер; ожидание ограничено десятью минутами. Если внешнее окно закрыто или шаг не завершён, есть повторная попытка. Актуальные квоты подтверждаются отдельно от входа и установки обработчиков. Старый кэш с ошибкой не даёт зелёного результата.
+- **Claude:** Claude Code CLI. Claude Desktop alone cannot supply the CLI usage integration.
+- **Codex:** the official Codex client and an available Codex CLI, either installed separately or bundled with the macOS app.
+- An account mode for which the official client exposes the requested allowances. A successful sign-in does not guarantee that weekly or five-hour limits are available.
 
-Диагностика запускается при открытии. Рядом с проблемой показано конкретное действие: установка компонента, повторный вход, восстановление событий, завершение первого запуска Claude или обновление данных. Действие адресуется выбранному подключению; повторный запрос квот не опрашивает второй источник. Уже настроенные hooks не переустанавливаются из-за временной ошибки чтения событий. Обычное открытие мастера ничего не устанавливает; запуск исправления требует нажатия соответствующей кнопки.
+The guide reuses an existing installation and sign-in. If a step is already complete, it moves to the next one.
 
-При отсутствии сетевого пути последнее значение сохраняется, новые запросы квот откладываются. В настройках появляется спокойное сообщение об ожидании. После восстановления пути приложение ждёт две секунды устойчивого соединения и обновляет квоты и сессии. Доступность пути не доказывает доступность сервера провайдера: ошибки самого источника сохраняют обычную диагностику.
+## Connect a provider
 
-## Что сообщаем о данных
+1. Open **Connect Claude** or **Connect Codex**.
+2. If the client is missing, review the official installer source and choose the installation step. It runs in Terminal. Simply opening the guide does not install anything.
+3. If sign-in is needed, start the official client's login flow. Complete it in Terminal or your browser, then return to Lunavect. Authentication stays with that client.
+4. Review the local changes and enable limits and sessions. Lunavect adds its event handlers; Claude also gets a status-line command. Existing unrelated handlers are preserved and configuration is backed up.
+5. For newly installed Codex handlers, open `/hooks` in Codex and approve the Lunavect commands when requested. A configuration file alone does not prove that events have arrived.
+6. Follow any remaining diagnostic action. Claude may need its first `/usage` launch completed. Run a task to check session events and compare available quotas with the official client.
 
-На каждом шаге доступен раскрывающийся блок «Какие данные использует Lunavect»:
+The guide checks progress while open. If an external window was closed or setup did not finish, retry the incomplete step. It does not need to replace a working sign-in or reinstall existing handlers just because a quota request failed.
 
-- Lunavect не запрашивает пароль и не читает хранилище токенов. Вход и сохранение учётных данных выполняет официальный клиент.
-- Локально сохраняются лимиты, названия и ID сессий, папки проектов и статусы. Эти данные не отправляются разработчику Lunavect.
-- Для получения квот официальный клиент обращается к своему провайдеру. Lunavect — независимое приложение.
+## Where the data comes from
 
-Это не обещание «вообще ничего не читаем». Каталоги и локальные журналы нужны для названий и активности; дополнительные настройки позволяют отключить события. Не заявляем, что приложение полностью автономно от интернета или что сторонний провайдер не получает данные.
+| Provider | Usage limits | Session state and titles |
+| --- | --- | --- |
+| Claude Code | The official CLI's `/usage` output and `rate_limits` delivered to the status-line command | Local lifecycle hooks, available client session information and title metadata |
+| Codex | `account/rateLimits/read` through the local Codex app-server | Available runtime state, lifecycle hooks and local session metadata; log-based fallback where needed |
 
-Запускатели `.command` содержат команды и пути, без скопированных токенов. Они хранятся в `~/Library/Application Support/Weekleft/ConnectionSetup` с правами 0700. Установщик загружается по HTTPS во временный файл; неуспешная загрузка прерывает выполнение, временный файл удаляется. Сам бинарный файл поставщика не модифицируется. Никакие установщики не запускаются просто при открытии мастера.
+Local catalog entries and titles are not evidence that a session is working. Fallback readers depend on client file formats, so a client update can affect detection. See [sessions](sessions.md) for state handling and navigation limits.
 
-## Официальные основания
+## Local changes
 
-Сверено 2026-09-10:
+Default client configuration files are `~/.claude/settings.json` and `~/.codex/hooks.json`. Lunavect respects `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when set in the app's environment. Advanced connection settings provide a manual Codex executable path when automatic discovery is insufficient.
 
-- [Установка Claude Code](https://code.claude.com/docs/en/setup), [CLI и коды завершения auth status](https://code.claude.com/docs/en/cli-usage).
-- [Аутентификация Claude Code](https://code.claude.com/docs/en/authentication), [условия и ограничения использования](https://code.claude.com/docs/en/legal-and-compliance): неизменённый бинарный файл, собственный аккаунт пользователя, вход через Anthropic; без получения и посредничества токенов Lunavect. Перед публичным выпуском отдельно проверить применимость Commercial Terms к распространению продукта.
-- [Установка Codex CLI](https://learn.chatgpt.com/docs/cli), [аутентификация Codex](https://learn.chatgpt.com/docs/auth): официальный клиент выполняет браузерный вход и хранит учётные данные.
+Hooks invoke the bundled `LunavectHook` helper. It keeps session identity, project, client, state, tool name and timestamps, not the prompt or tool arguments. The Claude status-line handler stores quota values rather than the full input payload. Setup launchers contain commands and paths, not copied authentication tokens.
 
-Первый вход и установка на чистом Mac требуют отдельной ручной проверки. Не следует считать их проверенными только по тестам запускателей, макетам или успешной сборке.
+For all storage paths, backups, permissions and network behavior, see [Privacy and permissions](../PRIVACY.md).
+
+## Troubleshooting
+
+- **Client not found:** use the guide's installation action or check the executable path in advanced settings.
+- **Not signed in:** complete the official client's login step, then retry its status check.
+- **No session events:** check handler installation and, for Codex, handler approval. An already open client session may need to be reopened.
+- **Quota unavailable:** follow the selected provider's diagnostic action. Check whether the official client itself shows that allowance. Missing values remain unavailable.
+- **Offline or stale:** the last observation keeps its original timestamp. When connectivity returns, Lunavect retries; network availability alone does not prove that the provider is responding.
+
+## Disconnect
+
+Disconnect a provider in **Settings → Connections** before removing Lunavect. This removes its event handlers and restores the saved previous Claude status line when applicable. Unrelated client settings and handlers remain in place.
+
+If cleanup fails, the app reports the error; resolve it before deleting the app. Disconnecting does not sign you out of the official client, delete its conversations or erase Lunavect's existing history. Removing only the app does not undo handler configuration. See [uninstalling](installation.md#uninstall).
+
+## Interface references
+
+- Claude Code: [setup](https://code.claude.com/docs/en/setup), [authentication](https://code.claude.com/docs/en/authentication), [status line](https://code.claude.com/docs/en/statusline), [hooks](https://code.claude.com/docs/en/hooks).
+- Codex: [CLI](https://learn.chatgpt.com/docs/cli), [authentication](https://learn.chatgpt.com/docs/auth), [app-server](https://learn.chatgpt.com/docs/app-server), [hooks](https://learn.chatgpt.com/docs/hooks).
+
+These references describe the clients' interfaces, not a certification or endorsement of Lunavect. Current installation and compatibility evidence is recorded in [verification](verification.md).

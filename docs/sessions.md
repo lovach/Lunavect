@@ -1,38 +1,49 @@
-# Список сессий — первая версия
+# Sessions
 
-Пользователь подтвердил 2026-09-09: строим панель сессий Claude и Codex, используем выбранную иконку временно.
+Click Lunavect in the macOS menu bar to open the session panel. It brings Claude Code and Codex tasks into one list, with a title, project and the latest available state. Settings open separately from the panel.
 
-По уточнению пользователя 2026-09-10 основной интерфейс — панель 360 × 480 точек у значка строки меню. Запуск и повторное открытие показывают ту же панель; большое окно сессий убрано, настройки открываются отдельно только по запросу. Компактная строка высотой 42 точки содержит название, клиент и подтверждённое состояние. Проект и полное название доступны в подсказке; действия — в меню строки. Семь строк помещаются в панели одновременно. При работе видны анимированный индикатор, действие и таймер текущего ответа. Есть поиск, фильтры провайдеров/активности, переход к доступному приложению, открытие проекта и копирование команды продолжения. Настройки лимитов и системный виджет сохраняют поведение.
+## Reading a session
 
-Источники: Codex thread/list (без чтения переписки или создания задач), Claude agents --json, локальные lifecycle hooks. Статус notLoaded у отдельного Codex app-server не означает завершение задачи. Новые события дают состояние; потерявшие актуальность события отображаются как неизвестные. Совместимость с уже установленным statusbar — чтение его записей без изменений чужих обработчиков. Неопределённый клиент не выдаётся за Desktop/VS Code.
+| State | Meaning |
+| --- | --- |
+| Working / Thinking / tool name | A source currently reports work. The timer belongs to the current response, not the session's total lifetime. |
+| Permission needed | The client is waiting for approval. Return to the client to respond. |
+| Input needed | The client is waiting for input. |
+| Response ready | A response finished; the session may still be open in its client. |
+| Idle | A session is open without confirmed current work. |
+| Unknown or stale | Lunavect does not have a sufficiently current state. This is not treated as working or finished. |
 
-Собственный обработчик получает JSON stdin, сохраняет только идентификатор, проект, тип клиента, событие, инструмент и время. Не сохраняет prompt, transcript или аргументы инструментов. Установка добавляет свои команды с резервной копией, удаление убирает только их. Доверие Codex hooks подтверждается штатным интерфейсом Codex.
+The working and awaiting-input counters summarize current states. A saved title, recent file read or an old catalog entry does not turn a task into a live session. The decorative menu-bar phrases describe an animation state, not a tool the agent has actually called.
 
-## Текущие сессии и история
+## Find and arrange sessions
 
-С 2026-09-10 основной список отбирает сессии по свежему подтверждённому runtime-состоянию; сохранённый каталог доступен через «Историю». Фоновые записи Claude не подтверждают наличие рабочего процесса. updatedAt не обновляется при очередном чтении. Счётчики не учитывают исторические состояния. Открытая idle-сессия остаётся в текущих, завершённая или потерявшая свежесть исключается. Возраст создания сам по себе не является критерием: старая сессия со свежими живыми событиями возвращается в основной список.
+Use search to find a title or project. **All**, **Claude** and **Codex** select providers; **Active** narrows the list to active states. The row menu contains the available actions for that session, including pinning, hiding, opening a project and copying a resume command. Drag rows to change their order.
 
-## Проверки
+Open **Hidden sessions** to review and restore hidden rows. Hiding affects Lunavect's list only: it does not cancel work or delete a conversation. A hidden session that is still working can continue to contribute to activity totals.
 
-Осмотрены реальная панель, поиск, пустой результат, фильтры, экран источников и временная иконка. После добавления резервного источника Codex прошли 34 Swift-теста. Работающая текущая Desktop-задача подтверждена в приложении; семь строк проверены на изолированных тестовых данных. Полный живой цикл нескольких сессий, ожидание разрешений и все действия перехода остаются открытыми проверками — см. [проверки и ограничения](verification.md).
+Optional automatic hiding is configured in Settings. It applies to inactive sessions after the selected interval; it does not hide working, waiting or unknown states just because an event is old. A new installation leaves automatic hiding off.
 
-Источники интерфейсов: [Codex app-server](https://learn.chatgpt.com/docs/app-server), [Codex hooks](https://learn.chatgpt.com/docs/hooks), [Claude hooks](https://code.claude.com/docs/en/hooks). Схема стороннего statusbar — необязательная совместимость, не официальный API.
+## Return to a task
 
-## Активность и названия · 2026-09-10
+Click a row or use its open action. Lunavect uses the originating client when it can identify one. Terminal sessions need the CLI and project folder to remain available; their resume command is opened through Terminal. Other clients depend on the navigation route that client supports.
 
-Для Claude Desktop название сопоставляется по точному `cliSessionId` из локальных файлов `claude-code-sessions/<account>/<workspace>/local_*.json`. Читаются только поля идентификатора, названия и архивации; вложенные каталоги переписки и символьные ссылки не обходятся. Эта метадата уточняет название существующей строки и никогда не подтверждает активность. Scratch-каталог не выдаётся за название беседы.
+Opening an application is not always the same as returning to the exact conversation. If the client is missing, the project was moved or the route is unsupported, use the row's project or resume action when available. Include the client and its version in reports about navigation problems.
 
-Поздний SessionStart не сбрасывает уже работающую или ожидающую сессию. UserPromptSubmit начинает таймер ответа; события инструментов сохраняют его начало. После завершения инструмента строка снова показывает «Думает». Открытая панель обновляет время каждую секунду. При закрытии её TimelineView удаляется из иерархии, но сбор событий и статистики продолжается. Изменения файлов событий вызывают немедленное чтение; резервный опрос — каждую секунду при открытой панели, раз в 2 секунды при работающих/ожидающих сессиях и раз в 5 секунд при бездействии. Каталог и названия проверяются раз в 15 секунд при работе/открытой панели и раз в 45 секунд при бездействии. Неизменившиеся строки не публикуются повторно; истечение достоверности статуса обновляет счётчики. В строке меню отображается число работающих или ожидающих сессий.
+## How state is determined
 
-В Debug-сборке `--session-preview <json>` позволяет проверить компоновку на изолированном списке. В этом режиме нет автоматических опросов источников/квот, и заголовок явно сообщает «Проверка · тестовые сессии». Тестовые строки не записываются в хранилище событий. Это проверка интерфейса, а не доказательство реальной активности.
+Lunavect combines local lifecycle hooks, available client runtime information and session metadata. Claude Desktop metadata can supply a title for an existing Claude Code session. Codex can use a local log-based fallback when shared runtime information is unavailable. Compatibility with other local status-bar records is optional and does not modify their event handlers.
 
-## Резервный источник Codex Desktop
+Titles and project metadata are kept separate from activity evidence. Re-reading an event does not change its timestamp. Old events eventually lose authority, and late events from a completed turn should not restart its working indicator. An empty Claude startup/shutdown cycle is not presented as a completed task.
 
-При отсутствии общего app-server-control используется путь журнала, возвращённый thread/list. CodexActivityReader инкрементально читает lifecycle-метаданные только из `$CODEX_HOME/sessions`, не изменяет журналы и не сохраняет переписку. В его Decodable-модели нет полей текста сообщений, reasoning, аргументов или результатов инструментов. Источник зависит от локального формата Codex и не является публичным API. `task_started` и события элементов подтверждают работу; `task_complete`/`turn_aborted` завершают соответствующий ход. Поздние события закрытого хода не включают спиннер заново. Время берётся из события: повторное чтение не продлевает жизнь статуса. Без нового события активность устаревает через 120 секунд. Клиент Desktop устанавливается только по точному originator `Codex Desktop`, а не по неоднозначному source `vscode`.
+The panel updates timers while visible. Closing it stops its display timer, while background collection can continue. Freshness depends on the source; long work, sleep/wake and changes in client formats can affect what Lunavect can confirm.
 
-На установленной сборке 10 сентября около 09:38 в настоящей панели подтверждены работающая текущая задача, её название, таймер и Desktop. Завершение покрыто тестом, но живой переход текущего хода пока не наблюдался. Состояния ожидания разрешения через этот резервный источник отдельно не подтверждены.
+## If the list looks wrong
 
+1. Clear search and filters, then check **Hidden sessions**.
+2. Open **Settings → Connections** and inspect the affected provider.
+3. Check handler approval if requested, then run a new task in the official client.
+4. If the problem remains, [report it](https://github.com/lovach/Lunavect/issues/new?template=bug.yml) with the expected and actual state and steps to reproduce.
 
-Пустой цикл Claude `SessionStart` → `SessionEnd` (либо одиночный `SessionEnd`) без зарегистрированной работы не образует завершённую задачу в списке Lunavect и не попадает в автоскрытие. Открытая пустая сессия остаётся доступной; признаки настоящей работы сохраняются независимо от наличия начального prompt hook. При запуске исправляются старые скрытые записи таких пустых завершений.
+Do not attach private conversations or unredacted session records. Full lifecycle and exact-session navigation coverage across clients remains incomplete; see [verification](verification.md).
 
-Обработчики событий и Claude statusLine запускают встроенный `Contents/Helpers/LunavectHook`. Он не связывается с AppKit, SwiftUI или Sparkle. При запуске приложения уже настроенные команды переводятся со старого GUI-пути на помощник, сохраняя чужие обработчики и резервную копию statusLine. Старый вход GUI оставлен для совместимости с уже запущенными клиентами; разработческие Swift Package-сборки без встроенного помощника используют запасной путь. Клиент определяется по путям исполняемых файлов и цепочке родительских PID через libproc, без запуска `ps` и чтения аргументов чужих процессов.
+[Connections](connections.md) · [Activity](activity.md) · [Privacy](../PRIVACY.md)

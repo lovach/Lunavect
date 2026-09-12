@@ -3,7 +3,10 @@ description: Help us reproduce a problem with Lunavect.
 body:
   - type: markdown
     attributes:
-      value: Please do not include passwords, tokens, private chats, or unredacted logs. Use fictional session names and paths where possible.
+      value: |
+        Check the [FAQ](https://github.com/lovach/Lunavect/blob/main/docs/faq.md) for setup and missing-data questions.
+        Please do not include passwords, tokens, private chats, or unredacted logs. Use fictional session names and paths where possible.
+        Report security vulnerabilities [privately](https://github.com/lovach/Lunavect/security/advisories/new), not in this form.
   - type: input
     id: version
     attributes:

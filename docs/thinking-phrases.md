@@ -1,10 +1,10 @@
-# Живые фразы Lunavect
+# Thinking phrases
 
-70 авторских выбранных фраз в духе примеров пользователя; это декоративный статус работы, а не описание вызванного инструмента. Английские фразы одинаковы при любом языке интерфейса. Смена каждые 3,5 секунды, весь список перемешивается без повторов до следующего круга.
+These 70 decorative English phrases appear while a session is working. They are not descriptions of tools being called or evidence of a model's internal reasoning. The phrases rotate every 3.5 seconds and are shuffled without repetition until the next cycle. They remain English in every interface language.
 
-Настройки → Оформление → Строка меню → Живые фразы во время работы. По умолчанию включены для режима «Одна строка». Фраза отображается без плашки обычным системным шрифтом с адаптивным цветом, без собственной тени; число работающих сессий — в маленьком бейдже у персонажа. Ширина строки рассчитывается по текущей фразе: правый край остаётся у соседнего значка, робот сдвигается влево для длинного слова и вправо для короткого. При ожидании ответа показываются реальные счётчики; при простое фраз нет.
+Enable or disable these phrases in the Menu Bar settings. They appear during work in the single-row style, while waiting states show their actual counters. Idle sessions do not display a working phrase.
 
-Отображение: `Vibing.` → `Vibing..` → `Vibing...`; точки меняются каждые 0,5 секунды. Для трёх точек зарезервирована одинаковая ширина, поэтому меняющееся троеточие не двигает персонажа. Типографика сверена с [claude-status-bar](https://github.com/m1ckc3s/claude-status-bar/blob/7fcbb9084b9d933be01973c1098bc3a4266d4346/Sources/main.swift#L1342-L1369): `monospacedDigitSystemFont(ofSize: 0, weight: .regular)` и `labelColor`. Буквы пропорциональные, одинаковую ширину имеют цифры. Наши 70 фраз и интервал 3,5 секунды сохранены.
+The suffix cycles through `Vibing.`, `Vibing..` and `Vibing...` every 0.5 seconds. Space is reserved for the dots so this animation does not move the menu-bar character. The phrase itself can change the width of the status item.
 
 1. vibing
 2. thinking

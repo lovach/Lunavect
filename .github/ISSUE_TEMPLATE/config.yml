@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Setup and frequently asked questions
+    url: https://github.com/lovach/Lunavect/blob/main/docs/faq.md
+    about: Check installation, client connections, missing limits and widget behavior.
+  - name: Report a security vulnerability privately
+    url: https://github.com/lovach/Lunavect/security/advisories/new
+    about: Use a private report for security findings. Do not post exploit details in a public issue.

@@ -63,7 +63,7 @@ For a Homebrew installation:
 brew uninstall --cask lovach/lunavect/lunavect
 ```
 
-For a direct installation, delete Lunavect from Applications. Settings and activity history are retained. See [connection removal](connections.md) for more detail.
+For a direct installation, delete Lunavect from Applications. Settings and activity history are retained. See [connection removal](connections.md#disconnect) for more detail.
 
 ## Troubleshooting
 
@@ -73,4 +73,4 @@ For a direct installation, delete Lunavect from Applications. Settings and activ
 
 If the problem remains, [report a bug](https://github.com/lovach/Lunavect/issues/new?template=bug.yml) with the app version, macOS version, Mac architecture and steps to reproduce. Remove private titles, paths and credentials from attachments.
 
-[Back to README](../README.md) · [Verified checks and open limitations](verification.md)
+[FAQ](faq.md) · [Privacy and data removal](../PRIVACY.md) · [Verified checks and open limitations](verification.md) · [Back to README](../README.md)

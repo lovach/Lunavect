@@ -97,13 +97,29 @@ Recovered history is marked as approximate.
 
 All images open at full resolution when clicked. Session names, paths and usage values are samples.
 
+## FAQ
+
+**Can I use only Claude or only Codex?**<br>
+Yes. Connect either provider or both. Claude requires Claude Code CLI; Claude Desktop alone is not enough.
+
+**Do I need another account or an API key?**<br>
+No Lunavect account or pasted API key is required. Sign-in stays with the official clients; available allowances depend on your account.
+
+**Why is a limit unavailable or a widget behind the app?**<br>
+Limits need fresh data from the client. Widgets read saved data and refresh when macOS schedules them. Check Connections and the value's timestamp.
+
+**Is activity the same as token usage?**<br>
+No. It measures working intervals. Recovered history is marked `≈`, and overlapping sessions are counted once in the combined total.
+
+[All questions and answers](docs/faq.md) · [Installation and troubleshooting](docs/installation.md)
+
 ## Data and connections
 
 Session titles, project paths and activity history stay on your Mac. Lunavect reads local client data and configures event handlers when you connect a service. It has no account system or analytics backend. Update checks go to GitHub without session data; the official clients make their own network requests.
 
 Activity measures working intervals. Recovered history is marked as approximate. Missing or expired usage limits remain unavailable.
 
-[Connection details](docs/connections.md) · [How activity is counted](docs/activity.md)
+[Privacy and permissions](PRIVACY.md) · [Connection details](docs/connections.md) · [How activity is counted](docs/activity.md)
 
 ## Development
 
@@ -121,9 +137,11 @@ cd Lunavect
 
 The check runs tests and builds the universal Release app, helpers and WidgetKit extension without a signing account.
 
-[Development guide](docs/development.md) · [GitHub Actions](https://github.com/lovach/Lunavect/actions/workflows/ci.yml) · [Release checks](docs/verification.md)
+[Contributing](CONTRIBUTING.md) · [Development guide](docs/development.md) · [GitHub Actions](https://github.com/lovach/Lunavect/actions/workflows/ci.yml) · [Release checks](docs/verification.md)
 
 Bug reports should include the macOS version and steps to reproduce. Remove private session titles, paths and credentials from attachments. For testing on another Mac, use the [first-install checklist](docs/first-install-check.md). Feature requests are welcome in [Issues](https://github.com/lovach/Lunavect/issues/new?template=feature.yml).
+
+[Documentation](docs/README.md) · [FAQ](docs/faq.md) · [Security reports](SECURITY.md)
 
 ## License
 

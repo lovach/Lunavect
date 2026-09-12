@@ -1,34 +1,66 @@
-# Обновления через GitHub Releases
+# Updates and release packaging
 
-В приложение встроен Sparkle 2.9.6, версия закреплена в Package.swift и project.yml. Используется стандартный установщик Sparkle, а не собственная замена запущенного app bundle.
+Lunavect uses Sparkle for signed updates distributed through GitHub Releases. The dependency version is pinned in `Package.swift` and `project.yml`.
 
-## Поведение для пользователя
+## Updating the app
 
-- В публичной настроенной сборке проверка каждый час, пока Lunavect работает и фоновая загрузка включены по умолчанию. Их можно выключить в Настройки → Обновления.
-- После обнаружения версии на значке строки меню появляется синяя отметка, в отдельном пункте «Обновления» — индикатор. Во время загрузки и после подготовки обновления в панели сессий видна строка с версией. Она открывает стандартный интерфейс Sparkle; проверка также доступна в меню приложения.
-- Автоматическая загрузка Sparkle подготавливает установку при обычном выходе из Lunavect. Принудительный перезапуск в фоне не вызывается. Пользователь может применить обновление через интерфейс Sparkle раньше. Процессы Claude/Codex не завершаются.
-- Настройки и локальная история находятся вне bundle и не удаляются обновлением.
-- Включены обязательная Ed25519-подпись appcast и проверка подписи архива до распаковки. Профилирование системы выключено; данные сессий не добавляются в запросы. GitHub получает обычные сетевые сведения запроса (например, IP-адрес).
-- Без корректного адреса и публичного ключа updater не запускается и не делает сетевых запросов. Локальная сборка сообщает, что обновления ещё не подключены.
+Use **Settings → Updates** to check for updates or change automatic checks and downloads. A ready update is shown in the menu bar and session panel. Automatic installation is scheduled for an ordinary app quit; users can also apply it through the updater interface. Lunavect does not terminate Claude or Codex to install its own update.
 
-## Подготовка следующего выпуска
+Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](../PRIVACY.md#network-requests).
 
-Первый публичный выпуск — [0.1.0 (103)](https://github.com/lovach/Lunavect/releases/tag/v0.1.0). Для следующих версий сохраняйте существующие идентичность подписи, ключ обновлений и адрес feed. Создание нового ключа ниже относится только к самостоятельному форку, а не к очередному выпуску Lunavect.
+The [first public release](https://github.com/lovach/Lunavect/releases/tag/v0.1.0) is 0.1.0 (103). Testing an update between two different public versions is still an open item in [verification](verification.md).
 
-1. Выполнить `swift package resolve`. Инструменты Sparkle доступны в `.build/artifacts/sparkle/Sparkle/bin/`.
-2. Создать собственный Ed25519-ключ инструментом `generate_keys`. Приватный ключ хранить в Keychain либо отдельном защищённом файле вне репозитория; он нужен для всех будущих обновлений. Не публиковать его и не записывать в логи. Для упаковочного скрипта экспортировать ключ с помощью документированной опции `generate_keys -x`, затем установить права 600.
-3. В конфигурации релизной сборки задать:
+## Preparing a release
+
+For a new Lunavect release, preserve its signing identity, bundle IDs, App Group, update feed and Ed25519 update key. Create a new key only for a separate fork or a planned key migration, not for an ordinary update.
+
+1. Run the project checks and inspect the relevant live behavior. Choose a build number higher than every published build.
+2. Build and export a Developer ID signed app. Complete notarization and staple the ticket. Do not edit the bundle afterward.
+3. Package the signed update ZIP, appcast and DMG in a new output directory.
+4. Publish them together with checksums in a stable GitHub Release. The appcast's ZIP URL must point to that exact release tag.
+5. Verify the downloaded files, then update the README, installation guide and Homebrew cask to the intended DMG and its checksum.
+6. Test an actual upgrade from the previous public app, including retained settings, client connections and widget data. Check disabled automatic updates, offline/retry and rejection of a damaged signature.
+
+A local build or successful packaging command does not establish public download or upgrade behavior. Keep the older public artifacts available at their original URLs.
+
+## Signing and export
+
+Public build configuration is in `Config/Distribution.xcconfig` and `Config/Updates.xcconfig`. Private signing and update keys stay outside the repository.
+
+The following commands show the first release's version and build. For a new release, replace them with the intended version and a higher build number:
+
+```sh
+./scripts/distribute.sh archive 0.1.0 103
+./scripts/distribute.sh submit 0.1.0 103
+# After Apple's notarization completes:
+./scripts/distribute.sh export 0.1.0 103
+```
+
+The distribution workflow uses the Apple account configured in Xcode. Export reports when notarization has not yet completed. A completed export contains the app's notarization ticket.
+
+The signed macOS App Group is `<TEAM_ID>.com.lunavect.shared`; its prefix must match the signing team. Bundle IDs remain `com.weekleft.app` and `com.weekleft.app.widget`. The app does not use this group for Keychain access. See [Apple's App Group documentation](https://developer.apple.com/documentation/xcode/accessing-app-group-containers).
+
+The local install script can migrate Lunavect's shared files when moving from a development App Group to the distribution group. It preserves source files and does not overwrite conflicting destination data. Ordinary public updates keep the same team and container. This local migration script is not a claim that every clean-install or upgrade path has been tested.
+
+## Update keys for a fork
+
+Resolve the pinned dependencies with `swift package resolve`. Sparkle tools are available in `.build/artifacts/sparkle/Sparkle/bin/`.
+
+Use Sparkle's `generate_keys` to create your own Ed25519 key. Store the private key in Keychain or a protected location outside the repository. If packaging uses a key file, export it with the documented `generate_keys -x` option and restrict access to that file. Never put its contents in a commit or build log.
+
+Set your own repository and public key in the build configuration. These placeholders are for a fork and must be replaced:
 
 ```xcconfig
-// Заменить OWNER и REPOSITORY настоящими значениями. $() защищает // от синтаксиса комментариев xcconfig.
+// $() preserves the URL slashes in xcconfig syntax.
 LUNAVECT_UPDATE_FEED_URL = https:/$()/github.com/OWNER/REPOSITORY/releases/latest/download/appcast.xml
 LUNAVECT_UPDATE_PUBLIC_KEY = BASE64_PUBLIC_ED25519_KEY
 ```
 
-Уже подписанный bundle не редактировать. Настройки подставляются в Info.plist при сборке. Bundle ID `com.weekleft.app`, App Group и идентичность подписи сохраняются между версиями.
+Keep the public key consistent with the private key used to sign updates. If you raise the minimum macOS version, retain earlier compatible entries in the appcast according to Sparkle's publishing guide.
 
-4. Увеличить `CFBundleVersion` относительно всех опубликованных сборок, задать `MARKETING_VERSION`, собрать app с Developer ID, notarize и прикрепить ticket (`stapler`). Проверить скачанную сборку на другом Mac.
-5. Подготовить **новый** каталог релиза:
+## Package the updater files
+
+Use the exported, notarized app and a new output directory:
 
 ```sh
 python3 scripts/package-update.py \
@@ -37,33 +69,11 @@ python3 scripts/package-update.py \
   --key-file '/private/location/sparkle.key'
 ```
 
-Скрипт проверяет конфигурацию, codesign, Gatekeeper и notarization ticket; создаёт ZIP, подписанный appcast, проверяет подписи и совпадение ключа архива с публичным ключом в приложении. Он ничего не загружает в сеть.
+The script checks release configuration, codesign, Gatekeeper and the notarization ticket. It creates the ZIP and signed appcast, then checks signatures and the public key in the app. It does not publish files. Do not edit the appcast after signing.
 
-6. Опубликовать `Lunavect-VERSION-BUILD.zip`, `appcast.xml`, DMG и контрольные суммы в одном стабильном GitHub Release с тегом `vVERSION`. Отметить его latest. Адрес ZIP в appcast указывает на конкретный тег, адрес самого appcast — на latest. Не редактировать XML после подписи. Обновить обе прямые ссылки на DMG в README и проверить скачивание. Для GitHub Pages отдельного размещения не требуется.
-7. Проверить реальный переход со старой публичной сборки на новую: автоматическая проверка/загрузка, отключённая автоматика, offline/retry, отклонение повреждённой подписи, сохранение настроек и виджета после перезапуска. Эти проверки требуют настоящих опубликованных файлов; локальная компиляция их не заменяет.
+## Package the DMG
 
-Политика пока рассчитана на одну общую минимальную macOS/архитектуру для публичных версий. Прежде чем повышать минимальную версию macOS, сохранить в appcast предыдущий совместимый выпуск по инструкции Sparkle; простой appcast только с новой версией не позволит старым системам получить промежуточные обновления.
-
-Официальные источники: [Sparkle setup](https://sparkle-project.org/documentation/), [настройки](https://sparkle-project.org/documentation/customization/), [gentle reminders](https://sparkle-project.org/documentation/gentle-reminders/), [публикация обновления](https://sparkle-project.org/documentation/publishing/). Лицензия Sparkle включена в ресурсы приложения.
-
-## Официальная сборка для распространения
-
-Публичные параметры (команда Apple, macOS App Group и адрес обновлений) заданы в `Config/Distribution.xcconfig` и `Config/Updates.xcconfig`. Приватных ключей в них нет. Для собственного форка используйте свою команду, репозиторий и ключ обновлений.
-
-```sh
-./scripts/distribute.sh archive 0.1.0 103
-./scripts/distribute.sh submit 0.1.0 103
-# После завершения проверки Apple:
-./scripts/distribute.sh export 0.1.0 103
-```
-
-`submit` использует добавленный в Xcode Apple Account для подписи Developer ID и отправки Apple. Пока проверка обрабатывается, `export` сообщает, что архив ещё не готов. Успешный export выдаёт приложение с ticket; не изменяйте его содержимое после подписи.
-
-Для публичной macOS-сборки используется группа `<TEAM_ID>.com.lunavect.shared`: система проверяет совпадение префикса с командой подписи, provisioning profile не нужен. Приложение не использует эту группу для Keychain. Bundle IDs `com.weekleft.app` и `com.weekleft.app.widget` сохраняются. Основание: [документация Apple об App Group](https://developer.apple.com/documentation/xcode/accessing-app-group-containers).
-
-Для перехода с локальной development-копии установщик `scripts/install.sh` сравнивает группы и вызывает `migrate-app-group.py`. Он переносит собственные snapshot/activity, выбор точки виджета и общие настройки языка; исходные файлы сохраняет, конфликтующие новые файлы не заменяет. Обычные настройки приложения, скрытые сессии, подключения и детальная статистика остаются по прежним путям. Скрипт запускается после выхода из Lunavect. Обычные последующие обновления между публичными версиями не меняют команду или контейнер.
-
-Упаковка DMG с уже notarized-приложением:
+Keep packaging dependencies and output outside the repository:
 
 ```sh
 python3 -m venv /path/outside-repository/dmg-venv
@@ -73,12 +83,22 @@ python3 -m venv /path/outside-repository/dmg-venv
   --output '/path/to/release-assets/Lunavect-0.1.0.dmg'
 ```
 
-DMG — read-only контейнер с приложением и ссылкой Applications. Открывается компактное окно Finder с крупными значками, стрелкой и фирменным фоном. Видимые объекты остаются настоящими файлами Finder: приложение можно перетащить в Applications. [Снимок окна](images/installer.jpg).
+Replace these paths and version numbers with your exported app and intended output. The DMG is a read-only image containing the app and an Applications link. Its Finder layout uses `scripts/dmg/layout.json`; the AppKit background renderer provides 1× and 2× artwork. The pinned `dmgbuild` dependencies write the layout metadata without automating Finder. See the [installer screenshot](images/installer.jpg).
 
-Геометрия хранится в `scripts/dmg/layout.json`. Фон рисуется AppKit из `render-background.swift` в 1× и 2×; [dmgbuild](https://dmgbuild.readthedocs.io/en/latest/settings.html) объединяет их в Retina TIFF и записывает `.DS_Store` прямо в образ. Зависимости закреплены в `scripts/dmg/requirements.txt`, используются только при упаковке и не входят в приложение. Кэши, Python-окружение и DMG держите вне репозитория. Оформление не управляет Finder через AppleScript и не требует разрешений Accessibility/Automation. Выбранная иконка приложения не перерисовывается.
+The packaging script verifies the app before packaging and inside the mounted image, and checks the background, window geometry, icon positions and visible files. Do not set `hide_extensions` on the signed app: changing its Finder metadata can invalidate strict signature checks.
 
-Скрипт проверяет Developer ID, ticket и Gatekeeper до упаковки и внутри смонтированного DMG, затем проверяет фон, размеры окна, позиции значков и состав видимых файлов. Не задавайте `hide_extensions` для подписанного `.app`: SetFile добавляет FinderInfo к bundle, что нарушает строгую проверку codesign. Finder сам показывает имя приложения без расширения.
+The app's signature and notarization do not mean this script separately signs the DMG. The updater uses the ZIP and appcast, not the DMG. A cosmetic DMG revision can keep the same app version, but should have a distinct filename and checksum so existing release URLs retain their contents.
 
-Подпись и notarization относятся к приложению; отдельная подпись самого DMG этим скриптом не создаётся. Для автообновления используйте ZIP/appcast от `package-update.py`; загрузите DMG, ZIP и appcast в один релиз. Косметическая переупаковка DMG не требует изменения версии приложения или подписанного ZIP. Для уже опубликованной версии используйте новое имя DMG и отдельную контрольную сумму, сохраняя прежние файлы по их адресам.
+## Verify the public download
 
-Проверка скачанного файла: сопоставить SHA-256 с опубликованным файлом контрольных сумм для этого установщика, смонтировать DMG, проверить `codesign --verify --deep --strict`, `spctl --assess --type execute` и `xcrun stapler validate` для приложения. Затем проверить запуск, сохранённые настройки, свежие события/лимиты и установленный системный виджет. Не считать локальную упаковку проверкой скачивания с GitHub.
+Compare the downloaded DMG's SHA-256 with the checksum published for that exact installer. Mount it and check the app:
+
+```sh
+codesign --verify --deep --strict '/Volumes/Lunavect/Lunavect.app'
+spctl --assess --type execute '/Volumes/Lunavect/Lunavect.app'
+xcrun stapler validate '/Volumes/Lunavect/Lunavect.app'
+```
+
+Use the actual mounted volume path. Then check installation, launch, retained settings, fresh client events and allowances. Widget placement and refresh require their own desktop check.
+
+References: [Sparkle setup](https://sparkle-project.org/documentation/), [customization](https://sparkle-project.org/documentation/customization/), [gentle reminders](https://sparkle-project.org/documentation/gentle-reminders/), [publishing](https://sparkle-project.org/documentation/publishing/).
