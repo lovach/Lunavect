@@ -62,6 +62,8 @@ def main():
             if (mounted / 'Contents/Info.plist').read_bytes() != (app / 'Contents/Info.plist').read_bytes():
                 raise ValueError('Mounted app metadata differs from the release')
         finally:
+            register = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
+            subprocess.run([register, '-u', str(mount / 'Lunavect.app')], check=False)
             checked('hdiutil', 'detach', '-quiet', str(mount))
         image.rename(output)
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
