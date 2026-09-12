@@ -28,6 +28,10 @@ The refreshed DMG contains the same signed and notarized app, version 0.1.0 (103
 - The DMG and `SHA256SUMS-installer-2.txt` were downloaded from GitHub without authentication. SHA-256 matched: `e23e4eb272b6aadbefdbc9cdcced23720d9cd82c421bd06871497d3a8df1baf2`. The downloaded image passed integrity, strict codesign, Gatekeeper, stapler and saved-layout checks.
 - The original DMG, ZIP, appcast and checksum assets were preserved at their existing URLs and their server-side digests remained unchanged. This packaging check is not a new app-installation test or a desktop-widget test on another Mac.
 
+## Homebrew installation
+
+On September 12, 2026, the `Casks/lunavect.rb` package passed Homebrew style validation and installed the public 0.1.0 (103) DMG into an isolated Applications directory. Homebrew verified the declared SHA-256; the installed app passed strict codesign, Gatekeeper and stapler validation. Uninstall removed the isolated app. The existing development installation was preserved. The upgrade command correctly reported that 0.1.0 was already current; this does not test an upgrade between two different releases.
+
 ## What still needs testing
 
 | Area | Current limit |

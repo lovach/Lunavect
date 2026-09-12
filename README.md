@@ -16,6 +16,7 @@
   macOS 14+ · Apple silicon &amp; Intel · Free &amp; open source<br>
   Developer ID signed · Apple notarized · Local session data<br>
   <a href="https://github.com/lovach/Lunavect/releases/latest">Release notes</a> ·
+  <a href="#install-with-homebrew">Terminal commands</a> ·
   <a href="#install">Installation</a> ·
   <a href="https://github.com/lovach/Lunavect/issues">Report a problem</a>
 </p>
@@ -59,6 +60,40 @@ The lines show working time for each day; the legend shows totals for the displa
 **Make it yours.** Choose a menu-bar companion, a compact status layout, and optional sounds or notifications. Use English, Russian, German, Spanish, French, or Simplified Chinese. Signed updates arrive through the app.
 
 ## Install
+
+### Install with Homebrew
+
+With [Homebrew](https://brew.sh/) installed, copy these commands into Terminal:
+
+```sh
+brew tap lovach/lunavect https://github.com/lovach/Lunavect
+brew install --cask lovach/lunavect/lunavect
+open -a Lunavect
+```
+
+This installs the signed release from this repository and checks its SHA-256. Open **Connect Claude** or **Connect Codex** in Lunavect to finish setup.
+
+<details>
+<summary><strong>Update or uninstall from Terminal</strong></summary>
+
+Update a Homebrew installation:
+
+```sh
+brew update
+brew upgrade --cask lovach/lunavect/lunavect
+```
+
+Before uninstalling, disconnect Claude and Codex in **Settings → Connections**, then quit Lunavect. Remove the app with:
+
+```sh
+brew uninstall --cask lovach/lunavect/lunavect
+```
+
+Your Lunavect settings and activity history are retained. The app also supports updates through **Settings → Updates**.
+
+</details>
+
+### Download the DMG
 
 1. **[Download Lunavect for macOS](https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0-installer-2.dmg)** (DMG, about 11 MB).
 2. Open the DMG, drag **Lunavect** to **Applications**, then open it there.
