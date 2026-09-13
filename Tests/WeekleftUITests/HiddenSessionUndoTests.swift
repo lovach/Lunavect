@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Combine
 import UserNotifications
 import WeekleftCore
 @testable import Weekleft
@@ -126,7 +127,14 @@ final class HiddenSessionUndoTests: XCTestCase {
         store.sessions = [row]
         try store.hide(row)
         XCTAssertEqual(store.lastHidden?.id, row.id)
-        try await Task.sleep(for: .milliseconds(100))
+        let expired = expectation(description: "The undo toast expires")
+        // Wait for the actual timer publication: sleeping in this task does not
+        // guarantee the dismissal task has run on a busy main actor.
+        let observation = store.$lastHidden.dropFirst().first { $0 == nil }.sink { _ in
+            expired.fulfill()
+        }
+        defer { observation.cancel() }
+        await fulfillment(of: [expired], timeout: 2)
         XCTAssertNil(store.lastHidden)
         XCTAssertEqual(store.hiddenCount, 1)
         XCTAssertTrue(store.sessions.isEmpty)
