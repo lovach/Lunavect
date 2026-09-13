@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in, windowless native fixtures. Never fall back to an unsandboxed render."""
+"""Opt-in isolated native fixtures. Never fall back to an unsandboxed render."""
 from __future__ import annotations
 
 import argparse
@@ -49,6 +49,15 @@ LEGACY_TESTS = (
     ('WeekleftUITests.ActivityWidgetRenderingTests/testRenderCleanContourAndSeparateCurrentHour', 'LUNAVECT_RENDER_GAPS', ''),
     ('WeekleftUITests.InterfaceIconRenderingTests/testRenderCompleteControlAlphabet', 'LUNAVECT_RENDER_ICONS', 'icons'),
 )
+PUBLIC_EXPECTED = {
+    "limits.png": (1840, 1280), "readme-activity.png": (1840, 1960), "menu-bar.png": (1440, 288),
+    **{f"readme-overview-{scheme}.png": (1568, 806) for scheme in ('light', 'dark')},
+    **{f"readme-sessions-{scheme}.png": (784, 774) for scheme in ('light', 'dark')},
+    "widget-overview.png": (688, 688), "widget-activity-large.png": (688, 688),
+    "widget-activity-small.png": (328, 328), "widget-limits.png": (688, 328),
+}
+PUBLIC_TESTS = (('WeekleftUITests.ReleaseScreenshots/testRenderPublicScreenshots', 'LUNAVECT_RELEASE_SCREENSHOTS', ''),)
+
 PROBE_LABELS = ("forbidden-file-read", "forbidden-file-write", "child-process-fork", "child-process-exec",
                 "network-connect", "com.apple.cfprefsd.agent", "com.apple.cfprefsd.daemon",
                 "preferences-canary-read", "preferences-persistent-write")
@@ -146,7 +155,7 @@ def compare_baseline(output: Path, baseline: Path, images: list[dict], environme
         raise ValueError("Baseline must come from a passed isolated render")
     if report.get("environment") != environment:
         return {"status": "skipped", "reason": "Baseline OS/toolchain/fixture environment differs; compare visually before approving a new baseline"}
-    prior = inspect_images(baseline / "images", LEGACY_EXPECTED if environment.get('suite') == 'legacy-values' else EXPECTED)
+    prior = inspect_images(baseline / "images", LEGACY_EXPECTED if environment.get('suite') == 'legacy-values' else PUBLIC_EXPECTED if environment.get('suite') == 'public-gallery' else EXPECTED)
     prior_hashes = {item["path"]: item["sha256"] for item in prior}
     changed = [item["path"] for item in images if item["sha256"] != prior_hashes[item["path"]]]
     (output / "baseline").mkdir()
@@ -163,8 +172,12 @@ def write_report(output: Path, report: dict) -> None:
         item = report[key]
         rows.append(f"- **{key}: {item['status']}** — {item.get('reason', '')}")
     scope = "Legacy value views: stale allowances, import reports at two widths, contour gaps and control icon alphabet." if report['environment'].get('suite') == 'legacy-values' else "Current/unknown/stale-expired limits in small and medium cards with two providers or Claude alone, plus large overview; clean contour with known zero, unknown gaps and current incomplete hour."
-    rows.extend(["", "Fixtures: RU/DE. " + scope,
-                 "Fixed clock: 2026-09-12 09:56 UTC; Gregorian calendar; 2× pixels; animations disabled by transaction. Read-only accessibility values are observed and recorded in render-report.json.",
+    if report['environment'].get('suite') == 'public-gallery':
+        scope = "Current production sessions, limits, statistics, menu-bar indicators and widgets; one fictional dataset. Offscreen AppKit windows are never ordered on screen."
+    languages = "/".join(report['environment']['languages']).upper()
+    clock_note = "Capture-time fixture; Gregorian calendar; native 2x pixels." if report['environment'].get('suite') == 'public-gallery' else "Fixed clock: 2026-09-12 09:56 UTC; Gregorian calendar; 2× pixels; animations disabled by transaction."
+    rows.extend(["", "Fixtures: " + languages + ". " + scope,
+                 clock_note + " Read-only accessibility values are observed and recorded in render-report.json.",
                  "PNG hashes identify outputs. They are not a promise of reproducible bytes across OS/toolchain versions.", ""])
     (output / "summary.md").write_text("\n".join(rows))
     cards = []
@@ -195,6 +208,10 @@ def check(output: Path, *, enabled: bool, baseline: Path | None = None, report: 
     if report is None:
         report = initial_report()
     report['environment']['suite'] = suite
+    if suite == 'public-gallery':
+        report['environment']['languages'] = ['en']
+        report['environment']['clock'] = 'capture-time; one shared fixture'
+        report['environment']['renderer'] = 'AppKit offscreen, native 2x bitmap'
     if not enabled:
         return report
     report["render"] = {"status": "skipped", "reason": "Prerequisites have not passed; no renderer launched"}
@@ -268,12 +285,12 @@ def check(output: Path, *, enabled: bool, baseline: Path | None = None, report: 
         if bin_result.returncode != 0 or not bundle.is_dir():
             report["render"] = {"status": "failed", "reason": "Built XCTest bundle not found"}
             return report
-        for language in ("ru", "de"):
+        for language in (("en",) if suite == "public-gallery" else ("ru", "de")):
             observed_environment = runtime / "tmp" / f"environment-{language}.json"
             render_env = {**env, "LUNAVECT_NATIVE_RENDER_ISOLATION": "passed", "LUNAVECT_PREVIEW_LANGUAGE": language,
                           "LUNAVECT_NATIVE_RENDER_OUTPUT": str(images), "LUNAVECT_NATIVE_RENDER_FORBIDDEN": str(sentinel),
                           "LUNAVECT_NATIVE_RENDER_ENVIRONMENT": str(observed_environment)}
-            selected = ((TEST, None, ''),) if suite == 'smoke' else LEGACY_TESTS
+            selected = ((TEST, None, ''),) if suite == 'smoke' else PUBLIC_TESTS if suite == 'public-gallery' else LEGACY_TESTS
             for test, flag, prefix in selected:
                 test_env = dict(render_env)
                 if flag:
@@ -291,8 +308,8 @@ def check(output: Path, *, enabled: bool, baseline: Path | None = None, report: 
             if report["environment"].get("accessibility", observed) != observed:
                 raise ValueError("Accessibility environment changed between language renders")
             report["environment"]["accessibility"] = observed
-        report["files"] = inspect_images(images, EXPECTED if suite == 'smoke' else LEGACY_EXPECTED)
-        report["render"] = {"status": "passed", "reason": f"{len(report['files'])} windowless synthetic PNGs generated with expected dimensions"}
+        report["files"] = inspect_images(images, EXPECTED if suite == 'smoke' else PUBLIC_EXPECTED if suite == 'public-gallery' else LEGACY_EXPECTED)
+        report["render"] = {"status": "passed", "reason": f"{len(report['files'])} isolated synthetic PNGs generated with expected dimensions"}
         if baseline:
             report["_active_stage"] = "comparison"
             report["comparison"] = compare_baseline(output, baseline, report["files"], report["environment"])
@@ -303,7 +320,7 @@ def main() -> int:
     global DIAGNOSTICS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", help="Explicitly opt in to the isolated render")
-    parser.add_argument("--suite", choices=('smoke', 'legacy-values'), default='smoke', help='Only explicitly audited test methods are callable')
+    parser.add_argument("--suite", choices=('smoke', 'legacy-values', 'public-gallery'), default='smoke', help='Only explicitly audited test methods are callable')
     parser.add_argument("--require-render", action="store_true", help="Fail when render is skipped or fails (recommended in the opt-in CI job)")
     parser.add_argument("--output", type=Path, required=True, help="New output directory; an existing directory is never reused")
     parser.add_argument("--baseline", type=Path, help="Previous passed output from the same OS/toolchain; byte differences fail for manual review")

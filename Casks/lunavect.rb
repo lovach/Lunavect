@@ -1,8 +1,8 @@
 cask "lunavect" do
-  version "0.1.0"
-  sha256 "e23e4eb272b6aadbefdbc9cdcced23720d9cd82c421bd06871497d3a8df1baf2"
+  version "0.1.1"
+  sha256 "5fe1908dbe9455bb96692762d605432a6c255f7c1245d6a37adbf01a6df44d1f"
 
-  url "https://github.com/lovach/Lunavect/releases/download/v#{version}/Lunavect-#{version}-installer-2.dmg"
+  url "https://github.com/lovach/Lunavect/releases/download/v#{version}/Lunavect-#{version}.dmg"
   name "Lunavect"
   desc "Claude Code and Codex session status, usage limits, and desktop widgets"
   homepage "https://github.com/lovach/Lunavect"

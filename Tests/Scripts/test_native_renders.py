@@ -51,6 +51,31 @@ class NativeRendersTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '12 selected states'):
                 renders.inspect_images(images, renders.LEGACY_EXPECTED)
 
+    def test_public_gallery_rejects_missing_or_low_resolution_assets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            images = Path(temporary)
+            for name, dimensions in renders.PUBLIC_EXPECTED.items():
+                png(images / name, dimensions)
+            self.assertEqual(len(renders.inspect_images(images, renders.PUBLIC_EXPECTED)), 11)
+            target = images / 'menu-bar.png'
+            target.unlink()
+            with self.assertRaisesRegex(ValueError, '11 selected states'):
+                renders.inspect_images(images, renders.PUBLIC_EXPECTED)
+            png(target, (720, 144))  # A 1x capture is insufficient for this gallery.
+            with self.assertRaisesRegex(ValueError, 'dimensions'):
+                renders.inspect_images(images, renders.PUBLIC_EXPECTED)
+
+    def test_public_gallery_reports_scope_without_launching_when_not_enabled(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(renders, 'run', side_effect=AssertionError('process launched')):
+            output = Path(temporary)
+            report = renders.check(output, enabled=False, suite='public-gallery')
+            self.assertEqual(report['render']['status'], 'not-run')
+            self.assertEqual(report['environment']['languages'], ['en'])
+            renders.write_report(output, report)
+            summary = (output / 'summary.md').read_text()
+            self.assertIn('Offscreen AppKit windows', summary)
+            self.assertNotIn('Fixed clock:', summary)
+
     def test_default_is_opt_in_and_does_not_launch_any_process(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(renders, "run", side_effect=AssertionError("process launched")):
             output = Path(temporary)
@@ -62,11 +87,13 @@ class NativeRendersTests(unittest.TestCase):
             self.assertTrue((output / "gallery.html").is_file())
 
     def test_unavailable_sandbox_never_falls_back(self):
-        with tempfile.TemporaryDirectory() as temporary, patch.object(renders.platform, "system", return_value="Linux"), \
-                patch.object(renders, "run", side_effect=AssertionError("process launched")):
-            report = renders.check(Path(temporary), enabled=True)
-            self.assertEqual(report["isolation"]["status"], "skipped")
-            self.assertEqual(report["render"]["status"], "skipped")
+        for suite in ('smoke', 'legacy-values', 'public-gallery'):
+            with self.subTest(suite=suite), tempfile.TemporaryDirectory() as temporary, \
+                    patch.object(renders.platform, "system", return_value="Linux"), \
+                    patch.object(renders, "run", side_effect=AssertionError("process launched")):
+                report = renders.check(Path(temporary), enabled=True, suite=suite)
+                self.assertEqual(report["isolation"]["status"], "skipped")
+                self.assertEqual(report["render"]["status"], "skipped")
 
     def test_failed_probe_prevents_test_build_and_renderer(self):
         commands = []

@@ -10,7 +10,7 @@ New profiles enable update checks and leave automatic downloads/installation off
 
 Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](../PRIVACY.md#network-requests).
 
-The [first public release](https://github.com/lovach/Lunavect/releases/tag/v0.1.0) is 0.1.0 (103). Testing an update between two different public versions is still an open item in [verification](verification.md).
+The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.1.1) is 0.1.1 (147). Sparkle installed it from development build 145 at ordinary quit, preserving all 38 captured preferences and shared widget settings. An upgrade specifically from the previous public build 103, plus offline/retry behavior, remains open in [verification](verification.md).
 
 ## Preparing a release
 
@@ -32,10 +32,10 @@ Public build configuration is in `Config/Distribution.xcconfig` and `Config/Upda
 First refresh release tags and download the currently published appcast into a private evidence directory. Review that baseline; the tools do not fetch it automatically. Use a new version/tag and a build and marketing version above every published entry. For example, after replacing these illustrative values with the intended release:
 
 ```sh
-./scripts/distribute.sh archive 0.1.1 104 /path/to/published-appcast.xml
-./scripts/distribute.sh submit 0.1.1 104
+./scripts/distribute.sh archive 0.1.2 148 /path/to/published-appcast.xml
+./scripts/distribute.sh submit 0.1.2 148
 # After Apple's notarization completes:
-./scripts/distribute.sh export 0.1.1 104
+./scripts/distribute.sh export 0.1.2 148
 ```
 
 Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, and a build or marketing version that does not exceed the supplied appcast. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.
@@ -84,8 +84,8 @@ Keep packaging dependencies and output outside the repository:
 python3 -m venv /path/outside-repository/dmg-venv
 /path/outside-repository/dmg-venv/bin/pip install -r scripts/dmg/requirements.txt
 /path/outside-repository/dmg-venv/bin/python scripts/package-dmg.py \
-  --app '/path/to/Notarized-103/Lunavect.app' \
-  --output '/path/to/release-assets/Lunavect-0.1.0.dmg'
+  --app '/path/to/Notarized-147/Lunavect.app' \
+  --output '/path/to/release-assets/Lunavect-0.1.1.dmg'
 ```
 
 Replace these paths and version numbers with your exported app and intended output. The DMG is a read-only image containing the app and an Applications link. Its Finder layout uses `scripts/dmg/layout.json`; the AppKit background renderer provides 1× and 2× artwork. The pinned `dmgbuild` dependencies write the layout metadata without automating Finder. See the [installer screenshot](images/installer.jpg).

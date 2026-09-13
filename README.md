@@ -7,7 +7,7 @@
 A macOS menu bar app and desktop widgets for **Claude Code** and **Codex**.
 
 <p>
-  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0-installer-2.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
+  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.1/Lunavect-0.1.1.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
 </p>
 
 macOS 14+ · Apple silicon & Intel · Free and open source
@@ -26,7 +26,7 @@ macOS 14+ · Apple silicon & Intel · Free and open source
   </a>
 </p>
 
-<sub>Interface previews captured on September 12, 2026 with sample data; current labels and controls may differ. [About the screenshots](docs/verification.md#public-screenshots).</sub>
+<sub>Current interface, captured on September 13, 2026 with fictional data. [About the screenshots](docs/verification.md#public-screenshots).</sub>
 
 ## Install
 
@@ -42,7 +42,7 @@ open -a Lunavect
 
 </div>
 
-Or [download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0-installer-2.dmg) and drag **Lunavect** to **Applications**. The release is Developer ID signed and notarized by Apple.
+Or [download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.1/Lunavect-0.1.1.dmg) and drag **Lunavect** to **Applications**. The release is Developer ID signed and notarized by Apple.
 
 Open **Connect Claude** or **Connect Codex** in Lunavect. Claude requires **Claude Code CLI**; Claude Desktop alone is not enough. Connect either service or both. Sign-in stays with the official clients.
 
@@ -72,7 +72,8 @@ Missing or expired limits stay marked as unavailable.
 ### Desktop widgets
 
 Small, medium and large layouts for limits, activity or both.<br>
-macOS manages placement and refresh.
+Choose a solid background or adjustable glass in Settings → Widgets.<br>
+macOS manages placement and refresh; glass is experimental and off by default.
 
 <p>
   <a href="docs/images/widget-overview.png"><img src="docs/images/widget-overview.png" width="344" alt="Compact weekly limits above an activity chart with detailed hour labels"></a>
@@ -89,16 +90,17 @@ Working time by day, week and month, with project and session breakdowns.<br>
 Recovered history is marked as approximate.
 
 <p>
-  <a href="docs/images/readme-activity.png"><img src="docs/images/readme-activity.png" width="800" alt="Activity statistics with provider totals, a daily chart, recovered history and a project breakdown"></a>
+  <a href="docs/images/readme-activity.png"><img src="docs/images/readme-activity.png" width="800" alt="Activity statistics with provider totals, a daily chart, recovered history and project navigation"></a>
 </p>
 
-### On your Mac
+### Menu bar
+
+Choose bars and percentages, compact icons and percentages, or rings.<br>
+The compact mode removes the bars and reduces the height of the indicator.
 
 <p>
-  <a href="docs/images/macos-menu-bar.png"><img src="docs/images/macos-menu-bar.png" width="640" alt="Lunavect open from the macOS menu bar on a Mac desktop — development preview with sample sessions"></a>
+  <a href="docs/images/menu-bar.png"><img src="docs/images/menu-bar.png" width="720" alt="Three native menu-bar limit styles: bars and percentages, icons and percentages, and rings"></a>
 </p>
-
-<sub>Retouched macOS capture with sample data. Menu-bar usage indicators are a development preview and are not in 0.1.0. [Screenshot notes](docs/verification.md#public-screenshots).</sub>
 
 All images open at full resolution when clicked. Session names, paths and usage values are samples.
 

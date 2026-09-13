@@ -29,7 +29,7 @@ Legacy store-based exporters now obtain their dependencies from `AppEnvironment.
 
 The expanded `legacy-values` suite generated 12 native 2× PNGs in RU/DE: stale/fresh allowances, import reports at two widths, the selected contour in light/dark and the control glyph alphabet. All 12 were visually inspected for clipping and missing content on this host. A repeated run had identical PNG hashes. Preview environment construction and stop also passed inside the same sandbox. Nine synthetic probes verified denied file/preference access and writes, child processes, network and preferences-daemon access. This proves the declared fixture scope on this host, not every dependency reachable from the whole application.
 
-Whole Settings, release screenshots, onboarding and session-window exporters remain guarded and excluded from the launcher. Their migration compiles, but native window/control rendering needs its own isolated evidence. No public screenshot or approved Tide artwork was replaced by this work. The [render protocol](checks-and-release-gates.md#native-comparison-review) keeps visual approval separate from file export success.
+At the time of this measurement, whole Settings, release screenshots, onboarding and session-window exporters were excluded from the launcher. The later reviewed `public-gallery` subset has separate [render evidence](verification.md#public-screenshots); it does not change these historical measurements. No approved Tide artwork was replaced. The [render protocol](checks-and-release-gates.md#native-comparison-review) keeps visual approval separate from file export success.
 
 ## What requires the installed app or another Mac
 
