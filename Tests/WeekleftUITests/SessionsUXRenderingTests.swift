@@ -16,6 +16,34 @@ import AwakeService
 }
 
 final class SessionsUXRenderingTests: XCTestCase {
+    @MainActor func testClaudeClosingQuestionCountsAsWaiting() throws {
+        let suite = "Lunavect.ClosingQuestion." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = SessionStore(defaults: defaults, isolated: true)
+        let now = Date()
+        let payload: [String: Any] = ["session_id": "closing-question", "hook_event_name": "Stop",
+                                     "last_assistant_message": "Предлагаю пять правок.\n\n1. Делаем все пять? Предлагаю да."]
+        var question = try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: .claude,
+                                               previous: nil, now: now, client: .desktop).session
+        question.title = "Доработать видео"; question.cwd = "/Projects/Studio"
+        let ready = AgentSession(provider: .claude, sessionID: "completed-response", title: "Проверить обложку", cwd: "/Projects/Studio",
+                                 client: .desktop, phase: .ready, updatedAt: now, observedAt: now)
+        store.acceptSessions([question, ready], now: now)
+        let awake = KeepAwake(client: SessionRenderAwakeClient(), defaults: defaults)
+        let updates = AppUpdates(defaults: defaults, isolated: true)
+        let view = SessionsView(store: store, updates: updates, awake: awake, isPreview: true, onSettings: {})
+        XCTAssertEqual(view.currentCounts(at: now).waiting, 1)
+        XCTAssertEqual(view.currentCounts(at: now).working, 0)
+        XCTAssertEqual(store.activeCount, 1)
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_SESSIONS_UX"] {
+            _ = NSApplication.shared
+            let directory = URL(fileURLWithPath: output, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try render(view, size: CGSize(width: 360, height: 290), scheme: .dark,
+                       to: directory.appendingPathComponent("claude-closing-question.png"))
+        }
+    }
     @MainActor func testNativeSessionsAndHiddenScreens() throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_SESSIONS_UX"] else {
             throw XCTSkip("Opt-in isolated native rendering")

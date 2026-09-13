@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 — 2026-09-13
+
+- Recognize explicit closing decision questions from Claude as awaiting input and include them in the waiting count.
+- Preserve inferred questions across idle session polls until new work, a terminal state or the existing freshness limit supersedes them.
+- Inspect the supported local Stop payload without saving the assistant response text. Recognition is conservative and may miss other wording.
+
 ## 0.1.1 — 2026-09-13
 
 - Stable session ordering while the panel is open, consistent waiting counts and clearer navigation through long lists.

@@ -17,6 +17,12 @@ The working and awaiting-input counters summarize current states. A saved title,
 
 A retained Claude background `blocked` entry without a live process ID, live status or fresh lifecycle event stays outside Current sessions and the awaiting-input count. Lunavect preserves its waiting phase and data; this is a product boundary for current presence, not a claim that Claude completed the task. A live wait remains current regardless of the session's start date, and background `working` remains current even without a process because autonomous work can continue between process lifetimes.
 
+## Closing questions from Claude
+
+From 0.1.2, a recognized closing decision question such as “Shall I apply these changes?” is shown as **Input needed** and included in the waiting count. The adapter examines the documented local [`Stop.last_assistant_message` field](https://code.claude.com/docs/en/hooks#stop-input); it does not read another transcript or save the response text.
+
+This is a conservative inference from selected Russian, English and German wording, rather than confirmation of a permission dialog. Unknown wording remains **Response ready**. A fresh idle poll preserves the question without extending its timestamp; resumed work, explicit later states or the existing ten-minute hook freshness limit supersede it. Structured permission events retain priority.
+
 ## Find and arrange sessions
 
 Use search to find a title or project. **All**, **Claude** and **Codex** select providers; **Active** narrows the list to active states. The row menu contains the available actions for that session, including pinning, hiding, opening a project and copying a resume command. Drag rows to change their order.
