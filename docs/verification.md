@@ -16,6 +16,7 @@ The current public release is **Lunavect 0.1.1 (147)**. These records distinguis
 | Actual update | Sparkle installed 0.1.1 (147) from development build 145 on an ordinary quit. The installed executable matched the release. All 38 captured app preferences and shared widget preferences were unchanged; persisted data remained present. Activity files continued receiving live updates between captures. |
 | Widget layout | Current layouts rendered with fictional data, including English, Russian and German states. Compact durations, expanded graph space and intermediate Y-axis labels were checked. Manual subscription dates were removed from widget faces. |
 | Widget background | The owner confirmed adjustable glass on the development build on this Mac. The native material probe passed three archive cycles for three widget kinds, including disabled and incompatible-runtime fallbacks. This is not certification of every macOS version or accessibility setting. |
+| Helper registration | After the update, a stale macOS helper registration failed to resolve its executable. Refreshing the app registration and repeating its existing startup maintenance restored helper 147; it started once and exited normally after becoming idle. System sleep remained enabled. A closed-lid cycle was not tested. |
 | Existing downloads | The previous 0.1.0 release assets remain at their original URLs with unchanged digests. |
 
 The DMG SHA-256 is `5fe1908dbe9455bb96692762d605432a6c255f7c1245d6a37adbf01a6df44d1f`. The updater uses the signed ZIP and appcast, not the DMG.

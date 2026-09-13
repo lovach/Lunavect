@@ -1,41 +1,34 @@
 # Remaining limits in the menu bar
 
-This feature is a local change after release 0.1.0 (103); it is not part of that published release.
+Available in Lunavect 0.1.1 and later. Open **Settings → Menu Bar → Limits** and enable **Show remaining limits**. Choose all connected services, Claude or Codex, then select the weekly or five-hour window.
 
-Open **Settings → Menu bar → Limits** and enable **Show remaining limits**. Choose all connected services, Claude, or Codex, then choose the weekly or five-hour window.
+## Styles
 
-**Bars and percentages** is the default style. Each provider's logo sits beside the remaining percentage, with an equally sized horizontal bar below the entire provider block. **Show time until reset** adds a countdown below the percentage in the menu bar and its settings preview. The switch is off by default, including when upgrading preferences that do not yet contain this choice; an explicitly saved choice is preserved. Reset details stay available in the panel and tooltip with either setting. The reset indicator never substitutes the duration of the quota window for time remaining: a weekly allowance resetting in 36 hours displays a countdown of one day and twelve hours, not seven days.
+- **Bars and percentages**: the default, with a provider icon, remaining percentage and horizontal bar. Optional reset countdowns sit below the percentage.
+- **Icons and percentages**: one compact row per provider, with no bars or reserved countdown column. Bar and countdown preferences remain saved for switching back.
+- **Rings**: compact circles whose filled arc represents the remaining allowance.
 
-**Icons and percentages** removes the bars and shows one centered row per provider. Smaller gaps and no reserved countdown column reduce the indicator's width. The font size stays readable, and the width remains stable as values change between `100%*`, `0%` and unavailable data. The countdown and bar color choices remain saved when switching back to bars.
+Click an indicator to open the details panel with percentages, reset countdowns and exact local reset dates. The panel can refresh existing sources or change the selected window. **Menu** opens settings, remembering the last section; **Details** opens the full Limits page. Both remain available when the animated character is hidden.
 
-**Rings** is another compact style in the same settings section. The filled arc represents the remaining allowance. Clicking any style opens a small panel with percentages, reset countdowns and exact local reset dates. The panel can change the selected window or refresh the existing sources. The **Menu** control is at the top right, beside Refresh; it opens the settings window with its sidebar and remembers the last section. **Details** opens the full Limits page directly. Both remain available when the character is hidden. The panel closes on another click or when the app deactivates.
+[Native style comparison](images/menu-bar.png)
 
-**Icon color** and **Bar color** (or **Ring color**) are independent: each offers **System** or **Service color**. System uses the native foreground color and follows light/dark appearance. The settings preview, menu bar and its details panel update together. Upgrading preserves the previous monochrome icons and colored meters; all four color combinations persist independently of the selected style.
+## Appearance and freshness
 
-The indicator uses the app's existing quota snapshots and makes no additional background provider requests. A local timer updates countdowns and freshness every 30 seconds, with an immediate check after waking. Session status and widget preferences keep their existing settings. Existing enabled/service/period selections migrate to the default bar style without being reset.
+**Icon color** and **Bar color** or **Ring color** are independent. Each offers **System** and **Service color**. The system option follows the light or dark menu bar. Saved color choices persist across styles.
 
-A missing or expired window displays a dash or an unfilled dashed ring. Saved, unexpired values older than 15 minutes, or associated with a source error, carry an asterisk in the numeric style and use a faded dashed arc in the ring style. The details panel identifies saved values. Zero remaining is a valid empty meter with `0%`; it is distinct from unavailable data. Disabled services are not shown, even if their snapshots remain stored.
+**Show time until reset** is off by default. Explicitly saved choices survive upgrades. Countdown values come from the actual reset timestamp. Hiding the countdown preserves the bar layout's width and icon positions; numeric columns accommodate `100%*`, `0%` and unavailable values without shifting neighboring items.
 
-**Characters** is a separate section below Limits on the same page, with its own **Show work icon and status** switch, character selection, animation, color and session-status settings. The **Limits** section contains only the limit switch and its service, period, indicator and color settings. Turn off either indicator independently, or both to use only desktop widgets. Hiding session status stops its animation timers while activity collection and quota refresh continue. Reopening Lunavect from Applications or Spotlight opens Menu bar settings when session status is hidden, so the switches remain reachable. Existing installations keep session status enabled.
+The indicator reads existing quota snapshots, without extra provider requests. A local timer updates countdowns and freshness every 30 seconds, including an immediate check after wake.
 
-The bar layout typically uses 136–150 points for both providers, down from 192, expanding slightly when a translated countdown needs more space. Each logo has a separate column with a 7-point gap before the text; provider blocks have a 12-point gap. Both providers use equal-width text columns and aligned bars. Percentage and countdown font sizes are preserved, including room for `100%*`. Hiding the countdown keeps the icon centers, bar baselines and overall width unchanged, with the percentage centered vertically beside the logo. This leaves more room for the animated character and other menu-bar items.
+- Missing or expired data shows a dash or an unfilled dashed ring.
+- Saved, unexpired values older than 15 minutes, or values associated with a source error, show an asterisk or a faded dashed arc. The details panel identifies saved data.
+- A confirmed zero shows `0%` and an empty meter.
+- Disabled services are omitted even if their previous snapshots remain stored.
 
-## Local validation on September 12, 2026
+## Session status
 
-The graphical update passed 15 focused tests covering countdowns from real reset dates, day/hour transitions without another fetch, expiry, absent and saved values, disconnected services, preference migration, style/period changes, native popover opening and dismissal, stable placement across countdown updates, and translation completeness. The native indicator, settings and details panel were rendered with demonstration data; long translations and saved-data notices determine the panel height. A subsequent height adjustment and final settings copy were checked with their affected tests again.
+The **Characters** section has its own **Show work icon and status** switch and animation, color and text settings. Limits and session status can be hidden independently. Turning off both leaves desktop widgets available.
 
-The indicator renders cover 22, 28 and 32 point menu bars, light/dark backgrounds, and all six interface languages. The settings renders include both styles. These are production AppKit/SwiftUI views with demonstration data, not screenshots of an installed app or proof of live mouse interaction.
+Hiding session status stops its animation timers while activity collection and quota refresh continue. Reopening Lunavect from Applications or Spotlight opens Menu Bar settings when session status is hidden, so the switches remain reachable. Upgrades preserve existing selections.
 
-The final graphical build 106 passed a signed Release build and signature verification, was installed with the existing App Group (zero files migrated), and was launched from the installed app. The bar style is enabled in this local installation. Live clicking in the installed app remains unverified because the native UI automation service was unavailable; the popover interaction checks above ran in the native test process.
-
-The independent-color update passed seven focused checks for saved preferences, migration from versions without color choices, live native indicator/panel updates, translation completeness and native renders. All four combinations were inspected in both styles on light and dark backgrounds; settings and details were rendered in all six languages. Signed Release build 107 was verified, installed without data migration and launched from the installed path. Live switching in the installed app remains unverified: the UI automation service closed its native connection after launch.
-
-The earlier text-only build 104 passed `./scripts/check.sh`: 275 Swift tests, 32 opt-in skips, Python checks, WidgetKit descriptor checks, and a universal unsigned Release build. Its signed local installation used the same App Group as the published installation, with no data migration. That older full run is not a new full-suite result for the graphical update.
-
-No new GitHub release or Actions result is implied by these local checks.
-
-Build 110 adds the independent session-status switch. A focused native test verified hiding and restoring the status item, preserving both limit settings and session counts, and keeping the item hidden during session updates. Settings were rendered and inspected in Russian, English and German. The signed Release build was installed with the same App Group as build 107, with no data migration. The installed session panel was readable, but opening settings caused the UI automation connection to close; actual settings clicks and reopening from Spotlight remain unverified.
-
-Build 111 separates Limits and Characters into two tabs. Each tab owns its switch and settings; the selected tab is remembered. Translation checks and native renders of both tabs, enabled and disabled, passed in Russian, English and German. The signed build and matching app/widget resources were verified and installed without data migration. Live tab switching remains unverified because the UI automation connection closed when opening the installed settings window.
-
-Build 112 supersedes the tab layout: Limits and Characters are now two sections on one scrollable page. Each section contains its own switch and settings, with session-status options inside Characters. The native page render passed and was inspected; the signed build was installed with no data migration. Live settings interaction was not rerun after the previously recorded UI automation failure.
+See [recorded verification](verification.md) for the current release checks and remaining live-interface coverage.
