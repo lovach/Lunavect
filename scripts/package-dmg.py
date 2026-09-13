@@ -12,9 +12,6 @@ import sys
 ARTWORK = Path(__file__).resolve().parent / 'dmg'
 REGISTER = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
 
-ARTWORK = Path(__file__).resolve().parent / 'dmg'
-REGISTER = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
-
 
 def checked(*command):
     subprocess.run(command, check=True)
