@@ -31,8 +31,8 @@ struct WeekleftTimeline: TimelineProvider {
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<WeekleftEntry>) -> Void) {
         let now = Date(), snapshot = entry(at: .now)
-        let entries = (0...15).map {
-            WeekleftEntry(date: now.addingTimeInterval(Double($0) * 60), state: snapshot.state,
+        let entries = WidgetTimelineSchedule.dates(from: now, snapshots: snapshot.state.snapshots).map {
+            WeekleftEntry(date: $0, state: snapshot.state,
                           activity: snapshot.activity, activityUnavailable: snapshot.activityUnavailable)
         }
         completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(900))))
@@ -49,9 +49,9 @@ struct ActivityTimeline: AppIntentTimelineProvider {
     }
     func timeline(for configuration: ActivityConfiguration, in context: Context) async -> Timeline<WeekleftEntry> {
         let current = await snapshot(for: configuration, in: context)
-        let entries = (0...15).map { minute in
+        let entries = WidgetTimelineSchedule.dates(from: current.date, snapshots: current.state.snapshots).map { date in
             let entry = current
-            return WeekleftEntry(date: current.date.addingTimeInterval(Double(minute) * 60), state: entry.state,
+            return WeekleftEntry(date: date, state: entry.state,
                                  activity: entry.activity, activityUnavailable: entry.activityUnavailable, period: entry.period, source: entry.source, selectedDate: entry.selectedDate)
         }
         return Timeline(entries: entries, policy: .after(current.date.addingTimeInterval(900)))
@@ -75,7 +75,14 @@ struct WeekleftWidgetView: View {
                     Color.white.opacity(0.01).frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
                 }.buttonStyle(.plain)
                     .accessibilityLabel(ActivityChartText.point(point.date, period: data.summary.period))
-                    .accessibilityValue(data.series.map { $0.provider.title + ": " + ($0.totals(at: point.date).observed > 0 ? ActivityChartText.value($0.totals(at: point.date), compact: false) : L("Нет данных")) }.joined(separator: "; "))
+                    .accessibilityValue(
+                        data.series.map {
+                            $0.provider.title + ": "
+                                + ($0.totals(at: point.date).observed > 0
+                                    ? ActivityChartText.value($0.totals(at: point.date), compact: false)
+                                    : L("Нет данных"))
+                        }.joined(separator: "; ")
+                    )
                     .disabled(point.date > data.now)
             }
         }
@@ -102,10 +109,12 @@ struct WeekleftWidgetView: View {
                               history: entry.activity, content: content, family: size, now: entry.date,
                               size: geometry.size, activityUnavailable: entry.activityUnavailable, period: entry.period,
                               source: entry.source, selectedDate: entry.selectedDate,
-                              pointButtons: { AnyView(pointControls($0)) }, resetButton: AnyView(resetSelection), pointNavigation: { AnyView(navigation($0, date: $1)) })
+                              pointButtons: { AnyView(pointControls($0)) }, resetButton: AnyView(resetSelection),
+                              pointNavigation: { AnyView(navigation($0, date: $1)) }, drawsBackground: false)
         }
         .containerBackground(for: .widget) {
-            Color.clear
+            ActivityWidgetBackground(transparent: entry.state.preferences.transparentBackground,
+                                     transparency: entry.state.preferences.transparency)
         }
         .widgetURL(content == .limits ? URL(string: "lunavect://limits") : entry.source.widgetURL(period: entry.period))
     }

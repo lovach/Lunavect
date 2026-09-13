@@ -7,6 +7,7 @@ import WeekleftCore
 final class SessionRowRenderingTests: XCTestCase {
     @MainActor func testRenderActualRowsAtPartialSwipeOffsets() throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_SWIPE"] else { throw XCTSkip("Set LUNAVECT_RENDER_SWIPE to export native rows for visual inspection") }
+        try LegacyRenderIsolation.require()
         _ = NSApplication.shared
         let now = Date()
         let row = AgentSession(provider: .codex, sessionID: "render-only", title: "Настрой проект по OpenAI", cwd: "/test", client: .desktop, phase: .ready, updatedAt: now, observedAt: now)

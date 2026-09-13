@@ -17,7 +17,13 @@ final class ActivityImportTests: XCTestCase {
         try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: url.path)
     }
     private func codex(_ start: Double, _ end: Double, id: String = "fixture") -> [String: Any] {
-        ["type": "event_msg", "payload": ["type": "task_complete", "started_at": start, "completed_at": end, "duration_ms": (end - start) * 1000, "turn_id": id, "last_agent_message": "PRIVATE TEXT MUST NOT BE SAVED"]]
+        [
+            "type": "event_msg",
+            "payload": [
+                "type": "task_complete", "started_at": start, "completed_at": end, "duration_ms": (end - start) * 1000,
+                "turn_id": id, "last_agent_message": "PRIVATE TEXT MUST NOT BE SAVED",
+            ],
+        ]
     }
     func testRestoresBothProvidersClipsBoundaryAndUnionsCopiesWithoutMessages() throws {
         let root = try directory(), c = root.appendingPathComponent("c"), a = root.appendingPathComponent("a")
@@ -51,7 +57,14 @@ final class ActivityImportTests: XCTestCase {
         let root = try directory(), t = now.timeIntervalSince1970
         var wrong = codex(t - 120, t - 60)
         var payload = wrong["payload"] as! [String: Any]; payload["duration_ms"] = 60; wrong["payload"] = payload
-        try write([wrong, ["type": "assistant", "subtype": "turn_duration", "timestamp": ISO8601DateFormatter().string(from: now), "durationMs": 120_000]], to: root.appendingPathComponent("log.jsonl"))
+        try write(
+            [
+                wrong,
+                [
+                    "type": "assistant", "subtype": "turn_duration",
+                    "timestamp": ISO8601DateFormatter().string(from: now), "durationMs": 120_000,
+                ],
+            ], to: root.appendingPathComponent("log.jsonl"))
         let codexResult = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)], before: now, now: now)
         XCTAssertTrue(codexResult.intervals.isEmpty); XCTAssertTrue(codexResult.limited)
         XCTAssertTrue(ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .claude)], before: now, now: now).intervals.isEmpty)
@@ -130,7 +143,9 @@ final class ActivityImportTests: XCTestCase {
         let new = merged.summary(now: date, period: .month).totals
         XCTAssertGreaterThanOrEqual(new.active + 0.001, old.active)
         for provider in result.report.providers {
-            print("Import audit: provider=\(provider.id.rawValue), files=\(provider.filesRead), bytes=\(provider.bytesRead), days=\(provider.daysRecovered), tasks=\(provider.taskRecords), agents=\(provider.agentRecords), tools=\(provider.toolRecords), omittedLongStrings=\(provider.longStringsOmitted), issues=\(provider.issues)")
+            print(
+                "Import audit: provider=\(provider.id.rawValue), files=\(provider.filesRead), bytes=\(provider.bytesRead), days=\(provider.daysRecovered), tasks=\(provider.taskRecords), agents=\(provider.agentRecords), tools=\(provider.toolRecords), omittedLongStrings=\(provider.longStringsOmitted), issues=\(provider.issues)"
+            )
         }
         print("Import gain in minutes: Claude=\(Int((new.claude - old.claude) / 60)), Codex=\(Int((new.codex - old.codex) / 60)), total=\(Int((new.active - old.active) / 60))")
         XCTAssertFalse(result.intervals.isEmpty)
@@ -272,6 +287,108 @@ extension ActivityImportTests {
 }
 
 extension ActivityImportTests {
+    private final class ImportClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var calls = 0
+        let expireAtCall: Int?
+        let cancelAtCall: Int?
+        init(expireAtCall: Int? = nil, cancelAtCall: Int? = nil) {
+            self.expireAtCall = expireAtCall; self.cancelAtCall = cancelAtCall
+        }
+        var callCount: Int { lock.withLock { calls } }
+        func now() -> TimeInterval {
+            let call = lock.withLock { calls += 1; return calls }
+            if let cancelAtCall, call >= cancelAtCall { withUnsafeCurrentTask { $0?.cancel() } }
+            return expireAtCall.map { call >= $0 } == true ? 10 : 0
+        }
+    }
+
+    func testMonotonicDeadlineAtBoundaryStopsBeforeReadingFiles() throws {
+        let root = try directory(), end = now.timeIntervalSince1970
+        try write([codex(end - 20, end - 10)], to: root.appendingPathComponent("log.jsonl"))
+        let clock = ImportClock(expireAtCall: 2)
+        let result = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)], before: now,
+            now: now, maximumSeconds: 10, monotonicNow: { clock.now() })
+        XCTAssertFalse(result.cancelled)
+        XCTAssertTrue(result.limited)
+        XCTAssertTrue(result.intervals.isEmpty)
+        XCTAssertEqual(result.report.providers.first?.filesRead, 0)
+        XCTAssertEqual(result.report.providers.first?.bytesRead, 0)
+        XCTAssertNotNil(result.report.providers.first?.issues[.budget])
+    }
+
+    func testDeadlineDuringChunkPreservesOnlyAcceptedCompleteRecords() throws {
+        let root = try directory(), end = now.timeIntervalSince1970
+        var records: [[String: Any]] = []
+        for index in 0..<1_000 {
+            let offset = Double(index) * 20
+            let start = end - offset - 20
+            let finish = end - offset - 10
+            records.append(codex(start, finish))
+        }
+        let file = root.appendingPathComponent("log.jsonl")
+        try write(records, to: file)
+        let clock = ImportClock(expireAtCall: 50)
+        let result = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)], before: now,
+            now: now, maximumSeconds: 10, monotonicNow: { clock.now() })
+        let report = try XCTUnwrap(result.report.providers.first)
+        XCTAssertFalse(result.cancelled)
+        XCTAssertTrue(result.limited)
+        XCTAssertGreaterThan(report.recordsRecovered, 0)
+        XCTAssertLessThan(report.recordsRecovered, records.count)
+        XCTAssertEqual(report.recoveredSeconds, Double(report.recordsRecovered * 10))
+        XCTAssertEqual(result.intervals.count, report.recordsRecovered)
+        XCTAssertLessThanOrEqual(report.bytesRead, 256 * 1024)
+        XCTAssertNotNil(report.issues[.budget])
+    }
+
+    func testCancellationBeforeEnumerationReturnsNoCompletedImport() async throws {
+        let root = try directory(), end = now.timeIntervalSince1970, date = now
+        try write([codex(end - 20, end - 10)], to: root.appendingPathComponent("log.jsonl"))
+        let result = await Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)], before: date, now: date)
+        }.value
+        XCTAssertTrue(result.cancelled)
+        XCTAssertTrue(result.limited)
+        XCTAssertTrue(result.intervals.isEmpty)
+        XCTAssertTrue(result.details.isEmpty)
+        XCTAssertTrue(result.report.providers.isEmpty)
+    }
+
+    func testCancellationDuringReadAndFinalizationDiscardsWorkerPayload() async throws {
+        let root = try directory(), end = now.timeIntervalSince1970, date = now
+        var records: [[String: Any]] = []
+        for index in 0..<1_000 {
+            let offset = Double(index) * 20
+            let start = end - offset - 20
+            let finish = end - offset - 10
+            records.append(codex(start, finish))
+        }
+        try write(records, to: root.appendingPathComponent("log.jsonl"))
+        let baselineClock = ImportClock()
+        let completed = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)], before: date,
+            now: date, maximumSeconds: 10, monotonicNow: { baselineClock.now() })
+        XCTAssertEqual(completed.report.providers.first?.recordsRecovered, records.count)
+        XCTAssertFalse(completed.cancelled)
+        XCTAssertFalse(completed.limited)
+        // The successful timeline identifies its last checkpoint without relying
+        // on wall-clock timing or a particular number of implementation checks.
+        for checkpoint in [50, baselineClock.callCount] {
+            let clock = ImportClock(cancelAtCall: checkpoint)
+            let cancelled = await Task.detached {
+                ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)], before: date,
+                    now: date, maximumSeconds: 10, monotonicNow: { clock.now() })
+            }.value
+            XCTAssertGreaterThanOrEqual(clock.callCount, checkpoint)
+            XCTAssertTrue(cancelled.cancelled)
+            XCTAssertTrue(cancelled.limited)
+            XCTAssertTrue(cancelled.intervals.isEmpty)
+            XCTAssertTrue(cancelled.details.isEmpty)
+            XCTAssertTrue(cancelled.report.providers.isEmpty)
+        }
+    }
+
     func testMissingOptionalArchiveAndInvalidSourceHaveDifferentDiagnostics() throws {
         let root = try directory(), file = root.appendingPathComponent("not-a-directory")
         try Data().write(to: file)

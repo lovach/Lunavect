@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "profile": "large",
+  "configuration": "release",
+  "environment": {
+    "macos": "26.5.2",
+    "architecture": "arm64"
+  },
+  "samples": [
+    {
+      "limitations": [
+        "getrusage max RSS is a cumulative process high-water mark, not a per-phase allocation delta.",
+        "I/O block counters are reported by the OS; zeros can reflect cached I/O and are not zero disk-cost proof.",
+        "Files are freshly generated; caches are not flushed. Fixture generation is measured separately.",
+        "XCTest/build/startup time is outside phase timers; this is not app idle, live-client or battery measurement."
+      ],
+      "phases": [
+        {
+          "cpu_system_seconds": 0.034608,
+          "cpu_user_seconds": 0.206411,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "fixture-generation",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 328024064,
+          "wall_seconds": 0.2467989583092276
+        },
+        {
+          "cpu_system_seconds": 0.011289999999999994,
+          "cpu_user_seconds": 0.560991,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "archive-import",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 388022272,
+          "wall_seconds": 0.5728677916631568
+        },
+        {
+          "cpu_system_seconds": 0.015017000000000003,
+          "cpu_user_seconds": 4.06693,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "history-merge-summary-roundtrip",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 441040896,
+          "wall_seconds": 4.0924776250030845
+        },
+        {
+          "cpu_system_seconds": 0.0004709999999999992,
+          "cpu_user_seconds": 0.132695,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "session-arrangement",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 443973632,
+          "wall_seconds": 0.13345679166377522
+        }
+      ],
+      "profile": "large",
+      "result": {
+        "encoded_history_bytes": 3350087,
+        "ordered_sessions": 5000,
+        "recovered_intervals": 65536,
+        "retained_history_intervals": 50000,
+        "summary_checksum_seconds": 8000000
+      },
+      "scenario": {
+        "archive_files": 256,
+        "archive_logical_bytes": 10015898,
+        "archive_records": 65536,
+        "fixed_now_unix_seconds": 1800000000,
+        "records_per_file": 256,
+        "repetitions": 20,
+        "sessions": 5000
+      },
+      "schema_version": 1
+    },
+    {
+      "limitations": [
+        "getrusage max RSS is a cumulative process high-water mark, not a per-phase allocation delta.",
+        "I/O block counters are reported by the OS; zeros can reflect cached I/O and are not zero disk-cost proof.",
+        "Files are freshly generated; caches are not flushed. Fixture generation is measured separately.",
+        "XCTest/build/startup time is outside phase timers; this is not app idle, live-client or battery measurement."
+      ],
+      "phases": [
+        {
+          "cpu_system_seconds": 0.041018,
+          "cpu_user_seconds": 0.21993400000000002,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "fixture-generation",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 328155136,
+          "wall_seconds": 0.267762750008842
+        },
+        {
+          "cpu_system_seconds": 0.012068000000000002,
+          "cpu_user_seconds": 0.569457,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "archive-import",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 388169728,
+          "wall_seconds": 0.5838657499989495
+        },
+        {
+          "cpu_system_seconds": 0.014552999999999996,
+          "cpu_user_seconds": 4.036650000000001,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "history-merge-summary-roundtrip",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 451526656,
+          "wall_seconds": 4.05941874999553
+        },
+        {
+          "cpu_system_seconds": 0.00011500000000000399,
+          "cpu_user_seconds": 0.13186800000000076,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "session-arrangement",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 454459392,
+          "wall_seconds": 0.13198933331295848
+        }
+      ],
+      "profile": "large",
+      "result": {
+        "encoded_history_bytes": 3350087,
+        "ordered_sessions": 5000,
+        "recovered_intervals": 65536,
+        "retained_history_intervals": 50000,
+        "summary_checksum_seconds": 8000000
+      },
+      "scenario": {
+        "archive_files": 256,
+        "archive_logical_bytes": 10015898,
+        "archive_records": 65536,
+        "fixed_now_unix_seconds": 1800000000,
+        "records_per_file": 256,
+        "repetitions": 20,
+        "sessions": 5000
+      },
+      "schema_version": 1
+    },
+    {
+      "limitations": [
+        "getrusage max RSS is a cumulative process high-water mark, not a per-phase allocation delta.",
+        "I/O block counters are reported by the OS; zeros can reflect cached I/O and are not zero disk-cost proof.",
+        "Files are freshly generated; caches are not flushed. Fixture generation is measured separately.",
+        "XCTest/build/startup time is outside phase timers; this is not app idle, live-client or battery measurement."
+      ],
+      "phases": [
+        {
+          "cpu_system_seconds": 0.029965000000000002,
+          "cpu_user_seconds": 0.211266,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "fixture-generation",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 328089600,
+          "wall_seconds": 0.2464284583402332
+        },
+        {
+          "cpu_system_seconds": 0.007050000000000001,
+          "cpu_user_seconds": 0.553955,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "archive-import",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 388120576,
+          "wall_seconds": 0.5612632500124164
+        },
+        {
+          "cpu_system_seconds": 0.005344999999999996,
+          "cpu_user_seconds": 4.083945000000001,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "history-merge-summary-roundtrip",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 435322880,
+          "wall_seconds": 4.089583333348855
+        },
+        {
+          "cpu_system_seconds": 0.00011300000000000199,
+          "cpu_user_seconds": 0.1285109999999996,
+          "io_input_blocks": 0,
+          "io_output_blocks": 0,
+          "name": "session-arrangement",
+          "resource_counters_status": "passed",
+          "rss_peak_process_bytes": 437780480,
+          "wall_seconds": 0.12863058332004584
+        }
+      ],
+      "profile": "large",
+      "result": {
+        "encoded_history_bytes": 3350087,
+        "ordered_sessions": 5000,
+        "recovered_intervals": 65536,
+        "retained_history_intervals": 50000,
+        "summary_checksum_seconds": 8000000
+      },
+      "scenario": {
+        "archive_files": 256,
+        "archive_logical_bytes": 10015898,
+        "archive_records": 65536,
+        "fixed_now_unix_seconds": 1800000000,
+        "records_per_file": 256,
+        "repetitions": 20,
+        "sessions": 5000
+      },
+      "schema_version": 1
+    }
+  ],
+  "limitations": [
+    "Synthetic workload only; no battery, installed-app, live-client or cross-machine claim.",
+    "Background host load and filesystem caches are not controlled."
+  ],
+  "summary": {
+    "fixture-generation": {
+      "wall_median_seconds": 0.2467989583092276,
+      "wall_min_seconds": 0.2464284583402332,
+      "wall_max_seconds": 0.267762750008842,
+      "samples": 3,
+      "cpu_median_seconds": 0.241231,
+      "rss_max_process_high_water_bytes": 328155136
+    },
+    "archive-import": {
+      "wall_median_seconds": 0.5728677916631568,
+      "wall_min_seconds": 0.5612632500124164,
+      "wall_max_seconds": 0.5838657499989495,
+      "samples": 3,
+      "cpu_median_seconds": 0.572281,
+      "rss_max_process_high_water_bytes": 388169728
+    },
+    "history-merge-summary-roundtrip": {
+      "wall_median_seconds": 4.089583333348855,
+      "wall_min_seconds": 4.05941874999553,
+      "wall_max_seconds": 4.0924776250030845,
+      "samples": 3,
+      "cpu_median_seconds": 4.081947,
+      "rss_max_process_high_water_bytes": 451526656
+    },
+    "session-arrangement": {
+      "wall_median_seconds": 0.13198933331295848,
+      "wall_min_seconds": 0.12863058332004584,
+      "wall_max_seconds": 0.13345679166377522,
+      "samples": 3,
+      "cpu_median_seconds": 0.13198300000000077,
+      "rss_max_process_high_water_bytes": 454459392
+    }
+  },
+  "scenario": {
+    "archive_files": 256,
+    "archive_logical_bytes": 10015898,
+    "archive_records": 65536,
+    "fixed_now_unix_seconds": 1800000000,
+    "records_per_file": 256,
+    "repetitions": 20,
+    "sessions": 5000
+  }
+}

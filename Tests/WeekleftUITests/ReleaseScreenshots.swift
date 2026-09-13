@@ -9,34 +9,28 @@ final class ReleaseScreenshots: XCTestCase {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_RELEASE_SCREENSHOTS"] else {
             throw XCTSkip("Opt-in public screenshots using fictional data")
         }
+        try LegacyRenderIsolation.require()
         _ = NSApplication.shared
         let output = URL(fileURLWithPath: path)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let suite = "Lunavect.ReleaseScreenshots." + UUID().uuidString
-        let defaults = UserDefaults(suiteName: suite)!
-        let previous = L10n.defaults.object(forKey: "languageCode")
-        L10n.defaults.set("en", forKey: "languageCode")
-        defer { L10n.defaults.set(previous, forKey: "languageCode"); defaults.removePersistentDomain(forName: suite) }
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
-        defer { try? FileManager.default.removeItem(at: temporary) }
-        let sessions = SessionStore(directory: temporary, defaults: defaults)
-        let fixture = try PresentationFixture()
+        let preview = try LegacyRenderFixture()
+        defer { preview.stop() }
+        let defaults = preview.environment.defaults
+        let sessions = preview.environment.sessions
+        let fixture = preview.presentation
         let now = fixture.now
         let history = fixture.history
         let preferences = fixture.preferences
         let claude = fixture.snapshots[0], codex = fixture.snapshots[1]
         sessions.acceptSessions(fixture.sessions())
-        let sessionView = SessionsView(store: sessions, onSettings: {}).defaultAppStorage(defaults)
+        let sessionView = preview.sessions()
         try render(sessionView, size: CGSize(width: 360, height: 355), to: output.appendingPathComponent("sessions.png"))
-        let store = AppStore(state: SharedState(snapshots: fixture.snapshots, preferences: preferences), savesChanges: false,
-            activityHistory: history, activityDetails: fixture.details)
-        let appearance = MenuBarAppearance(defaults: defaults)
         for section in ["limits", "statistics"] {
             defaults.set(section, forKey: "settingsSection")
-            try render(SettingsView(store: store, menuBarAppearance: appearance, sessions: sessions).defaultAppStorage(defaults),
+            try render(preview.settings(),
                        size: CGSize(width: 920, height: 780), to: output.appendingPathComponent(section == "limits" ? "limits.png" : "activity.png"))
             if section == "statistics" {
-                try render(SettingsView(store: store, menuBarAppearance: appearance, sessions: sessions).defaultAppStorage(defaults),
+                try render(preview.settings(),
                            size: CGSize(width: 920, height: 1060), to: output.appendingPathComponent("readme-activity.png"))
             }
         }
@@ -130,14 +124,18 @@ final class ReleaseScreenshots: XCTestCase {
             if transparent {
                 Color.clear
             } else if backdrop {
-                LinearGradient(colors: scheme == .dark ? [Color(red: 0.07, green: 0.10, blue: 0.15), Color(red: 0.13, green: 0.12, blue: 0.15)] : [Color(red: 0.92, green: 0.95, blue: 0.99), Color(red: 0.98, green: 0.95, blue: 0.92)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(
+                    colors: scheme == .dark
+                        ? [Color(red: 0.07, green: 0.10, blue: 0.15), Color(red: 0.13, green: 0.12, blue: 0.15)]
+                        : [Color(red: 0.92, green: 0.95, blue: 0.99), Color(red: 0.98, green: 0.95, blue: 0.92)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)
             } else { Color(nsColor: .windowBackgroundColor) }
         }.preferredColorScheme(scheme).environment(\.colorScheme, scheme).environment(\.controlActiveState, .key)
         let host = NSHostingView(rootView: root)
         host.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua); host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         if transparent { window.isOpaque = false; window.backgroundColor = .clear }
-        window.contentView = host; window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+        window.contentView = host
         defer { window.orderOut(nil); window.contentView = nil }
         for _ in 0..<3 { RunLoop.main.run(until: Date().addingTimeInterval(0.07)); host.layoutSubtreeIfNeeded() }
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -148,7 +146,11 @@ final class ReleaseScreenshots: XCTestCase {
             XCTAssertGreaterThanOrEqual(bitmap.pixelsHigh, Int(size.height * 2))
         }
         if let scale {
-            let result = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            let result = try XCTUnwrap(
+                NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                    bytesPerRow: 0, bitsPerPixel: 0))
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: result)
             NSGraphicsContext.current?.imageInterpolation = .high

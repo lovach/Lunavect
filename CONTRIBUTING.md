@@ -20,7 +20,7 @@ This runs the project's checks and creates an unsigned universal Release build. 
 
 ## Pull requests
 
-Keep each pull request focused on one problem. Explain the user-visible behavior, why it changes and what you checked. For an interface change, include a screenshot with fictional data. State any testing you could not perform.
+Keep each pull request focused on one problem. Explain the user-visible behavior, why it changes and what you checked. For an interface change, include a screenshot with fictional data. State any testing you could not perform. For performance changes, keep workload dimensions, configuration and source provenance with the samples; report comparable before/after measurements rather than inferring a speedup from a refactor. See the [measurement protocol](docs/development.md#synthetic-performance-measurements).
 
 Preserve these contracts:
 

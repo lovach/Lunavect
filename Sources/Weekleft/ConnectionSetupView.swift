@@ -12,6 +12,9 @@ struct ConnectionSetupView: View {
     @State private var busy = false
     @State private var waitingExternal = false
     @State private var issue: String?
+    @State private var localState: ClientConnection.LocalState?
+    @State private var editingCodexPath = false
+    @StateObject private var actions = ConnectionViewTasks()
     @State private var copied = false
     @State private var externalAction: ClientConnection.Action?
     @State private var externalDeadline: Date?
@@ -27,9 +30,9 @@ struct ConnectionSetupView: View {
 
     private var component: String { provider == .claude ? "Claude Code" : "Codex" }
     private var executable: String? {
-        if provider == .claude { return SessionSources.discoverClaude() }
-        return FileManager.default.isExecutableFile(atPath: store.codexPath) ? store.codexPath : AppStore.discoverCodex()
+        try? ClientExecutableResolver(codexPath: store.codexPath, discoverCodex: AppStore.discoverCodex).resolve(provider)
     }
+    private var selectedCodexUnavailable: Bool { provider == .codex && !store.codexPath.isEmpty && executable == nil }
     private var snapshot: UsageSnapshot? { store.snapshots.first { $0.provider == provider } }
     private var freshQuota: Bool { snapshot.map { $0.hasQuota && !$0.isStale() && $0.issue == nil } ?? false }
 
@@ -59,6 +62,7 @@ struct ConnectionSetupView: View {
                     else if step == 1 { signInStep }
                     else if step == 2 { accessStep }
                     else { resultStep }
+                    if step == 2, let localState { ConnectionLocalStateView(state: localState) }
                     if let issue {
                         InterfaceLabel(L(issue), .info).foregroundStyle(.orange)
                             .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
@@ -77,18 +81,19 @@ struct ConnectionSetupView: View {
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
                 if step == 0 {
-                    Button(L(executable == nil ? "Установить {0}" : "Продолжить", component)) {
-                        if executable == nil { Task { await launch(.install) } }
-                        else { Task { await checkSignIn() } }
+                    Button(L(editingCodexPath || selectedCodexUnavailable ? "Проверить снова" : executable == nil ? "Установить {0}" : "Продолжить", component)) {
+                        if editingCodexPath || selectedCodexUnavailable { actions.start { await routeToNeededStep() } }
+                        else if executable == nil { actions.start { await launch(.install) } }
+                        else { actions.start { await checkSignIn() } }
                     }.buttonStyle(.borderedProminent).disabled(busy || waitingExternal)
                 } else if step == 1 {
-                    Button(L("Открыть вход в {0}", component)) { Task { await launch(.signIn) } }
+                    Button(L("Открыть вход в {0}", component)) { actions.start { await launch(.signIn) } }
                         .buttonStyle(.borderedProminent).disabled(busy || waitingExternal)
                 } else if step == 2 {
-                    Button(L("Включить лимиты и сессии")) { Task { await enableLocalConnection() } }
+                    Button(L(localState?.hasConfiguration == true ? "Завершить подключение" : "Включить лимиты и сессии")) { actions.start { await enableLocalConnection() } }
                         .buttonStyle(.borderedProminent).disabled(busy)
                 } else if step == 3 {
-                    Button(L("Проверить снова")) { Task { await refreshData() } }.disabled(busy)
+                    Button(L("Проверить снова")) { actions.start { await refreshData() } }.disabled(busy)
                 }
             }.padding(20)
         }.frame(width: 600, height: 580).background(Color(nsColor: .windowBackgroundColor))
@@ -96,7 +101,7 @@ struct ConnectionSetupView: View {
                 guard autoRoute else { return }
                 await routeToNeededStep()
                 if !Task.isCancelled, repair == .signIn, step == 1 { await launch(.signIn) }
-                else if !Task.isCancelled, repair == .install, step == 0 { await launch(.install) }
+                else if !Task.isCancelled, repair == .install, step == 0, !selectedCodexUnavailable { await launch(.install) }
                 else if !Task.isCancelled, repair == .events, step == 2 { await enableLocalConnection() }
                 else if !Task.isCancelled, repair == .reviewUsage, step == 3 { await launch(.reviewUsage) }
                 while !Task.isCancelled {
@@ -106,8 +111,10 @@ struct ConnectionSetupView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                if waitingExternal && !busy { Task { await checkExternalProgress() } }
+                if waitingExternal && !busy { actions.start { await checkExternalProgress() } }
             }
+            .onAppear { actions.activate() }
+            .onDisappear { actions.deactivate(); cancelExternalWait() }
             .accessibilityIdentifier("connection-setup")
     }
 
@@ -120,14 +127,18 @@ struct ConnectionSetupView: View {
     }
     private var componentStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(L(executable == nil ? "Нужен официальный компонент {0}" : "{0} уже установлен", component)).font(.headline)
-            Text(L(provider == .claude
-                   ? "Claude Code получает лимиты вашего аккаунта. Его достаточно подключить один раз — запускать задачи в терминале не нужно."
-                   : "Lunavect использует официальный клиент Codex для лимитов и сессий. Повторная установка не нужна, если клиент уже найден."))
-            if executable == nil {
-                Text(L("По кнопке откроется Terminal и запустит установщик с сайта {0}. Команды вводить не нужно.", ClientConnection.installerURL(provider).host!))
-                Text(L("Устанавливается отдельный официальный клиент, без изменений со стороны Lunavect. Действуют условия провайдера."))
-                    .foregroundStyle(.secondary)
+            if editingCodexPath || selectedCodexUnavailable {
+                ConnectionClientPathView(path: $store.codexPath)
+            } else {
+                Text(L(executable == nil ? "Нужен официальный компонент {0}" : "{0} уже установлен", component)).font(.headline)
+                Text(L(provider == .claude
+                       ? "Claude Code получает лимиты вашего аккаунта. Его достаточно подключить один раз — запускать задачи в терминале не нужно."
+                       : "Lunavect использует официальный клиент Codex для лимитов и сессий. Повторная установка не нужна, если клиент уже найден."))
+                if executable == nil {
+                    Text(L("По кнопке откроется Terminal и запустит установщик с сайта {0}. Команды вводить не нужно.", ClientConnection.installerURL(provider).host!))
+                    Text(L("Устанавливается отдельный официальный клиент, без изменений со стороны Lunavect. Действуют условия провайдера."))
+                        .foregroundStyle(.secondary)
+                }
             }
             Link(L("Официальная инструкция {0}", component), destination: ClientConnection.documentationURL(provider))
             if waitingExternal { retryExternal }
@@ -140,7 +151,7 @@ struct ConnectionSetupView: View {
             Text(L("Lunavect не видит форму входа и не читает её вывод. Проверяем только, подтвердил ли клиент успешный вход."))
                 .foregroundStyle(.secondary)
             Link(L("Как устроен вход {0}", component), destination: ClientConnection.authenticationURL(provider))
-            Button(L("Я уже вошёл — проверить")) { Task { await checkSignIn() } }.disabled(busy)
+            Button(L("Я уже вошёл — проверить")) { actions.start { await checkSignIn() } }.disabled(busy)
             if waitingExternal { retryExternal }
         }.font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
     }
@@ -165,10 +176,10 @@ struct ConnectionSetupView: View {
                 Text(L("Клиент пока не передал актуальные лимиты. Сохранённые значения не считаются новым успешным подключением."))
                 if let message = snapshot?.issue { Text(L(message)).foregroundStyle(.orange) }
                 if provider == .claude {
-                    Button(L("Завершить настройку Claude Code")) { Task { await launch(.reviewUsage) } }.disabled(busy)
+                    Button(L("Завершить настройку Claude Code")) { actions.start { await launch(.reviewUsage) } }.disabled(busy)
                     Text(L("Завершите первый запуск в Claude Code. Lunavect сам проверит данные и вернётся сюда."))
                 }
-                Button(L("Проверить вход")) { Task { await checkSignIn() } }.disabled(busy)
+                Button(L("Проверить вход")) { actions.start { await checkSignIn() } }.disabled(busy)
             }
             if sessions.currentSessions.contains(where: { $0.provider == provider }) {
                 InterfaceLabel(L("Есть текущие сессии"), .activity).foregroundStyle(.green)
@@ -186,7 +197,15 @@ struct ConnectionSetupView: View {
             .buttonStyle(.link).font(.system(size: 12))
     }
     private func checkSignIn(quiet: Bool = false) async {
-        guard !busy, let executable else { return }
+        guard !busy, !Task.isCancelled else { return }
+        let executable: String
+        do { executable = try ClientExecutableResolver(codexPath: store.codexPath, discoverCodex: AppStore.discoverCodex).resolve(provider) }
+        catch {
+            step = 0; issue = error.localizedDescription
+            editingCodexPath = selectedCodexUnavailable
+            return
+        }
+        editingCodexPath = false
         busy = true; if !quiet { issue = nil }
         let state = await ClientConnection.signInState(provider, executable: executable)
         busy = false
@@ -208,10 +227,18 @@ struct ConnectionSetupView: View {
         }
     }
     private var configured: Bool {
-        SessionHooks.installed(provider) && (provider != .claude || ClaudeProvider.statusLineInstalled())
+        ClientConnection.LocalSetup(provider: provider).inspect().connected
     }
     private func routeToNeededStep() async {
-        guard executable != nil else { step = 0; return }
+        guard !Task.isCancelled else { return }
+        localState = ClientConnection.LocalSetup(provider: provider).inspect()
+        do { _ = try ClientExecutableResolver(codexPath: store.codexPath, discoverCodex: AppStore.discoverCodex).resolve(provider) }
+        catch {
+            step = 0; issue = selectedCodexUnavailable ? error.localizedDescription : nil
+            editingCodexPath = selectedCodexUnavailable
+            return
+        }
+        editingCodexPath = false
         await checkSignIn()
     }
     private func cancelExternalWait() {
@@ -230,7 +257,7 @@ struct ConnectionSetupView: View {
         }
     }
     private func launch(_ action: ClientConnection.Action) async {
-        guard !busy else { return }; busy = true; issue = nil
+        guard !busy, !Task.isCancelled else { return }; busy = true; issue = nil
         defer { busy = false }
         do {
             guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { throw SessionError.unavailable }
@@ -244,30 +271,38 @@ struct ConnectionSetupView: View {
             _ = try await NSWorkspace.shared.open([file], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
             guard !Task.isCancelled else { return }
             externalAction = action; externalDeadline = Date().addingTimeInterval(600); waitingExternal = true
-        } catch { issue = "Не удалось открыть официальный клиент. Повторите попытку или используйте официальную инструкцию." }
+        } catch {
+            guard !Task.isCancelled else { return }
+            issue = "Не удалось открыть официальный клиент. Повторите попытку или используйте официальную инструкцию."
+        }
     }
     private func enableLocalConnection() async {
-        guard !busy else { return }; busy = true; issue = nil
+        guard !busy, !Task.isCancelled else { return }; busy = true; issue = nil
         defer { busy = false; sessions.updateHookConfiguration() }
         do {
-            guard let path = SessionHooks.monitorExecutable() else { throw SessionError.unavailable }
-            if provider == .claude && !ClaudeProvider.statusLineInstalled() { try ClaudeProvider.installStatusLine(executable: path) }
-            if !SessionHooks.installed(provider) { try SessionHooks.install(provider: provider, executable: path) }
-            if provider == .codex, let path = executable { store.codexPath = path }
+            localState = try ClientConnection.LocalSetup(provider: provider).apply(.connect)
             store.setProvider(provider, enabled: true); sessions.useProviders(store.providers)
             store.importActivityHistory()
             await waitForRefresh()
             guard !Task.isCancelled else { return }
-            await store.refresh(provider: provider); await sessions.refresh()
+            await store.refresh(provider: provider)
+            guard !Task.isCancelled else { return }
+            await sessions.refresh()
+            guard !Task.isCancelled else { return }
             step = 3
+        } catch let failure as ClientConnection.LocalFailure {
+            localState = failure.state
+            issue = failure.localizedDescription
         } catch { issue = error.localizedDescription }
     }
     private func refreshData() async {
-        guard !busy else { return }; busy = true; issue = nil
+        guard !busy, !Task.isCancelled else { return }; busy = true; issue = nil
         defer { busy = false }
         await waitForRefresh()
         guard !Task.isCancelled else { return }
-        await store.refresh(provider: provider); await sessions.refresh()
+        await store.refresh(provider: provider)
+        guard !Task.isCancelled else { return }
+        await sessions.refresh()
     }
     private func waitForRefresh() async {
         while store.refreshing && !Task.isCancelled {
@@ -284,5 +319,40 @@ struct ConnectionPrivacyView: View {
             Text(L("Локально сохраняются лимиты, названия и ID сессий, папки проектов и статусы. Эти данные не отправляются разработчику Lunavect."))
             Text(L("Для обновления лимитов официальный клиент обращается к своему провайдеру. Lunavect — независимое приложение."))
         }.font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Only reports verified local configuration; it does not claim client approval or live events.
+struct ConnectionLocalStateView: View {
+    let state: ClientConnection.LocalState
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let statusLine = state.statusLine {
+                Text(L("statusLine: {0}", L(statusLine.message)))
+            }
+            Text(L("События: {0}", L(state.hooks.message)))
+            if !state.connected && !state.disconnected {
+                Text(L("Повторите действие, чтобы завершить настройку. Остальные настройки клиента сохранятся."))
+                    .foregroundStyle(.secondary)
+            }
+        }.font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+    }
+}
+
+struct ConnectionClientPathView: View {
+    @Binding var path: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L("Путь к исполняемому файлу codex")).font(.headline)
+            HStack {
+                TextField(L("Путь к исполняемому файлу codex"), text: $path).textFieldStyle(.roundedBorder)
+                Button(L("Выбрать…")) {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+                    if panel.runModal() == .OK, let url = panel.url { path = url.path }
+                }.accessibilityIdentifier("connection-choose-codex-path")
+            }
+        }
     }
 }

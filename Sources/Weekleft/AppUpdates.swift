@@ -10,10 +10,20 @@ import WeekleftCore
     enum Phase: Equatable { case unavailable, idle, checking, downloading(String), ready(String), available(String), failed }
     @Published var phase: Phase = .unavailable
     @Published var automatic = true
+    @Published var checkingAutomatically = true
     @Published var canCheck = false
     @Published var lastCheck: Date?
     private var controller: SPUStandardUpdaterController?
     private var observations: [AnyCancellable] = []
+    private let defaults: UserDefaults
+    private let isolated: Bool
+    init(defaults: UserDefaults = .standard, isolated: Bool = false) {
+        self.defaults = defaults
+        self.isolated = isolated
+        super.init()
+        checkingAutomatically = defaults.object(forKey: "SUEnableAutomaticChecks") as? Bool ?? true
+        automatic = defaults.object(forKey: "SUAutomaticallyUpdate") as? Bool ?? true
+    }
     var notice: String? {
         switch phase {
         case .downloading(let version): return L("Скачивается версия {0}", version)
@@ -24,7 +34,7 @@ import WeekleftCore
     }
     var configured: Bool { controller != nil }
     func start(bundle: Bundle = .main) {
-        guard controller == nil,
+        guard !isolated, controller == nil,
               ReleaseConfiguration(feed: bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String,
                                    publicKey: bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String) != nil else { return }
         let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: self)
@@ -33,14 +43,26 @@ import WeekleftCore
         // start a network check in an unconfigured development build.
         do { try controller.updater.start() } catch { self.controller = nil; phase = .failed; return }
         phase = .idle
-        automatic = controller.updater.automaticallyChecksForUpdates && controller.updater.automaticallyDownloadsUpdates
+        checkingAutomatically = controller.updater.automaticallyChecksForUpdates
+        automatic = controller.updater.automaticallyDownloadsUpdates
         controller.updater.publisher(for: \.canCheckForUpdates).receive(on: RunLoop.main).sink { [weak self] in self?.canCheck = $0 }.store(in: &observations)
         controller.updater.publisher(for: \.lastUpdateCheckDate).receive(on: RunLoop.main).sink { [weak self] in self?.lastCheck = $0 }.store(in: &observations)
     }
     func setAutomatic(_ value: Bool) {
         automatic = value
-        controller?.updater.automaticallyChecksForUpdates = value
+        defaults.set(value, forKey: "SUAutomaticallyUpdate")
         controller?.updater.automaticallyDownloadsUpdates = value
+        if value { setCheckingAutomatically(true) }
+    }
+    func setCheckingAutomatically(_ value: Bool) {
+        checkingAutomatically = value
+        defaults.set(value, forKey: "SUEnableAutomaticChecks")
+        controller?.updater.automaticallyChecksForUpdates = value
+        if !value {
+            automatic = false
+            defaults.set(false, forKey: "SUAutomaticallyUpdate")
+            controller?.updater.automaticallyDownloadsUpdates = false
+        }
     }
     func check() {
         guard let controller, controller.updater.canCheckForUpdates else { return }
@@ -73,12 +95,20 @@ import WeekleftCore
 
 struct UpdateSettingsView: View {
     @ObservedObject var updates: AppUpdates = .shared
+    var automaticChecks: Binding<Bool> {
+        Binding(get: { updates.checkingAutomatically }, set: { updates.setCheckingAutomatically($0) })
+    }
+    var automaticDownloads: Binding<Bool> {
+        Binding(get: { updates.automatic }, set: { updates.setAutomatic($0) })
+    }
     var body: some View {
         GroupBox(L("Обновления")) {
             VStack(alignment: .leading, spacing: 12) {
-                Toggle(L("Автоматически скачивать новые версии"), isOn: Binding(get: { updates.automatic }, set: updates.setAutomatic))
-                    .disabled(!updates.configured)
-                Text(L("Lunavect проверяет GitHub каждый час, пока приложение открыто, и скачивает подписанные обновления. О новой версии сообщат отметка в строке меню и карточка в панели сессий. Установка — при выходе или по кнопке."))
+                Toggle(L("Автоматически проверять обновления"), isOn: automaticChecks)
+                    .disabled(!updates.configured).accessibilityIdentifier("updates-auto-check")
+                Toggle(L("Автоматически скачивать новые версии"), isOn: automaticDownloads)
+                    .disabled(!updates.configured).accessibilityIdentifier("updates-auto-download")
+                Text(L("Проверка сообщает о новых версиях. Автоматическое скачивание — отдельная настройка; при его включении проверка тоже включается. Установка не прерывает текущую работу."))
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let notice = updates.notice { InterfaceLabel(notice, .refresh).foregroundStyle(.blue) }
                 if !updates.configured {

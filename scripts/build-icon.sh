@@ -1,10 +1,10 @@
 #!/bin/bash
-# Builds Sources/Weekleft/Resources/AppIcon.icns from the selected design SVG.
+# Builds Sources/Weekleft/Resources/LunavectTide.icns from the selected design SVG.
 # selection.json is the source of truth. Tide already contains macOS icon margins.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${1:-}"
-OUT="$ROOT/Sources/Weekleft/Resources/AppIcon.icns"
+OUT="$ROOT/Sources/Weekleft/Resources/LunavectTide.icns"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 # Export tooling only; the app and CI consume the committed PNG/ICNS resources.

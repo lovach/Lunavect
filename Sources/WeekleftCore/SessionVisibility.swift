@@ -3,6 +3,7 @@ import CoreGraphics
 
 /// Only Lunavect's list preference. Never mutates provider sessions or transcripts.
 public struct SessionVisibility {
+    public static let retention: TimeInterval = 35 * 86400
     private struct HiddenSession: Codable {
         var hiddenAt: Date
         var phase: SessionPhase?
@@ -11,6 +12,7 @@ public struct SessionVisibility {
         var title: String?
         var project: String?
         var removed: Bool?
+        var removedAt: Date?
     }
     private struct Saved: Codable { var sessions: [String: HiddenSession] }
     private var records: [String: HiddenSession]
@@ -24,7 +26,7 @@ public struct SessionVisibility {
     }
     public var summaries: [Summary] {
         records.filter { $0.value.removed != true }.map { id, record in
-            Summary(id: id, title: id.hasPrefix("codex:") ? SessionParser.codexTitle(record.title, fallback: L("Сессия Codex")) : record.title,
+            Summary(id: id, title: id.hasPrefix("codex:") ? SessionParser.codexTitle(record.title) : record.title,
                     project: record.project, hiddenAt: record.hiddenAt)
         }.sorted { $0.hiddenAt == $1.hiddenAt ? $0.id < $1.id : $0.hiddenAt > $1.hiddenAt }
     }
@@ -38,23 +40,23 @@ public struct SessionVisibility {
     }
     /// Drop displayed history, retaining only the cutoff needed to prevent reimport.
     /// A genuinely new task removes this cutoff through restoreNewTasks.
-    public mutating func removeHidden(_ ids: Set<String>) throws {
+    public mutating func removeHidden(_ ids: Set<String>, now: Date = Date()) throws {
         var next = records
         for id in ids where next[id] != nil {
-            next[id]?.removed = true; next[id]?.title = nil; next[id]?.project = nil
+            next[id]?.removed = true; next[id]?.removedAt = now; next[id]?.title = nil; next[id]?.project = nil
         }
         try save(next)
     }
-    /// Repair hidden entries produced by old auto-hide from lifecycle-only exits.
+    /// Repair hidden entries produced by old builds from lifecycle-only launches.
     /// Keep removal cutoffs, so a subsequent real task can still restore the ID.
     public mutating func removeUnstartedClaudeLifecycles(_ sessions: [AgentSession]) throws {
         let ids = Set(sessions.filter {
-            $0.isUnstartedClaudeLifecycle && $0.phase == .finished
+            $0.isUnstartedClaudeLifecycle
         }.map(\.id)).intersection(hidden)
         if !ids.isEmpty { try removeHidden(ids) }
     }
     private let url: URL
-    public init(url: URL) throws {
+    public init(url: URL, now: Date = Date()) throws {
         self.url = url
         guard FileManager.default.fileExists(atPath: url.path) else { records = [:]; return }
         let data = try Data(contentsOf: url)
@@ -69,6 +71,15 @@ public struct SessionVisibility {
                 ($0, HiddenSession(hiddenAt: modified))
             })
         }
+        try pruneRemoved(now: now)
+    }
+    @discardableResult public mutating func pruneRemoved(now: Date = Date()) throws -> Int {
+        let kept = records.filter { _, record in
+            record.removed != true || now.timeIntervalSince(record.removedAt ?? record.hiddenAt) <= Self.retention
+        }
+        let removed = records.count - kept.count
+        if removed > 0 { try save(kept) }
+        return removed
     }
     public mutating func hide(_ session: AgentSession, now: Date = Date()) throws {
         var next = records
@@ -149,5 +160,12 @@ public struct SessionSwipe {
         defer { self = Self() }
         guard !cancelled, horizontal, abs(offset) >= 64 else { return nil }
         return offset > 0 ? .open : .hide
+    }
+}
+
+public enum SessionVisibilityError: LocalizedError, Equatable {
+    case unreadable
+    public var errorDescription: String? {
+        L("Не удалось прочитать список скрытых сессий. Проверьте доступ к файлу и повторите действие.")
     }
 }

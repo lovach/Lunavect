@@ -4,6 +4,8 @@ import Darwin
 public struct ActivityImportResult: Sendable {
     public var intervals: [ActivityInterval] = []
     public var limited = false
+    /// Cancelled workers have no mergeable payload and must not mark import complete.
+    public var cancelled = false
     public var report = ActivityImportReport()
     public var details: [ActivityDetailRecord] = []
     public init() {}
@@ -27,16 +29,29 @@ public enum ActivityHistoryImporter {
     }
     public static func read(sources: [Source] = localSources(), before boundary: Date, now: Date = Date(),
                             maximumBytes: Int = 8 * 1024 * 1024 * 1024, maximumLineBytes: Int = 4 * 1024 * 1024,
-                            maximumSeconds: TimeInterval = 90, maximumIntervals: Int = 100_000) -> ActivityImportResult {
+                            maximumSeconds: TimeInterval = 90, maximumIntervals: Int = 100_000,
+                            monotonicNow: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) -> ActivityImportResult {
         var result = ActivityImportResult(), bytesRead = 0
-        let cutoff = now.addingTimeInterval(-35 * 86400), deadline = ProcessInfo.processInfo.systemUptime + maximumSeconds
+        let cutoff = now.addingTimeInterval(-35 * 86400), deadline = monotonicNow() + maximumSeconds
+        var hitDeadline = false
         let fractional = ISO8601DateFormatter(), whole = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let codexMarkers = ["task_complete", "task_started", "turn_aborted"].map { Data($0.utf8) }
         let claudeMarkers = ["turn_duration", "tool_use", "totalDurationMs", "durationMs", "durationSeconds"].map { Data($0.utf8) }
         var reports = Dictionary(uniqueKeysWithValues: Set(sources.map(\.provider)).map { ($0, ActivityImportReport.Provider(id: $0)) })
         func issue(_ reason: ActivityImportIssue, _ provider: ProviderID, count: Int = 1) { reports[provider]!.issues[reason, default: 0] += count }
-        func exhausted() -> Bool { bytesRead >= maximumBytes || result.intervals.count >= maximumIntervals || ProcessInfo.processInfo.systemUptime > deadline || Task.isCancelled }
+        func cancelledResult() -> ActivityImportResult {
+            var cancelled = ActivityImportResult()
+            cancelled.cancelled = true; cancelled.limited = true
+            return cancelled
+        }
+        func interrupted() -> Bool {
+            if Task.isCancelled { return true }
+            if !hitDeadline { hitDeadline = monotonicNow() >= deadline }
+            return hitDeadline || Task.isCancelled
+        }
+        func exhausted() -> Bool { bytesRead >= maximumBytes || result.intervals.count >= maximumIntervals || interrupted() }
+        guard !Task.isCancelled else { return cancelledResult() }
         func timestamp(_ value: Any?) -> Date? {
             guard let value = value as? String else { return nil }
             return fractional.date(from: value) ?? whole.date(from: value)
@@ -59,13 +74,17 @@ public enum ActivityHistoryImporter {
             return true
         }
         for source in sources {
+            if Task.isCancelled { return cancelledResult() }
             let provider = source.provider
             if exhausted() { issue(.budget, provider); continue }
             let root: URLResourceValues
             do { root = try source.directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) }
             catch {
                 let error = error as NSError
-                let missing = (error.domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code)) || (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT))
+                let missing =
+                    (error.domain == NSCocoaErrorDomain
+                        && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code))
+                    || (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT))
                 // The archive directory is optional, but a permissions error is still reported.
                 if !missing || source.directory.lastPathComponent != "archived_sessions" { issue(missing ? .missingSource : .unreadable, provider) }
                 continue
@@ -73,11 +92,19 @@ public enum ActivityHistoryImporter {
             guard root.isSymbolicLink != true else { issue(.symlink, provider); continue }
             guard root.isDirectory == true else { issue(.unreadable, provider); continue }
             let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
-            guard let enumerator = FileManager.default.enumerator(at: source.directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles], errorHandler: { _, _ in issue(.unreadable, provider); return true }) else { issue(.unreadable, provider); continue }
+            guard
+                let enumerator = FileManager.default.enumerator(
+                    at: source.directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles],
+                    errorHandler: { _, _ in
+                        issue(.unreadable, provider); return !exhausted()
+                    })
+            else { issue(.unreadable, provider); continue }
             var files: [(URL, Date)] = [], visited = 0
-            for case let file as URL in enumerator {
+            while true {
+                if visited >= 100_000 || exhausted() { issue(.budget, provider); break }
+                guard let entry = enumerator.nextObject() else { break }
+                guard let file = entry as? URL else { continue }
                 visited += 1
-                if visited > 100_000 || exhausted() { issue(.budget, provider); break }
                 guard let values = try? file.resourceValues(forKeys: Set(keys)) else { issue(.unreadable, provider); continue }
                 if values.isSymbolicLink == true { enumerator.skipDescendants(); issue(.symlink, provider); continue }
                 guard values.isRegularFile == true, file.pathExtension == "jsonl" else { continue }
@@ -85,8 +112,11 @@ public enum ActivityHistoryImporter {
                 files.append((file, values.contentModificationDate ?? .distantPast))
                 if files.count >= 20_000 { issue(.budget, provider); break }
             }
+            if Task.isCancelled { return cancelledResult() }
+            if exhausted() { issue(.budget, provider); continue }
             files.sort { $0.1 == $1.1 ? $0.0.path < $1.0.path : $0.1 > $1.1 }
             for (file, _) in files {
+                if Task.isCancelled { return cancelledResult() }
                 if exhausted() { issue(.budget, provider); break }
                 let descriptor = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
                 guard descriptor >= 0 else { issue(.unreadable, provider); continue }
@@ -104,10 +134,16 @@ public enum ActivityHistoryImporter {
                 // Read a fixed snapshot: a running client's later appends are picked up on retry.
                 var remaining = max(0, Int(info.st_size))
                 func consume(_ line: Data, failure: TimingJSONLReader.Failure?, omitted: Int) {
+                    guard !interrupted() else { return }
                     reports[provider]!.longStringsOmitted += omitted
                     if let failure { issue(failure == .tooLarge ? .recordTooLarge : .malformed, provider); return }
                     let markers = provider == .claude ? claudeMarkers : codexMarkers
-                    guard markers.contains(where: { line.range(of: $0) != nil }) || ["session_meta", "\"cwd\"", "custom-title"].contains(where: { line.range(of: Data($0.utf8)) != nil }) else { return }
+                    guard
+                        markers.contains(where: { line.range(of: $0) != nil })
+                            || ["session_meta", "\"cwd\"", "custom-title"].contains(where: {
+                                line.range(of: Data($0.utf8)) != nil
+                            })
+                    else { return }
                     guard let record = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { issue(.malformed, provider); return }
                     let type = record["type"] as? String, stamp = timestamp(record["timestamp"])
                     let metadata = provider == .codex && type == "session_meta" ? (record["payload"] as? [String: Any] ?? [:]) : provider == .claude ? record : [:]
@@ -193,15 +229,23 @@ public enum ActivityHistoryImporter {
                 var reader = TimingJSONLReader(maximumRecordBytes: maximumLineBytes)
                 do {
                     while remaining > 0, !exhausted() {
-                        let chunk = try handle.read(upToCount: min(256 * 1024, remaining, maximumBytes - bytesRead)) ?? Data()
-                        if chunk.isEmpty { break }
-                        remaining -= chunk.count; bytesRead += chunk.count; reports[provider]!.bytesRead += chunk.count
-                        reader.feed(chunk, consume: consume)
+                        // Detached import tasks may not drain Foundation's temporary
+                        // objects until the whole archive completes. Bound them to a chunk.
+                        let readChunk = try autoreleasepool { () throws -> Bool in
+                            let chunk = try handle.read(upToCount: min(256 * 1024, remaining, maximumBytes - bytesRead)) ?? Data()
+                            guard !chunk.isEmpty else { return false }
+                            remaining -= chunk.count; bytesRead += chunk.count; reports[provider]!.bytesRead += chunk.count
+                            reader.feed(chunk, consume: consume)
+                            return true
+                        }
+                        if !readChunk { break }
                     }
-                    reachedEOF = remaining == 0
-                    if reachedEOF { reader.finish(consume: consume) }
+                    if Task.isCancelled { return cancelledResult() }
+                    reachedEOF = remaining == 0 && !interrupted()
+                    if reachedEOF { autoreleasepool { reader.finish(consume: consume) } }
                     else { issue(exhausted() ? .budget : .unreadable, provider) }
                 } catch { issue(.unreadable, provider) }
+                if Task.isCancelled { return cancelledResult() }
                 let unfinished = pending.values.filter { $0 < boundary && $0 >= cutoff }.count
                 if reachedEOF, unfinished > 0 { issue(.incompleteTask, provider, count: unfinished) }
                 if !hadTiming { reports[provider]!.filesWithoutTiming += 1 }
@@ -211,21 +255,35 @@ public enum ActivityHistoryImporter {
                 }
             }
         }
+        if Task.isCancelled { return cancelledResult() }
+        // Accepted intervals still need normalization after a read deadline.
+        // Cancellation discards them instead, including during finalization.
+        _ = interrupted()
+        if Task.isCancelled { return cancelledResult() }
         result.intervals = ActivityHistory.union(result.intervals)
+        if Task.isCancelled { return cancelledResult() }
         for provider in reports.keys {
             let mask = provider == .claude ? 1 : 2
-            let spans = result.intervals.filter { $0.providers & mask != 0 }
-            reports[provider]!.recoveredSeconds = spans.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
-            reports[provider]!.firstRecovered = spans.first?.start; reports[provider]!.lastRecovered = spans.last?.end
             var days = Set<Date>()
-            for span in spans {
+            for span in result.intervals where span.providers & mask != 0 {
+                _ = interrupted()
+                if Task.isCancelled { return cancelledResult() }
+                reports[provider]!.recoveredSeconds += span.end.timeIntervalSince(span.start)
+                if reports[provider]!.firstRecovered == nil { reports[provider]!.firstRecovered = span.start }
+                reports[provider]!.lastRecovered = span.end
                 var day = Calendar.current.startOfDay(for: span.start)
                 while day < span.end {
+                    if Task.isCancelled { return cancelledResult() }
                     days.insert(day)
                     guard let next = Calendar.current.date(byAdding: .day, value: 1, to: day), next > day else { break }; day = next
                 }
             }
             reports[provider]!.daysRecovered = days.count
+        }
+        _ = interrupted()
+        if Task.isCancelled { return cancelledResult() }
+        if hitDeadline {
+            for provider in reports.keys where reports[provider]!.issues[.budget] == nil { issue(.budget, provider) }
         }
         result.report.providers = ProviderID.allCases.compactMap { reports[$0] }
         result.limited = result.report.limited

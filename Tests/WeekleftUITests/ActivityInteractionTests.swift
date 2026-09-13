@@ -4,10 +4,33 @@ import WeekleftCore
 @testable import Weekleft
 
 final class ActivityInteractionTests: XCTestCase {
+    func testDetailedYAxisUsesReadableHoursWithoutExtendingOrCrowdingTheScale() {
+        XCTAssertEqual(ActivityPlotGeometry.intermediateYValues(maximum: 14 * 3600, height: 140),
+                       [2, 4, 6, 8, 10, 12].map { Double($0) * 3600 })
+        for maximum: Double in [60, 600, 3600, 7200, 14 * 3600, 24 * 3600] {
+            for height: CGFloat in [60, 100, 140, 220] {
+                let ticks = [0.0] + ActivityPlotGeometry.intermediateYValues(maximum: maximum, height: height) + [maximum]
+                XCTAssertGreaterThanOrEqual(ticks.count, 3, "Every chart has an intermediate Y mark")
+                XCTAssertEqual(ticks, ticks.sorted())
+                XCTAssertEqual(Set(ticks).count, ticks.count)
+                for pair in zip(ticks, ticks.dropFirst()) {
+                    XCTAssertGreaterThanOrEqual((pair.1 - pair.0) / maximum * Double(height - 12), 16)
+                }
+            }
+        }
+        XCTAssertTrue(ActivityPlotGeometry.intermediateYValues(maximum: .nan, height: 140).isEmpty)
+        for height: CGFloat in [40, 60, 82, 100, 220] {
+            XCTAssertEqual(ActivityPlotGeometry.intermediateYValues(maximum: 10 * 3600, height: height, detailed: false), [5 * 3600],
+                           "Compact widgets must retain the midpoint label")
+        }
+    }
     func testWidgetRoutesPreserveEachPeriodAndRejectUnrelatedLinks() throws {
         for period in ActivityPeriod.allCases { XCTAssertEqual(ActivityPeriod.from(widgetURL: period.widgetURL), period) }
         XCTAssertEqual(ActivityPeriod.from(widgetURL: try XCTUnwrap(URL(string: "lunavect://activity"))), .week)
-        for link in ["https://activity?period=day", "lunavect://settings?period=month", "lunavect://activity?period=year", "lunavect://activity?period=day&period=month", "lunavect://activity/other?period=day"] {
+        for link in [
+            "https://activity?period=day", "lunavect://settings?period=month", "lunavect://activity?period=year",
+            "lunavect://activity?period=day&period=month", "lunavect://activity/other?period=day",
+        ] {
             XCTAssertNil(ActivityPeriod.from(widgetURL: try XCTUnwrap(URL(string: link))), link)
         }
     }

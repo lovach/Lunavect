@@ -28,6 +28,8 @@ The guide checks progress while open. If an external window was closed or setup 
 | Claude Code | The official CLI's `/usage` output and `rate_limits` delivered to the status-line command | Local lifecycle hooks, available client session information and title metadata |
 | Codex | `account/rateLimits/read` through the local Codex app-server | Available runtime state, lifecycle hooks and local session metadata; log-based fallback where needed |
 
+Claude status-line quotas have a receipt time but no server observation timestamp. They remain marked as saved observations; recent `/usage` results take precedence. Recognized repeated status-line payloads do not advance their receipt time. Automatic refreshes after wake or network recovery reuse a current verified cache, while an explicit refresh can request new data.
+
 Local catalog entries and titles are not evidence that a session is working. Fallback readers depend on client file formats, so a client update can affect detection. See [sessions](sessions.md) for state handling and navigation limits.
 
 ## Local changes

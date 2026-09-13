@@ -106,7 +106,9 @@ final class SessionDragSnapshotTests: XCTestCase {
     @MainActor func testDragCannotCrossPinnedGroup() {
         let state = SessionReorderState()
         state.begin("one", rows: [], pinned: ["one"])
-        state.lift(NSImage(size: CGSize(width: 344, height: 42)), frame: CGRect(x: 8, y: 140, width: 344, height: 42), windowFrame: CGRect(x: 8, y: 100, width: 344, height: 42), grab: CGPoint(x: 311, y: 121))
+        state.lift(
+            NSImage(size: CGSize(width: 344, height: 42)), frame: CGRect(x: 8, y: 140, width: 344, height: 42),
+            windowFrame: CGRect(x: 8, y: 100, width: 344, height: 42), grab: CGPoint(x: 311, y: 121))
         state.update(windowPoint: CGPoint(x: 311, y: 77), regions: ["two": CGRect(x: 8, y: 184, width: 344, height: 42)], viewport: CGRect(x: 0, y: 138, width: 360, height: 150))
         XCTAssertNil(state.target)
     }

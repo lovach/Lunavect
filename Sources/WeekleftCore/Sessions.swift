@@ -64,16 +64,30 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     public var resumeID: String?
     // A catalog entry alone is not proof that a session is still open.
     public var runtimeConfirmed: Bool?
+    /// Retained background waits and completed entries are history without live presence.
+    /// Their task phase remains intact; autonomous working tasks can outlive a process.
+    public var catalogHistory: Bool?
     public var turnStartedAt: Date?
+    /// A live Codex process still owns this unfinished turn's writable log.
+    /// Kept separate from event time: polling must not rewrite task history.
+    public var runtimeObservedAt: Date?
     /// Task evidence survives SessionEnd even when the initial prompt hook was missed.
     public var hasTaskActivity: Bool?
     public var isUnstartedClaudeLifecycle: Bool {
-        provider == .claude && evidence == .hook && turnStartedAt == nil &&
+        provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
     }
     public var activityPath: String?
     public var id: String { provider.rawValue + ":" + sessionID }
     public var project: String { cwd.contains("/scratch-workspaces/") ? L("Без папки") : cwd.isEmpty ? L("Без проекта") : URL(fileURLWithPath: cwd).lastPathComponent }
+    /// Source names stay intact. Missing names are localized only for display,
+    /// including hook records written by the standalone helper without resources.
+    public var displayTitle: String { displayTitle(language: L10n.selection) }
+    public func displayTitle(language: String) -> String {
+        if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return title }
+        if !cwd.isEmpty && !cwd.contains("/scratch-workspaces/") { return project }
+        return L10n.text(provider == .claude ? "Сессия Claude" : "Сессия Codex", language: language)
+    }
     public var activityTitle: String {
         guard phase == .running else { return phase.title }
         switch tool?.lowercased() {
@@ -84,7 +98,11 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         default: return L("Выполняет {0}", tool!)
         }
     }
-    public init(provider: ProviderID, sessionID: String, title: String, cwd: String, client: SessionClient = .unknown, phase: SessionPhase, updatedAt: Date, observedAt: Date, evidence: SessionEvidence = .catalog, tool: String? = nil, resumeID: String? = nil, runtimeConfirmed: Bool? = nil) {
+    public init(
+        provider: ProviderID, sessionID: String, title: String, cwd: String, client: SessionClient = .unknown,
+        phase: SessionPhase, updatedAt: Date, observedAt: Date, evidence: SessionEvidence = .catalog,
+        tool: String? = nil, resumeID: String? = nil, runtimeConfirmed: Bool? = nil
+    ) {
         self.provider = provider; self.sessionID = sessionID; self.title = title; self.cwd = cwd
         self.client = client; self.phase = phase; self.updatedAt = updatedAt; self.observedAt = observedAt
         self.evidence = evidence; self.tool = tool; self.resumeID = resumeID
@@ -93,6 +111,11 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     public func effectivePhase(now: Date = Date()) -> SessionPhase {
         let age = now.timeIntervalSince(observedAt)
         guard runtimeConfirmed != false else { return .unknown }
+        if provider == .codex, evidence == .localEvent, phase == .running,
+           age >= -60, let runtimeObservedAt {
+            let runtimeAge = now.timeIntervalSince(runtimeObservedAt)
+            if runtimeAge >= 0 && runtimeAge < 10 { return phase }
+        }
         // This is an observation, not a heartbeat or proof a process still exists.
         let lifetime: TimeInterval = evidence == .catalog ? 60 : evidence == .localEvent && phase.isActive ? 120 : 600
         guard age >= -60, age < lifetime else { return .unknown }
@@ -100,7 +123,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     }
     public func isCurrent(now: Date = Date()) -> Bool {
         let phase = effectivePhase(now: now)
-        return phase != .unknown && phase != .finished
+        return !isUnstartedClaudeLifecycle && catalogHistory != true && phase != .unknown && phase != .finished
     }
 }
 public enum SessionError: LocalizedError {
@@ -149,7 +172,10 @@ public enum SessionParser {
             }
             // Desktop versions also persist "vscode"; that field alone cannot identify the host.
             let client: SessionClient = row["source"] as? String == "cli" ? .terminal : .unknown
-            var session = AgentSession(provider: .codex, sessionID: id, title: codexTitle(row["name"], fallback: cwd.isEmpty ? L("Сессия Codex") : URL(fileURLWithPath: cwd).lastPathComponent), cwd: cwd, client: client, phase: phase, updatedAt: (row["updatedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? .distantPast, observedAt: now, runtimeConfirmed: phase != .unknown)
+            var session = AgentSession(
+                provider: .codex, sessionID: id, title: codexTitle(row["name"]), cwd: cwd, client: client, phase: phase,
+                updatedAt: (row["updatedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? .distantPast,
+                observedAt: now, runtimeConfirmed: phase != .unknown)
             session.activityPath = row["path"] as? String
             return session
         }
@@ -159,19 +185,38 @@ public enum SessionParser {
         return rows.compactMap { row in
             guard let id = (row["sessionId"] ?? row["id"]) as? String, validID(id) else { return nil }
             let cwd = row["cwd"] as? String ?? ""
+            let background = row["kind"] as? String == "background"
+            let status = row["status"] as? String
+            let waiting = row["waitingFor"] as? String
+            let waitingPhase: SessionPhase = ["permission prompt", "sandbox request"].contains(waiting) ? .permission : .input
             let phase: SessionPhase
-            switch row["state"] as? String {
-            case "running", "working", "busy": phase = .running
-            case "blocked": phase = .input
-            case "idle", "waiting": phase = .idle
-            case "completed", "exited": phase = .finished
-            case "errored", "failed": phase = .failed
-            default: phase = .unknown
+            // Background task state includes autonomous waits between steps. An
+            // idle process does not mean that task has finished.
+            if background, let state = row["state"] as? String {
+                switch state {
+                case "working": phase = status == "waiting" ? waitingPhase : .running
+                case "blocked": phase = waitingPhase
+                case "done": phase = .ready
+                case "failed": phase = .failed
+                case "stopped": phase = .interrupted
+                default: phase = .unknown
+                }
+            } else {
+                switch status {
+                case "busy": phase = .running
+                case "waiting": phase = waitingPhase
+                case "idle": phase = .idle
+                default: phase = .unknown
+                }
             }
-            // Background rows can survive for months with state=blocked and no worker.
-            // Only interactive discovery or our live lifecycle events establish presence.
             let activity = (row["updatedAt"] as? Double ?? row["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast
-            return AgentSession(provider: .claude, sessionID: id, title: text(row["name"], fallback: cwd.isEmpty ? L("Сессия Claude") : URL(fileURLWithPath: cwd).lastPathComponent), cwd: cwd, client: row["kind"] as? String == "background" ? .background : .unknown, phase: phase, updatedAt: activity, observedAt: now, resumeID: row["id"] as? String, runtimeConfirmed: row["kind"] as? String == "interactive")
+            var session = AgentSession(
+                provider: .claude, sessionID: id, title: text(row["name"]), cwd: cwd,
+                client: background ? .background : .unknown, phase: phase, updatedAt: activity, observedAt: now,
+                resumeID: row["id"] as? String, runtimeConfirmed: phase == .unknown ? false : nil)
+            let livePresence = ["busy", "waiting", "idle"].contains(status) || (row["pid"] as? Int ?? 0) > 0
+            session.catalogHistory = background && ["blocked", "done", "failed", "stopped"].contains(row["state"] as? String) && !livePresence
+            return session
         }
     }
 }
@@ -181,15 +226,34 @@ public enum SessionList {
         for event in events.sorted(by: { $0.observedAt < $1.observedAt }) where now.timeIntervalSince(event.observedAt) < 86400 {
             if var row = result[event.id] {
                 let fresh = event.effectivePhase(now: now) != .unknown
-                let moreSpecificApproval = row.effectivePhase(now: now) == .input && event.phase == .permission
-                if fresh && (row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
+                // Reading a persisted blocked task again does not refresh its
+                // runtime presence or supersede an independently fresh hook.
+                let dormantClaudeWait = row.provider == .claude && row.catalogHistory == true && [.input, .permission].contains(row.phase)
+                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && row.phase != .unknown && row.observedAt > event.observedAt
+                let moreSpecificApproval = !newerClaudeCatalog && row.effectivePhase(now: now) == .input && event.phase == .permission
+                if fresh && !newerClaudeCatalog && (dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
                     row.phase = event.phase; row.observedAt = event.observedAt; row.evidence = event.evidence; row.tool = event.tool
                     row.runtimeConfirmed = event.runtimeConfirmed
+                    row.catalogHistory = nil
                     row.turnStartedAt = event.turnStartedAt
-                    row.hasTaskActivity = event.hasTaskActivity
+                    row.runtimeObservedAt = event.runtimeObservedAt
+                    row.hasTaskActivity = event.isUnstartedClaudeLifecycle ? false : event.hasTaskActivity
                     row.updatedAt = max(row.updatedAt, event.updatedAt)
+                } else if newerClaudeCatalog && row.effectivePhase(now: now) != .unknown {
+                    // A fresh idle interactive process ends the unfinished hook
+                    // turn, but cannot prove successful completion (Esc has no Stop).
+                    if row.phase == .idle {
+                        if event.phase.isActive { row.phase = .interrupted }
+                        else if [.ready, .interrupted, .failed].contains(event.phase) { row.phase = event.phase }
+                    }
+                    // A newer catalog poll must not turn a startup-only hook
+                    // into a user task. This also handles pre-marker hook files.
+                    row.hasTaskActivity = event.isUnstartedClaudeLifecycle ? false : event.hasTaskActivity
+                    if row.phase == .running && event.phase == .running {
+                        row.turnStartedAt = event.turnStartedAt
+                    }
                 }
-                if fresh && event.client != .unknown { row.client = event.client }
+                if fresh && event.client != .unknown && row.client != .background { row.client = event.client }
                 result[event.id] = row
             } else { result[event.id] = event }
         }
@@ -206,46 +270,84 @@ public enum SessionList {
             (includeHistory || session.isCurrent(now: now)) &&
             (provider == nil || session.provider == provider) &&
             (!activeOnly || session.effectivePhase(now: now).isActive) &&
-            (query.isEmpty || [session.title, session.project, session.cwd, session.provider.title].contains { $0.localizedCaseInsensitiveContains(query) })
+                (query.isEmpty
+                    || [session.displayTitle, session.project, session.cwd, session.provider.title].contains {
+                        $0.range(of: query, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) != nil
+                    })
         }
     }
 }
 public struct SessionRecord: Codable, Sendable {
     public var session: AgentSession
     public var pendingApprovals: Set<String> = []
+    public var unidentifiedApproval: Bool?
+    public var approvalVersion: Int?
     public static func event(_ data: Data, provider: ProviderID, previous: SessionRecord?, now: Date = Date(), client: SessionClient = .unknown) throws -> SessionRecord {
-        guard data.count <= 1_000_000, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any], let id = payload["session_id"] as? String, SessionParser.validID(id), let name = payload["hook_event_name"] as? String else { throw SessionError.invalidResponse }
+        guard data.count <= 1_000_000, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let id = payload["session_id"] as? String, SessionParser.validID(id),
+            let name = payload["hook_event_name"] as? String
+        else { throw SessionError.invalidResponse }
         let cwd = payload["cwd"] as? String ?? previous?.session.cwd ?? ""
-        var record = previous ?? SessionRecord(session: AgentSession(provider: provider, sessionID: id, title: cwd.isEmpty ? L(provider == .claude ? "Сессия Claude" : "Сессия Codex") : URL(fileURLWithPath: cwd).lastPathComponent, cwd: cwd, phase: .unknown, updatedAt: now, observedAt: now, evidence: .hook))
+        var record = previous ?? SessionRecord(session: AgentSession(provider: provider, sessionID: id, title: "", cwd: cwd, phase: .unknown, updatedAt: now, observedAt: now, evidence: .hook))
         guard record.session.sessionID == id, record.session.provider == provider else { throw SessionError.invalidResponse }
-        if record.session.observedAt > now { return record }
+        if record.session.observedAt > now {
+            // Preserve ordering for concurrently delivered hooks, but rebase after
+            // a substantial wall-clock correction so Stop is never lost for hours.
+            guard record.session.observedAt.timeIntervalSince(now) > 300 else { return record }
+            record.session.turnStartedAt = nil
+            record.pendingApprovals = []
+            record.unidentifiedApproval = nil
+        }
+        if record.approvalVersion != 2 {
+            // Older records mixed IDs and tool names in the same set. Retain
+            // their wait conservatively until progress, without guessing which
+            // strings are real IDs or leaving a tool-name wait stuck forever.
+            if !record.pendingApprovals.isEmpty { record.unidentifiedApproval = true }
+            record.pendingApprovals = []
+            record.approvalVersion = 2
+        }
         let tool = SessionParser.text(payload["tool_name"])
-        let toolID = SessionParser.text(payload["tool_use_id"], fallback: tool.isEmpty ? "unknown" : tool)
+        let toolID = SessionParser.text(payload["tool_use_id"])
         switch name {
         case "SessionStart":
             // Hooks run concurrently: startup may finish after the first prompt/tool event.
             if previous?.session.effectivePhase(now: now).isActive == true { return record }
-            record.pendingApprovals = []; record.session.phase = .idle
-        case "UserPromptSubmit": record.pendingApprovals = []; record.session.phase = .running; record.session.turnStartedAt = now
-        case "PermissionRequest": record.pendingApprovals.insert(toolID); record.session.phase = .permission
+            record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .idle
+        case "UserPromptSubmit": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .running; record.session.turnStartedAt = now
+        case "PermissionRequest":
+            if toolID.isEmpty { record.unidentifiedApproval = true }
+            else { record.pendingApprovals.insert(toolID) }
+            record.session.phase = .permission
         case "Notification":
             guard let type = payload["notification_type"] as? String, ["permission_prompt", "idle_prompt", "elicitation_dialog"].contains(type) else { throw SessionError.invalidResponse }
             if type == "permission_prompt" {
-                if record.pendingApprovals.isEmpty { record.pendingApprovals.insert(toolID) }
+                if record.pendingApprovals.isEmpty { record.unidentifiedApproval = true }
                 record.session.phase = .permission
             }
-            else { record.session.phase = .input }
+            else if type == "idle_prompt" {
+                // Reminder about an already finished response, not a new request.
+                // Do not refresh stale work evidence from a delayed notification.
+                if previous != nil { return record }
+                record.session.phase = .idle
+            } else { record.session.phase = .input }
         case "PreToolUse", "PostToolUse", "PostToolUseFailure":
-            if name != "PreToolUse" { record.pendingApprovals.remove(toolID); record.pendingApprovals.remove(tool) }
-            record.session.phase = record.pendingApprovals.isEmpty ? .running : .permission
-        case "Stop": record.pendingApprovals = []; record.session.phase = .ready
-        case "SessionEnd": record.pendingApprovals = []; record.session.phase = .finished
-        case "Interrupt": record.pendingApprovals = []; record.session.phase = .interrupted
-        case "StopFailure": record.pendingApprovals = []; record.session.phase = .failed
+            if name != "PreToolUse" {
+                record.pendingApprovals.remove(toolID)
+                // Migrate tool-name/unknown keys written by older versions.
+                record.pendingApprovals.remove(tool); record.pendingApprovals.remove("unknown")
+                record.unidentifiedApproval = nil
+            }
+            record.session.phase = record.pendingApprovals.isEmpty && record.unidentifiedApproval != true ? .running : .permission
+        case "Stop": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .ready
+        case "SessionEnd": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
+        case "Interrupt": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .interrupted
+        case "StopFailure": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .failed
         default: throw SessionError.invalidResponse
         }
         if name != "SessionStart" && name != "SessionEnd" {
             record.session.hasTaskActivity = true
+        } else if provider == .claude && record.session.hasTaskActivity == nil && record.session.turnStartedAt == nil {
+            record.session.hasTaskActivity = false
         }
         record.session.cwd = cwd; record.session.observedAt = now; record.session.updatedAt = now
         record.session.runtimeConfirmed = true

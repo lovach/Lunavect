@@ -41,7 +41,7 @@ static BOOL transparentForFamily(id object, SEL selector, NSInteger family) {
 static BOOL materialForFamily(id object, SEL selector, NSInteger family) {
     return isLunavectDescriptor(object) ? YES : originalMaterialForFamily(object, selector, family);
 }
-static void encodeWithDesktopMaterial(id descriptor, SEL selector, NSCoder *coder) {
+static void encodeWithTransparentBackground(id descriptor, SEL selector, NSCoder *coder) {
     id output = descriptor;
     @try {
         if (isLunavectDescriptor(descriptor) && matches([descriptor class], @selector(mutableCopy), @encode(id), @[])) {
@@ -51,12 +51,20 @@ static void encodeWithDesktopMaterial(id descriptor, SEL selector, NSCoder *code
             SEL removable = NSSelectorFromString(@"setBackgroundRemovable:");
             Class cls = [candidate class];
             if (matches(cls, transparent, @encode(void), @[@(@encode(BOOL))]) &&
-                matches(cls, background, @encode(void), @[@(@encode(NSUInteger))]) &&
+                matches(cls, background, @encode(void), @[@(@encode(NSInteger))]) &&
                 matches(cls, removable, @encode(void), @[@(@encode(BOOL))])) {
                 ((void (*)(id, SEL, BOOL))objc_msgSend)(candidate, transparent, YES);
                 ((void (*)(id, SEL, BOOL))objc_msgSend)(candidate, removable, YES);
-                ((void (*)(id, SEL, NSUInteger))objc_msgSend)(candidate, background, 2);
-                output = candidate;
+                // Style 2 asks the host for the native blurred material under
+                // our adjustable tint, matching system widgets. Validate using
+                // original getters: the host never executes our local hooks.
+                ((void (*)(id, SEL, NSInteger))objc_msgSend)(candidate, background, 2);
+                BOOL supported = originalTransparent(candidate, NSSelectorFromString(@"isTransparent"));
+                for (NSInteger family = 0; supported && family < 3; family++) {
+                    supported = originalTransparentForFamily(candidate, NSSelectorFromString(@"isTransparentForFamily:"), family)
+                        && originalMaterialForFamily(candidate, NSSelectorFromString(@"wantsMaterialBackgroundForFamily:"), family);
+                }
+                if (supported) output = candidate;
             }
         }
     } @catch (NSException *exception) {
@@ -82,7 +90,7 @@ void LunavectSetWidgetBackgroundEnabled(BOOL enabled) {
     }
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        originalEncode = (void *)method_setImplementation(class_getInstanceMethod(descriptor, encode), (IMP)encodeWithDesktopMaterial);
+        originalEncode = (void *)method_setImplementation(class_getInstanceMethod(descriptor, encode), (IMP)encodeWithTransparentBackground);
         originalTransparent = (void *)method_setImplementation(class_getInstanceMethod(descriptor, plain), (IMP)transparent);
         originalTransparentForFamily = (void *)method_setImplementation(class_getInstanceMethod(descriptor, family), (IMP)transparentForFamily);
         originalMaterialForFamily = (void *)method_setImplementation(class_getInstanceMethod(descriptor, material), (IMP)materialForFamily);

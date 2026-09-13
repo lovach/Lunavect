@@ -49,6 +49,23 @@ import ImageIO
         let color: NSColor
         let path: NSBezierPath
     }
+    static func nextFrameDelay(at elapsed: TimeInterval) -> TimeInterval {
+        var remaining = max(0, elapsed).truncatingRemainder(dividingBy: cycleDuration)
+        let stages: [(TimeInterval, TimeInterval)] = [
+            (settleDuration, 1 / 12), (typingDuration, 1 / 12),
+            (standDuration, 1 / 12), (walkDuration, 0.08),
+            (waveDuration, 0.08), (restDuration, restDuration)
+        ]
+        for (duration, interval) in stages {
+            if remaining < duration {
+                let rate = 1 / interval
+                let frameRemaining = (floor(remaining * rate) + 1) / rate - remaining
+                return max(0.001, min(duration - remaining, frameRemaining))
+            }
+            remaining -= duration
+        }
+        return 1 / 12
+    }
     private static let laptop: [[Fill]] = decodeLaptop()
     // Keep compressed sources, not an array of decoded full-canvas frames.
     private static let walking = gifSource("clawd-walking")

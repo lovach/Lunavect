@@ -4,7 +4,220 @@ import SwiftUI
 import WeekleftCore
 @testable import Weekleft
 
+private actor MenuBarAnimatorReferenceOwner {
+    private var value: MenuBarAnimator?
+    init(_ value: MenuBarAnimator) { self.value = value }
+    func release() { value = nil }
+}
+
 final class MenuBarStatusTests: XCTestCase {
+    @MainActor func testWaitingBubbleHasShapeCueWithMotionDisabled() {
+        let content = MenuBarStatusContent(frame: NSRect(x: 0, y: 0, width: 50, height: 24))
+        content.style = .activity
+        content.running = 1
+        content.activityDotCount = 0
+        XCTAssertTrue(content.activityBubbleVisible)
+        XCTAssertNil(content.activityAttentionSymbol)
+        content.waiting = 1
+        XCTAssertEqual(content.activityAttentionSymbol, "!")
+    }
+
+    @MainActor func testImageFramePreservesTextDrawingAndNativeAnchor() async throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        var clock = 10.0
+        let animator = MenuBarAnimator(statusItem: item, now: { clock })
+        animator.update(icon: .codex, onlyWhileWorking: false, thinkingPhrases: false, running: 1, waiting: 0)
+        try await Task.sleep(for: .milliseconds(100))
+        animator.update(icon: .codex, onlyWhileWorking: false, thinkingPhrases: false, running: 1, waiting: 0)
+        let anchor = try XCTUnwrap(item.button?.image)
+        let image = animator.content.artwork.image
+        animator.content.needsLayout = false
+        animator.content.needsDisplay = false
+        clock += 0.14
+        animator.drawFrame()
+        XCTAssertTrue(item.button?.image === anchor, "A frame must not change the popover anchor")
+        XCTAssertFalse(animator.content.needsLayout, "Only changing the character must not recompute text layout")
+        XCTAssertFalse(animator.content.needsDisplay, "The character owns its layer; the text stays cached")
+        if item.button?.window?.occlusionState.contains(.visible) == true,
+           !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            XCTAssertFalse(animator.content.artwork.image === image)
+        }
+    }
+    @MainActor func testChangingCharacterDoesNotInheritRestDeadline() async throws {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            throw XCTSkip("Animation is disabled by the system Reduce Motion preference")
+        }
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        var clock = 10.0
+        let animator = MenuBarAnimator(statusItem: item, now: { clock })
+        animator.update(icon: .claude, onlyWhileWorking: false, thinkingPhrases: false, running: 1, waiting: 0)
+        try await Task.sleep(for: .milliseconds(100))
+        guard item.button?.window?.occlusionState.contains(.visible) == true else {
+            throw XCTSkip("A visible status-item window is required to check native frame scheduling")
+        }
+        clock += ClawdAnimation.cycleDuration - 2.5
+        try await Task.sleep(for: .milliseconds(120))
+        animator.update(icon: .codex, onlyWhileWorking: false, thinkingPhrases: false, running: 1, waiting: 0)
+        let initial = animator.content.artwork.image
+        clock += 0.14
+        try await Task.sleep(for: .milliseconds(170))
+        XCTAssertFalse(animator.content.artwork.image === initial,
+                       "Codex must advance after 120ms, without waiting for the previous Claude rest")
+    }
+
+    @MainActor func testAnimatorReleasedOffMainInvalidatesScheduledTimers() async throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        var timers: [Timer] = []
+        // Timer ownership is independent of the CI host's window occlusion and
+        // Reduce Motion preference. Capture timers without scheduling a run loop.
+        var animator: MenuBarAnimator? = MenuBarAnimator(statusItem: item,
+            scheduleTimer: { timers.append($0) }, canRenderAnimation: { _ in true })
+        animator?.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertEqual(timers.count, 2, "Both artwork and phrase timers must be exercised")
+        XCTAssertTrue(timers.allSatisfy(\.isValid))
+        let owner = MenuBarAnimatorReferenceOwner(try XCTUnwrap(animator))
+        animator = nil
+        await owner.release()
+        // Destruction may hop back from the releasing actor to MainActor.
+        for _ in 0..<20 where timers.contains(where: \.isValid) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(timers.allSatisfy { !$0.isValid })
+    }
+
+    @MainActor func testAnimationTimersStopWhenRenderingBecomesUnavailable() {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        var available = false
+        var timers: [Timer] = []
+        let animator = MenuBarAnimator(statusItem: item,
+            scheduleTimer: { timers.append($0) }, canRenderAnimation: { _ in available })
+        animator.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertTrue(timers.isEmpty)
+        available = true
+        animator.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertEqual(timers.filter(\.isValid).count, 2)
+        available = false
+        animator.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertTrue(timers.allSatisfy { !$0.isValid })
+        available = true
+        animator.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertEqual(timers.filter(\.isValid).count, 2)
+        animator.setVisible(false)
+        XCTAssertTrue(timers.allSatisfy { !$0.isValid }, "A hidden item stays inactive even when the display is available")
+    }
+
+    @MainActor private func reservedWidth(of item: NSStatusItem) -> CGFloat {
+        item.button?.image?.size.width ?? 0
+    }
+
+    @MainActor func testSpacingMatchesNativeStatusItemsWithAndWithoutText() async throws {
+        let app = NSApplication.shared
+        let oldPolicy = app.activationPolicy()
+        app.setActivationPolicy(.accessory)
+        defer { app.setActivationPolicy(oldPolicy) }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let reference = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer {
+            NSStatusBar.system.removeStatusItem(item)
+            NSStatusBar.system.removeStatusItem(reference)
+        }
+        let animator = MenuBarAnimator(statusItem: item)
+        let button = try XCTUnwrap(item.button)
+        let nativeButton = try XCTUnwrap(reference.button)
+        button.appearance = NSAppearance(named: .darkAqua)
+        nativeButton.appearance = NSAppearance(named: .darkAqua)
+        let board = NSView(frame: NSRect(x: 0, y: 0, width: 680, height: 360))
+        board.wantsLayer = true; board.layer?.backgroundColor = NSColor(white: 0.14, alpha: 1).cgColor
+        let window = NSWindow(contentRect: board.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = board
+        defer { window.contentView = nil }
+        for (row, icon) in MenuBarIcon.allCases.enumerated() {
+            let label = NSTextField(labelWithString: icon.rawValue)
+            label.textColor = .white; label.font = .systemFont(ofSize: 12)
+            label.frame = NSRect(x: 12, y: 280 - row * 75, width: 95, height: 20)
+            board.addSubview(label)
+            for (column, running) in [0, 2].enumerated() {
+                animator.update(icon: icon, onlyWhileWorking: true, statusStyle: .summary,
+                                thinkingPhrases: false, running: running, waiting: 0)
+                try await Task.sleep(for: .milliseconds(150))
+                let reserved = try XCTUnwrap(button.image)
+                // Compare with native AppKit using the same content dimensions,
+                // rather than assuming a padding amount for a particular macOS.
+                nativeButton.image = NSImage(size: reserved.size, flipped: false) { _ in true }
+                try await Task.sleep(for: .milliseconds(50))
+                button.layoutSubtreeIfNeeded()
+                nativeButton.layoutSubtreeIfNeeded()
+                XCTAssertEqual(item.length, NSStatusItem.variableLength)
+                XCTAssertEqual(button.window?.frame.width ?? 0, nativeButton.window?.frame.width ?? -1, accuracy: 1)
+                let nativeRect = try XCTUnwrap(nativeButton.cell).imageRect(forBounds: nativeButton.bounds)
+                XCTAssertEqual(animator.content.artwork.frame.minX, nativeRect.minX, accuracy: 0.5)
+                XCTAssertEqual(reserved.size.width, animator.content.preferredWidth)
+                if running == 0 {
+                    XCTAssertEqual(reserved.size.width, animator.content.iconWidth, "Idle icons must not reserve an empty label or private padding")
+                } else {
+                    XCTAssertLessThanOrEqual(animator.content.textOriginX + animator.content.summaryText.size().width, button.bounds.maxX - nativeRect.minX + 1)
+                }
+                let bitmap = try XCTUnwrap(button.bitmapImageRepForCachingDisplay(in: button.bounds))
+                button.cacheDisplay(in: button.bounds, to: bitmap)
+                let image = NSImage(size: button.bounds.size); image.addRepresentation(bitmap)
+                let preview = NSImageView(frame: NSRect(x: 115 + column * 265, y: 270 - row * 75, width: Int(button.bounds.width), height: Int(button.bounds.height)))
+                preview.image = image; preview.imageScaling = .scaleNone
+                preview.wantsLayer = true; preview.layer?.backgroundColor = NSColor(white: 0.23, alpha: 1).cgColor
+                board.addSubview(preview)
+                let caption = NSTextField(labelWithString: "\(running == 0 ? "Icon" : "With text") · \(Int((button.window?.frame.width ?? 0).rounded())) pt")
+                caption.textColor = .lightGray; caption.font = .systemFont(ofSize: 11)
+                caption.frame = NSRect(x: preview.frame.minX, y: preview.frame.minY - 24, width: 245, height: 18)
+                board.addSubview(caption)
+            }
+        }
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] {
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let bitmap = try XCTUnwrap(board.bitmapImageRepForCachingDisplay(in: board.bounds))
+            board.cacheDisplay(in: board.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("native-spacing.png"))
+        }
+    }
+
+    @MainActor func testSessionStatusCanHideAndRestoreIndependentlyOfLimits() throws {
+        _ = NSApplication.shared
+        let suite = "Lunavect.StatusVisibility." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let appearance = MenuBarAppearance(defaults: defaults)
+        XCTAssertTrue(appearance.showsSessionStatus, "Existing installations keep their session status")
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let animator = MenuBarAnimator(statusItem: item)
+        for limitsEnabled in [true, false] {
+            appearance.limits.enabled = limitsEnabled
+            appearance.showsSessionStatus = false
+            animator.setVisible(appearance.showsSessionStatus)
+            animator.update(icon: .claude, onlyWhileWorking: true, running: 2, waiting: 1)
+            XCTAssertFalse(item.isVisible, "Session updates must not bring a hidden status item back")
+            let restored = MenuBarAppearance(defaults: defaults)
+            XCTAssertFalse(restored.showsSessionStatus)
+            XCTAssertEqual(restored.limits.enabled, limitsEnabled)
+            appearance.showsSessionStatus = true
+            animator.setVisible(true)
+            XCTAssertTrue(item.isVisible)
+            XCTAssertTrue(animator.content.superview === item.button, "Restoring the status item must restore the character view")
+            XCTAssertNotNil(animator.content.artwork.image)
+            XCTAssertGreaterThanOrEqual(reservedWidth(of: item), animator.content.iconWidth + 12)
+            XCTAssertEqual(animator.content.running, 2)
+            XCTAssertEqual(animator.content.waiting, 1)
+            XCTAssertEqual(appearance.limits.enabled, limitsEnabled)
+        }
+    }
+
     @MainActor func testSessionPopoverDismissesOnDeactivationAndCanReopen() async throws {
         let app = NSApplication.shared
         let policy = app.activationPolicy()
@@ -60,15 +273,20 @@ final class MenuBarStatusTests: XCTestCase {
         let button = try XCTUnwrap(item.button)
         try await Task.sleep(nanoseconds: 100_000_000)
         animator.setPopoverOpen(true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        try await Task.sleep(nanoseconds: 100_000_000)
+        // AppKit can attach a status item's popover on a later run-loop turn
+        // after earlier tests changed the app activation policy. Wait for the
+        // native attachment itself instead of assuming one 100ms delay is enough.
+        for _ in 0..<20 where controller.view.window == nil {
+            if !popover.isShown { popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
+            try await Task.sleep(for: .milliseconds(50))
+        }
         let window = try XCTUnwrap(controller.view.window)
         let initialFrame = window.frame
-        let initialWidth = item.length
+        let initialWidth = reservedWidth(of: item)
         for (running, waiting) in [(999, 999), (0, 0), (1, 7), (25, 9999)] {
             animator.update(icon: .claude, onlyWhileWorking: true, thinkingPhrases: false, running: running, waiting: waiting)
             try await Task.sleep(nanoseconds: 80_000_000)
-            XCTAssertEqual(item.length, initialWidth)
+            XCTAssertEqual(reservedWidth(of: item), initialWidth)
             XCTAssertEqual(window.frame, initialFrame, "The open native popover must not follow changing text widths")
             XCTAssertEqual(animator.content.waiting, waiting)
         }
@@ -86,13 +304,13 @@ final class MenuBarStatusTests: XCTestCase {
         }
         popover.close()
         animator.setPopoverOpen(false)
-        XCTAssertEqual(item.length, animator.content.preferredWidth)
-        XCTAssertNotEqual(item.length, initialWidth)
+        XCTAssertEqual(reservedWidth(of: item), animator.content.preferredWidth)
+        XCTAssertNotEqual(reservedWidth(of: item), initialWidth)
         XCTAssertFalse(animator.content.constrainsSummaryWidth)
         animator.setPopoverOpen(true)
-        let reopenedWidth = item.length
+        let reopenedWidth = reservedWidth(of: item)
         animator.setPopoverOpen(true)
-        XCTAssertEqual(item.length, reopenedWidth, "Repeated opening must preserve the same anchor")
+        XCTAssertEqual(reservedWidth(of: item), reopenedWidth, "Repeated opening must preserve the same anchor")
         animator.setPopoverOpen(false)
     }
 
@@ -111,7 +329,7 @@ final class MenuBarStatusTests: XCTestCase {
         XCTAssertTrue(animator.content.artwork.image === original)
         XCTAssertNotEqual(animator.content.summaryText.string, initialText)
         XCTAssertEqual(animator.content.waiting, 1)
-        XCTAssertEqual(item.length, animator.content.preferredWidth)
+        XCTAssertEqual(reservedWidth(of: item), animator.content.preferredWidth)
     }
 
     @MainActor func testLargerCharactersAndTextFitMenuBarHeights() throws {
@@ -166,25 +384,25 @@ final class MenuBarStatusTests: XCTestCase {
         let view = animator.content
         XCTAssertTrue(view.activityBubbleVisible)
         XCTAssertFalse(view.showsThinkingPhrase)
-        let width = item.length
+        let width = reservedWidth(of: item)
         let workingColor = view.activityBubbleColor
         let dots = view.activityDotCount
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             try await Task.sleep(nanoseconds: 650_000_000)
             XCTAssertNotEqual(view.activityDotCount, dots, "The bubble has its own timer even with a static icon and phrases disabled")
         } else { XCTAssertEqual(dots, 0) }
-        XCTAssertEqual(item.length, width)
+        XCTAssertEqual(reservedWidth(of: item), width)
         animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, thinkingPhrases: false, running: 2, waiting: 1)
         XCTAssertTrue(view.activityBubbleVisible)
         XCTAssertNotEqual(view.activityBubbleColor, workingColor)
         XCTAssertEqual(view.activityDotCount, 0)
-        XCTAssertEqual(item.length, width)
-        XCTAssertLessThanOrEqual(view.activityBubbleFrame.maxX, view.preferredWidth)
+        XCTAssertEqual(reservedWidth(of: item), width)
+        XCTAssertLessThanOrEqual(view.activityBubbleFrame.maxX - view.contentOriginX, view.preferredWidth)
         XCTAssertTrue(item.button?.toolTip?.contains("2") == true)
         XCTAssertTrue(item.button?.toolTip?.contains("1") == true)
         animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, running: 0, waiting: 0)
         XCTAssertFalse(view.activityBubbleVisible)
-        XCTAssertLessThan(item.length, width)
+        XCTAssertLessThan(reservedWidth(of: item), width)
     }
 
     @MainActor func testAnimatedDotsKeepWordAndGeometrySteady() {
@@ -254,7 +472,7 @@ final class MenuBarStatusTests: XCTestCase {
             let font = try XCTUnwrap(view.summaryText.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
             XCTAssertGreaterThan(("www" as NSString).size(withAttributes: [.font: font]).width,
                                  ("iii" as NSString).size(withAttributes: [.font: font]).width)
-            XCTAssertEqual(view.preferredWidth - view.textOriginX - view.summaryText.size().width, 8, accuracy: 1)
+            XCTAssertEqual(view.preferredWidth - view.textOriginX - view.summaryText.size().width, 2, accuracy: 1)
             XCTAssertEqual(view.summaryText.string, phrase.prefix(1).uppercased() + phrase.dropFirst() + "...")
             XCTAssertNil(view.summaryText.attribute(.shadow, at: 0, effectiveRange: nil))
             XCTAssertEqual(view.badgeText.string, "2")
@@ -324,13 +542,13 @@ final class MenuBarStatusTests: XCTestCase {
         XCTAssertEqual(animator.content.waiting, 3)
         let tooltip = try XCTUnwrap(button.toolTip)
         XCTAssertTrue(tooltip.contains("12")); XCTAssertTrue(tooltip.contains("3"))
-        let countersWidth = item.length
+        let countersWidth = reservedWidth(of: item)
         animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, running: 12, waiting: 3)
-        XCTAssertLessThan(item.length, countersWidth)
+        XCTAssertLessThan(reservedWidth(of: item), countersWidth)
         XCTAssertEqual(button.toolTip, tooltip)
-        let activeWidth = item.length
+        let activeWidth = reservedWidth(of: item)
         animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, running: 0, waiting: 0)
-        XCTAssertLessThan(item.length, activeWidth)
+        XCTAssertLessThan(reservedWidth(of: item), activeWidth)
         XCTAssertEqual(button.action, action)
     }
 
@@ -401,6 +619,8 @@ final class MenuBarStatusTests: XCTestCase {
     }
 
     @MainActor func testRenderNativeStylesAndLanguages() async throws {
+        let uiDependencies = try AppEnvironment.preview(rows: [])
+        defer { uiDependencies.stop() }
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] else {
             throw XCTSkip("Opt-in native menu status rendering")
         }
@@ -464,7 +684,12 @@ final class MenuBarStatusTests: XCTestCase {
         }
         defaults.set(SettingsSection.menuBar.rawValue, forKey: "settingsSection")
         appearance.statusStyle = .summary
-        let settings = NSHostingView(rootView: SettingsView(store: AppStore(), menuBarAppearance: appearance, sessions: SessionStore())
+        let settings = NSHostingView(
+            rootView: SettingsView(
+                store: AppStore(), menuBarAppearance: appearance, sessions: SessionStore(),
+                updates: uiDependencies.updates, awake: uiDependencies.awake, features: uiDependencies.features,
+                language: uiDependencies.language
+            )
             .defaultAppStorage(defaults).preferredColorScheme(.dark))
         settings.frame = NSRect(x: 0, y: 0, width: 840, height: 680)
         let window = NSWindow(contentRect: settings.frame, styleMask: .borderless, backing: .buffered, defer: false)

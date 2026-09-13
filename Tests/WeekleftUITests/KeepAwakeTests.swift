@@ -16,18 +16,100 @@ import ServiceManagement
         permissionCount += 1
         if failPermission { throw AwakeFailure.permission }
     }
-    func begin(seconds: Int) async throws {
+    func begin(seconds: Int, policy: AwakeSafetyPolicy) async throws {
         beginCount += 1
         if suspendBegin { await withCheckedContinuation { gate = $0 } }
         if failBegin { throw AwakeFailure.unavailable }
         held = true
     }
+    func configure(policy: AwakeSafetyPolicy) async throws {}
     func keepAlive() async throws { if !held { throw AwakeFailure.lost } }
     func end() async throws { if failEnd { throw AwakeFailure.unavailable }; held = false }
     func disconnect() { disconnectCount += 1; held = false }
 }
 
 final class KeepAwakeTests: XCTestCase {
+    @MainActor func testRenderAutomaticControls() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_AWAKE_CONTROLS"] else { throw XCTSkip("Opt-in native rendering") }
+        _ = NSApplication.shared
+        let suite = "awake-controls-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let oldLanguage = L10n.selection
+        defer { L10n.defaults.set(oldLanguage, forKey: "languageCode") }
+        L10n.defaults.set("en", forKey: "languageCode")
+        let awake = KeepAwake(client: FakeAwakeClient(), defaults: defaults), now = Date()
+        awake.observe([AgentSession(provider: .codex, sessionID: "preview", title: "Example", cwd: "", phase: .running, updatedAt: now, observedAt: now)])
+        await awake.setAutomatic(true)
+        let host = NSHostingView(rootView: KeepAwakeControls(awake: awake).padding(10).frame(width: 330)
+            .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark))
+        host.appearance = NSAppearance(named: .darkAqua)
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil; awake.shutdown() }
+        try await Task.sleep(for: .milliseconds(200))
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path))
+    }
+    @MainActor func testForcedRepairRefreshesAnAlreadyRememberedBuild() async throws {
+        let suite = "awake-repair-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let registration = AwakeServiceRegistration(defaults: defaults, build: "same-build")
+        registration.rememberCurrentBuild()
+        var calls = 0
+        try await registration.refreshIfNeeded(force: true, status: { .enabled },
+            unregister: { calls += 1 }, register: { calls += 1 })
+        XCTAssertEqual(calls, 2)
+    }
+    @MainActor func testAutomaticModeFollowsWorkWithGraceAndDoesNotTreatWaitingAsWork() async throws {
+        let suite = "awake-auto-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var now = Date()
+        let client = FakeAwakeClient(), awake = KeepAwake(client: FakeAwakeClient(), defaults: defaults)
+        XCTAssertFalse(awake.automatic)
+        let subject = KeepAwake(client: client, now: { now }, defaults: defaults)
+        subject.duration = .oneHour
+        await subject.setAutomatic(true)
+        XCTAssertFalse(subject.isEnabled)
+        var row = AgentSession(provider: .codex, sessionID: "work", title: "Example", cwd: "", phase: .running, updatedAt: now, observedAt: now)
+        subject.observe([row]); await subject.reconcileAutomatic()
+        XCTAssertTrue(subject.isEnabled); XCTAssertEqual(client.beginCount, 1)
+        XCTAssertEqual(subject.duration, .oneHour)
+        row.phase = .permission
+        subject.observe([row]); await subject.reconcileAutomatic()
+        now += 59; await subject.check(); XCTAssertTrue(subject.isEnabled)
+        row.phase = .running; row.observedAt = now
+        subject.observe([row]); await subject.reconcileAutomatic()
+        XCTAssertNil(subject.idleDeadline); XCTAssertEqual(client.beginCount, 1)
+        row.phase = .ready
+        subject.observe([row]); await subject.reconcileAutomatic()
+        now += 61; await subject.check()
+        XCTAssertFalse(subject.isEnabled); XCTAssertTrue(subject.automatic)
+        XCTAssertTrue(KeepAwake(client: client, defaults: defaults).automatic)
+        await subject.setAutomatic(false)
+        row.phase = .running; row.observedAt = now
+        subject.observe([row]); await subject.reconcileAutomatic()
+        XCTAssertFalse(subject.isEnabled)
+    }
+    @MainActor func testAutomaticHelperFailureDoesNotLoopOrClaimActive() async throws {
+        let suite = "awake-auto-failure-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let client = FakeAwakeClient(); client.failBegin = true
+        let subject = KeepAwake(client: client, defaults: defaults), now = Date()
+        subject.observe([AgentSession(provider: .codex, sessionID: "work", title: "Example", cwd: "", phase: .running, updatedAt: now, observedAt: now)])
+        await subject.setAutomatic(true)
+        for _ in 0..<10 { await subject.reconcileAutomatic() }
+        XCTAssertEqual(client.beginCount, 1); XCTAssertFalse(subject.isEnabled); XCTAssertNotNil(subject.issue)
+        client.failBegin = false; await subject.setAutomatic(true)
+        XCTAssertTrue(subject.isEnabled); XCTAssertEqual(client.beginCount, 2)
+        await subject.setAutomatic(false)
+    }
     @MainActor func testUpdatedBuildRestartsHelperOnceBeforeUse() async throws {
         let suite = "awake-test-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -118,7 +200,7 @@ final class KeepAwakeTests: XCTestCase {
         let client = FakeAwakeClient(); client.isAvailable = false
         let now = Date(), awake = KeepAwake(client: client)
         var returned = 0
-        awake.onPermissionFinished = { returned += 1 }
+        awake.onPermissionFinished = { _ in returned += 1 }
         awake.duration = .oneHour; awake.requestPermission()
         XCTAssertTrue(awake.isAwaitingPermission); XCTAssertEqual(client.permissionCount, 1)
         await awake.checkPermission(); XCTAssertEqual(client.beginCount, 0)
@@ -149,7 +231,7 @@ final class KeepAwakeTests: XCTestCase {
     @MainActor func testPermissionGrantedButHelperFailureDoesNotClaimActive() async {
         let client = FakeAwakeClient(); client.isAvailable = false
         let awake = KeepAwake(client: client)
-        var returned = 0; awake.onPermissionFinished = { returned += 1 }
+        var returned = 0; awake.onPermissionFinished = { _ in returned += 1 }
         awake.requestPermission(); client.isAvailable = true; client.failBegin = true
         await awake.checkPermission()
         XCTAssertFalse(awake.isEnabled); XCTAssertNotNil(awake.issue); XCTAssertEqual(returned, 1)
@@ -225,20 +307,29 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertFalse(subject.isEnabled); XCTAssertNotNil(subject.issue)
     }
     @MainActor func testRenderNativeButtonInPanel() async throws {
+        let uiDependencies = try AppEnvironment.preview(rows: [])
+        defer { uiDependencies.stop() }
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_AWAKE"] else { throw XCTSkip("Opt-in native rendering") }
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = SessionStore(directory: directory), now = Date()
-        store.acceptSessions([AgentSession(provider: .codex, sessionID: "awake-preview", title: "Работа над Lunavect", cwd: "/tmp/Example", client: .desktop, phase: .running, updatedAt: now, observedAt: now)])
+        store.acceptSessions([
+            AgentSession(
+                provider: .codex, sessionID: "awake-preview", title: "Работа над Lunavect", cwd: "/tmp/Example",
+                client: .desktop, phase: .running, updatedAt: now, observedAt: now)
+        ])
         let backend = FakeAwakeClient()
         let awake = KeepAwake(client: backend)
-        for (available, enabled, expanded, waiting) in [(false, false, true, false), (false, false, true, true), (true, false, false, false), (true, false, true, false), (true, true, true, false), (true, true, false, false)] {
+        for (available, enabled, expanded, waiting) in [
+            (false, false, true, false), (false, false, true, true), (true, false, false, false),
+            (true, false, true, false), (true, true, true, false), (true, true, false, false),
+        ] {
             awake.cancelPermission()
             backend.isAvailable = available; awake.refreshPermission()
             if enabled { await awake.start(for: .oneHour) } else { await awake.stop() }
             if waiting { awake.requestPermission() }
-            let host = NSHostingView(rootView: SessionsView(store: store, awake: awake, onSettings: {}, showingAwake: expanded).preferredColorScheme(.dark))
+            let host = NSHostingView(rootView: SessionsView(store: store, updates: uiDependencies.updates, awake: awake, onSettings: {}, showingAwake: expanded).preferredColorScheme(.dark))
             host.appearance = NSAppearance(named: .darkAqua)
             host.frame = CGRect(origin: .zero, size: host.fittingSize)
             XCTAssertEqual(host.frame.width, 360)
@@ -248,7 +339,10 @@ final class KeepAwakeTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(200))
             let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
-            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path + (waiting ? "-waiting" : "") + (available ? "" : "-permission") + (enabled ? "-on" : "-off") + (expanded ? "-expanded.png" : ".png")))
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(
+                to: URL(
+                    fileURLWithPath: path + (waiting ? "-waiting" : "") + (available ? "" : "-permission")
+                        + (enabled ? "-on" : "-off") + (expanded ? "-expanded.png" : ".png")))
             window.contentView = nil
         }
         await awake.stop()

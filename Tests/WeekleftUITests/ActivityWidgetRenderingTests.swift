@@ -7,9 +7,10 @@ import WeekleftCore
 final class ActivityWidgetRenderingTests: XCTestCase {
     @MainActor func testRenderLimitsOnLightAndDarkBackgrounds() throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_LIMIT_CONTRAST"] else { throw XCTSkip("Opt-in native contrast rendering") }
+        try LegacyRenderIsolation.require()
         let directory = URL(fileURLWithPath: output)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let now = Date()
+        let now = LegacyRenderIsolation.now
         let snapshots = try ProviderID.allCases.map { id in
             try UsageSnapshot(provider: id, weekly: QuotaWindow(usedPercent: id == .claude ? 30 : 60, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
                           fiveHour: QuotaWindow(usedPercent: 15, durationMinutes: 300, resetsAt: now.addingTimeInterval(7200)), fetchedAt: now)
@@ -20,8 +21,12 @@ final class ActivityWidgetRenderingTests: XCTestCase {
             prefs.transparentBackground = experimental
             let view = LunavectWidgetCard(snapshots: snapshots, preferences: prefs, history: ActivityHistory(), content: .limits, family: .medium, now: now)
                 .clipShape(RoundedRectangle(cornerRadius: 24)).padding(20).background(light ? Color.white : Color.black)
-            try render(view, size: CGSize(width: 384, height: 212), to: directory.appendingPathComponent((experimental ? "experimental-" : "standard-") + (light ? "light.png" : "dark.png")), scheme: light ? .light : .dark)
-        }
+                try render(
+                    view, size: CGSize(width: 384, height: 212),
+                    to: directory.appendingPathComponent(
+                        (experimental ? "experimental-" : "standard-") + (light ? "light.png" : "dark.png")),
+                    scheme: light ? .light : .dark)
+            }
         }
     }
     @MainActor func testActivityIncludesHiddenSessionsWithoutChangingTheirVisibility() throws {
@@ -40,10 +45,10 @@ final class ActivityWidgetRenderingTests: XCTestCase {
     }
     @MainActor func testRenderEveryWidgetLayout() throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_ACTIVITY"] else { throw XCTSkip("Opt-in native rendering") }
-        _ = NSApplication.shared
+        try LegacyRenderIsolation.require()
         let directory = URL(fileURLWithPath: output)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let now = Calendar.current.startOfDay(for: Date()).addingTimeInterval(18 * 3600)
+        let now = Calendar.current.startOfDay(for: LegacyRenderIsolation.now).addingTimeInterval(18 * 3600)
         var history = ActivityHistory()
         var recovered: [ActivityInterval] = []
         _ = history.prepareImport(now: Calendar.current.startOfDay(for: now))
@@ -58,13 +63,16 @@ final class ActivityWidgetRenderingTests: XCTestCase {
         }
         history.mergeRecovered(recovered, now: now, limited: false)
         let snapshots = try ProviderID.allCases.map { id in
-            UsageSnapshot(provider: id, weekly: try QuotaWindow(usedPercent: id == .claude ? 35 : 58, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3 * 86400)), fiveHour: try QuotaWindow(usedPercent: 22, durationMinutes: 300, resetsAt: now.addingTimeInterval(7200)), fetchedAt: now)
+            UsageSnapshot(
+                provider: id,
+                weekly: try QuotaWindow(
+                    usedPercent: id == .claude ? 35 : 58, durationMinutes: 10080,
+                    resetsAt: now.addingTimeInterval(3 * 86400)),
+                fiveHour: try QuotaWindow(
+                    usedPercent: 22, durationMinutes: 300, resetsAt: now.addingTimeInterval(7200)), fetchedAt: now)
         }
         var prefs = WidgetPreferences(); prefs.showFiveHour = true
-        let oldLanguage = L10n.defaults.object(forKey: "languageCode")
-        defer { L10n.defaults.set(oldLanguage, forKey: "languageCode") }
-        for language in ["ru", "en", "de", "es", "fr", "zh-Hans"] {
-            L10n.defaults.set(language, forKey: "languageCode")
+        for language in [try LegacyRenderIsolation.language()] {
             for content in LunavectWidgetContent.allCases {
                 for family in content.sizes {
                     for period in content == .limits ? [.week] : ActivityPeriod.allCases {
@@ -74,8 +82,7 @@ final class ActivityWidgetRenderingTests: XCTestCase {
                 }
             }
         }
-        for language in ["ru", "de"] {
-            L10n.defaults.set(language, forKey: "languageCode")
+        for language in [try LegacyRenderIsolation.language()] {
             for source in [ActivitySource.claude, .codex, .comparison] {
                 for family in LunavectWidgetSize.allCases {
                     for period in [ActivityPeriod.week, .month] {
@@ -90,13 +97,19 @@ final class ActivityWidgetRenderingTests: XCTestCase {
                 }
             }
         }
-        L10n.defaults.set("ru", forKey: "languageCode")
         for family in LunavectWidgetSize.allCases {
-            try render(LunavectWidgetCard(snapshots: [], preferences: prefs, history: ActivityHistory(), content: .activity, family: family, now: now), size: family.dimensions, to: directory.appendingPathComponent("empty-\(family.rawValue).png"))
+            try render(
+                LunavectWidgetCard(
+                    snapshots: [], preferences: prefs, history: ActivityHistory(), content: .activity, family: family,
+                    now: now), size: family.dimensions,
+                to: directory.appendingPathComponent("empty-\(family.rawValue).png"))
         }
         var stale = snapshots; stale[0].fetchedAt = now.addingTimeInterval(-86400)
         stale[0].weekly = try QuotaWindow(usedPercent: 0, durationMinutes: 10080, resetsAt: now.addingTimeInterval(-1))
-        try render(LunavectWidgetCard(snapshots: stale, preferences: prefs, history: history, content: .limits, family: .small, now: now), size: LunavectWidgetSize.small.dimensions, to: directory.appendingPathComponent("expired-small.png"))
+        try render(
+            LunavectWidgetCard(
+                snapshots: stale, preferences: prefs, history: history, content: .limits, family: .small, now: now),
+            size: LunavectWidgetSize.small.dimensions, to: directory.appendingPathComponent("expired-small.png"))
         func card(_ content: LunavectWidgetContent, _ family: LunavectWidgetSize, _ period: ActivityPeriod = .week, _ source: ActivitySource = .all) -> some View {
             LunavectWidgetCard(snapshots: snapshots, preferences: prefs, history: history, content: content, family: family, now: now, period: period, source: source)
                 .background(Color(red: 0.09, green: 0.11, blue: 0.14))
@@ -153,20 +166,16 @@ final class ActivityWidgetRenderingTests: XCTestCase {
             }
         }.padding(24).foregroundStyle(.white)
         try render(periods, size: CGSize(width: 1120, height: 480), to: directory.appendingPathComponent("periods.png"))
-        // Render the real controls with the same synthetic history; never publish user history.
-        let store = AppStore(state: SharedState(snapshots: snapshots, preferences: prefs), savesChanges: false, activityHistory: history)
-        for language in ["ru", "de"] {
-            L10n.defaults.set(language, forKey: "languageCode")
-            let suite = "Lunavect.ActivityRendering." + UUID().uuidString
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defer { defaults.removePersistentDomain(forName: suite) }
-            for section in [SettingsSection.statistics, .widget] {
-                defaults.set(section.rawValue, forKey: "settingsSection")
-                try render(SettingsView(store: store, menuBarAppearance: MenuBarAppearance(defaults: defaults), sessions: SessionStore()).defaultAppStorage(defaults),
-                           size: CGSize(width: 840, height: 680), to: directory.appendingPathComponent("\(language)-page-\(section.rawValue).png"))
-            }
+        // The full control pages share the same isolated production composition.
+        let preview = try LegacyRenderFixture(snapshots: snapshots, preferences: prefs, history: history)
+        defer { preview.stop() }
+        let store = preview.environment.store
+        let language = try LegacyRenderIsolation.language()
+        for section in [SettingsSection.statistics, .widget] {
+            preview.environment.defaults.set(section.rawValue, forKey: "settingsSection")
+            try render(preview.settings(), size: CGSize(width: 840, height: 680),
+                to: directory.appendingPathComponent("\(language)-page-\(section.rawValue).png"))
         }
-        L10n.defaults.set("ru", forKey: "languageCode")
         for period in ActivityPeriod.allCases {
             try render(ActivityDetailChart(data: ActivityChartData(history: history, now: now, period: period)),
                        size: CGSize(width: 554, height: 530), to: directory.appendingPathComponent("detail-\(period.rawValue).png"))
@@ -176,13 +185,10 @@ final class ActivityWidgetRenderingTests: XCTestCase {
     }
     @MainActor func testRenderSharedChartStates() throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_ACTIVITY"] else { throw XCTSkip("Opt-in native rendering") }
-        _ = NSApplication.shared
+        try LegacyRenderIsolation.require()
         let directory = URL(fileURLWithPath: output)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let language = L10n.defaults.object(forKey: "languageCode")
-        defer { L10n.defaults.set(language, forKey: "languageCode") }
-        L10n.defaults.set("ru", forKey: "languageCode")
-        let now = Calendar.current.startOfDay(for: Date()).addingTimeInterval(18 * 3600)
+        let now = Calendar.current.startOfDay(for: LegacyRenderIsolation.now).addingTimeInterval(18 * 3600)
         func history(_ claude: [Double?], _ codex: [Double?], stale: Bool = false, limited: Bool = false) -> ActivityHistory {
             var result = ActivityHistory()
             for index in claude.indices {
@@ -253,10 +259,10 @@ final class ActivityWidgetRenderingTests: XCTestCase {
     }
     @MainActor func testRenderCleanContourAndSeparateCurrentHour() throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_GAPS"] else { throw XCTSkip("Opt-in native gap preview") }
-        _ = NSApplication.shared
+        try LegacyRenderIsolation.require()
         let directory = URL(fileURLWithPath: output)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = Calendar.current.startOfDay(for: LegacyRenderIsolation.now)
         let now = today.addingTimeInterval(9 * 3600 + 56 * 60)
         var history = ActivityHistory()
         for (hour, minutes) in [(0, 27), (1, 24), (2, 0), (3, 0), (8, 50), (9, 54)] {
@@ -277,10 +283,7 @@ final class ActivityWidgetRenderingTests: XCTestCase {
         XCTAssertEqual(displayed[8], 50 * 60)
         XCTAssertNil(displayed[9], "Unfinished hour is shown separately, without a false drop")
         XCTAssertEqual(codex.summary.points[9].totals.active, 54 * 60, "Current-hour observations are retained")
-        let oldLanguage = L10n.defaults.object(forKey: "languageCode")
-        defer { L10n.defaults.set(oldLanguage, forKey: "languageCode") }
-        for language in ["ru", "de"] {
-            L10n.defaults.set(language, forKey: "languageCode")
+        for language in [try LegacyRenderIsolation.language()] {
             for scheme in [ColorScheme.dark, .light] {
                 try render(ActivityDetailChart(data: data).padding(20).background(Color(nsColor: .windowBackgroundColor)),
                            size: CGSize(width: 620, height: 540), to: directory.appendingPathComponent("contour-day-" + language + (scheme == .dark ? "-dark.png" : "-light.png")), scheme: scheme)
@@ -288,15 +291,6 @@ final class ActivityWidgetRenderingTests: XCTestCase {
         }
     }
     @MainActor private func render<V: View>(_ view: V, size: CGSize, to url: URL, scheme: ColorScheme = .dark) throws {
-        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height).background(Color(red: 0.09, green: 0.11, blue: 0.14)).preferredColorScheme(scheme))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.contentView = host; host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
-        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: url)
-        window.contentView = nil
+        try LegacyRenderIsolation.render(view, size: size, to: url, scheme: scheme)
     }
 }

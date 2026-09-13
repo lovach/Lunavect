@@ -27,10 +27,15 @@ targets:
     platform: macOS
     sources:
       - path: Sources/AwakeService/AwakeProtocol.swift
+      - path: Sources/AwakeService/SystemSleepSetting.swift
+      - path: Sources/AwakeService/AwakeLease.swift
       - path: Sources/WeekleftCore
       - path: Sources/Weekleft
         excludes: ['Resources']
       - path: Sources/Weekleft/Resources
+        excludes: [clawd-laptop.gif]
+        buildPhase: resources
+      - path: Widget/Resources
         buildPhase: resources
     settings:
       base:
@@ -110,7 +115,15 @@ targets:
       - path: Sources/Weekleft/WidgetView.swift
       - path: Sources/Weekleft/ActivityWidgetView.swift
       - path: Sources/Weekleft/ActivityWidgetIntents.swift
-      - path: Sources/Weekleft/Resources
+      - path: Sources/Weekleft/Resources/LunavectTide.icns
+        buildPhase: resources
+      - path: Sources/Weekleft/Resources/claude.pdf
+        buildPhase: resources
+      - path: Sources/Weekleft/Resources/codex.pdf
+        buildPhase: resources
+      - path: Sources/Weekleft/Resources/Lunavect-LICENSE.txt
+        buildPhase: resources
+      - path: Sources/Weekleft/Resources/ThirdParty-LICENSE.txt
         buildPhase: resources
     settings:
       base:

@@ -5,7 +5,7 @@ import SwiftUI
 enum InterfaceGlyph: CaseIterable {
     case power, refresh, settings, search, history, back, forward, down, close
     case eye, hidden, restore, trash, more, pin, calendar, bell, link, menuBar, widget
-    case sessions, check, checkCircle, circle, warning, info, activity, globe, shield, external, open
+    case limits, sessions, check, checkCircle, circle, warning, info, activity, globe, shield, external, open
 }
 
 struct InterfaceIcon: View {
@@ -114,6 +114,8 @@ struct InterfaceIconShape: Shape {
             line([(12,3),(22,21),(2,21),(12,3)]); line([(12,9),(12,14)]); circle(12,17.5,0.45)
         case .info:
             circle(12,12,9); line([(12,11),(12,17)]); circle(12,7,0.45)
+        case .limits:
+            box(3,5,18,14); line([(7,9),(17,9)]); line([(7,15),(12,15)])
         case .activity: line([(2,12),(6,12),(9,5),(14,20),(17,12),(22,12)])
         case .globe:
             circle(12,12,9); p.addEllipse(in: CGRect(x:8,y:3,width:8,height:18)); line([(3,12),(21,12)])
@@ -139,7 +141,7 @@ struct InterfaceToolbarStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .frame(width: 30, height: 30)
+            .frame(width: InterfaceMetrics.compactControlSize, height: InterfaceMetrics.compactControlSize)
             .foregroundStyle(active ? Color.orange : Color.primary.opacity(0.8))
             .background(active ? Color.orange.opacity(0.12) : selected || configuration.isPressed ? Color.primary.opacity(0.09) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(active ? 0 : 0.055), lineWidth: 0.6))

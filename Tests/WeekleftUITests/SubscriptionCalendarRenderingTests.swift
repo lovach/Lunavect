@@ -6,6 +6,7 @@ import WeekleftCore
 final class SubscriptionCalendarRenderingTests: XCTestCase {
     @MainActor func testNativeCalendarPreview() throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_CALENDAR"] else { throw XCTSkip("Set LUNAVECT_RENDER_CALENDAR for visual verification") }
+        try LegacyRenderIsolation.require()
         _ = NSApplication.shared
         let calendar = SubscriptionCalendar.calendar()
         let date = calendar.date(from: DateComponents(year: 2026, month: 10, day: 2))!

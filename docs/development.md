@@ -27,6 +27,13 @@ See [Contributing](../CONTRIBUTING.md) for proposing changes and submitting a pu
 
 Public branding is Lunavect. Compatibility-facing targets and identifiers retain Weekleft names. Keep `project.yml` and `Weekleft.xcodeproj` in sync when changing targets or build structure. Changing bundle IDs, App Groups or data paths requires a migration.
 
+`design/selected/selection.json` identifies the approved artwork. App and widget
+declare `LunavectTide.icns` through `CFBundleIconFile`; packaging reads that key
+instead of assuming an icon filename. Build, distribution and installation checks
+compare their icons, translations, version numbers and App Group. A per-bundle allowlist checks provider PDFs, animation/sound formats and intent localizations; app-only artwork/animations/audio are excluded from the widget. Source checks hash every packaged source resource, including interface marks.
+New builds also compare those resources against the current source. These checks cannot certify
+that macOS has refreshed every cached gallery icon.
+
 ## Build and test
 
 From the repository root:
@@ -35,17 +42,81 @@ From the repository root:
 ./scripts/check.sh
 ```
 
-This runs Swift and Python tests, widget background compatibility checks, and a universal Release build of the app, helpers and widget without a signing account. Xcode products go to a temporary directory outside the repository, configurable with `WEEKLEFT_CHECK_DERIVED_DATA`. The check removes its generated app bundle to avoid duplicate entries in the macOS widget gallery.
+This runs Swift and Python tests, widget background compatibility checks, and a universal Release build of the app, helpers and widget without a signing account. Every invocation creates its own temporary Xcode directory, including simultaneous runs from the same checkout. `WEEKLEFT_CHECK_DERIVED_DATA` selects a **parent directory**; it is no longer an exact DerivedData path to reuse. The check removes only its newly created child after success or failure. It neither inspects nor unregisters installed apps.
+
+Results persist in a new directory under `build/check-results/`; `WEEKLEFT_CHECK_RESULTS` can select another parent. Each run contains `check-results.json`, `check-summary.md` and `build-manifest.json`. Local stage logs help diagnose failures; they are not uploaded as CI artifacts. Do not edit or stage source files during a check: provenance compares the source content and Git index before and after the build, and fails if either changed. Existing stable uncommitted changes are recorded as dirty.
 
 For focused changes, run the relevant suite:
 
 ```sh
-swift test --filter SessionDragSnapshotTests
+swift test --jobs 2 --filter SessionDragSnapshotTests
+python3 -B -m unittest discover -s Tests/Scripts
 ```
 
-Opt-in native renders and live integration tests are skipped unless their environment variables are explicitly set. A passing build does not prove live client integration or desktop WidgetKit behavior. See [verification and compatibility](verification.md).
+`check.sh` strips inherited `LUNAVECT_*` variables from its child commands so a reused shell cannot accidentally enable native exporters, local-history reads, session navigation or live integrations. Direct `swift test` commands still honor their opt-in variables. XCTest skips are counted separately; a successful unsigned build does not prove live client integration or desktop WidgetKit behavior. See [check scopes and release gates](checks-and-release-gates.md) and [recorded verification](verification.md).
 
-GitHub Actions runs `scripts/check.sh` on pushes to `main`, pull requests and manual dispatch, with read-only repository access and no signing secrets.
+GitHub Actions verifies XcodeGen 2.46.0 project/scheme parity in a temporary copy, then runs `scripts/check.sh` on pushes to `main`, pull requests and manual dispatch, with read-only repository access and no signing secrets. Its summary and artifacts preserve passed, skipped, failed and not-run stages, even if a later stage fails. It selects `macos-26` and `/Applications/Xcode_26.6.app`, with a checksum-pinned XcodeGen download. Only superseded pull-request runs are cancelled; each main push has its own concurrency group. These pins require deliberate updates when GitHub retires a toolchain. The hosted image itself can still change. It runs on one macOS runner; this is not a supported-OS or Intel-hardware certification.
+
+## Isolated native render checks
+
+The small routine render matrix uses production limits cards and the activity detail chart with fictional values, a fixed clock and RU/DE in light/dark appearance. It includes current, unavailable and stale limits, plus the selected activity contour with gaps and an incomplete current hour. It does not construct application/session stores or open visible windows.
+
+```sh
+# Writes a not-run report without building or rendering.
+python3 scripts/check-native-renders.py --output build/render-plan
+
+# Fails if sandbox isolation cannot be established or rendering cannot complete.
+python3 scripts/check-native-renders.py --run --require-render --output build/render-check
+```
+
+Use a new output directory for every run. The launcher builds only test products with two Swift jobs, proves its sandbox with synthetic file/process/network/preferences probes, then runs only the explicitly allowlisted methods for the selected suite. The default `smoke` suite runs `NativeRenderSmokeTests`. It never falls back to an unsandboxed renderer. Language is supplied through the existing Debug preview environment instead of writing shared defaults. Open `gallery.html` and inspect every image; `render-report.json` records file hashes, dimensions and the remaining visual-review scope. Image export success alone is not approval of the layout.
+
+Pass `--baseline /path/to/previous/render-output` to compare with a reviewed run. Keep macOS, Xcode, architecture and fixture settings aligned when assessing differences: platform font/raster changes can also change images. A comparison is review evidence, not permission to replace a baseline automatically. In GitHub Actions, select the optional `native_render` input on manual dispatch. The separate job uploads only the synthetic PNGs, gallery, structured report, summary and source manifest; it does not publish a release or README assets.
+
+The additional `legacy-values` suite runs four migrated value-view exporters and an isolated preview-composition check in separate RU/DE processes:
+
+```sh
+python3 scripts/check-native-renders.py --run --require-render \
+  --suite legacy-values --output build/render-legacy-values
+```
+
+Its 12 images cover stale/fresh allowances, import reports at 340/580 points, light/dark contour gaps and the control icon alphabet. The icon captions are internal glyph names and intentionally identical across languages. Every selected XCTest invocation must report exactly one passed test with no skips, in addition to the exact image set. A successful empty filter cannot satisfy the check. Preview composition uses `AppEnvironment.preview`, private defaults and temporary files; its construction and stop are checked inside the same sandbox.
+
+Other legacy exporters now require sandbox proof and process-only language before evaluating views. Exporters that need stores use the same preview environment with injected features, updates, language and keep-awake dependencies. Whole Settings, ReleaseScreenshots, onboarding and session-window renderers are **not allowlisted**: their complete native control/window behavior has not been verified under the restricted launcher. Do not set the proof variables by hand or remove the guard to run them. The launcher keeps shared preferences, client processes and network access denied.
+
+## Synthetic performance measurements
+
+```sh
+# Report the unperformed check without building.
+python3 scripts/measure-performance.py --output build/performance-plan
+
+# Optimized production-code workload, three independent XCTest processes.
+python3 scripts/measure-performance.py --run --profile large \
+  --configuration release --samples 3 --output build/performance-large
+```
+
+The runner creates only synthetic JSONL archives in a private temporary directory. It calls the production archive importer, history merge/serialization/summary and session arrangement directly. No default history directories, application stores or client accounts are used. `large` means 256 files × 256 timing records, 5,000 sessions and 20 repeated history/arrangement operations. `quick` uses 16 × 32 records, 250 sessions and four repetitions. Fixture generation is a separate measured phase; builds and XCTest startup are outside the phase timers. Release test products explicitly enable testability and use two Swift jobs.
+
+`performance-report.json` contains exact workload sizes, per-sample wall/CPU time, OS I/O block counters and process high-water RSS; `summary.md` shows medians/ranges. RSS includes earlier phases and XCTest, so it is not a phase allocation delta. Cached I/O can report zero blocks. The source manifest covers the measurement report; `run-summary.json` separately combines measurement and provenance status without changing the already-hashed report. A failed provenance result makes the command fail even if the workload completed. Use a new output directory and keep source/index fixed while it runs. Local logs are excluded from the optional `synthetic_performance` GitHub Actions artifacts. This job has been configured; a local run does not prove the remote runner has passed.
+
+For comparisons, keep profile, configuration, toolchain, host, power state and background load comparable, retain all samples, and repeat the same protocol before and after a change. The [case study](case-study.md) records a measured baseline, with no improvement or battery claim.
+
+## Read-only installed-process sampling
+
+The separate sampler requires an operator-supplied executable path **and** PID; it never discovers an app by name or starts a workload:
+
+```sh
+python3 scripts/sample-process.py \
+  --executable /absolute/path/to/Lunavect.app/Contents/MacOS/Weekleft \
+  --pid 12345 --scenario idle --duration 30 --interval 1 \
+  --output /path/to/new-idle-sample.json
+```
+
+Replace both identity values with the exact authorized running process. The C helper verifies the executable before and after every `libproc` read; the report rejects PID reuse, counter resets and incomplete intervals. It collects cumulative CPU, disk-byte and wakeup counters, sampled RSS and physical footprint. The JSON records the executable basename/hash and process identity, without arguments, open files, memory contents or account data. Child helpers are not aggregated; brief memory peaks can be missed. A short sample does not establish battery life.
+
+Process reports use schema 2: `libproc` CPU counters are Mach absolute ticks, converted to nanoseconds with the host's recorded `mach_timebase_info` numerator/denominator and checked wide arithmetic. Schema 1 incorrectly labeled raw ticks as nanoseconds and its CPU results must not be used without conversion from the original host timebase. On a 125/3 host the old CPU figure was understated by 41.67 times. The native regression compares a private CPU workload against `getrusage`, including non-unit timebase and overflow boundaries.
+
+Run idle with the panel closed, active with a recorded active/waiting count and panel state, and wake only after an operator-controlled sleep/wake. Use a disposable synthetic profile for large-archive testing. Record the app build, workload count, power state, interval and any mismatch between upstream tasks and visible sessions alongside the report. The tool does not change permissions, install an app, invoke sleep or modify source histories. If a process exits, exact identity fails or counters are unavailable, it writes a failed result rather than silently substituting another process.
 
 ## Signed local development
 
@@ -56,7 +127,7 @@ Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` and set your own
 ./scripts/install.sh
 ```
 
-The default configuration is Release. Use `WEEKLEFT_BUILD_CONFIGURATION=Debug` explicitly for debugging. Build products live outside the project. The install script targets `~/Applications/Lunavect.app`, so review it before running if you have an existing installation.
+The default configuration is Release. `WEEKLEFT_SIGNING_CONFIG=/absolute/path/to/config.xcconfig ./scripts/build.sh` explicitly selects a reviewed signing configuration for a local candidate. Local candidates may have stable uncommitted changes; use `unsigned-check` or `unspecified` provenance, because `distribution` always requires a clean source tree. The local build number considers both `~/Applications` and `/Applications`, plus previous products. Use `WEEKLEFT_BUILD_CONFIGURATION=Debug` explicitly for debugging. Build products live outside the project. The install script targets `~/Applications/Lunavect.app`, so review it before running if you have an existing installation.
 
 Public distribution uses Developer ID signing and notarization, described in [update packaging](updates.md). For a fork, use your own signing identity, update feed and update key.
 
@@ -74,17 +145,12 @@ Diagnostic output from `--session-probe` contains session titles and project pat
 
 ## README screenshots
 
-The public gallery is rendered directly from production SwiftUI components using fictional sessions, allowances and activity. It does not read the user's session history or connect accounts.
-
-```sh
-LUNAVECT_RELEASE_SCREENSHOTS="$PWD/docs/images" \
-  swift test --filter ReleaseScreenshots.testRenderPublicScreenshots
-```
-
-The renderer creates light/dark overview images, session appearances, usage and activity screens, widget layouts and a social preview. Inspect the PNGs before committing them. These renders document the interface; they are not evidence of desktop widget placement or live account behavior.
+The public gallery uses fictional sessions, allowances and activity. Its broader `ReleaseScreenshots` suite and the [media app](../scripts/presentation/README.md) are separate from the isolated smoke matrix above. Legacy test exporters have been migrated to the injected preview environment and protected by the isolation guard; whole-window exports remain excluded from the allowlist until their complete sandboxed rendering is verified. The separate media app also needs its own isolation review before use. Do not enable those exporters in routine CI. Associate reviewed media with the source manifest of the actual run before updating public images. They document the interface and do not prove desktop widget placement or live account behavior.
 
 ## Releases
 
-Publish the DMG, signed update ZIP, signed appcast and checksums together. Verify the files downloaded from GitHub, then update the README's direct DMG links to that exact release. See [distribution commands](updates.md) and [the current compatibility matrix](verification.md).
+Publish the DMG, signed update ZIP, signed appcast and checksums together after the [release gates](checks-and-release-gates.md#remaining-release-gates) are satisfied. Verify the files downloaded from GitHub, then update the README's direct DMG links to that exact release. See [distribution commands](updates.md) and [the recorded compatibility matrix](verification.md).
+
+`scripts/build-manifest.py` records commit/dirty state, source content/index fingerprints, parsed toolchain versions, actual app version/build and SHA-256 artifact hashes. `check.sh` records it automatically before deleting its unsigned product. For a future distribution, use `begin --kind distribution --require-clean` before building and `finalize` on the exact app and packaged files; see the [manifest commands and limits](checks-and-release-gates.md#build-provenance). This does not change the signing workflow or establish byte-for-byte reproducibility.
 
 Original code is [MIT licensed](../LICENSE). Keep third-party attribution and permission status in [NOTICE](../NOTICE) and the resource provenance document.

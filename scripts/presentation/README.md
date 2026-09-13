@@ -4,17 +4,21 @@
 
 The public 18-second demo illustrates working → permission needed → response ready. Its side-by-side widget views are **previews**, not WidgetKit widgets placed on a desktop. It does not demonstrate a click returning to an external client.
 
-Build it in a separate temporary source copy, replacing that copy's `Sources/Weekleft/Main.swift` with `DemoMain.swift`. Also copy `Tests/WeekleftUITests/PresentationFixture.swift` into that copy’s `Sources/Weekleft/` directory. Both the still renderer and video use this shared fictional dataset. Do not replace the entry point in your working app, use the installed app's bundle ID, or install this media app.
-
-Run the resulting executable with `LUNAVECT_PREVIEW_LANGUAGE=en` and `LUNAVECT_DEMO_OUTPUT` pointing to an empty temporary directory. It records 180 native window frames at 10 frames per second and exits. Encode with a local video tool as H.264, 10 fps, yuv420p, fast-start MP4. Build the recording from the same source revision and fixture as the public stills, separate from ongoing application changes.
-
-For the still images, keep the normal app entry point and run:
+Prepare a new source copy without changing the live application entry point:
 
 ```sh
-LUNAVECT_RELEASE_SCREENSHOTS="$PWD/docs/images" swift test --filter ReleaseScreenshots.testRenderPublicScreenshots
+python3 scripts/presentation/prepare.py --output /path/to/new-media-source
+cd /path/to/new-media-source
+swift build --jobs 2
 ```
 
-Inspect the exported images and the beginning, permission state and end of the video before publishing. Never replace fictional fixtures with local session history. The renderer is an opt-in asset tool, not an end-to-end provider or WidgetKit test.
+The preparer retains shared popover support from `Main.swift`, removes only the production launcher's `@main` attribute in the copy, and adds `DemoMain.swift` plus the shared fictional `PresentationFixture`. Replacing the whole `Main.swift` would remove types needed by other native controls. Use a new output directory; the tool never overwrites an existing one. Do not install the media app or give it the installed application's bundle ID.
+
+`DemoState` uses `AppEnvironment.preview` for private defaults, in-memory data and injected inactive services. Both session views receive that preview's explicit updates and awake dependencies. The status-item preview uses the native value view directly, so it does not construct the live `MenuBarAnimator` update observer. Termination stops the preview and removes its temporary state.
+
+The separate media application is still a whole-window exporter and is **not allowlisted** by the strict native render launcher. Build/typecheck is safe to run; do not run `LUNAVECT_DEMO_OUTPUT` or whole-window XCTest exporters outside the reviewed isolation workflow. The routine allowed checks are documented in [development](../../docs/development.md#isolated-native-render-checks). Media compilation does not establish rendering or desktop WidgetKit behavior.
+
+When this broader exporter has an approved sandbox path, its intended output is 180 native window frames at 10 fps, with working, permission and ready stages. Inspect the beginning, permission state and end before encoding or publishing. Keep the media source/fixture revision together with the reviewed images; never substitute private histories.
 
 ## README gallery
 

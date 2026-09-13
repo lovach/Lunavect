@@ -5,7 +5,8 @@ private final class Setting: SleepSetting {
     var disabled = false
     var failEnable = false, failRestore = false, mutateThenFail = false
     var writes: [Bool] = []
-    func isDisabled() -> Bool { disabled }
+    var reads = 0
+    func isDisabled() -> Bool { reads += 1; return disabled }
     func setDisabled(_ value: Bool) throws {
         writes.append(value)
         if value && failEnable || !value && failRestore { throw AwakeFailure.system }
@@ -20,6 +21,58 @@ private final class Journal: AwakeJournal {
     func clear() { pending = false }
 }
 final class AwakeLeaseTests: XCTestCase {
+    func testConfigurableSafetySeparatesBatteryThermalAndPowerRules() {
+        var policy = AwakeSafetyPolicy()
+        XCTAssertEqual(policy.failure(onBattery: true, batteryPercent: 10, thermalSeverity: 0), .battery)
+        XCTAssertNil(policy.failure(onBattery: false, batteryPercent: 2, thermalSeverity: 0))
+        policy.batteryProtection = false
+        XCTAssertNil(policy.failure(onBattery: true, batteryPercent: 2, thermalSeverity: 0))
+        XCTAssertEqual(policy.failure(onBattery: false, batteryPercent: nil, thermalSeverity: 2), .thermal)
+        policy.thermalProtection = false
+        XCTAssertNil(policy.failure(onBattery: true, batteryPercent: 2, thermalSeverity: 3))
+        policy.allowBattery = false
+        XCTAssertEqual(policy.failure(onBattery: true, batteryPercent: nil, thermalSeverity: 0), .power)
+    }
+    func testSafetyChangeAppliesToActiveLeaseWithoutExtendingIt() throws {
+        let setting = Setting(), journal = Journal(), owner = UUID()
+        let now = Date()
+        var uptime: TimeInterval = 0
+        let lease = try AwakeLease(setting: setting, journal: journal, now: { now }, uptime: { uptime },
+            safety: { $0.failure(onBattery: true, batteryPercent: 18, thermalSeverity: 0) })
+        try lease.begin(owner: owner, seconds: 0)
+        var policy = AwakeSafetyPolicy(minimumBatteryPercent: 20)
+        XCTAssertThrowsError(try lease.configure(owner: UUID(), policy: policy))
+        XCTAssertTrue(setting.disabled)
+        XCTAssertThrowsError(try lease.configure(owner: owner, policy: policy)) {
+            XCTAssertEqual($0 as? AwakeFailure, .battery)
+        }
+        XCTAssertFalse(setting.disabled); XCTAssertFalse(journal.pending)
+        policy.batteryProtection = false; policy.thermalProtection = false
+        try lease.begin(owner: owner, seconds: 0, policy: policy)
+        uptime = 25; try lease.configure(owner: owner, policy: policy)
+        uptime = 31; lease.tick()
+        XCTAssertFalse(setting.disabled, "Disabling optional checks never disables the connection lease")
+        XCTAssertEqual(lease.lastFailure, .expired)
+        XCTAssertThrowsError(try lease.begin(owner: owner, seconds: 0, policy: .init(minimumBatteryPercent: 30)))
+    }
+    func testThermalChoiceIsAppliedByHelperAndDefaultsReturnForNextOwner() throws {
+        let setting = Setting(), journal = Journal(), owner = UUID()
+        let lease = try AwakeLease(setting: setting, journal: journal,
+            safety: { $0.failure(onBattery: false, batteryPercent: nil, thermalSeverity: 2) })
+        XCTAssertThrowsError(try lease.begin(owner: owner, seconds: 0))
+        try lease.begin(owner: owner, seconds: 0, policy: .init(thermalProtection: false))
+        lease.tick(); XCTAssertTrue(setting.disabled)
+        try lease.end(owner: owner)
+        XCTAssertThrowsError(try lease.begin(owner: UUID(), seconds: 0))
+        XCTAssertFalse(setting.disabled)
+    }
+    func testPolicyValidationBoundsExternalValues() throws {
+        XCTAssertEqual(AwakeSafetyPolicy(minimumBatteryPercent: -10).minimumBatteryPercent, 5)
+        var policy = AwakeSafetyPolicy()
+        policy.minimumBatteryPercent = 1000
+        let restored = try JSONDecoder().decode(AwakeSafetyPolicy.self, from: JSONEncoder().encode(policy)).normalized
+        XCTAssertEqual(restored.minimumBatteryPercent, 50)
+    }
     func testLeaseExpiryReleasesGlobalSettingEvenWithoutClient() throws {
         let setting = Setting(), journal = Journal(), owner = UUID()
         var uptime: TimeInterval = 100
@@ -83,7 +136,7 @@ final class AwakeLeaseTests: XCTestCase {
         for reason in [AwakeFailure.battery, .thermal] {
             let setting = Setting(), journal = Journal()
             var safety: AwakeFailure?
-            let lease = try AwakeLease(setting: setting, journal: journal, safety: { safety })
+            let lease = try AwakeLease(setting: setting, journal: journal, safety: { _ in safety })
             try lease.begin(owner: UUID(), seconds: 0)
             safety = reason; lease.tick()
             XCTAssertFalse(setting.disabled); XCTAssertFalse(journal.pending)
@@ -102,11 +155,29 @@ final class AwakeLeaseTests: XCTestCase {
     }
     func testExternalRemovalDoesNotSilentlyReenable() throws {
         let setting = Setting(), journal = Journal(), owner = UUID()
-        let lease = try AwakeLease(setting: setting, journal: journal)
+        var uptime: TimeInterval = 0
+        let lease = try AwakeLease(setting: setting, journal: journal, uptime: { uptime })
         try lease.begin(owner: owner, seconds: 0)
         setting.disabled = false
+        uptime = 20; try lease.keepAlive(owner: owner)
+        uptime = 31
         XCTAssertThrowsError(try lease.keepAlive(owner: owner))
         XCTAssertFalse(setting.disabled); XCTAssertFalse(journal.pending)
+    }
+    func testHeartbeatsDoNotSpawnSystemQueryOnEveryTick() throws {
+        let setting = Setting(), journal = Journal(), owner = UUID()
+        var uptime: TimeInterval = 0
+        let lease = try AwakeLease(setting: setting, journal: journal, uptime: { uptime })
+        XCTAssertTrue(lease.isIdle)
+        try lease.begin(owner: owner, seconds: 0)
+        XCTAssertFalse(lease.isIdle)
+        let baseline = setting.reads
+        for second in stride(from: 5, through: 60, by: 5) {
+            uptime = Double(second); lease.tick(); try lease.keepAlive(owner: owner)
+        }
+        XCTAssertEqual(setting.reads - baseline, 2)
+        try lease.end(owner: owner)
+        XCTAssertTrue(lease.isIdle)
     }
     func testSystemSettingReadOnlyProbe() throws {
         guard ProcessInfo.processInfo.environment["LUNAVECT_TEST_AWAKE"] == "1" else { throw XCTSkip("Opt-in real pmset read; never mutates sleep") }

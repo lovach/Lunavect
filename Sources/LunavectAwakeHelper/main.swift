@@ -4,24 +4,48 @@ import Darwin
 import AwakeService
 #endif
 
-final class AwakePeer: NSObject, LunavectAwakeProtocol {
+// A packaging probe exits before creating a journal, reading power state or XPC.
+if CommandLine.arguments.dropFirst() == ["--signing-policy"] {
+    print(AwakeServiceID.peerPolicy.rawValue)
+    exit(0)
+}
+
+// All mutable lease access is confined to queue; the XPC entry points only enqueue.
+final class AwakePeer: NSObject, LunavectAwakeProtocol, @unchecked Sendable {
     let id = UUID()
-    let queue: DispatchQueue
-    let lease: AwakeLease
+    private let queue: DispatchQueue
+    private let lease: AwakeLease
     init(queue: DispatchQueue, lease: AwakeLease) { self.queue = queue; self.lease = lease }
-    private func perform(_ reply: @escaping (Bool, String) -> Void, _ action: @escaping () throws -> Void) {
+    private func perform(_ reply: @escaping @Sendable (Bool, String) -> Void, _ action: @escaping @Sendable () throws -> Void) {
         queue.async {
+            dispatchPrecondition(condition: .onQueue(self.queue))
             do { try action(); reply(true, "") }
             catch { reply(false, (error as? AwakeFailure ?? .system).rawValue) }
         }
     }
-    func begin(seconds: Int, withReply reply: @escaping (Bool, String) -> Void) {
+    func begin(seconds: Int, withReply reply: @escaping @Sendable (Bool, String) -> Void) {
         perform(reply) { try self.lease.begin(owner: self.id, seconds: seconds) }
     }
-    func keepAlive(withReply reply: @escaping (Bool, String) -> Void) {
+    func beginConfigured(seconds: Int, allowBattery: Bool, batteryProtection: Bool, minimumBatteryPercent: Int,
+                         thermalProtection: Bool, withReply reply: @escaping @Sendable (Bool, String) -> Void) {
+        perform(reply) {
+            try self.lease.begin(owner: self.id, seconds: seconds, policy: AwakeSafetyPolicy(
+                allowBattery: allowBattery, batteryProtection: batteryProtection,
+                minimumBatteryPercent: minimumBatteryPercent, thermalProtection: thermalProtection))
+        }
+    }
+    func configure(allowBattery: Bool, batteryProtection: Bool, minimumBatteryPercent: Int,
+                   thermalProtection: Bool, withReply reply: @escaping @Sendable (Bool, String) -> Void) {
+        perform(reply) {
+            try self.lease.configure(owner: self.id, policy: AwakeSafetyPolicy(
+                allowBattery: allowBattery, batteryProtection: batteryProtection,
+                minimumBatteryPercent: minimumBatteryPercent, thermalProtection: thermalProtection))
+        }
+    }
+    func keepAlive(withReply reply: @escaping @Sendable (Bool, String) -> Void) {
         perform(reply) { try self.lease.keepAlive(owner: self.id) }
     }
-    func end(withReply reply: @escaping (Bool, String) -> Void) {
+    func end(withReply reply: @escaping @Sendable (Bool, String) -> Void) {
         perform(reply) { try self.lease.end(owner: self.id) }
     }
     func disconnected() { queue.async { try? self.lease.end(owner: self.id) } }
@@ -50,8 +74,14 @@ do {
     listener.setConnectionCodeSigningRequirement(try AwakeServiceID.requirement(for: AwakeServiceID.app))
     listener.delegate = delegate
     let timer = DispatchSource.makeTimerSource(queue: delegate.queue)
-    timer.schedule(deadline: .now() + 2, repeating: 2)
-    timer.setEventHandler { lease.tick() }
+    var idleSince = ProcessInfo.processInfo.systemUptime
+    timer.schedule(deadline: .now() + 5, repeating: 5, leeway: .seconds(1))
+    timer.setEventHandler {
+        lease.tick()
+        let now = ProcessInfo.processInfo.systemUptime
+        if !lease.isIdle { idleSince = now }
+        else if now - idleSince >= 60 { exit(0) }
+    }
     timer.resume()
     signal(SIGTERM, SIG_IGN)
     let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: delegate.queue)

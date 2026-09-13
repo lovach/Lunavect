@@ -4,6 +4,21 @@ import ImageIO
 @testable import Weekleft
 
 final class MenuBarArtworkTests: XCTestCase {
+    @MainActor func testFrameSchedulingHonorsSourceDurationsAndSkipsRestFrames() {
+        XCTAssertEqual(CodexAnimation.nextFrameDelay(at: 0), 0.12, accuracy: 0.0001)
+        XCTAssertEqual(CodexAnimation.nextFrameDelay(at: 0.65), 0.17, accuracy: 0.0001)
+        XCTAssertEqual(CodexAnimation.nextFrameDelay(at: 0.85), 0.09, accuracy: 0.0001)
+        XCTAssertEqual(ClawdAnimation.nextFrameDelay(at: 4.02), 0.063333, accuracy: 0.0001)
+        XCTAssertGreaterThan(ClawdAnimation.nextFrameDelay(at: ClawdAnimation.cycleDuration - 2.5), 2.49)
+        for time in stride(from: 0.0, to: ClawdAnimation.cycleDuration * 2, by: 0.017) {
+            let delay = ClawdAnimation.nextFrameDelay(at: time)
+            XCTAssertGreaterThan(delay, 0)
+            let before = ClawdAnimation.pose(at: time)
+            let after = ClawdAnimation.pose(at: time + delay + 0.000001)
+            XCTAssertTrue(before.action != after.action || before.frame != after.frame,
+                          "A scheduled tick must reach a changed pose, including phase boundaries at \(time)")
+        }
+    }
     @MainActor func testClaudeWholeCycleHasNativeScalesAndBoundedCache() throws {
         ClawdAnimation.resetFrameCache()
         let count = Int(ceil(ClawdAnimation.cycleDuration * 24))

@@ -85,6 +85,8 @@ final class SingleProviderTests: XCTestCase {
     }
 
     @MainActor func testNativeSingleProviderScreens() throws {
+        let uiDependencies = try AppEnvironment.preview(rows: [])
+        defer { uiDependencies.stop() }
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_SINGLE"] else { throw XCTSkip("Opt-in native render") }
         _ = NSApplication.shared
         let directory = URL(fileURLWithPath: output)
@@ -99,12 +101,29 @@ final class SingleProviderTests: XCTestCase {
             let name = ids.map(\.rawValue).joined(separator: "-")
             let store = AppStore(state: SharedState(snapshots: snapshots, preferences: prefs), savesChanges: false)
             let sessions = SessionStore(directory: directory.appendingPathComponent("sessions")); sessions.useProviders(ids)
-            try render(ScrollView { ConnectionsView(store: store, sessions: sessions).frame(width: 592).padding(24) }.frame(width: 640, height: 680).background(Color(nsColor: .windowBackgroundColor)), width: 640, height: 680, to: directory.appendingPathComponent(name + "-connections.png"))
-            try render(SessionsView(store: sessions, onSettings: {}), width: 360, height: 410, to: directory.appendingPathComponent(name + "-sessions.png"))
+            try render(
+                ScrollView { ConnectionsView(store: store, sessions: sessions).frame(width: 592).padding(24) }.frame(
+                    width: 640, height: 680
+                ).background(Color(nsColor: .windowBackgroundColor)), width: 640, height: 680,
+                to: directory.appendingPathComponent(name + "-connections.png"))
+            try render(
+                SessionsView(
+                    store: sessions, updates: uiDependencies.updates, awake: uiDependencies.awake, onSettings: {}),
+                width: 360, height: 410, to: directory.appendingPathComponent(name + "-sessions.png"))
             for size in [LunavectWidgetSize.small, .medium] {
-                try render(LunavectWidgetCard(snapshots: snapshots, preferences: prefs, history: ActivityHistory(), content: .limits, family: size, now: now).background(Color(white: 0.12)), width: size.dimensions.width, height: size.dimensions.height, to: directory.appendingPathComponent(name + "-" + size.rawValue + ".png"))
+                try render(
+                    LunavectWidgetCard(
+                        snapshots: snapshots, preferences: prefs, history: ActivityHistory(), content: .limits,
+                        family: size, now: now
+                    ).background(Color(white: 0.12)), width: size.dimensions.width, height: size.dimensions.height,
+                    to: directory.appendingPathComponent(name + "-" + size.rawValue + ".png"))
             }
-            try render(LunavectWidgetCard(snapshots: snapshots, preferences: prefs, history: ActivityHistory(), content: .overview, family: .large, now: now).background(Color(white: 0.12)), width: 344, height: 360, to: directory.appendingPathComponent(name + "-overview.png"))
+            try render(
+                LunavectWidgetCard(
+                    snapshots: snapshots, preferences: prefs, history: ActivityHistory(), content: .overview,
+                    family: .large, now: now
+                ).background(Color(white: 0.12)), width: 344, height: 360,
+                to: directory.appendingPathComponent(name + "-overview.png"))
         }
     }
     @MainActor private func render<V: View>(_ view: V, width: CGFloat, height: CGFloat, to url: URL) throws {

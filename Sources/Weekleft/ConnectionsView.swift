@@ -3,7 +3,34 @@ import SwiftUI
 import WeekleftCore
 #endif
 
+/// The card uses the same strict executable resolution as fetching and setup.
+/// An empty saved path selects discovery; it does not mean the client is absent.
+struct ConnectionCardState {
+    let clientFound: Bool
+    let needsSetup: Bool
+    let statusTitle: String
+    var actionTitle: String { needsSetup ? "Завершить настройку" : "Проверить данные" }
+
+    init(provider: ProviderID, resolver: ClientExecutableResolver, configured: Bool, snapshot: UsageSnapshot?) {
+        let issue: ClientIntegrationIssue?
+        do {
+            _ = try resolver.resolve(provider)
+            issue = nil
+        } catch {
+            issue = ClientIntegrationIssue.classify(error, provider: provider, capability: .initialization)
+        }
+        clientFound = issue == nil
+        needsSetup = !clientFound || !configured
+        if let issue {
+            statusTitle = issue.reason == .missingClient ? "Нужно установить приложение" : issue.message
+        } else {
+            statusTitle = snapshot?.connectionQuotaTitle() ?? "Ждём лимиты"
+        }
+    }
+}
+
 struct ConnectionsView: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var store: AppStore
     @ObservedObject var sessions: SessionStore
     @State private var selectedProvider: ProviderID?
@@ -11,6 +38,8 @@ struct ConnectionsView: View {
     @State private var repairProvider: ProviderID?
     @State private var selectedRepair: ConnectionDiagnostic.Repair?
     @State private var claudeBridge = ClaudeProvider.statusLineInstalled()
+    @State private var disconnectedProvider: ProviderID?
+    @State private var disconnectedEventsOnly = false
 
     var body: some View {
         GroupBox {
@@ -19,6 +48,19 @@ struct ConnectionsView: View {
                     .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ForEach(store.providers) { id in providerCard(id) }
                 ForEach(ProviderID.allCases.filter { !store.providers.contains($0) }) { id in optionalProviderCard(id) }
+                if let id = disconnectedProvider {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(
+                            L(
+                                disconnectedEventsOnly
+                                    ? "События {0} отключены. Сохранённые данные остались в Lunavect."
+                                    : "{0} отключён в Lunavect. Сохранённые данные остались, остальные настройки клиента не изменены.",
+                                id.title)
+                        )
+                        .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Button(L("Подключить снова")) { selectedRepair = nil; selectedProvider = id; disconnectedProvider = nil }
+                    }.accessibilityIdentifier("connection-removal-result")
+                }
                 DisclosureGroup(L("Подключение на вашем Mac")) { ConnectionPrivacyView().padding(.top, 8) }
                 Button { showingDiagnostics = true } label: { InterfaceLabel(L("Проверить подключение"), .activity) }
                     .accessibilityIdentifier("connection-diagnostics")
@@ -34,10 +76,18 @@ struct ConnectionsView: View {
                         } }
                         ForEach(store.providers) { id in
                             Button(L("Отключить {0} в Lunavect", id.title)) {
-                                if sessions.disconnect(id) { store.setProvider(id, enabled: false); sessions.useProviders(store.providers) }
+                                if sessions.disconnect(id) {
+                                    store.setProvider(id, enabled: false); sessions.useProviders(store.providers)
+                                    disconnectedEventsOnly = false; disconnectedProvider = id
+                                }
                             }
                             if sessions.hooksInstalled[id] == true {
-                                Button(L("Отключить события {0}", id.title)) { sessions.toggleHooks(id) }
+                                Button(L("Отключить события {0}", id.title)) {
+                                    sessions.toggleHooks(id)
+                                    if sessions.hooksInstalled[id] != true {
+                                        disconnectedEventsOnly = true; disconnectedProvider = id
+                                    }
+                                }
                             }
                         }
                         Text(L("Отключение останавливает опрос, удаляет обработчики Lunavect и восстанавливает прежнюю строку состояния Claude. Сохранённые данные остаются."))
@@ -75,23 +125,22 @@ struct ConnectionsView: View {
     }
     private func providerCard(_ id: ProviderID) -> some View {
         let snapshot = store.snapshots.first { $0.provider == id }
-        let found = id == .claude ? SessionSources.discoverClaude() != nil : FileManager.default.isExecutableFile(atPath: store.codexPath)
         let configured = sessions.hooksInstalled[id] == true && (id == .codex || claudeBridge)
-        let needsSetup = !found || !configured
+        let card = ConnectionCardState(provider: id, resolver: store.clientResolver, configured: configured, snapshot: snapshot)
         let hasQuota = snapshot?.hasQuota == true
         let freshQuota = snapshot.map { !$0.isStale() && $0.issue == nil && $0.hasQuota } ?? false
         let receivedEvents = sessions.currentSessions.contains { $0.provider == id && [.hook, .localEvent].contains($0.evidence) }
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                ProviderLogo(id: id).foregroundStyle(activityAccent(id)).frame(width: 32, height: 32)
+                ProviderLogo(id: id).foregroundStyle(activityAccent(id, adaptive: true, scheme: scheme)).frame(width: 32, height: 32)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(id == .claude ? "Claude Code" : "Codex").font(.system(size: 15, weight: .semibold))
-                    Text(L(!found ? "Нужно установить приложение" : snapshot?.connectionQuotaTitle() ?? "Ждём лимиты"))
+                    Text(L(card.statusTitle))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(L(needsSetup ? "Завершить настройку" : "Проверить данные")) {
-                    if needsSetup { selectedRepair = nil; selectedProvider = id }
+                Button(L(card.actionTitle)) {
+                    if card.needsSetup { selectedRepair = nil; selectedProvider = id }
                     else { Task { await store.refresh(provider: id); await sessions.refresh() } }
                 }.disabled(store.refreshing || sessions.refreshing)
                     .accessibilityIdentifier("connect-" + id.rawValue)
@@ -121,7 +170,7 @@ struct ConnectionsView: View {
             }
             DisclosureGroup(L("Подробности подключения")) {
                 VStack(alignment: .leading, spacing: 10) {
-                    connectionStep(1, title: L("Приложение найдено"), complete: found)
+                    connectionStep(1, title: L("Приложение найдено"), complete: card.clientFound)
                     connectionStep(2, title: L("Локальные события настроены"), complete: configured)
                     Text(L(receivedEvents ? "Получены события текущей сессии" : "Нет подтверждённых событий текущей сессии"))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -132,8 +181,12 @@ struct ConnectionsView: View {
                         }
                     }
                     if id == .claude {
-                        Text(L("Лимиты обновляются автоматически каждые 5 минут и после пробуждения Mac. Claude Code запрашивает квоты аккаунта, включая работу в Desktop. Запускать задачу в терминале не нужно."))
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(
+                            L(
+                                "Лимиты обновляются автоматически каждые 5 минут и после пробуждения Mac. Claude Code запрашивает квоты аккаунта, включая работу в Desktop. Запускать задачу в терминале не нужно."
+                            )
+                        )
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                 }.padding(.top, 6)
             }

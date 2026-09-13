@@ -98,6 +98,12 @@ struct ThinkingPhraseCycle {
 }
 
 @MainActor final class MenuBarAppearance: ObservableObject {
+    @Published var showsSessionStatus: Bool {
+        didSet { defaults.set(showsSessionStatus, forKey: "menuBarShowsSessionStatus") }
+    }
+    @Published var limits: MenuBarLimitsPreferences {
+        didSet { if let data = try? JSONEncoder().encode(limits) { defaults.set(data, forKey: "menuBarLimits") } }
+    }
     @Published var thinkingPhrases: Bool {
         didSet { defaults.set(thinkingPhrases, forKey: "menuBarThinkingPhrases") }
     }
@@ -121,9 +127,12 @@ struct ThinkingPhraseCycle {
     private let defaults: UserDefaults
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        showsSessionStatus = defaults.object(forKey: "menuBarShowsSessionStatus") as? Bool ?? true
+        limits = defaults.data(forKey: "menuBarLimits").flatMap { try? JSONDecoder().decode(MenuBarLimitsPreferences.self, from: $0) } ?? .init()
         thinkingPhrases = defaults.object(forKey: "menuBarThinkingPhrases") as? Bool ?? true
         statusStyle = MenuBarStatusStyle(rawValue: defaults.string(forKey: "menuBarStatusStyle") ?? "") ?? .summary
         automaticIcon = defaults.bool(forKey: "menuBarAutomaticIcon")
+        lastResolvedIcon = defaults.string(forKey: "menuBarLastAutomaticIcon").flatMap(MenuBarIcon.init(rawValue:))
         systemColor = defaults.bool(forKey: "menuBarSystemColor")
         icon = MenuBarIcon(rawValue: defaults.string(forKey: "menuBarIcon") ?? "") ?? .system
         onlyWhileWorking = defaults.object(forKey: "menuBarAnimationOnlyWhileWorking") as? Bool ?? true
@@ -133,16 +142,27 @@ struct ThinkingPhraseCycle {
         let claude = active.filter { $0.provider == .claude }.count
         let codex = active.filter { $0.provider == .codex }.count
         let resolved: MenuBarIcon
-        if !automaticIcon || active.isEmpty { resolved = icon }
-        else if claude > codex { resolved = .claude }
+        guard automaticIcon else { return icon }
+        if active.isEmpty { return lastResolvedIcon ?? icon }
+        if claude > codex { resolved = .claude }
         else if codex > claude { resolved = .codex }
         else { resolved = lastResolvedIcon ?? icon }
-        lastResolvedIcon = resolved
+        if lastResolvedIcon != resolved {
+            lastResolvedIcon = resolved
+            defaults.set(resolved.rawValue, forKey: "menuBarLastAutomaticIcon")
+        }
         return resolved
     }
     func selectIcon(_ icon: MenuBarIcon) {
         self.icon = icon
         automaticIcon = false
+    }
+    func restoreDefaults() {
+        showsSessionStatus = true; limits = .init()
+        thinkingPhrases = false; statusStyle = .summary
+        automaticIcon = false; icon = AppDefaultSettings.icon
+        onlyWhileWorking = true; systemColor = false
+        lastResolvedIcon = nil; defaults.removeObject(forKey: "menuBarLastAutomaticIcon")
     }
 }
 
@@ -248,7 +268,8 @@ struct ThinkingPhraseCycle {
     var thinkingDotCount = 3
     var activityDotCount = 3
     var activityBubbleVisible: Bool { style == .activity && (running > 0 || waiting > 0) }
-    var activityBubbleFrame: NSRect { NSRect(x: 6 + iconWidth - 1, y: max(1, (bounds.height - 22) / 2), width: 14, height: 11) }
+    var activityAttentionSymbol: String? { waiting > 0 ? "!" : nil }
+    var activityBubbleFrame: NSRect { NSRect(x: contentOriginX + iconWidth - 1, y: max(1, (bounds.height - 22) / 2), width: 14, height: 11) }
     var activityBubbleColor: NSColor {
         waiting > 0 ? NSColor(srgbRed: 1, green: 0.78, blue: 0.50, alpha: 1)
                     : NSColor(srgbRed: 0.91, green: 0.93, blue: 0.98, alpha: 1)
@@ -256,11 +277,20 @@ struct ThinkingPhraseCycle {
     var showsThinkingPhrase: Bool { style == .summary && running > 0 && waiting == 0 && thinkingPhrase != nil }
     var language = L10n.selection
     var iconWidth: CGFloat = 24
+    // AppKit owns the outer spacing. A native sizing image reserves just our ink
+    // width; its image rect supplies the inset for this macOS/menu-bar layout.
+    var contentOriginX: CGFloat { nativeContentRect.minX }
+    private var nativeContentRect: NSRect {
+        guard let button = superview as? NSStatusBarButton,
+              let cell = button.cell, button.image != nil else { return bounds }
+        return cell.imageRect(forBounds: button.bounds)
+    }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override init(frame: NSRect) {
         super.init(frame: frame)
         artwork.imageScaling = .scaleProportionallyDown
+        artwork.wantsLayer = true
         addSubview(artwork)
         updateBadge.wantsLayer = true
         updateBadge.layer?.backgroundColor = NSColor.systemBlue.cgColor
@@ -283,20 +313,22 @@ struct ThinkingPhraseCycle {
         darkAppearance ? NSColor(srgbRed: 1, green: 0.76, blue: 0.44, alpha: 1)
                        : NSColor(srgbRed: 0.55, green: 0.27, blue: 0.02, alpha: 1)
     }
-    private var statusFont: NSFont { .monospacedDigitSystemFont(ofSize: 13, weight: .regular) }
+    private static let cachedStatusFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+    private static let cachedBadgeFont = NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .medium)
+    private var statusFont: NSFont { Self.cachedStatusFont }
     var displayedThinkingPhrase: String {
         guard let phrase = thinkingPhrase, let first = phrase.first else { return "" }
         return String(first).uppercased() + phrase.dropFirst() + "..."
     }
     var badgeText: NSAttributedString {
         NSAttributedString(string: String(running), attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
+            .font: Self.cachedBadgeFont,
             .foregroundColor: summaryForeground
         ])
     }
     var badgeWidth: CGFloat { showsThinkingPhrase ? max(13, ceil(badgeText.size().width) + 6) : 0 }
-    var badgeFrame: NSRect { NSRect(x: 6 + iconWidth, y: max(1, (bounds.height - 24) / 2), width: badgeWidth, height: 13) }
-    var textOriginX: CGFloat { 6 + iconWidth + badgeWidth + 6 }
+    var badgeFrame: NSRect { NSRect(x: contentOriginX + iconWidth, y: max(1, (bounds.height - 24) / 2), width: badgeWidth, height: 13) }
+    var textOriginX: CGFloat { contentOriginX + iconWidth + badgeWidth + 6 }
     var summaryText: NSAttributedString {
         let result = NSMutableAttributedString(string: "")
         if showsThinkingPhrase {
@@ -334,15 +366,20 @@ struct ThinkingPhraseCycle {
         }
     }
     var preferredWidth: CGFloat {
-        if style == .activity { return 12 + iconWidth + (activityBubbleVisible ? 13 : 0) }
-        return 12 + iconWidth + badgeWidth + (statusWidth > 0 ? 6 + statusWidth : 0)
+        if style == .activity { return iconWidth + (activityBubbleVisible ? 13 : 0) }
+        return iconWidth + badgeWidth + (statusWidth > 0 ? 6 + statusWidth : 0)
     }
     override func layout() {
         super.layout()
         let height = max(26, artwork.image?.size.height ?? 26)
-        let frame = NSRect(x: 6, y: (bounds.height - height) / 2, width: iconWidth, height: height)
+        let frame = NSRect(x: contentOriginX, y: (bounds.height - height) / 2, width: iconWidth, height: height)
         artwork.frame = pixelAlignedArtwork
             ? backingAlignedRect(frame, options: .alignAllEdgesNearest) : frame
+        updateBadge.frame.origin.x = contentOriginX
+    }
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        needsLayout = true; needsDisplay = true
     }
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
@@ -370,7 +407,7 @@ struct ThinkingPhraseCycle {
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.lineBreakMode = .byTruncatingTail
                 bounded.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: bounded.length))
-                bounded.draw(in: NSRect(origin: origin, size: NSSize(width: max(0, bounds.width - x - 2), height: ceil(text.size().height))))
+                bounded.draw(in: NSRect(origin: origin, size: NSSize(width: max(0, nativeContentRect.maxX - x), height: ceil(text.size().height))))
             } else {
                 text.draw(at: origin)
             }
@@ -393,6 +430,15 @@ struct ThinkingPhraseCycle {
             activityBubbleColor.setFill()
             shape.fill()
             NSGraphicsContext.restoreGraphicsState()
+            if let symbol = activityAttentionSymbol {
+                let text = NSAttributedString(string: symbol, attributes: [
+                    .font: Self.cachedBadgeFont,
+                    .foregroundColor: NSColor(srgbRed: 0.16, green: 0.20, blue: 0.27, alpha: 1)
+                ])
+                let size = text.size()
+                text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+                return
+            }
             for index in 0..<3 {
                 let steady = waiting > 0 || activityDotCount == 0
                 let alpha: CGFloat = steady || index == activityDotCount - 1 ? 1 : 0.25
@@ -435,11 +481,30 @@ struct ThinkingPhraseCycle {
     private var waiting = 0
     private var observers: [NSObjectProtocol] = []
     private var asleep = false
+    private var displayAsleep = false
+    private var sessionActive = true
+    private var windowObserver: NSObjectProtocol?
+    private var renderAvailable: Bool {
+        guard visible && !asleep && !displayAsleep && sessionActive else { return false }
+        return canRenderAnimation(button?.window)
+    }
+    private var visible = true
     private var animationStartedAt: TimeInterval?
     private var lastTextState: String?
     private var openPopoverWidth: CGFloat?
     private var updateObserver: AnyCancellable?
     private var updateNotice: String?
+    private var lastDiagnosticState: String?
+    private let diagnosticsEnabled: Bool
+    private let now: () -> TimeInterval
+    private let scheduleTimer: @MainActor (Timer) -> Void
+    private let canRenderAnimation: @MainActor (NSWindow?) -> Bool
+
+    func setVisible(_ visible: Bool) {
+        self.visible = visible
+        statusItem?.isVisible = visible
+        updateTimer()
+    }
 
     func setUpdateNotice(_ notice: String?) {
         updateNotice = notice
@@ -457,7 +522,7 @@ struct ThinkingPhraseCycle {
     func setPopoverOpen(_ open: Bool) {
         if open {
             guard openPopoverWidth == nil else { return }
-            openPopoverWidth = statusItem?.length ?? content.preferredWidth
+            openPopoverWidth = button?.image?.size.width ?? content.preferredWidth
         } else {
             guard openPopoverWidth != nil else { return }
             openPopoverWidth = nil
@@ -467,32 +532,70 @@ struct ThinkingPhraseCycle {
         drawFrame()
     }
 
-    init(statusItem: NSStatusItem) {
+    init(statusItem: NSStatusItem, updates: AppUpdates? = nil,
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         scheduleTimer: @escaping @MainActor (Timer) -> Void = { RunLoop.main.add($0, forMode: .common) },
+         canRenderAnimation: @escaping @MainActor (NSWindow?) -> Bool = { window in
+             !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                 && (window.map { $0.isVisible && $0.occlusionState.contains(.visible) } ?? true)
+         },
+         diagnosticsEnabled: Bool = ProcessInfo.processInfo.environment["LUNAVECT_MENU_BAR_DIAGNOSTICS"] == "1") {
+        self.now = now
+        self.scheduleTimer = scheduleTimer
+        self.canRenderAnimation = canRenderAnimation
+        self.diagnosticsEnabled = diagnosticsEnabled
         self.statusItem = statusItem
         self.button = statusItem.button
+        statusItem.length = NSStatusItem.variableLength
         if let button = statusItem.button {
             button.title = ""; button.image = nil
+            button.imagePosition = .imageOnly
             content.frame = button.bounds
             content.autoresizingMask = [.width, .height]
             button.addSubview(content)
         }
-        updateObserver = AppUpdates.shared.$phase.receive(on: RunLoop.main).sink { [weak self] _ in
-            self?.setUpdateNotice(AppUpdates.shared.notice)
+        if let updates {
+            updateObserver = updates.$phase.receive(on: RunLoop.main).sink { [weak self, weak updates] _ in
+                self?.setUpdateNotice(updates?.notice)
+            }
         }
         let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification] {
+        for name in [NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                     NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification,
+                     NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] event in
-                Task { @MainActor in
+                let name = event.name
+                MainActor.assumeIsolated {
                     guard let self else { return }
-                    if event.name == NSWorkspace.willSleepNotification { self.asleep = true }
-                    if event.name == NSWorkspace.didWakeNotification { self.asleep = false }
+                    if name == NSWorkspace.willSleepNotification { self.asleep = true }
+                    if name == NSWorkspace.didWakeNotification { self.asleep = false }
+                    if name == NSWorkspace.screensDidSleepNotification { self.displayAsleep = true }
+                    if name == NSWorkspace.screensDidWakeNotification { self.displayAsleep = false }
+                    if name == NSWorkspace.sessionDidResignActiveNotification { self.sessionActive = false }
+                    if name == NSWorkspace.sessionDidBecomeActiveNotification { self.sessionActive = true }
                     self.updateTimer()
                 }
             })
         }
+        windowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
+        ) { [weak self] event in
+            guard let window = event.object as? NSWindow else { return }
+            let windowID = ObjectIdentifier(window)
+            MainActor.assumeIsolated {
+                guard let self, let ownWindow = self.button?.window,
+                      windowID == ObjectIdentifier(ownWindow) else { return }
+                self.updateTimer()
+            }
+        }
     }
     func update(icon: MenuBarIcon, onlyWhileWorking: Bool, systemColor: Bool = false, statusStyle: MenuBarStatusStyle = .summary, thinkingPhrases: Bool = true, running: Int, waiting: Int) {
-        if self.icon != icon { animationStartedAt = nil }
+        if self.icon != icon {
+            animationStartedAt = nil
+            timer?.invalidate()
+            timer = nil
+        }
         self.icon = icon; self.onlyWhileWorking = onlyWhileWorking; self.systemColor = systemColor
         content.pixelAlignedArtwork = icon == .claude
         self.running = running; self.waiting = waiting
@@ -503,161 +606,254 @@ struct ThinkingPhraseCycle {
         updateTimer()
     }
     private var shouldAnimate: Bool {
-        icon != .system && !asleep && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && (!onlyWhileWorking || running > 0)
+        renderAvailable && icon != .system && (!onlyWhileWorking || running > 0)
     }
     private func updateTimer() {
         updatePhrase()
         let animatedStatus = (thinkingPhrases && content.style == .summary) || content.style == .activity
-        let rotates = animatedStatus && running > 0 && waiting == 0 && !asleep && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let rotates = renderAvailable && animatedStatus && running > 0 && waiting == 0
         if rotates && phraseTimer == nil {
-            let timer = Timer(timeInterval: ThinkingPhrases.dotInterval, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.updatePhrase(); self?.drawFrame() }
+            let timer = Timer(timeInterval: ThinkingPhrases.dotInterval, repeats: true) { [weak self] fired in
+                let identity = ObjectIdentifier(fired)
+                MainActor.assumeIsolated {
+                    guard let self, self.phraseTimer.map(ObjectIdentifier.init) == identity else { return }
+                    self.updatePhrase()
+                    self.drawFrame()
+                }
             }
-            timer.tolerance = 0.025
-            RunLoop.main.add(timer, forMode: .common)
+            timer.tolerance = ThinkingPhrases.dotInterval * 0.1
+            scheduleTimer(timer)
             phraseTimer = timer
         } else if !rotates { phraseTimer?.invalidate(); phraseTimer = nil }
         if shouldAnimate {
-            if animationStartedAt == nil { animationStartedAt = ProcessInfo.processInfo.systemUptime }
-            if timer == nil {
-                let timer = Timer(timeInterval: MenuBarArtwork.cycleDuration / Double(MenuBarArtwork.frameCount), repeats: true) { [weak self] _ in
-                    Task { @MainActor in self?.drawFrame() }
-                }
-                timer.tolerance = 0.008
-                RunLoop.main.add(timer, forMode: .common)
-                self.timer = timer
-            }
+            if animationStartedAt == nil { animationStartedAt = now() }
+            scheduleNextFrame()
         } else { timer?.invalidate(); timer = nil; animationStartedAt = nil }
         drawFrame()
     }
+    private func scheduleNextFrame() {
+        guard shouldAnimate, timer == nil else { return }
+        let elapsed = max(0, now() - (animationStartedAt ?? now()))
+        let delay: TimeInterval
+        switch icon {
+        case .codex: delay = CodexAnimation.nextFrameDelay(at: elapsed)
+        case .claude: delay = ClawdAnimation.nextFrameDelay(at: elapsed)
+        default: delay = MenuBarArtwork.cycleDuration / Double(MenuBarArtwork.frameCount)
+        }
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] fired in
+            let identity = ObjectIdentifier(fired)
+            MainActor.assumeIsolated {
+                guard let self, self.timer.map(ObjectIdentifier.init) == identity else { return }
+                self.timer = nil
+                self.drawFrame()
+                self.scheduleNextFrame()
+            }
+        }
+        timer.tolerance = delay * 0.1
+        scheduleTimer(timer)
+        self.timer = timer
+    }
     private func updatePhrase() {
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = now()
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let activeBubble = content.style == .activity && running > 0 && waiting == 0 && !asleep
+        let activeBubble = visible && content.style == .activity && running > 0 && waiting == 0
         if activeBubble {
             if activityStartedAt == nil { activityStartedAt = now }
         } else { activityStartedAt = nil }
-        content.activityDotCount = activeBubble && !reduceMotion ? ThinkingPhrases.dotCount(at: now - (activityStartedAt ?? now)) : 0
-        phraseCycle.update(active: thinkingPhrases && content.style == .summary && running > 0 && waiting == 0 && !asleep,
-                           at: now, rotates: !reduceMotion)
+        content.activityDotCount = activeBubble && renderAvailable && !reduceMotion
+            ? ThinkingPhrases.dotCount(at: now - (activityStartedAt ?? now)) : 0
+        phraseCycle.update(active: visible && thinkingPhrases && content.style == .summary && running > 0 && waiting == 0,
+                           at: now, rotates: renderAvailable && !reduceMotion)
         content.thinkingPhrase = phraseCycle.current
         content.thinkingDotCount = phraseCycle.dotCount
     }
-    private func drawFrame() {
+    func drawFrame() {
+        recordPlacementDiagnostics()
         let image: NSImage?
         if icon == .system {
             image = NSImage(systemSymbolName: waiting > 0 ? "exclamationmark.bubble" : running > 0 ? "gearshape.2" : "rectangle.stack", accessibilityDescription: nil)
         } else {
-            let original = MenuBarArtwork.image(icon, frame: shouldAnimate ? MenuBarArtwork.frame(at: .now) : 0, size: MenuBarStatusContent.artworkSize(for: icon, barHeight: button?.bounds.height ?? NSStatusBar.system.thickness),
-                                                elapsed: shouldAnimate ? max(0, ProcessInfo.processInfo.systemUptime - (animationStartedAt ?? ProcessInfo.processInfo.systemUptime)) : 0)
+            let original = MenuBarArtwork.image(
+                icon, frame: shouldAnimate ? MenuBarArtwork.frame(at: .now) : 0,
+                size: MenuBarStatusContent.artworkSize(
+                    for: icon, barHeight: button?.bounds.height ?? NSStatusBar.system.thickness),
+                elapsed: shouldAnimate ? max(0, now() - (animationStartedAt ?? now())) : 0)
             image = original.map { MenuBarArtwork.styled($0, systemColor: systemColor) }
         }
         let textState = "\(content.style.rawValue)|\(content.running)|\(content.waiting)|\(content.thinkingPhrase ?? "")|\(content.thinkingDotCount)|\(content.activityDotCount)|\(content.language)"
         let imageChanged = content.artwork.image !== image
-        guard imageChanged || textState != lastTextState else { return }
+        let textChanged = textState != lastTextState
+        guard imageChanged || textChanged else { return }
         lastTextState = textState
         if imageChanged {
             content.artwork.image = image
             content.artwork.contentTintColor = image?.isTemplate == true ? .labelColor : nil
         }
-        content.iconWidth = icon == .system ? 20 : (image?.size.width ?? 24)
-        let width = openPopoverWidth ?? content.preferredWidth
-        if statusItem?.length != width { statusItem?.length = width }
-        if let button { content.frame = button.bounds }
-        content.needsLayout = true
-        content.needsDisplay = true
+        let iconWidth = icon == .system ? 20 : (image?.size.width ?? 24)
+        let geometryChanged = content.iconWidth != iconWidth || textChanged
+        content.iconWidth = iconWidth
+        if geometryChanged {
+            let width = openPopoverWidth ?? content.preferredWidth
+            if button?.image?.size.width != width {
+                // Keep the animated view, native click/highlight behavior and native
+                // outer insets. Fixed lengths acquire extra padding on newer macOS.
+                button?.image = NSImage(size: NSSize(width: width, height: 18), flipped: false) { _ in true }
+            }
+            if let button { content.frame = button.bounds }
+            content.needsLayout = true
+        }
+        // The image view invalidates itself. Labels only redraw when their
+        // content or geometry changes, not on every character frame.
+        if geometryChanged { content.needsDisplay = true }
     }
-    deinit {
+    private func recordPlacementDiagnostics() {
+        guard diagnosticsEnabled else { return }
+        let window = button?.window
+        let state =
+            "enabled=\(visible) itemVisible=\(statusItem?.isVisible ?? false) length=\(statusItem?.length ?? -1) windowVisible=\(window?.isVisible ?? false) occlusion=\(window?.occlusionState.rawValue ?? 0) frame=\(NSStringFromRect(window?.frame ?? .zero)) content=\(NSStringFromRect(content.frame)) attached=\(content.superview === button) artwork=\(content.artwork.image != nil) animating=\(shouldAnimate) screen=\(NSStringFromRect(window?.screen?.frame ?? .zero)) rightArea=\(NSStringFromRect(window?.screen?.auxiliaryTopRightArea ?? .zero))"
+        guard state != lastDiagnosticState else { return }
+        lastDiagnosticState = state
+        fputs("Lunavect menu bar: \(state)\n", stderr)
+    }
+    isolated deinit {
         timer?.invalidate()
         phraseTimer?.invalidate()
         for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
     }
 }
 
 struct MenuBarAppearanceView: View {
     @ObservedObject var appearance: MenuBarAppearance
+    var snapshots: [UsageSnapshot] = []
+    var providers: [ProviderID] = []
+    @State var iconDetailsExpanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var previewStartedAt = Date.now
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-        GroupBox(L("Статус в строке меню")) {
-            VStack(alignment: .leading, spacing: 14) {
-                Picker(L("Статус сессий"), selection: $appearance.statusStyle) {
-                    ForEach(MenuBarStatusStyle.allCases) { style in Text(style.title).tag(style) }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("menu-bar-status-style")
-                Text(appearance.statusStyle.explanation)
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Toggle(L("Живые фразы во время работы"), isOn: $appearance.thinkingPhrases)
-                    .disabled(appearance.statusStyle != .summary)
-                    .accessibilityIdentifier("menu-bar-thinking-phrases")
-                Text(L("70 английских фраз, смена раз в 3,5 секунды и живое троеточие. Ожидание ответа важнее фразы."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                TimelineView(.animation(minimumInterval: ThinkingPhrases.dotInterval, paused: reduceMotion || !appearance.previewVisible || (appearance.statusStyle != .activity && (!appearance.thinkingPhrases || appearance.statusStyle != .summary)))) { context in
-                    MenuBarStatusPreview(appearance: appearance, dotCount: reduceMotion ? 0 : ThinkingPhrases.dotCount(at: context.date.timeIntervalSince(previewStartedAt)))
-                }
-                    .frame(height: NSStatusBar.system.thickness)
-                    .padding(10)
-                    .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                Text(L(appearance.statusStyle == .activity || (appearance.thinkingPhrases && appearance.statusStyle == .summary) ? "Реальный размер · пример: 2 работают" : "Реальный размер · пример: 2 работают, 1 ждёт ответа"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-            }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: InterfaceMetrics.settingsSectionSpacing) {
+            MenuBarLimitsSettings(appearance: appearance, snapshots: snapshots, providers: providers)
+            sessionSettings
+            if !appearance.limits.enabled && !appearance.showsSessionStatus {
+                Text(L("Оба индикатора выключены. Включите лимиты или статус сессий здесь, чтобы вернуть значок в строку меню."))
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
-        GroupBox(L("Персонаж и анимация")) {
+    }
+    private var sessionSettings: some View {
+        GroupBox(L("Статус сессий")) {
             VStack(alignment: .leading, spacing: 14) {
+                Toggle(isOn: $appearance.showsSessionStatus) {
+                    Text(L("Показывать значок и статус работы")).fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }.toggleStyle(.switch).controlSize(.small)
+                    .accessibilityIdentifier("menu-bar-sessions-enabled")
+                if appearance.showsSessionStatus {
+                    SettingsChoiceRow(L("Статус сессий")) {
+                        Picker(L("Статус сессий"), selection: $appearance.statusStyle) {
+                            ForEach(MenuBarStatusStyle.allCases) { style in Text(style.title).tag(style) }
+                        }.pickerStyle(.segmented).accessibilityIdentifier("menu-bar-status-style")
+                    }
+                    Text(appearance.statusStyle.explanation)
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Toggle(L("Живые фразы во время работы"), isOn: $appearance.thinkingPhrases)
+                        .disabled(appearance.statusStyle != .summary)
+                        .accessibilityIdentifier("menu-bar-thinking-phrases")
+                    Text(L("70 английских фраз, смена раз в 3,5 секунды и живое троеточие. Ожидание ответа важнее фразы."))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    statusPreview
+                    Divider()
+                    DisclosureGroup(isExpanded: $iconDetailsExpanded) {
+                        iconSettings.padding(.top, 8)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L("Оформление значка"))
+                            Text(appearance.automaticIcon ? L("Автоматически") : appearance.icon.title)
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    }.accessibilityIdentifier("menu-bar-icon-details")
+                }
+            }.padding(InterfaceMetrics.settingsContentInset).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    private var previewCaption: String {
+        L(appearance.statusStyle == .activity || (appearance.thinkingPhrases && appearance.statusStyle == .summary)
+          ? "Реальный размер · пример: 2 работают" : "Реальный размер · пример: 2 работают, 1 ждёт ответа")
+    }
+    private var statusPreview: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TimelineView(
+                .animation(
+                    minimumInterval: ThinkingPhrases.dotInterval,
+                    paused: reduceMotion || !appearance.previewVisible
+                        || (appearance.statusStyle != .activity
+                            && (!appearance.thinkingPhrases || appearance.statusStyle != .summary))
+                )
+            ) { context in
+                MenuBarStatusPreview(appearance: appearance, dotCount: reduceMotion ? 0 : ThinkingPhrases.dotCount(at: context.date.timeIntervalSince(previewStartedAt)))
+            }
+            .frame(height: NSStatusBar.system.thickness)
+            .padding(10)
+            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: InterfaceMetrics.selectionCornerRadius))
+            .accessibilityElement(children: .ignore).accessibilityLabel(previewCaption)
+            Text(previewCaption).font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true).accessibilityHidden(true)
+        }
+    }
+    private var iconSettings: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsChoiceRow(L("Выбор значка")) {
                 Picker(L("Выбор значка"), selection: $appearance.automaticIcon) {
                     Text(L("Автоматически")).tag(true)
                     Text(L("Вручную")).tag(false)
-                }.pickerStyle(.segmented)
-                    .accessibilityIdentifier("menu-bar-auto-icon")
-                Text(L("Показывает Claude или Codex — у кого больше работающих и ожидающих ответа сессий. При равенстве значок сохраняется; без активных сессий используется ручной выбор."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Divider()
-                if !appearance.automaticIcon {
-                Text(L("Выбор карточки включает ручной режим."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                }.pickerStyle(.segmented).accessibilityIdentifier("menu-bar-auto-icon")
+            }
+            if appearance.automaticIcon {
+                Text(L("Показывает Claude или Codex — у кого больше работающих и ожидающих ответа сессий. При равенстве и после завершения задач сохраняется последний значок."))
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
                 TimelineView(.animation(minimumInterval: 1.0 / 24, paused: reduceMotion || !appearance.previewVisible)) { context in
-                    HStack(spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
                         ForEach([MenuBarIcon.claude, .codex, .lunavect]) { icon in
-                            Button {
-                                appearance.selectIcon(icon)
-                            } label: {
+                            Button { appearance.selectIcon(icon) } label: {
                                 VStack(spacing: 7) {
-                                    if let image = MenuBarArtwork.image(icon, frame: reduceMotion ? 0 : MenuBarArtwork.frame(at: context.date), size: 44, elapsed: reduceMotion ? 0 : max(0, context.date.timeIntervalSince(previewStartedAt))) {
+                                    if let image = MenuBarArtwork.image(
+                                        icon, frame: reduceMotion ? 0 : MenuBarArtwork.frame(at: context.date),
+                                        size: 44,
+                                        elapsed: reduceMotion
+                                            ? 0 : max(0, context.date.timeIntervalSince(previewStartedAt)))
+                                    {
                                         Image(nsImage: MenuBarArtwork.styled(image, systemColor: appearance.systemColor)).frame(width: 69, height: 44).accessibilityHidden(true)
                                     }
                                     Text(icon.title).font(.system(size: 12, weight: .semibold))
                                     Text(icon.motion).font(.system(size: 11)).foregroundStyle(.secondary)
-                                        .multilineTextAlignment(.center).lineLimit(2).frame(height: 28, alignment: .top)
-                                    InterfaceIcon(!appearance.automaticIcon && appearance.icon == icon ? .checkCircle : .circle)
-                                        .foregroundStyle(!appearance.automaticIcon && appearance.icon == icon ? Color.accentColor : Color.secondary)
+                                        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                                        .frame(minHeight: 28, alignment: .top)
+                                    InterfaceIcon(appearance.icon == icon ? .checkCircle : .circle)
+                                        .foregroundStyle(appearance.icon == icon ? Color.accentColor : Color.secondary)
                                 }
-                                .frame(maxWidth: .infinity).padding(.vertical, 12)
-                                .background(!appearance.automaticIcon && appearance.icon == icon ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(!appearance.automaticIcon && appearance.icon == icon ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: 1))
+                                .frame(maxWidth: .infinity).padding(12)
+                                .background(appearance.icon == icon ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(appearance.icon == icon ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: 1))
                                 .contentShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(icon.title + ", " + icon.motion)
-                            .accessibilityValue(!appearance.automaticIcon && appearance.icon == icon ? L("Выбран") : L("Не выбран"))
+                            }.buttonStyle(.plain)
+                                .accessibilityLabel(icon.title + ", " + icon.motion)
+                                .accessibilityValue(appearance.icon == icon ? L("Выбран") : L("Не выбран"))
+                                .accessibilityAddTraits(appearance.icon == icon ? .isSelected : [])
                         }
                     }
                 }
-                }
-                Toggle(L("Системный цвет значка"), isOn: $appearance.systemColor)
-                Text(L("Одноцветный значок автоматически подстраивается под светлую и тёмную строку меню."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                Toggle(L("Анимировать только во время работы"), isOn: $appearance.onlyWhileWorking)
-                Text(L("В предпросмотре значки движутся всегда. Системная настройка уменьшения движения останавливает анимацию."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                Button(!appearance.automaticIcon && appearance.icon == .system ? L("Сейчас используется стандартный значок") : L("Вернуть стандартный значок")) { appearance.selectIcon(.system) }
-                    .buttonStyle(.link).font(.system(size: 11)).disabled(!appearance.automaticIcon && appearance.icon == .system)
-            }.padding(8)
-        }
+            }
+            Toggle(L("Системный цвет значка"), isOn: $appearance.systemColor)
+            Text(L("Одноцветный значок автоматически подстраивается под светлую и тёмную строку меню."))
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Toggle(L("Анимировать только во время работы"), isOn: $appearance.onlyWhileWorking)
+            Text(L("В предпросмотре значки движутся всегда. Системная настройка уменьшения движения останавливает анимацию."))
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button(!appearance.automaticIcon && appearance.icon == .system ? L("Сейчас используется стандартный значок") : L("Вернуть стандартный значок")) { appearance.selectIcon(.system) }
+                .buttonStyle(.link).font(.system(size: 11)).disabled(!appearance.automaticIcon && appearance.icon == .system)
         }
     }
 }

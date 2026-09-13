@@ -49,7 +49,7 @@ public enum ActivityChartScale {
         if seconds == 0 { return "0" }
         if seconds < 60 { return L("{0} с", String(Int(seconds))) }
         return seconds >= 3600 && seconds.truncatingRemainder(dividingBy: 3600) == 0
-            ? L("{0} ч", String(Int(seconds / 3600))) : L("{0} м", String(Int(seconds / 60)))
+            ? L("{0} ч", String(Int(seconds / 3600))) : L("{0} мин", String(Int(seconds / 60)))
     }
 }
 
@@ -72,8 +72,7 @@ public enum ActivityWidgetSelection {
         if let date {
             guard date.timeIntervalSince1970.isFinite else { return }
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try JSONEncoder().encode(date).write(to: url, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try LocalStateRecovery.write(JSONEncoder().encode(date), to: url)
         } else if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
     }
 }
@@ -125,12 +124,7 @@ public enum ActivityChartText {
     public static func value(_ totals: ActivityTotals, compact: Bool = true) -> String {
         guard totals.observed > 0 else { return "—" }
         let prefix = totals.recovered > 0 ? "≈ " : ""
-        if totals.active == 0 { return L("0 м") }
-        if !compact { return prefix + ActivitySummary.duration(totals.active) }
-        if totals.active < 60 { return prefix + L("<1м") }
-        let minutes = Int(totals.active / 60), hours = minutes / 60
-        let value = hours > 0 ? (minutes % 60 == 0 ? L("{0}ч", String(hours)) : L("{0}ч {1}м", String(hours), String(minutes % 60))) : L("{0}м", String(minutes))
-        return prefix + value
+        return prefix + DurationText.activity(totals.active)
     }
 
     public static func range(_ summary: ActivitySummary, compact: Bool = false) -> String {

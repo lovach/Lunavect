@@ -90,6 +90,113 @@ final class ReleaseRecoveryTests: XCTestCase {
         XCTAssertNil(try SnapshotStore.loadRecovering(from: file).backupURL)
         XCTAssertEqual(try Data(contentsOf: backup), bytes)
     }
+    func testInvalidCachedQuotaRecoversHealthyProviderAndPreferences() throws {
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let healthy = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 23, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3600)),
+            fetchedAt: now, source: ClaudeUsageProbe.source)
+        let healthyJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(healthy))
+        var preferences = WidgetPreferences()
+        preferences.subscriptionDates = ["claude": "2030-04-01", "codex": "2030-04-02"]
+        preferences.enabledProviders = [.codex, .claude]; preferences.showFiveHour = true
+        preferences.transparency = 0.7; preferences.transparentBackground = true
+        let preferencesJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(preferences))
+        let quota: [String: Any] = ["usedPercent": 50, "durationMinutes": 10080]
+        let base: [String: Any] = ["provider": "codex", "source": "Codex CLI", "fetchedAt": now.timeIntervalSinceReferenceDate, "weekly": quota]
+        var invalid: [[String: Any]] = []
+        for field in [["usedPercent": 150, "durationMinutes": -1], ["usedPercent": -1, "durationMinutes": 10080],
+                      ["usedPercent": 50, "durationMinutes": 0], ["usedPercent": 50, "durationMinutes": 300]] {
+            var snapshot = base; snapshot["weekly"] = field; invalid.append(snapshot)
+        }
+        var snapshot = base; snapshot["fetchedAt"] = 1e300; invalid.append(snapshot)
+        snapshot = base; snapshot["weekly"] = ["usedPercent": 50, "durationMinutes": 10080, "resetsAt": -1e300]; invalid.append(snapshot)
+        snapshot = base
+        snapshot["modelQuotas"] = [["name": "Sonnet", "window": quota, "fetchedAt": 1e300]]
+        invalid.append(snapshot)
+        snapshot = base
+        snapshot["weekly"] = ["usedPercent": 50, "durationMinutes": 10080, "resetsAt": now.addingTimeInterval(10080 * 60 + 121).timeIntervalSinceReferenceDate]
+        invalid.append(snapshot)
+        for damaged in invalid {
+            let file = try directory().appendingPathComponent("snapshot.json")
+            let bytes = try JSONSerialization.data(withJSONObject: ["snapshots": [damaged, healthyJSON], "preferences": preferencesJSON])
+            try bytes.write(to: file)
+            let recovered = try SnapshotStore.loadRecovering(from: file)
+            XCTAssertEqual(recovered.value.preferences, preferences)
+            XCTAssertEqual(recovered.value.snapshots, [healthy])
+            XCTAssertFalse(try XCTUnwrap(recovered.value.snapshots.first).isStale(now: now))
+            let backup = try XCTUnwrap(recovered.backupURL)
+            XCTAssertEqual(try Data(contentsOf: backup), bytes)
+            XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: backup.path)[.posixPermissions] as? Int, 0o600)
+            try LocalStateRecovery.write(JSONEncoder().encode(recovered.value), to: file)
+            let next = try SnapshotStore.loadRecovering(from: file)
+            XCTAssertNil(next.backupURL)
+            XCTAssertEqual(next.value.snapshots, [healthy])
+            XCTAssertEqual(next.value.preferences, preferences)
+            XCTAssertEqual(try Data(contentsOf: backup), bytes)
+        }
+    }
+    func testDuplicateProvidersAreAmbiguousEvenWhenOnlyOneCopyIsMalformed() throws {
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let healthy = UsageSnapshot(provider: .claude, fetchedAt: now, source: ClaudeUsageProbe.source)
+        let healthyJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(healthy))
+        let codex: [String: Any] = ["provider": "codex", "source": "Codex CLI", "fetchedAt": now.timeIntervalSinceReferenceDate,
+                                   "weekly": ["usedPercent": 40, "durationMinutes": 10080]]
+        for duplicate in [codex, ["provider": "codex", "weekly": "broken"]] {
+            for snapshots in [[codex, duplicate, healthyJSON], [healthyJSON, duplicate, codex]] {
+                let file = try directory().appendingPathComponent("snapshot.json")
+                let bytes = try JSONSerialization.data(withJSONObject: ["snapshots": snapshots, "preferences": [:]])
+                XCTAssertThrowsError(try JSONDecoder().decode(SharedState.self, from: bytes))
+                try bytes.write(to: file)
+                let recovered = try SnapshotStore.loadRecovering(from: file)
+                XCTAssertEqual(recovered.value.snapshots, [healthy])
+                XCTAssertEqual(try Data(contentsOf: XCTUnwrap(recovered.backupURL)), bytes)
+            }
+        }
+    }
+    func testReadOnlySnapshotLoadSalvagesWithoutChangingOriginalFile() throws {
+        let file = try directory().appendingPathComponent("snapshot.json")
+        let healthy = UsageSnapshot(provider: .claude, source: "Claude Code statusLine")
+        let healthyJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(healthy))
+        let bytes = try JSONSerialization.data(withJSONObject: ["snapshots": [42, "broken", NSNull(), healthyJSON],
+            "preferences": ["showFiveHour": true, "enabledProviders": ["claude"]]])
+        try bytes.write(to: file)
+        let loaded = SnapshotStore.load(from: file)
+        XCTAssertEqual(loaded.snapshots, [healthy])
+        XCTAssertEqual(loaded.preferences.enabledProviders, [.claude])
+        XCTAssertTrue(loaded.preferences.showFiveHour)
+        XCTAssertEqual(try Data(contentsOf: file), bytes)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path), ["snapshot.json"])
+    }
+    func testLegacySnapshotAndNormalRoundTripDoNotNeedRecovery() throws {
+        let file = try directory().appendingPathComponent("snapshot.json")
+        let legacy = Data(#"{"snapshots":[{"provider":"codex","source":"Codex CLI","weekly":{"usedPercent":0,"durationMinutes":10080}}],"preferences":{"showFiveHour":true}}"#.utf8)
+        try legacy.write(to: file)
+        let loaded = try SnapshotStore.loadRecovering(from: file)
+        XCTAssertNil(loaded.backupURL)
+        XCTAssertNil(loaded.value.preferences.enabledProviders)
+        XCTAssertTrue(loaded.value.preferences.showFiveHour)
+        let snapshot = try XCTUnwrap(loaded.value.snapshots.first)
+        XCTAssertNil(snapshot.fetchedAt)
+        XCTAssertNil(snapshot.modelQuotas)
+        XCTAssertEqual(snapshot.weekly?.remaining, 100)
+        XCTAssertNil(snapshot.weekly?.resetsAt)
+        XCTAssertTrue(snapshot.isStale())
+        XCTAssertEqual(try Data(contentsOf: file), legacy)
+
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let window = try QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(-1))
+        let model = ModelQuota(name: "Sonnet", window: window, fetchedAt: now)
+        let current = SharedState(snapshots: [UsageSnapshot(provider: .claude, weekly: window, fetchedAt: now, source: "Claude Code /usage", modelQuotas: [model]),
+                                            UsageSnapshot(provider: .codex)], preferences: loaded.value.preferences)
+        try LocalStateRecovery.write(JSONEncoder().encode(current), to: file)
+        let roundtrip = try SnapshotStore.loadRecovering(from: file)
+        XCTAssertNil(roundtrip.backupURL)
+        XCTAssertEqual(roundtrip.value.snapshots, current.snapshots)
+        XCTAssertEqual(roundtrip.value.preferences, current.preferences)
+        XCTAssertTrue(roundtrip.value.snapshots[0].isStale(now: now))
+        XCTAssertEqual(roundtrip.value.snapshots[0].weekly?.remaining, 0)
+        XCTAssertFalse(roundtrip.value.snapshots[1].hasQuota)
+    }
     func testMissingIsEmptyButPermissionErrorsNeverBecomeEmptyOrOverwriteData() throws {
         let file = try directory().appendingPathComponent("snapshot.json")
         XCTAssertNil(try SnapshotStore.loadRecovering(from: file).backupURL)
@@ -166,7 +273,10 @@ final class ReleaseRecoveryTests: XCTestCase {
     }
     func testFreshCacheAvoidsProbeButExpiredWindowRequiresRefresh() throws {
         let now = Date(), end = now.addingTimeInterval(3600)
-        var snapshot = UsageSnapshot(provider: .claude, weekly: try QuotaWindow(usedPercent: 20, durationMinutes: 10080, resetsAt: end), fiveHour: try QuotaWindow(usedPercent: 5, durationMinutes: 300, resetsAt: end), fetchedAt: now, source: "Claude Code statusLine")
+        var snapshot = UsageSnapshot(
+            provider: .claude, weekly: try QuotaWindow(usedPercent: 20, durationMinutes: 10080, resetsAt: end),
+            fiveHour: try QuotaWindow(usedPercent: 5, durationMinutes: 300, resetsAt: end), fetchedAt: now,
+            source: ClaudeUsageProbe.source)
         XCTAssertTrue(ClaudeProvider.cacheIsCurrent(snapshot, now: now.addingTimeInterval(20)))
         XCTAssertFalse(ClaudeProvider.cacheIsCurrent(snapshot, now: now.addingTimeInterval(301)))
         snapshot.fiveHour = try QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: now)

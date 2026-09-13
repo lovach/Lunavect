@@ -89,9 +89,9 @@ struct SubscriptionCalendarView: View {
         } label: {
             Text(String(calendar.component(.day, from: date)))
                 .font(.system(size: 12, weight: selected || today ? .semibold : .regular)).monospacedDigit()
-                .foregroundStyle(selected ? Color.white : currentMonth ? .primary : .secondary)
+                .foregroundStyle(selected ? Color(nsColor: .alternateSelectedControlTextColor) : currentMonth ? .primary : .secondary)
                 .frame(maxWidth: .infinity).frame(height: 32)
-                .background(selected ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                .background(selected ? Color(nsColor: .selectedContentBackgroundColor) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(today && !selected ? Color.accentColor : .clear, lineWidth: 1))
                 .contentShape(Rectangle())
         }.buttonStyle(.plain)

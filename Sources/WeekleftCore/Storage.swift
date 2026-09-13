@@ -17,12 +17,17 @@ public struct WidgetPreferences: Codable, Equatable, Sendable {
         }
     }
     public init() {}
+    public mutating func restoreAppearanceDefaults() {
+        let base = WidgetPreferences()
+        showFiveHour = base.showFiveHour; transparency = base.transparency
+        transparentBackground = base.transparentBackground
+    }
     private enum CodingKeys: String, CodingKey { case showFiveHour, transparency, transparentBackground, subscriptionDates, enabledProviders }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         showFiveHour = try values.decodeIfPresent(Bool.self, forKey: .showFiveHour) ?? false
         let alpha = try values.decodeIfPresent(Double.self, forKey: .transparency) ?? 0.5
-        transparency = alpha.isFinite ? min(0.75, max(0.2, alpha)) : 0.5
+        transparency = alpha.isFinite ? min(1, max(0, alpha)) : 0.5
         transparentBackground = try values.decodeIfPresent(Bool.self, forKey: .transparentBackground) ?? false
         subscriptionDates = try values.decodeIfPresent([String: String].self, forKey: .subscriptionDates) ?? [:]
         enabledProviders = try values.decodeIfPresent([ProviderID].self, forKey: .enabledProviders)
@@ -34,6 +39,15 @@ public struct SharedState: Codable, Sendable {
     public init(snapshots: [UsageSnapshot] = ProviderID.allCases.map { UsageSnapshot(provider: $0) }, preferences: WidgetPreferences = .init()) {
         self.snapshots = snapshots; self.preferences = preferences
     }
+    private enum CodingKeys: String, CodingKey { case snapshots, preferences }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        snapshots = try values.decode([UsageSnapshot].self, forKey: .snapshots)
+        preferences = try values.decode(WidgetPreferences.self, forKey: .preferences)
+        guard Set(snapshots.map(\.provider)).count == snapshots.count else {
+            throw DecodingError.dataCorruptedError(forKey: .snapshots, in: values, debugDescription: "Duplicate quota providers")
+        }
+    }
 }
 public enum SnapshotStore {
     public static var directory: URL {
@@ -41,11 +55,12 @@ public enum SnapshotStore {
            let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) { return url.appendingPathComponent("Weekleft", isDirectory: true) }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Weekleft", isDirectory: true)
     }
-    public static func load() -> SharedState {
-        let url = directory.appendingPathComponent("snapshot.json")
+    public static func load(from url: URL = directory.appendingPathComponent("snapshot.json")) -> SharedState {
         do {
             let data = try Data(contentsOf: url)
-            let state = try JSONDecoder().decode(SharedState.self, from: data)
+            let state: SharedState
+            do { state = try JSONDecoder().decode(SharedState.self, from: data) }
+            catch is DecodingError { state = salvage(data) }
             Logger(subsystem: "com.weekleft.storage", category: "snapshot").debug("Snapshot loaded (\(data.count) bytes)")
             return state
         } catch {
@@ -58,19 +73,29 @@ public enum SnapshotStore {
         var result = try LocalStateRecovery.load(from: url, empty: SharedState()) { file in
             try JSONDecoder().decode(SharedState.self, from: Data(contentsOf: file))
         }
-        // A malformed quota must not erase valid subscription dates or preferences.
-        if let backup = result.backupURL, let data = try? Data(contentsOf: backup),
-           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-            if let value = root["preferences"], let bytes = try? JSONSerialization.data(withJSONObject: value),
-               let preferences = try? JSONDecoder().decode(WidgetPreferences.self, from: bytes) {
-                result.value.preferences = preferences
-            }
-            result.value.snapshots = (root["snapshots"] as? [Any] ?? []).compactMap { value in
-                guard let bytes = try? JSONSerialization.data(withJSONObject: value) else { return nil }
-                return try? JSONDecoder().decode(UsageSnapshot.self, from: bytes)
-            }
+        if let backup = result.backupURL, let data = try? Data(contentsOf: backup) {
+            result.value = salvage(data)
         }
         return result
+    }
+    // Both readers preserve healthy preferences and providers. Only the app's
+    // recovering reader moves invalid bytes aside before it can write again.
+    private static func salvage(_ data: Data) -> SharedState {
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return SharedState() }
+        func decode<Value: Decodable>(_ type: Value.Type, from value: Any?) -> Value? {
+            guard let value, let bytes = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) else { return nil }
+            return try? JSONDecoder().decode(type, from: bytes)
+        }
+        let rawSnapshots = root["snapshots"] as? [Any] ?? []
+        let providers = rawSnapshots.compactMap { ($0 as? [String: Any])?["provider"] as? String }
+        let counts = Dictionary(providers.map { ($0, 1) }, uniquingKeysWith: +)
+        let snapshots = rawSnapshots.compactMap { value -> UsageSnapshot? in
+            guard let snapshot = decode(UsageSnapshot.self, from: value), counts[snapshot.provider.rawValue] == 1 else { return nil }
+            return snapshot
+        }
+        // Duplicate records are ambiguous even if one copy looks valid; never
+        // pick an arbitrary quota to display as the provider's current value.
+        return SharedState(snapshots: snapshots, preferences: decode(WidgetPreferences.self, from: root["preferences"]) ?? .init())
     }
     public static func save(_ state: SharedState) throws {
         let dir = directory
@@ -85,14 +110,38 @@ public struct RecoveredLocalState<Value> {
     public let backupURL: URL?
 }
 
+/// Future entries age the saved observation even when WidgetKit delays the next
+/// requested read. A timeline entry never invents a new provider observation.
+public enum WidgetTimelineSchedule {
+    public static func dates(from now: Date, snapshots: [UsageSnapshot], calendar: Calendar = .current) -> [Date] {
+        let horizon = now.addingTimeInterval(86400)
+        var dates = Set((0...3).map { now.addingTimeInterval(Double($0) * 300) })
+        for snapshot in snapshots {
+            if let fetched = snapshot.fetchedAt { dates.insert(fetched.addingTimeInterval(901)) }
+            for window in [snapshot.weekly, snapshot.fiveHour].compactMap({ $0 }) {
+                if let reset = window.resetsAt { dates.insert(reset) }
+            }
+        }
+        if let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) { dates.insert(midnight) }
+        return dates.filter { $0 >= now && $0 <= horizon }.sorted()
+    }
+}
+
 /// Preserve invalid bytes before allowing a fresh state to be saved. Permission,
 /// I/O and backup failures propagate, so callers cannot overwrite unreadable data.
 public enum LocalStateRecovery {
     public static func write(_ data: Data, to url: URL) throws {
         let target = url.resolvingSymlinksInPath()
         let tmp = target.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
-        guard FileManager.default.createFile(atPath: tmp.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
+        // The private temporary is created exclusively and has restrictive mode
+        // before the first byte. Existing migration symlinks keep their target.
+        let descriptor = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        guard descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
+        try handle.write(contentsOf: data)
+        try handle.synchronize()
+        try handle.close()
         guard rename(tmp.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
     public static func load<Value>(from url: URL, empty: Value, read: (URL) throws -> Value) throws -> RecoveredLocalState<Value> {

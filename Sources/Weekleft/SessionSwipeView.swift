@@ -29,8 +29,9 @@ struct SessionSwipeView: NSViewRepresentable {
         func diagnose() {
             #if DEBUG
             guard CommandLine.arguments.contains("--swipe-diagnostics") else { return }
-            let snapshot = "frame=\(frame) bounds=\(bounds) visible=\(visibleRect) viewport=\(viewport) regions=\(regions.values.sorted { $0.minY < $1.minY }) window=\(window != nil) hidden=\(isHiddenOrHasHiddenAncestor)"
-            if snapshot != diagnosticSnapshot {
+                let snapshot =
+                    "frame=\(frame) bounds=\(bounds) visible=\(visibleRect) viewport=\(viewport) regions=\(regions.values.sorted { $0.minY < $1.minY }) window=\(window != nil) hidden=\(isHiddenOrHasHiddenAncestor)"
+                if snapshot != diagnosticSnapshot {
                 diagnosticSnapshot = snapshot
                 Logger(subsystem: "com.weekleft.app", category: "swipe-diagnostic").notice("\(snapshot, privacy: .public)")
             }
@@ -61,8 +62,10 @@ struct SessionSwipeView: NSViewRepresentable {
             guard event.hasPreciseScrollingDeltas, !event.phase.isEmpty else { return event }
             #if DEBUG
             if CommandLine.arguments.contains("--swipe-diagnostics"), event.phase.contains(.began) {
-                Logger(subsystem: "com.weekleft.app", category: "swipe-diagnostic").notice("event phase=\(event.phase.rawValue) windowMatch=\(event.window === window) point=\(String(describing: self.convert(event.locationInWindow, from: nil)), privacy: .public) regions=\(self.regions.count)")
-            }
+                    Logger(subsystem: "com.weekleft.app", category: "swipe-diagnostic").notice(
+                        "event phase=\(event.phase.rawValue) windowMatch=\(event.window === window) point=\(String(describing: self.convert(event.locationInWindow, from: nil)), privacy: .public) regions=\(self.regions.count)"
+                    )
+                }
             #endif
             if event.phase.contains(.began) {
                 consumeMomentum = false
