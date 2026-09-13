@@ -1,10 +1,24 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.1.1 (147)**. These records distinguish checks that ran from scenarios still requiring verification.
+The current public release is **Lunavect 0.1.2 (149)**. These records distinguish checks that ran from scenarios still requiring verification.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.1) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.2) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
 
-## Release checks — September 13, 2026
+## 0.1.2 release checks — September 13, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `5395a84312242c9afbfd62dbcd358e57dec1d0cd`, tagged `v0.1.2`. Source provenance stayed unchanged through the archive. |
+| Automated checks | [Release CI](https://github.com/lovach/Lunavect/actions/runs/34784740200): 572 Swift tests passed, 55 optional tests skipped; 77 Python tests passed, 2 skipped. Universal unsigned app, WidgetKit extension, helpers, product resources and source provenance passed; the built intent metadata check also passed. |
+| Focused behavior | 42 focused checks passed, one opt-in check skipped. Coverage includes explicit closing questions, normal responses, quoted/code examples, idle polls, resumed work, terminal states, expiry and the waiting count. |
+| Native view | Russian and English session views rendered under the existing sandbox policy and were visually inspected. A recognized question was orange and counted as waiting; the completed answer was green. Forbidden-access probes and unchanged sentinel checks passed. |
+| Distribution | Developer ID signed, Apple notarized, build 149. Public DMG, ZIP, appcast and checksums were downloaded anonymously and matched their packaged bytes. The downloaded DMG's app passed codesign, Gatekeeper and stapler checks; the ZIP and feed signatures verified. |
+| Compatibility | The optional inference flag preserves decoding of existing session records. Signing identity, bundle IDs, shared data paths and update key are unchanged. Recognition covers selected Russian, English and German phrasing and can miss unfamiliar wording. |
+| Actual update | An installed automatic upgrade to this exact release has not yet been verified. The previous successful Sparkle update below is separate evidence. |
+
+The 0.1.2 DMG SHA-256 is `b7ce7431159941525424192a146bdd24ce9a09237093123899c038d4e2e6bffe`. Existing 0.1.0 and 0.1.1 release assets retain their original digests and URLs.
+
+## 0.1.1 release checks — September 13, 2026
 
 | Area | Result |
 | --- | --- |
@@ -19,13 +33,13 @@ The current public release is **Lunavect 0.1.1 (147)**. These records distinguis
 | Helper registration | After the update, a stale macOS helper registration failed to resolve its executable. Refreshing the app registration and repeating its existing startup maintenance restored helper 147; it started once and exited normally after becoming idle. System sleep remained enabled. A closed-lid cycle was not tested. |
 | Existing downloads | The previous 0.1.0 release assets remain at their original URLs with unchanged digests. |
 
-The DMG SHA-256 is `5fe1908dbe9455bb96692762d605432a6c255f7c1245d6a37adbf01a6df44d1f`. The updater uses the signed ZIP and appcast, not the DMG.
+The 0.1.1 DMG SHA-256 is `5fe1908dbe9455bb96692762d605432a6c255f7c1245d6a37adbf01a6df44d1f`. The updater uses the signed ZIP and appcast, not the DMG.
 
 Test counts above belong to the release source, not subsequent documentation or screenshot-tool changes. An unsigned CI pass alone does not establish installed behavior or signing.
 
 ## Homebrew and installer
 
-The cask points to the 0.1.1 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
+The cask points to the 0.1.2 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
 
 The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstall on September 12. That exercise preserved the existing application and validated the downloaded signature and notarization. A Homebrew upgrade between distinct versions is a separate scenario; the real Sparkle update above does not establish it.
 
@@ -44,8 +58,8 @@ The deployment minimum is macOS 14. Release checks were performed on macOS 26.5.
 | Other Macs | Intel hardware, macOS 14/15 and every supported OS revision have not been exercised. |
 | First-time setup | Clean-Mac setup, different account plans and client versions, failed sign-in and retry need broader coverage. |
 | Session lifecycle | More real-client coverage is needed for prolonged tasks, cancellation, sleep/wake, offline periods and returning to the exact original session. |
-| Desktop widgets | Native layouts and the owner's glass setting were checked. Placement, editing and refresh of build 147 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
-| Updates | Upgrade specifically from public build 103 to 147, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
+| Desktop widgets | Native layouts and the owner's glass setting were checked. Placement, editing and refresh of build 149 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
+| Updates | Upgrade from public 0.1.1 (147) to 0.1.2 (149), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
 | Accessibility | Full VoiceOver, keyboard navigation and widget appearance with increased contrast or reduced transparency need live verification. |
 | Battery use | Short process samples and synthetic benchmarks do not establish prolonged idle energy consumption. |
 | Experimental features | Optional glass and closed-lid Keep Awake are not guaranteed across Macs or future macOS releases. Glass is off by default. |
