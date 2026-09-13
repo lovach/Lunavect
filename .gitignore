@@ -1,62 +1,36 @@
-__local_*
+# macOS and editor state
 .DS_Store
-.recall/
-.env
-.env.*
-!.env.example
 
-archive/
-
+# Build products and dependency caches
 .build/
 .swiftpm/
-node_modules/
 build/
 DerivedData/
 dist/
-Config/Local.xcconfig
-**/xcuserdata/
+node_modules/
+__pycache__/
+*.py[cod]
+
+# Xcode user settings
+xcuserdata/
 *.xcuserstate
+
+# Local configuration and signing material
+.env
+.env.*
+!.env.example
+/Config/Local.xcconfig
 *.provisionprofile
 *.mobileprovision
 *.p12
 *.p8
 *.pem
 *.key
+
+# Generated packages and diagnostics
 *.app/
 *.xcarchive/
 *.dSYM/
 *.dmg
 *.pkg
-
-# Local iteration history and exploratory artwork, retained on this Mac.
-/CONTINUATION.md
-/VALIDATION.md
-/docs/audit-2026-09-12.md
-/design/icon-explorations/
-/design/previews/
-/design/references/
-/index.html
-/glass.html
-/docs/interface-audit-2026-09-11.md
-/docs/claude-rendering-review-2026-09-11.md
-/docs/design-audit-activity-widgets-2026-09-10.md
-/docs/activity-redesign-2026-09-10.md
-
-/docs/audit-recheck-2026-09-12.md
-
-# Local caches, diagnostics and the private archive locator.
-__pycache__/
-*.py[cod]
 *.log
-/LOCAL_ARCHIVE.md
-/design/*RESEARCH.md
-/design/*AUDIT.md
-
-# Private development instructions, design notes and release working history.
-/AGENTS.md
-/.codex/
-/.claude/
-/CLAUDE.md
-/RELEASE.md
-/design/ICON_BRIEF.md
-/docs/mascot-permissions.md
