@@ -26,7 +26,7 @@ macOS 14+ · Apple silicon & Intel · Free and open source
   </a>
 </p>
 
-<sub>Native interface with sample data. [About the screenshots](docs/verification.md#public-screenshots).</sub>
+<sub>Interface previews captured on September 12, 2026 with sample data; current labels and controls may differ. [About the screenshots](docs/verification.md#public-screenshots).</sub>
 
 ## Install
 
@@ -75,7 +75,12 @@ Small, medium and large layouts for limits, activity or both.<br>
 macOS manages placement and refresh.
 
 <p>
-  <a href="docs/images/readme-widgets.png"><img src="docs/images/readme-widgets.png" width="800" alt="Small limits and activity widgets, a medium comparison and a large overview"></a>
+  <a href="docs/images/widget-overview.png"><img src="docs/images/widget-overview.png" width="344" alt="Compact weekly limits above an activity chart with detailed hour labels"></a>
+  <a href="docs/images/widget-activity-large.png"><img src="docs/images/widget-activity-large.png" width="344" alt="Activity widget with full duration values and daily history"></a>
+</p>
+<p>
+  <a href="docs/images/widget-limits.png"><img src="docs/images/widget-limits.png" width="344" alt="Weekly remaining allowances and reset countdowns"></a>
+  <a href="docs/images/widget-activity-small.png"><img src="docs/images/widget-activity-small.png" width="164" alt="Small activity widget with readable provider totals"></a>
 </p>
 
 ### Activity

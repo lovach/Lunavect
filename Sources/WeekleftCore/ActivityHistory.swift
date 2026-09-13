@@ -36,7 +36,8 @@ public struct ActivityImportReport: Codable, Equatable, Sendable {
         public var issues: [ActivityImportIssue: Int] = [:]
         public init(id: ProviderID) { self.id = id }
         private enum CodingKeys: String, CodingKey {
-            case id, filesRead, filesWithoutTiming, recordsRecovered, taskRecords, agentRecords, toolRecords, bytesRead, longStringsOmitted, recoveredSeconds, daysRecovered, firstRecovered, lastRecovered, issues
+            case id, filesRead, filesWithoutTiming, recordsRecovered, taskRecords, agentRecords, toolRecords, bytesRead,
+                longStringsOmitted, recoveredSeconds, daysRecovered, firstRecovered, lastRecovered, issues
         }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -97,12 +98,21 @@ public struct ActivityInterval: Codable, Equatable, Sendable {
     /// 0 = observed without confirmed work, 1 = Claude, 2 = Codex, 3 = both.
     public var providers: Int
     public var recovered: Bool?
+    /// Active sources supported only by imported history. Missing fields retain
+    /// the legacy whole-interval provenance when decoding older storage.
+    public var recoveredProviders: Int?
+    /// Sources actually observed live, including idle observations. This is
+    /// separate from known coverage, which may include another imported source.
+    public var liveObservedProviders: Int?
+    public var recoveredProviderMask: Int { recoveredProviders ?? (recovered == true ? providers : 0) }
+    public var liveObservedProviderMask: Int { liveObservedProviders ?? (recovered == true ? 0 : observedProviders ?? 0) }
     /// Sources whose state was actually observed. Missing in older files; activity itself remains evidence.
     public var observedProviders: Int?
     public var knownProviders: Int { providers | (observedProviders ?? 0) }
-    public init(start: Date, end: Date, providers: Int, recovered: Bool? = nil, observedProviders: Int? = nil) {
+    public init(start: Date, end: Date, providers: Int, recovered: Bool? = nil, observedProviders: Int? = nil, recoveredProviders: Int? = nil, liveObservedProviders: Int? = nil) {
         self.start = start; self.end = end; self.providers = providers; self.recovered = recovered
         self.observedProviders = observedProviders
+        self.recoveredProviders = recoveredProviders; self.liveObservedProviders = liveObservedProviders
     }
 }
 
@@ -143,9 +153,7 @@ public struct ActivitySummary: Sendable {
     }
     public var hasObservations: Bool { totals.observed > 0 }
     public static func duration(_ seconds: TimeInterval) -> String {
-        guard seconds >= 60 else { return seconds > 0 ? L("< 1 м") : L("0 м") }
-        let minutes = Int(seconds / 60)
-        return minutes >= 60 ? L("{0} ч {1} м", String(minutes / 60), String(minutes % 60)) : L("{0} м", String(minutes))
+        DurationText.activity(seconds)
     }
     public var peakLabel: String {
         guard let hour = peakHour else { return "—" }
@@ -159,12 +167,24 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
     public private(set) var importedAt: Date?
     public private(set) var importWasLimited: Bool?
     public private(set) var importReport: ActivityImportReport?
+    /// Optional fields migrate pre-provider histories without changing their
+    /// existing cutoff. Newly enabled sources get their own first-observation edge.
+    public private(set) var providerImportCutoffs: [String: Date]?
+    public private(set) var providerImportVersions: [String: Int]?
     public var needsImport: Bool { importedAt == nil || (importReport?.version ?? 0) < ActivityImportReport.currentVersion }
     public init() {}
-    public mutating func append(start: Date, end: Date, providers: Int, observedProviders: Int? = nil) {
-        guard start < end, (0...3).contains(providers), observedProviders.map({ (0...3).contains($0) && ($0 & providers) == providers }) ?? true,
-              intervals.last.map({ $0.end <= start }) ?? true else { return }
-        if let last = intervals.last, last.end == start, last.providers == providers, last.observedProviders == observedProviders, last.recovered != true {
+    public mutating func append(start: Date, end: Date, providers: Int, observedProviders: Int? = nil, reconcilingClockCorrection: Bool = false) {
+        guard start < end, (0...3).contains(providers), observedProviders.map({ (0...3).contains($0) && ($0 & providers) == providers }) ?? true else { return }
+        if let last = intervals.last, last.end > start {
+            guard reconcilingClockCorrection else { return }
+            intervals = Self.union(intervals + [ActivityInterval(start: start, end: end, providers: providers, observedProviders: observedProviders)])
+            prune(at: max(last.end, end))
+            return
+        }
+        if let last = intervals.last, last.end == start, last.providers == providers,
+            last.observedProviders == observedProviders, last.recoveredProviderMask == 0,
+            last.liveObservedProviderMask == (observedProviders ?? 0)
+        {
             intervals[intervals.count - 1].end = end
         } else { intervals.append(ActivityInterval(start: start, end: end, providers: providers, observedProviders: observedProviders)) }
         prune(at: end)
@@ -180,14 +200,44 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
         if importCutoff == nil { importCutoff = min(now, intervals.first?.start ?? now) }
         return importCutoff!
     }
+    public func needsImport(providers: Set<ProviderID>) -> Bool {
+        providers.contains { (providerImportVersions?[$0.rawValue] ?? 0) < ActivityImportReport.currentVersion }
+    }
+    public mutating func prepareImport(providers: Set<ProviderID>, now: Date) -> [ProviderID: Date] {
+        if providerImportCutoffs == nil {
+            providerImportCutoffs = [:]; providerImportVersions = [:]
+            if let importCutoff {
+                var known = Set(importReport?.providers.map(\.id) ?? [])
+                for id in ProviderID.allCases where intervals.contains(where: { $0.knownProviders & (id == .claude ? 1 : 2) != 0 }) { known.insert(id) }
+                if known.isEmpty { known = providers }
+                for id in known {
+                    providerImportCutoffs?[id.rawValue] = importCutoff
+                    if importedAt != nil { providerImportVersions?[id.rawValue] = importReport?.version ?? 0 }
+                }
+            }
+        }
+        for id in providers where providerImportCutoffs?[id.rawValue] == nil {
+            let firstObservation = intervals.first { $0.knownProviders & (id == .claude ? 1 : 2) != 0 }?.start
+            providerImportCutoffs?[id.rawValue] = min(now, firstObservation ?? now)
+        }
+        if importCutoff == nil { importCutoff = providerImportCutoffs?.values.min() ?? now }
+        return Dictionary(uniqueKeysWithValues: providers.map { ($0, providerImportCutoffs?[$0.rawValue] ?? now) })
+    }
     /// Union historical work before recording began. New live observations always survive.
-    public mutating func mergeRecovered(_ spans: [ActivityInterval], now: Date, limited: Bool, report: ActivityImportReport? = nil) {
-        let boundary = prepareImport(now: now)
+    public mutating func mergeRecovered(_ spans: [ActivityInterval], now: Date, limited: Bool, report: ActivityImportReport? = nil,
+                                       providers: Set<ProviderID>? = nil) {
+        let boundaries = providers.map { prepareImport(providers: $0, now: now) }
+        let boundary = boundaries?.values.max() ?? prepareImport(now: now)
         let cutoff = now.addingTimeInterval(-35 * 86400)
-        let incoming = spans.compactMap { span -> ActivityInterval? in
-            let start = max(cutoff, span.start), end = min(boundary, span.end)
-            guard start < end, (1...3).contains(span.providers) else { return nil }
-            return ActivityInterval(start: start, end: end, providers: span.providers, recovered: true)
+        let incoming = spans.flatMap { span -> [ActivityInterval] in
+            guard (1...3).contains(span.providers) else { return [] }
+            return ProviderID.allCases.compactMap { id in
+                let mask = id == .claude ? 1 : 2
+                guard span.providers & mask != 0, providers?.contains(id) ?? true else { return nil }
+                let start = max(cutoff, span.start), end = min(boundaries?[id] ?? boundary, span.end)
+                guard start < end else { return nil }
+                return ActivityInterval(start: start, end: end, providers: mask, recovered: true)
+            }
         }
         intervals = Self.union(intervals + incoming)
         let storageLimited = intervals.count > 50_000
@@ -195,36 +245,54 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
         importedAt = now; importWasLimited = limited || storageLimited
         if var report {
             if storageLimited, !report.providers.isEmpty { report.providers[0].issues[.budget, default: 0] += 1 }
+            if let providers, let previous = importReport, previous.version == report.version {
+                report.providers += previous.providers.filter { !providers.contains($0.id) }
+                report.providers.sort { $0.id.rawValue < $1.id.rawValue }
+            }
             importReport = report
+        }
+        if let providers {
+            importWasLimited = limited || storageLimited || (importReport?.limited ?? false)
+            if providerImportVersions == nil { providerImportVersions = [:] }
+            for id in providers { providerImportVersions?[id.rawValue] = ActivityImportReport.currentVersion }
         }
     }
     /// A sweep avoids counting overlapping tasks, copies, or providers twice.
     public static func union(_ spans: [ActivityInterval]) -> [ActivityInterval] {
-        struct Event { let date: Date; let delta: Int; let mask: Int; let recovered: Bool; let observed: Int? }
+        struct Event { let date: Date; let delta: Int; let span: ActivityInterval }
         var events: [Event] = []
         for span in spans where span.start < span.end && (0...3).contains(span.providers) {
-            events.append(Event(date: span.start, delta: 1, mask: span.providers, recovered: span.recovered == true, observed: span.observedProviders))
-            events.append(Event(date: span.end, delta: -1, mask: span.providers, recovered: span.recovered == true, observed: span.observedProviders))
+            events.append(Event(date: span.start, delta: 1, span: span))
+            events.append(Event(date: span.end, delta: -1, span: span))
         }
         events.sort { $0.date < $1.date }
-        var counts = [0, 0, 0, 0, 0, 0, 0], previous: Date?, result: [ActivityInterval] = []
+        var count = 0, explicitObservations = 0
+        var active = [0, 0], liveActive = [0, 0], observed = [0, 0], liveObserved = [0, 0]
+        var previous: Date?, result: [ActivityInterval] = []
         for event in events {
-            if let previous, previous < event.date, counts[0] > 0 {
-                let mask = (counts[1] > 0 ? 1 : 0) | (counts[2] > 0 ? 2 : 0)
-                let recovered: Bool? = counts[3] > 0 ? true : nil
-                let observed: Int? = counts[6] > 0 ? (mask | (counts[4] > 0 ? 1 : 0) | (counts[5] > 0 ? 2 : 0)) : nil
-                if let last = result.last, last.end == previous, last.providers == mask, last.recovered == recovered, last.observedProviders == observed {
+            if let previous, previous < event.date, count > 0 {
+                let mask = (active[0] > 0 ? 1 : 0) | (active[1] > 0 ? 2 : 0)
+                let liveMask = (liveActive[0] > 0 ? 1 : 0) | (liveActive[1] > 0 ? 2 : 0)
+                let recoveredMask = mask & ~liveMask
+                let liveObservedMask = (liveObserved[0] > 0 ? 1 : 0) | (liveObserved[1] > 0 ? 2 : 0)
+                let known: Int? = explicitObservations > 0 ? (mask | (observed[0] > 0 ? 1 : 0) | (observed[1] > 0 ? 2 : 0)) : nil
+                if let last = result.last, last.end == previous, last.providers == mask,
+                   last.recoveredProviderMask == recoveredMask, last.observedProviders == known,
+                   last.liveObservedProviderMask == liveObservedMask {
                     result[result.count - 1].end = event.date
-                } else { result.append(ActivityInterval(start: previous, end: event.date, providers: mask, recovered: recovered, observedProviders: observed)) }
+                } else {
+                    result.append(ActivityInterval(start: previous, end: event.date, providers: mask,
+                        recovered: recoveredMask != 0 ? true : nil, observedProviders: known,
+                        recoveredProviders: recoveredMask, liveObservedProviders: liveObservedMask))
+                }
             }
-            counts[0] += event.delta
-            if event.mask & 1 != 0 { counts[1] += event.delta }
-            if event.mask & 2 != 0 { counts[2] += event.delta }
-            if event.recovered { counts[3] += event.delta }
-            if let observed = event.observed {
-                counts[6] += event.delta
-                if observed & 1 != 0 { counts[4] += event.delta }
-                if observed & 2 != 0 { counts[5] += event.delta }
+            count += event.delta
+            if event.span.observedProviders != nil { explicitObservations += event.delta }
+            for (index, mask) in [1, 2].enumerated() {
+                if event.span.providers & mask != 0 { active[index] += event.delta }
+                if event.span.providers & ~event.span.recoveredProviderMask & mask != 0 { liveActive[index] += event.delta }
+                if (event.span.observedProviders ?? 0) & mask != 0 { observed[index] += event.delta }
+                if event.span.liveObservedProviderMask & mask != 0 { liveObserved[index] += event.delta }
             }
             previous = event.date
         }
@@ -236,8 +304,10 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
         let selectedIntervals = intervals.filter { mask != 0 && ($0.knownProviders & mask != 0 || (mask == 3 && $0.providers == 0 && $0.observedProviders == nil)) }
         let today = calendar.startOfDay(for: now)
         let dates = (-(period.dayCount - 1)...0).compactMap { calendar.date(byAdding: .day, value: $0, to: today) }
+            .map { calendar.startOfDay(for: $0) }
         var pointDates = dates
-        if period == .day, let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) {
+        // dateInterval ends at the next real midnight, including days whose midnight is skipped by DST.
+        if period == .day, let tomorrow = calendar.dateInterval(of: .day, for: today)?.end {
             pointDates = []; var cursor = today
             while cursor < tomorrow {
                 pointDates.append(cursor)
@@ -245,24 +315,31 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
                 cursor = end
             }
         }
-        var result = ActivitySummary(period: period, days: dates.map { ActivityDay(date: $0) }, points: pointDates.map { ActivityDay(date: $0) }, hours: Array(repeating: 0, count: 24), totals: ActivityTotals(), lastObservedAt: selectedIntervals.last(where: { $0.start < now }).map { min(now, $0.end) },
-                                     lastLiveObservedAt: selectedIntervals.last(where: { $0.start < now && $0.observedProviders != nil && $0.recovered != true }).map { min(now, $0.end) })
+        var result = ActivitySummary(
+            period: period, days: dates.map { ActivityDay(date: $0) }, points: pointDates.map { ActivityDay(date: $0) },
+            hours: Array(repeating: 0, count: 24), totals: ActivityTotals(),
+            lastObservedAt: selectedIntervals.last(where: { $0.start < now }).map { min(now, $0.end) },
+            lastLiveObservedAt: selectedIntervals.last(where: { $0.start < now && $0.liveObservedProviderMask & mask != 0 }).map { min(now, $0.end) })
         guard let start = dates.first else { return result }
         let indices = Dictionary(uniqueKeysWithValues: dates.enumerated().map { ($1, $0) })
         let pointIndices = Dictionary(uniqueKeysWithValues: pointDates.enumerated().map { ($1, $0) })
         for span in selectedIntervals where span.end > start && span.start < now {
             var cursor = max(start, span.start)
             let end = min(now, span.end)
+            // Combined activity is wall time: overlapping live work already
+            // proves that second, even when another source was recovered.
+            let activeMask = span.providers & mask
+            let recovered = activeMask != 0 && activeMask & ~span.recoveredProviderMask == 0
             while cursor < end {
                 guard let hour = calendar.dateInterval(of: .hour, for: cursor) else { break }
                 let boundary = min(end, hour.end)
                 guard boundary > cursor else { break }
                 let seconds = boundary.timeIntervalSince(cursor)
                 if let index = indices[calendar.startOfDay(for: cursor)] {
-                    result.days[index].totals.add(seconds: seconds, providers: span.providers & mask, recovered: span.recovered == true)
-                    result.totals.add(seconds: seconds, providers: span.providers & mask, recovered: span.recovered == true)
+                    result.days[index].totals.add(seconds: seconds, providers: activeMask, recovered: recovered)
+                    result.totals.add(seconds: seconds, providers: activeMask, recovered: recovered)
                     let pointDate = period == .day ? hour.start : result.days[index].date
-                    if let point = pointIndices[pointDate] { result.points[point].totals.add(seconds: seconds, providers: span.providers & mask, recovered: span.recovered == true) }
+                    if let point = pointIndices[pointDate] { result.points[point].totals.add(seconds: seconds, providers: activeMask, recovered: recovered) }
                     if span.providers & mask != 0 { result.hours[calendar.component(.hour, from: cursor)] += seconds }
                 }
                 cursor = boundary
@@ -277,7 +354,9 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
         var previous = Date.distantPast
         for span in history.intervals {
             guard span.start >= previous, span.end > span.start, (0...3).contains(span.providers),
-                  span.observedProviders.map({ (0...3).contains($0) && ($0 & span.providers) == span.providers }) ?? true else {
+                  span.observedProviders.map({ (0...3).contains($0) && ($0 & span.providers) == span.providers }) ?? true,
+                  span.recoveredProviders.map({ (0...3).contains($0) && ($0 & span.providers) == $0 }) ?? true,
+                  span.liveObservedProviders.map({ (0...3).contains($0) && ($0 & span.knownProviders) == $0 }) ?? true else {
                 throw CocoaError(.fileReadCorruptFile)
             }
             previous = span.end
@@ -287,7 +366,6 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
     public static var fileURL: URL { SnapshotStore.directory.appendingPathComponent("activity.json") }
     public func save(to url: URL = fileURL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try JSONEncoder().encode(self).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try LocalStateRecovery.write(JSONEncoder().encode(self), to: url)
     }
 }

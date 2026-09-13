@@ -5,17 +5,29 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      native_render:
+        description: Run the isolated synthetic native render smoke check
+        type: boolean
+        default: false
+      synthetic_performance:
+        description: Measure the synthetic large archive and session workload
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
 jobs:
   check:
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - name: Check out source
@@ -26,5 +38,94 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
+      - name: Obtain pinned XcodeGen
+        run: |
+          curl --fail --location --retry 3 https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip --output "$RUNNER_TEMP/xcodegen.zip"
+          echo "4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 --check
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/project-tools"
+      - name: Verify generated project parity without source mutation
+        run: python3 scripts/check-project-parity.py --xcodegen "$RUNNER_TEMP/project-tools/xcodegen/bin/xcodegen"
       - name: Test and build app with WidgetKit
-        run: ./scripts/check.sh
+        run: WEEKLEFT_CHECK_RESULTS="$RUNNER_TEMP/lunavect-check-results" ./scripts/check.sh
+      - name: Summarize passed, skipped and not-run checks
+        if: always()
+        run: |
+          for report in "$RUNNER_TEMP"/lunavect-check-results/run.*/check-summary.md; do
+            if [ -f "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+          done
+      - name: Preserve unsigned check evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsigned-check-${{ github.sha }}-${{ runner.arch }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/lunavect-check-results/run.*/check-results.json
+            ${{ runner.temp }}/lunavect-check-results/run.*/check-summary.md
+            ${{ runner.temp }}/lunavect-check-results/run.*/build-manifest.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  native-render:
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [smoke, legacy-values]
+    if: github.event_name == 'workflow_dispatch' && inputs.native_render
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Render isolated synthetic states
+        run: python3 scripts/check-native-renders.py --run --require-render --suite "${{ matrix.suite }}" --output "$RUNNER_TEMP/native-renders"
+      - name: Summarize synthetic render scope
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/native-renders/summary.md" ]; then
+            cat "$RUNNER_TEMP/native-renders/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve synthetic render evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: synthetic-native-render-${{ matrix.suite }}-${{ github.sha }}-${{ runner.arch }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/native-renders/render-report.json
+            ${{ runner.temp }}/native-renders/summary.md
+            ${{ runner.temp }}/native-renders/build-manifest.json
+            ${{ runner.temp }}/native-renders/gallery.html
+            ${{ runner.temp }}/native-renders/images/*.png
+          retention-days: 14
+          if-no-files-found: warn
+
+  synthetic-performance:
+    if: github.event_name == 'workflow_dispatch' && inputs.synthetic_performance
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Measure synthetic production-code workload
+        run: python3 scripts/measure-performance.py --run --profile large --configuration release --samples 3 --output "$RUNNER_TEMP/performance"
+      - name: Summarize measurement and provenance
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/performance/summary.md" ]; then
+            cat "$RUNNER_TEMP/performance/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve synthetic measurement evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: synthetic-performance-${{ github.sha }}-${{ runner.arch }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/performance/performance-report.json
+            ${{ runner.temp }}/performance/run-summary.json
+            ${{ runner.temp }}/performance/build-manifest.json
+            ${{ runner.temp }}/performance/summary.md
+          retention-days: 14
+          if-no-files-found: warn

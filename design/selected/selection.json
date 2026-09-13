@@ -1,18 +1,15 @@
 {
   "date": "2026-09-11",
-  "status": "Production Tide icon applied; user-requested luminous colour adjustment",
+  "status": "Approved production Tide icon; user-requested luminous colour adjustment",
   "file": "lunavect-tide-luminous-2026-09-11.svg",
   "sha256": "fe4caa6d7b88aadf2f8c0f6c261408c97852721422b4b36d596f1f37d3a0d9a4",
   "rendered": "lunavect-appicon-1024.png",
   "build": "scripts/build-icon.sh",
   "user_decision": "Use the selected Before / Tide — White and Light throughout the application. Make both model colours slightly clearer and luminous; preserve white surfaces, shape, tilt and depth.",
-  "application_resource": "Sources/Weekleft/Resources/AppIcon.icns",
+  "application_resource": "Sources/Weekleft/Resources/LunavectTide.icns",
   "interface_png": "Sources/Weekleft/Resources/LunavectMark.png",
   "interface_layers": [
     "Sources/Weekleft/Resources/LunavectMarkLeft.png",
     "Sources/Weekleft/Resources/LunavectMarkRight.png"
-  ],
-  "installed_in_application": true,
-  "installed_on": "2026-09-11",
-  "installed_build": "96"
+  ]
 }

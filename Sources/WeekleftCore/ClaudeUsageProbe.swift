@@ -8,11 +8,12 @@ public enum ClaudeUsageProbe {
     public static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Weekleft/QuotaProbe", isDirectory: true)
 
-    public static func fetch(cliPath: String, timeout: TimeInterval = 25) async throws -> UsageSnapshot {
-        try await Task.detached(priority: .utility) { try read(cliPath: cliPath, timeout: timeout) }.value
+    public static func fetch(cliPath: String, timeout: TimeInterval = 25, directory: URL = ClaudeUsageProbe.directory) async throws -> UsageSnapshot {
+        try await SessionProcess.detached { try read(cliPath: cliPath, timeout: timeout, directory: directory) }
     }
 
-    private static func read(cliPath: String, timeout: TimeInterval) throws -> UsageSnapshot {
+    private static func read(cliPath: String, timeout: TimeInterval, directory: URL) throws -> UsageSnapshot {
+        try Task.checkCancellation()
         guard FileManager.default.isExecutableFile(atPath: cliPath) else { throw UsageError.claudeCLIUnavailable }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         var master: Int32 = -1, slave: Int32 = -1
@@ -27,7 +28,7 @@ public enum ClaudeUsageProbe {
         process.arguments = ["--safe-mode", "--ax-screen-reader", "--tools", "", "--strict-mcp-config",
                              "--mcp-config", "{\"mcpServers\":{}}", "--no-chrome", "/usage"]
         process.currentDirectoryURL = directory
-        var environment = ProcessInfo.processInfo.environment
+        var environment = SessionSources.environment(forExecutable: cliPath)
         environment["TERM"] = "xterm-256color"
         environment["LANG"] = "en_US.UTF-8"
         environment["LC_ALL"] = "en_US.UTF-8"
@@ -36,35 +37,40 @@ public enum ClaudeUsageProbe {
         environment["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] = "1"
         process.environment = environment
         process.standardInput = terminal; process.standardOutput = terminal; process.standardError = terminal
-        try process.run()
-        defer {
-            if process.isRunning { process.terminate() }
-            // Reap only our short-lived child. Do not touch the user's Claude sessions.
-            let end = Date().addingTimeInterval(0.4)
-            while process.isRunning && Date() < end { Thread.sleep(forTimeInterval: 0.02) }
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            process.waitUntilExit()
-        }
-        let deadline = Date().addingTimeInterval(timeout)
-        var output = Data(), bytes = [UInt8](repeating: 0, count: 16384)
-        while Date() < deadline {
-            var descriptor = pollfd(fd: master, events: Int16(POLLIN), revents: 0)
-            let available = poll(&descriptor, 1, 100)
-            if available > 0 {
-                let count = Darwin.read(master, &bytes, bytes.count)
-                if count > 0 {
-                    output.append(contentsOf: bytes.prefix(count))
-                    guard output.count < 512_000 else { throw UsageError.claudeUsageUnavailable }
-                    let text = ClaudeUsageText.plain(String(decoding: output, as: UTF8.self))
-                    if let snapshot = try? ClaudeUsageText.parse(text) { return snapshot }
-                    if text.contains("Enter y/n:") || text.contains("Select login method") || text.contains("Please run /login") || text.contains("Not logged in") {
-                        throw UsageError.claudeSignInRequired
-                    }
-                } else if !process.isRunning { break }
+        return try SessionProcess.withRunningProcess(process) {
+            let deadline = ProcessInfo.processInfo.systemUptime + timeout
+            var output = Data(), bytes = [UInt8](repeating: 0, count: 16384)
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                try Task.checkCancellation()
+                var descriptor = pollfd(fd: master, events: Int16(POLLIN), revents: 0)
+                let available = poll(&descriptor, 1, 50)
+                if available > 0 {
+                    let count = Darwin.read(master, &bytes, bytes.count)
+                    if count > 0 {
+                        output.append(contentsOf: bytes.prefix(count))
+                        guard output.count < 512_000 else { throw UsageError.claudeUsageUnavailable }
+                        let text = ClaudeUsageText.plain(String(decoding: output, as: UTF8.self))
+                        if let snapshot = try? ClaudeUsageText.parse(text) { return snapshot }
+                        if text.contains("Enter y/n:") || text.contains("Select login method") || text.contains("Please run /login") || text.contains("Not logged in") {
+                            throw UsageError.claudeSignInRequired
+                        }
+                    } else if !process.isRunning { break }
+                }
+                if !process.isRunning { break }
             }
-            if !process.isRunning { break }
+            try Task.checkCancellation()
+            let finalText = ClaudeUsageText.plain(String(decoding: output, as: UTF8.self))
+            let completeScreen = finalText.contains("Esc to cancel") || finalText.contains("Escape to cancel")
+            let cleanOutput = !process.isRunning && process.terminationReason == .exit && process.terminationStatus == 0
+                && !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if completeScreen || cleanOutput {
+                throw ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse)
+            }
+            if ProcessInfo.processInfo.systemUptime >= deadline {
+                throw ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .timedOut)
+            }
+            throw UsageError.claudeUsageUnavailable
         }
-        throw UsageError.claudeUsageUnavailable
     }
 }
 

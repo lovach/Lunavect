@@ -5,8 +5,8 @@
     <key>BundleProgram</key><string>Contents/Library/LaunchServices/LunavectAwakeHelper</string>
     <key>MachServices</key><dict><key>com.weekleft.awake-helper</key><true/></dict>
     <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
-    <key>ThrottleInterval</key><integer>5</integer>
+    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+    <key>ThrottleInterval</key><integer>30</integer>
     <key>ExitTimeOut</key><integer>20</integer>
     <key>ProcessType</key><string>Background</string>
 </dict></plist>

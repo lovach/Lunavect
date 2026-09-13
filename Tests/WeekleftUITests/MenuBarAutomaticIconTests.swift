@@ -25,7 +25,7 @@ final class MenuBarAutomaticIconTests: XCTestCase {
             XCTAssertEqual(restored.icon, .lunavect)
         }
     }
-    @MainActor func testMajorityTieReversalAndReturnToManualWhenIdle() {
+    @MainActor func testMajorityTieReversalAndKeepLastProviderWhenIdle() {
         withAppearance { appearance, _ in
             appearance.icon = .lunavect
             appearance.automaticIcon = true
@@ -33,8 +33,21 @@ final class MenuBarAutomaticIconTests: XCTestCase {
             XCTAssertEqual(appearance.resolvedIcon(for: rows(.claude, 1) + rows(.codex, 1), now: now), .claude)
             XCTAssertEqual(appearance.resolvedIcon(for: rows(.claude, 1) + rows(.codex, 2), now: now), .codex)
             XCTAssertEqual(appearance.resolvedIcon(for: rows(.claude, 2) + rows(.codex, 2), now: now), .codex)
-            XCTAssertEqual(appearance.resolvedIcon(for: rows(.claude, 3, phase: .ready), now: now), .lunavect)
+            XCTAssertEqual(appearance.resolvedIcon(for: rows(.claude, 3, phase: .ready), now: now), .codex)
             XCTAssertEqual(appearance.icon, .lunavect, "Automatic selection must preserve the manual choice")
+        }
+    }
+    @MainActor func testCompletedCodexAndRestartKeepCodexWithoutChangingManualChoice() {
+        withAppearance { appearance, defaults in
+            appearance.icon = .claude
+            appearance.automaticIcon = true
+            XCTAssertEqual(appearance.resolvedIcon(for: rows(.codex, 1), now: now), .codex)
+            XCTAssertEqual(appearance.resolvedIcon(for: rows(.codex, 1, phase: .ready), now: now), .codex)
+            XCTAssertEqual(appearance.resolvedIcon(for: [], now: now), .codex)
+            let restored = MenuBarAppearance(defaults: defaults)
+            XCTAssertEqual(restored.resolvedIcon(for: [], now: now), .codex)
+            restored.automaticIcon = false
+            XCTAssertEqual(restored.resolvedIcon(for: [], now: now), .claude)
         }
     }
     @MainActor func testWaitingCountsButStaleAndUnconfirmedDoNot() {

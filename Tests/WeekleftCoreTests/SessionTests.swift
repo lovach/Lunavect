@@ -46,14 +46,15 @@ final class SessionTests: XCTestCase {
         let lateStart = try SessionRecord.event(start, provider: .claude, previous: running, now: now.addingTimeInterval(1))
         XCTAssertEqual(lateStart.session.phase, .running)
     }
-    func testOldBackgroundCatalogIsNotLiveAfterRepeatedPolling() throws {
+    func testBackgroundBlockedCatalogRetainsTaskStateWithoutInventingActivityTimestamp() throws {
         let data = Data(#"[{"id":"old","sessionId":"old-session","kind":"background","state":"blocked","startedAt":1783332137673}]"#.utf8)
         let first = try SessionParser.claude(data, now: now).first!
         let again = try SessionParser.claude(data, now: now.addingTimeInterval(15)).first!
         XCTAssertEqual(first.updatedAt, Date(timeIntervalSince1970: 1783332137.673))
         XCTAssertEqual(again.updatedAt, first.updatedAt)
-        XCTAssertEqual(again.effectivePhase(now: now.addingTimeInterval(15)), .unknown)
+        XCTAssertEqual(again.effectivePhase(now: now.addingTimeInterval(15)), .input)
         XCTAssertTrue(SessionList.filter([again], query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(15)).isEmpty)
+        XCTAssertEqual(SessionList.filter([again], query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(15), includeHistory: true).count, 1)
     }
     func testCurrentListKeepsOpenIdleSessionButExcludesHistoryAndEndedSessions() throws {
         let data = Data(#"{"data":[{"id":"open","updatedAt":100,"status":{"type":"idle"}},{"id":"history","updatedAt":1800000000,"status":{"type":"notLoaded"}}]}"#.utf8)
@@ -62,13 +63,13 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now).map(\.sessionID), ["open"])
         XCTAssertTrue(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(61)).isEmpty)
     }
-    func testLiveEventRevivesBackgroundHistoryAndThenExpires() throws {
-        let catalog = try SessionParser.claude(Data(#"[{"id":"old","sessionId":"old-session","kind":"background","state":"blocked","startedAt":1783332137673}]"#.utf8), now: now)
+    func testFreshLiveBackgroundCatalogSupersedesEarlierHookAndThenExpires() throws {
+        let catalog = try SessionParser.claude(Data(#"[{"id":"old","sessionId":"old-session","kind":"background","state":"blocked","startedAt":1783332137673,"pid":123,"status":"waiting"}]"#.utf8), now: now)
         let event = try SessionRecord.event(Data(#"{"session_id":"old-session","hook_event_name":"Stop"}"#.utf8), provider: .claude, previous: nil, now: now.addingTimeInterval(-2)).session
         let rows = SessionList.merge(catalog: catalog, events: [event], now: now)
-        XCTAssertEqual(rows.first?.effectivePhase(now: now), .ready)
+        XCTAssertEqual(rows.first?.effectivePhase(now: now), .input)
         XCTAssertEqual(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now).count, 1)
-        XCTAssertTrue(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(601)).isEmpty)
+        XCTAssertTrue(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(61)).isEmpty)
     }
     func testOpeningOrIdleSessionDoesNotClaimCompletedAnswer() throws {
         let start = try SessionRecord.event(Data(#"{"session_id":"abc","hook_event_name":"SessionStart"}"#.utf8), provider: .codex, previous: nil, now: now)
@@ -102,7 +103,11 @@ final class SessionTests: XCTestCase {
     func testHooksDoNotPersistPayloadAndDoNotClearOtherPendingApproval() throws {
         var record: SessionRecord?
         func event(_ name: String, _ tool: String) throws {
-            let payload: [String: Any] = ["session_id": "session-1", "cwd": "/work/project", "hook_event_name": name, "tool_name": tool, "prompt": "SECRET", "tool_input": ["command": "SECRET"], "transcript_path": "PRIVATE"]
+            let payload: [String: Any] = [
+                "session_id": "session-1", "cwd": "/work/project", "hook_event_name": name, "tool_name": tool,
+                "tool_use_id": tool + "-id", "prompt": "SECRET", "tool_input": ["command": "SECRET"],
+                "transcript_path": "PRIVATE",
+            ]
             record = try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: .codex, previous: record, now: now)
         }
         try event("PermissionRequest", "Bash")
@@ -130,7 +135,9 @@ final class SessionTests: XCTestCase {
     }
     func testSearchAndActiveFilterUseEffectiveState() {
         let fresh = AgentSession(provider: .claude, sessionID: "a", title: "Меню", cwd: "/work/Lunavect", phase: .input, updatedAt: now, observedAt: now)
-        let old = AgentSession(provider: .codex, sessionID: "b", title: "Old", cwd: "/work/Lunavect", phase: .running, updatedAt: now.addingTimeInterval(-3600), observedAt: now.addingTimeInterval(-3600), evidence: .hook)
+        let old = AgentSession(
+            provider: .codex, sessionID: "b", title: "Old", cwd: "/work/Lunavect", phase: .running,
+            updatedAt: now.addingTimeInterval(-3600), observedAt: now.addingTimeInterval(-3600), evidence: .hook)
         XCTAssertEqual(SessionList.filter([fresh, old], query: "lunavect", provider: nil, activeOnly: true, now: now).map(\.sessionID), ["a"])
         XCTAssertEqual(SessionList.filter([fresh, old], query: "", provider: .codex, activeOnly: false, now: now, includeHistory: true).count, 1)
     }
@@ -143,7 +150,9 @@ final class SessionTests: XCTestCase {
     }
     func testFreshCatalogStatusWinsOverOlderRunningEvent() {
         let catalog = AgentSession(provider: .claude, sessionID: "same", title: "Task", cwd: "/app", phase: .input, updatedAt: now, observedAt: now)
-        let event = AgentSession(provider: .claude, sessionID: "same", title: "app", cwd: "/app", phase: .running, updatedAt: now.addingTimeInterval(-30), observedAt: now.addingTimeInterval(-30), evidence: .hook)
+        let event = AgentSession(
+            provider: .claude, sessionID: "same", title: "app", cwd: "/app", phase: .running,
+            updatedAt: now.addingTimeInterval(-30), observedAt: now.addingTimeInterval(-30), evidence: .hook)
         XCTAssertEqual(SessionList.merge(catalog: [catalog], events: [event], now: now).first?.phase, .input)
     }
     func testPermissionNotificationDoesNotCreateUnresolvableDuplicate() throws {
@@ -170,7 +179,7 @@ final class SessionTests: XCTestCase {
     func testResumeCommandQuotesProjectAndLinkCannotCreateNewThread() {
         let row = AgentSession(provider: .codex, sessionID: "new", title: "Ignored", cwd: "/work/a'$(touch bad)", phase: .unknown, updatedAt: now, observedAt: now)
         XCTAssertNil(row.codexURL)
-        XCTAssertEqual(row.resumeCommand, "cd '/work/a'\"'\"'$(touch bad)' && codex resume 'new'")
+        XCTAssertEqual(row.resumeCommand,  #"cd -- /work/a\'\$\(touch\ bad\) && codex resume new"#)
     }
     func testHookInstallIsIdempotentAndRemovalPreservesExistingSettings() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -5,25 +5,55 @@ public enum ProviderID: String, Codable, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
     public var title: String { self == .claude ? "Claude" : "Codex" }
 }
+// Bound persisted dates to Foundation's calendar sentinels. Finite
+// Doubles alone can still overflow countdown/diagnostic integer conversions.
+private enum UsageDate {
+    static func isValid(_ date: Date) -> Bool {
+        date.timeIntervalSinceReferenceDate.isFinite && date >= .distantPast && date <= .distantFuture
+    }
+    static func isStale(_ date: Date, now: Date) -> Bool {
+        let age = now.timeIntervalSince(date)
+        return !isValid(date) || !age.isFinite || age < 0 || age > 900
+    }
+}
+
 public struct QuotaWindow: Codable, Equatable, Sendable {
     public let usedPercent: Double
     public let durationMinutes: Int
     public let resetsAt: Date?
     public var remaining: Double { max(0, min(100, 100 - usedPercent)) }
     public init(usedPercent: Double, durationMinutes: Int, resetsAt: Date?) throws {
-        guard usedPercent.isFinite, (0...100).contains(usedPercent), durationMinutes > 0 else { throw UsageError.invalidResponse }
+        guard usedPercent.isFinite, (0...100).contains(usedPercent), durationMinutes > 0,
+              resetsAt.map(UsageDate.isValid) ?? true else { throw UsageError.invalidResponse }
         self.usedPercent = usedPercent; self.durationMinutes = durationMinutes; self.resetsAt = resetsAt
+    }
+    private enum CodingKeys: String, CodingKey { case usedPercent, durationMinutes, resetsAt }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let used = try values.decode(Double.self, forKey: .usedPercent)
+        let duration = try values.decode(Int.self, forKey: .durationMinutes)
+        let reset = try values.decodeIfPresent(Date.self, forKey: .resetsAt)
+        do { try self.init(usedPercent: used, durationMinutes: duration, resetsAt: reset) }
+        catch {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                debugDescription: "Invalid quota window", underlyingError: error))
+        }
+    }
+    fileprivate func isPlausible(fetchedAt: Date) -> Bool {
+        // Match the usage parser's allowance for CLI timestamps rounded to minutes.
+        // Expired observations remain valid historical data; only a reset beyond
+        // the observed window is impossible. Convert before multiplying to avoid overflow.
+        resetsAt.map { $0.timeIntervalSince(fetchedAt) <= Double(durationMinutes) * 60 + 120 } ?? true
     }
     public func isExpired(at now: Date) -> Bool { resetsAt.map { $0 <= now } ?? false }
     public func countdown(now: Date = Date(), language: String = L10n.selection) -> String {
         func text(_ key: String, _ args: String...) -> String { L10n.text(key, language: language, arguments: args) }
         guard let resetsAt else { return "—" }
         let seconds = resetsAt.timeIntervalSince(now)
+        guard seconds.isFinite, UsageDate.isValid(now) else { return "—" }
         guard seconds > 0 else { return text("обновление") }
         let minutes = max(1, Int(ceil(seconds / 60)))
-        if minutes >= 1440 { return text("{0} д {1} ч", String(minutes / 1440), String((minutes % 1440) / 60)) }
-        if minutes >= 60 { return text("{0} ч {1} м", String(minutes / 60), String(minutes % 60)) }
-        return text("{0} м", String(minutes))
+        return DurationText.minutes(minutes, includesDays: true, language: language)
     }
 }
 public struct ModelQuota: Codable, Equatable, Identifiable, Sendable {
@@ -34,7 +64,22 @@ public struct ModelQuota: Codable, Equatable, Identifiable, Sendable {
     public init(name: String, window: QuotaWindow, fetchedAt: Date) {
         self.name = name; self.window = window; self.fetchedAt = fetchedAt
     }
-    public func isStale(now: Date) -> Bool { now.timeIntervalSince(fetchedAt) > 900 || window.isExpired(at: now) }
+    private enum CodingKeys: String, CodingKey { case name, window, fetchedAt }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decode(String.self, forKey: .name)
+        window = try values.decode(QuotaWindow.self, forKey: .window)
+        fetchedAt = try values.decode(Date.self, forKey: .fetchedAt)
+        guard UsageDate.isValid(fetchedAt) else {
+            throw DecodingError.dataCorruptedError(forKey: .fetchedAt, in: values, debugDescription: "Invalid observation date")
+        }
+        guard window.isPlausible(fetchedAt: fetchedAt) else {
+            throw DecodingError.dataCorruptedError(forKey: .window, in: values, debugDescription: "Reset exceeds the observed quota window")
+        }
+    }
+    public func isStale(now: Date) -> Bool {
+        UsageDate.isStale(fetchedAt, now: now) || !window.isPlausible(fetchedAt: fetchedAt) || window.isExpired(at: now)
+    }
 }
 
 public struct UsageSnapshot: Codable, Equatable, Sendable {
@@ -49,10 +94,48 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     public init(provider: ProviderID, weekly: QuotaWindow? = nil, fiveHour: QuotaWindow? = nil, fetchedAt: Date? = nil, source: String = "", issue: String? = nil, modelQuotas: [ModelQuota]? = nil) {
         self.provider = provider; self.weekly = weekly; self.fiveHour = fiveHour; self.fetchedAt = fetchedAt; self.source = source; self.issue = issue; self.modelQuotas = modelQuotas
     }
-    public func isStale(now: Date = Date()) -> Bool {
-        guard let fetchedAt else { return true }
-        return issue != nil || now.timeIntervalSince(fetchedAt) > 900 || (weekly?.isExpired(at: now) ?? false) || (fiveHour?.isExpired(at: now) ?? false)
+    private enum CodingKeys: String, CodingKey { case provider, weekly, fiveHour, fetchedAt, source, issue, modelQuotas }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try values.decode(ProviderID.self, forKey: .provider)
+        weekly = try values.decodeIfPresent(QuotaWindow.self, forKey: .weekly)
+        fiveHour = try values.decodeIfPresent(QuotaWindow.self, forKey: .fiveHour)
+        fetchedAt = try values.decodeIfPresent(Date.self, forKey: .fetchedAt)
+        source = try values.decode(String.self, forKey: .source)
+        issue = try values.decodeIfPresent(String.self, forKey: .issue)
+        modelQuotas = try values.decodeIfPresent([ModelQuota].self, forKey: .modelQuotas)
+        guard weekly.map({ $0.durationMinutes == 10080 }) ?? true else {
+            throw DecodingError.dataCorruptedError(forKey: .weekly, in: values, debugDescription: "Invalid weekly duration")
+        }
+        guard fiveHour.map({ $0.durationMinutes == 300 }) ?? true else {
+            throw DecodingError.dataCorruptedError(forKey: .fiveHour, in: values, debugDescription: "Invalid five-hour duration")
+        }
+        guard fetchedAt.map(UsageDate.isValid) ?? true else {
+            throw DecodingError.dataCorruptedError(forKey: .fetchedAt, in: values, debugDescription: "Invalid observation date")
+        }
+        if let fetchedAt {
+            for (key, window) in [(CodingKeys.weekly, weekly), (.fiveHour, fiveHour)] {
+                guard window?.isPlausible(fetchedAt: fetchedAt) ?? true else {
+                    throw DecodingError.dataCorruptedError(forKey: key, in: values, debugDescription: "Reset exceeds the observed quota window")
+                }
+            }
+        }
     }
+    public func isStale(now: Date = Date()) -> Bool {
+        observationIsStale(now: now) || [weekly, fiveHour].compactMap { $0 }.contains { isStale(window: $0, now: now) }
+    }
+    /// Freshness of one displayed quota is independent of another window's reset.
+    public func isStale(window: QuotaWindow?, now: Date = Date()) -> Bool {
+        guard let window, let fetchedAt else { return true }
+        return observationIsStale(now: now) || !window.isPlausible(fetchedAt: fetchedAt) || window.isExpired(at: now)
+    }
+    private func observationIsStale(now: Date) -> Bool {
+        guard let fetchedAt else { return true }
+        return !freshnessVerified || issue != nil || UsageDate.isStale(fetchedAt, now: now)
+    }
+    /// statusLine supplies cached session quotas, without their server observation
+    /// time. Receipt (even after an API response) cannot certify quota freshness.
+    public var freshnessVerified: Bool { source != "Claude Code statusLine" }
     public var hasQuota: Bool { weekly != nil || fiveHour != nil }
     public func connectionQuotaTitle(now: Date = Date()) -> String {
         guard hasQuota else { return "Ждём лимиты" }

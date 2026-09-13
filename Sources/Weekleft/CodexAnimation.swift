@@ -26,6 +26,14 @@ import ImageIO
         }
         return 0
     }
+    static func nextFrameDelay(at elapsed: TimeInterval) -> TimeInterval {
+        var remaining = max(0, elapsed).truncatingRemainder(dividingBy: cycleDuration)
+        for duration in durations {
+            if remaining < duration { return max(0.001, duration - remaining) }
+            remaining -= duration
+        }
+        return durations[0]
+    }
     static func image(at elapsed: TimeInterval, size: CGFloat) -> NSImage? {
         let index = frame(at: elapsed)
         guard frames.indices.contains(index) else { return nil }

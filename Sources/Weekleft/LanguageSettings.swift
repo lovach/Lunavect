@@ -6,16 +6,23 @@ import WeekleftCore
 
 @MainActor final class LanguageSettings: ObservableObject {
     static let shared = LanguageSettings()
+    private let defaults: UserDefaults
+    private let reloadWidgets: () -> Void
     @Published var code: String {
         didSet {
-            L10n.defaults.set(code, forKey: "languageCode")
-            WidgetCenter.shared.reloadAllTimelines()
+            guard code != oldValue else { return }
+            defaults.set(code, forKey: "languageCode")
+            reloadWidgets()
         }
     }
-    private init() { code = L10n.selection }
+    init(defaults: UserDefaults? = nil, reloadWidgets: @escaping () -> Void = { WidgetCenter.shared.reloadAllTimelines() }) {
+        self.defaults = defaults ?? L10n.defaults
+        self.reloadWidgets = reloadWidgets
+        code = defaults.map { $0.string(forKey: "languageCode") ?? "system" } ?? L10n.selection
+    }
 }
 struct LocalizedRoot<Content: View>: View {
-    @ObservedObject private var language = LanguageSettings.shared
+    @ObservedObject var language: LanguageSettings
     @AppStorage("interfaceAppearance") private var appearance = InterfaceAppearance.dark
     @ViewBuilder var content: () -> Content
     var body: some View {
@@ -42,7 +49,7 @@ private struct InterfaceWindowAppearance: NSViewRepresentable {
     }
 }
 struct LanguagePicker: View {
-    @ObservedObject private var language = LanguageSettings.shared
+    @ObservedObject var language: LanguageSettings
     var body: some View {
         HStack {
             InterfaceLabel(L("Язык"), .globe)

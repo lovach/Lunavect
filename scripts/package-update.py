@@ -10,6 +10,11 @@ import subprocess
 import tempfile
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
+import importlib.util
+
+spec = importlib.util.spec_from_file_location('release_preflight', Path(__file__).with_name('release-preflight.py'))
+preflight = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(preflight)
 
 
 def inspect_app(app):
@@ -39,9 +44,11 @@ def main():
     parser.add_argument('--output', type=Path, required=True, help='New directory for release assets')
     parser.add_argument('--key-file', type=Path, required=True, help='Private Sparkle key outside the repository; never printed')
     parser.add_argument('--tools', type=Path, default=Path('.build/artifacts/sparkle/Sparkle/bin'))
+    parser.add_argument('--previous-appcast', type=Path, required=True, help='Fresh published appcast used for the archive preflight')
     args = parser.parse_args()
     app, output, key = args.app.resolve(), args.output.resolve(), args.key_file.resolve()
     info, repo, version, build = inspect_app(app)
+    preflight.validate_previous(version, build, args.previous_appcast)
     if output.exists():
         raise ValueError('Output directory already exists; choose a new directory')
     if not key.is_file() or key.stat().st_mode & 0o077:
@@ -54,6 +61,7 @@ def main():
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
     subprocess.run(['/usr/sbin/spctl', '--assess', '--type', 'execute', str(app)], check=True)
     subprocess.run(['/usr/bin/xcrun', 'stapler', 'validate', str(app)], check=True)
+    subprocess.run([os.sys.executable, str(project / 'scripts/verify-awake-policy.py'), str(app), '--policy', 'developer-id'], check=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.lunavect-update-', dir=output.parent) as staging:
         staging = Path(staging)

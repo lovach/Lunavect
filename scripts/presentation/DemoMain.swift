@@ -6,16 +6,17 @@ import WeekleftCore
 
 @MainActor final class DemoState: ObservableObject {
     @Published var stage = 0
-    let sessions: SessionStore
+    let environment: AppEnvironment
+    var sessions: SessionStore { environment.sessions }
     let fixture = try! PresentationFixture()
     var snapshots: [UsageSnapshot] { fixture.snapshots }
     var history: ActivityHistory { fixture.history }
     var preferences: WidgetPreferences { fixture.preferences }
     var now: Date { fixture.now }
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LunavectMedia-" + UUID().uuidString)
-    let defaults = UserDefaults(suiteName: "LunavectMedia-" + UUID().uuidString)!
+    var defaults: UserDefaults { environment.defaults }
     init() {
-        sessions = SessionStore(directory: directory, defaults: defaults)
+        environment = try! AppEnvironment.preview(rows: [], now: fixture.now, languageCode: "en",
+                                                   activityHistory: fixture.history)
         setStage(0)
     }
     func setStage(_ value: Int) {
@@ -50,7 +51,7 @@ struct DemoScene: View {
                     .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
             }
             HStack(alignment: .top, spacing: 32) {
-                SessionsView(store: state.sessions, onSettings: {}).defaultAppStorage(state.defaults)
+                SessionsView(store: state.sessions, updates: state.environment.updates, awake: state.environment.awake, onSettings: {}).defaultAppStorage(state.defaults)
                     .frame(width: 360, height: 355).background(Color(nsColor: .windowBackgroundColor))
                     .clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.12), lineWidth: 0.5))
                 VStack(spacing: 18) {
@@ -78,7 +79,7 @@ struct DemoScene: View {
 @MainActor final class DemoDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     var status: NSStatusItem!
-    var animator: MenuBarAnimator!
+    var statusContent: MenuBarStatusContent!
     let popover = NSPopover()
     let state = DemoState()
     var timer: Timer?
@@ -91,10 +92,12 @@ struct DemoScene: View {
         window.title = "Lunavect — native interface demo"; window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = NSHostingView(rootView: DemoScene(state: state)); window.center(); window.makeKeyAndOrderFront(nil)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        animator = MenuBarAnimator(statusItem: status)
+        statusContent = MenuBarStatusContent(frame: .zero)
+        statusContent.autoresizingMask = [.width, .height]
+        status.button?.addSubview(statusContent)
         status.button?.target = self; status.button?.action = #selector(togglePopover)
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: SessionsView(store: state.sessions, onSettings: {}).defaultAppStorage(state.defaults))
+        popover.contentViewController = NSHostingController(rootView: SessionsView(store: state.sessions, updates: state.environment.updates, awake: state.environment.awake, onSettings: {}).defaultAppStorage(state.defaults))
         popover.contentSize = NSSize(width: 360, height: 355)
         updateStatus(); NSApp.activate(ignoringOtherApps: true)
         if let output = ProcessInfo.processInfo.environment["LUNAVECT_DEMO_OUTPUT"] {
@@ -118,14 +121,22 @@ struct DemoScene: View {
             }
         }
     }
-    func updateStatus() { animator.update(icon: .lunavect, onlyWhileWorking: false, thinkingPhrases: false, running: state.stage == 0 ? 2 : 1, waiting: state.stage == 1 ? 1 : 0) }
+    func updateStatus() {
+        statusContent.style = .summary
+        statusContent.running = state.stage == 0 ? 2 : 1
+        statusContent.waiting = state.stage == 1 ? 1 : 0
+        statusContent.artwork.image = AppArtwork.brandMark; statusContent.iconWidth = 24
+        status.length = statusContent.preferredWidth
+        statusContent.frame = status.button?.bounds ?? .zero
+        statusContent.needsLayout = true; statusContent.needsDisplay = true
+    }
     @objc func togglePopover() { if popover.isShown { popover.performClose(nil) } else if let button = status.button { popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) } }
     func capture(to url: URL) {
         guard let view = window.contentView?.superview, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.layoutSubtreeIfNeeded(); view.cacheDisplay(in: view.bounds, to: bitmap)
         try? bitmap.representation(using: .png, properties: [:])?.write(to: url)
     }
-    func applicationWillTerminate(_ notification: Notification) { try? FileManager.default.removeItem(at: state.directory) }
+    func applicationWillTerminate(_ notification: Notification) { state.environment.stop() }
 }
 
 @main enum DemoMain {

@@ -4,21 +4,24 @@ import WidgetKit
 import WeekleftCore
 #endif
 
+// These literals are deferred LocalizedStringResource values. Keep their native
+// Localizable.strings table in both targets that compile this file; the system
+// editor resolves its own locale rather than the app's in-process L() language.
 extension ActivityPeriod: AppEnum {
-    public static var typeDisplayRepresentation: TypeDisplayRepresentation = "Period"
-    public static var caseDisplayRepresentations: [ActivityPeriod: DisplayRepresentation] = [
+    public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Period"
+    public static let caseDisplayRepresentations: [ActivityPeriod: DisplayRepresentation] = [
         .day: "Day", .week: "Week", .month: "Month"
     ]
 }
 extension ActivitySource: AppEnum {
-    public static var typeDisplayRepresentation: TypeDisplayRepresentation = "Source"
-    public static var caseDisplayRepresentations: [ActivitySource: DisplayRepresentation] = [
+    public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Source"
+    public static let caseDisplayRepresentations: [ActivitySource: DisplayRepresentation] = [
         .all: "Claude + Codex", .claude: "Claude", .codex: "Codex", .comparison: "Claude + Codex"
     ]
 }
 struct SelectActivityPointIntent: AppIntent {
-    static var title: LocalizedStringResource = "Select activity point"
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "Select activity point"
+    static let openAppWhenRun = false
     @Parameter(title: "Date") var date: Date?
     @Parameter(title: "Period") var period: ActivityPeriod
     @Parameter(title: "Source") var source: ActivitySource
@@ -34,4 +37,3 @@ struct SelectActivityPointIntent: AppIntent {
         return .result()
     }
 }
-

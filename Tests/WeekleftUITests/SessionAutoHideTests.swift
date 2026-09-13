@@ -17,7 +17,7 @@ final class SessionAutoHideTests: XCTestCase {
             store.acceptSessions([opened.session], now: start)
             store.acceptSessions([opened.session], now: start.addingTimeInterval(300))
             XCTAssertEqual(store.hiddenCount, 0)
-            XCTAssertEqual(store.sessions.count, 1, "An open idle session remains available")
+            XCTAssertTrue(store.sessions.isEmpty, "A CLI startup alone is not a user task")
             let ended = try claudeEvent("SessionEnd", previous: opened, at: start.addingTimeInterval(301))
             store.acceptSessions([ended.session], now: start.addingTimeInterval(601))
             XCTAssertTrue(store.sessions.isEmpty)
@@ -27,6 +27,42 @@ final class SessionAutoHideTests: XCTestCase {
             let another = try claudeEvent("SessionEnd", id: "another", at: start.addingTimeInterval(700))
             store.acceptSessions([ended.session, another.session], now: start.addingTimeInterval(1000))
             XCTAssertEqual(store.hiddenCount, 0)
+        }
+    }
+    @MainActor func testStartupOnlySessionStaysAbsentAcrossCatalogPollsAndAppearsOnRealWork() throws {
+        for legacy in [false, true] {
+            for name in ["UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop", "StopFailure"] {
+                try withStore { store, _, _ in
+                    var opened = try claudeEvent("SessionStart")
+                    if legacy { opened.session.hasTaskActivity = nil }
+                    var catalog = AgentSession(provider: .claude, sessionID: "empty", title: "Service project",
+                        cwd: "/example/project", phase: .idle, updatedAt: start, observedAt: start.addingTimeInterval(1))
+                    let merged = SessionList.merge(catalog: [catalog], events: [opened.session], now: start.addingTimeInterval(1))
+                    XCTAssertFalse(try XCTUnwrap(merged.first).isCurrent(now: start.addingTimeInterval(1)))
+                    store.acceptSessions(merged, now: start.addingTimeInterval(1))
+                    XCTAssertTrue(store.sessions.isEmpty)
+                    XCTAssertEqual(store.hiddenCount, 0)
+                    catalog.phase = .running
+                    let active = SessionList.merge(catalog: [catalog], events: [opened.session], now: start.addingTimeInterval(1))
+                    store.acceptSessions(active, now: start.addingTimeInterval(1))
+                    XCTAssertEqual(store.sessions.first?.phase, .running, "Live catalog work overrides the empty startup")
+                    catalog.phase = .idle
+                    let work = try claudeEvent(name, previous: opened, at: start.addingTimeInterval(2))
+                    catalog.observedAt = start.addingTimeInterval(2)
+                    let rows = SessionList.merge(catalog: [catalog], events: [work.session], now: start.addingTimeInterval(2))
+                    store.acceptSessions(rows, now: start.addingTimeInterval(2))
+                    XCTAssertEqual(store.sessions.map(\.sessionID), ["empty"], name)
+                    XCTAssertEqual(store.sessions.first?.phase, work.session.phase, name)
+                }
+            }
+        }
+    }
+    @MainActor func testCatalogOnlyIdleSessionIsNotAssumedToBeEmpty() throws {
+        try withStore { store, _, _ in
+            let session = AgentSession(provider: .claude, sessionID: "existing", title: "Existing task",
+                cwd: "/example/project", phase: .idle, updatedAt: start, observedAt: start)
+            store.acceptSessions([session], now: start)
+            XCTAssertEqual(store.sessions.map(\.sessionID), ["existing"])
         }
     }
     @MainActor func testOldHiddenEmptyClaudeLifecycleIsRepairedOnRestartAndRealTaskReturns() throws {

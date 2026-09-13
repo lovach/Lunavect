@@ -1,4 +1,15 @@
-# SVG icon sources
+# Lunavect artwork
+
+The current app icon is the approved Tide mark. `design/selected/selection.json`
+identifies its editable SVG master and exported resources. `LunavectTide.icns`
+is shared by the app and WidgetKit extension; `LunavectMark.png` and its two
+layers provide the same mark inside the interface and menu-bar animation.
+
+The resource has a distinct name from the former `AppIcon.icns`, so system icon
+requests use the current Tide resource. Bundle IDs and saved widget kinds remain
+unchanged. Build and installation checks reject mismatched app/widget resources.
+
+## Provider icon sources
 
 Claude and Codex SVGs are from the community-maintained LobeHub Icons collection, package @lobehub/icons-static-svg version 1.95.0, MIT licensed.
 

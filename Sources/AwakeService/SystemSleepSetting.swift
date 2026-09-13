@@ -78,17 +78,21 @@ public final class SystemAwakeJournal: AwakeJournal {
 }
 
 public enum AwakeSafety {
-    public static func failure() -> AwakeFailure? {
-        if ProcessInfo.processInfo.thermalState == .serious || ProcessInfo.processInfo.thermalState == .critical { return .thermal }
+    public static func failure(policy: AwakeSafetyPolicy) -> AwakeFailure? {
+        let thermal = ProcessInfo.processInfo.thermalState.rawValue
+        if let failure = policy.failure(onBattery: false, batteryPercent: nil, thermalSeverity: thermal) { return failure }
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
         for source in sources {
             guard let values = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
                   values[kIOPSTransportTypeKey] as? String == kIOPSInternalType,
-                  values[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue,
-                  let capacity = values[kIOPSCurrentCapacityKey] as? Int,
-                  let maximum = values[kIOPSMaxCapacityKey] as? Int, maximum > 0 else { continue }
-            if Double(capacity) / Double(maximum) <= 0.10 { return .battery }
+                  values[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue else { continue }
+            var percent: Double?
+            if let capacity = values[kIOPSCurrentCapacityKey] as? Int,
+               let maximum = values[kIOPSMaxCapacityKey] as? Int, maximum > 0 {
+                percent = Double(capacity) / Double(maximum) * 100
+            }
+            return policy.failure(onBattery: true, batteryPercent: percent, thermalSeverity: thermal)
         }
         return nil
     }

@@ -5,11 +5,36 @@ import SwiftUI
 import WeekleftCore
 #endif
 
+enum SessionKeyboardFocus {
+    static let search = "search-field"
+
+    static func recover(_ current: String?, visibleIDs: [String]) -> String? {
+        guard let current, current != search, !visibleIDs.contains(current) else { return current }
+        return search
+    }
+}
+
+enum HiddenSessionKeyboardFocus: Equatable, Hashable {
+    case back, search, restore(String), remove(String), restoreMany
+
+    static func recover(_ current: Self?, visibleIDs: [String], showsSearch: Bool, showsRestoreMany: Bool) -> Self? {
+        let fallback: Self = showsSearch ? .search : .back
+        switch current {
+        case .restore(let id), .remove(let id): return visibleIDs.contains(id) ? current : fallback
+        case .restoreMany: return !showsRestoreMany || visibleIDs.isEmpty ? fallback : current
+        case .search: return showsSearch ? current : .back
+        default: return current
+        }
+    }
+}
+
 @MainActor final class SessionMenuAnchor: ObservableObject {
     weak var view: NSView?
     struct Item {
         var title: String
         var enabled = true
+        var keyEquivalent = ""
+        var keyModifiers: NSEvent.ModifierFlags = []
         var action: (() -> Void)?
         static var separator: Item { Item(title: "", action: nil) }
     }
@@ -20,17 +45,22 @@ import WeekleftCore
     }
     func show(_ items: [Item]) {
         guard let view, view.window != nil else { return }
+        let menu = makeMenu(items)
+        menu.popUp(positioning: nil, at: NSPoint(x: view.bounds.maxX, y: view.bounds.minY), in: view)
+    }
+    func makeMenu(_ items: [Item]) -> NSMenu {
         let menu = NSMenu(); menu.autoenablesItems = false
-        var actions: [Action] = []
         for item in items {
             guard let body = item.action else { menu.addItem(.separator()); continue }
-            let action = Action(body); actions.append(action)
-            let entry = NSMenuItem(title: item.title, action: #selector(Action.invoke), keyEquivalent: "")
+            let action = Action(body)
+            let entry = NSMenuItem(title: item.title, action: #selector(Action.invoke), keyEquivalent: item.keyEquivalent)
+            entry.keyEquivalentModifierMask = item.keyModifiers
+            // NSMenuItem does not retain target. Keep the closure alive for the
+            // menu's lifetime, including activation by a keyboard equivalent.
+            entry.representedObject = action
             entry.target = action; entry.isEnabled = item.enabled; menu.addItem(entry)
         }
-        _ = withExtendedLifetime(actions) {
-            menu.popUp(positioning: nil, at: NSPoint(x: view.bounds.maxX, y: view.bounds.minY), in: view)
-        }
+        return menu
     }
 }
 struct SessionActionsMenu: View {
@@ -56,6 +86,21 @@ struct SessionMenuAnchorView: NSViewRepresentable {
 }
 
 @MainActor final class SessionReorderState: ObservableObject {
+    /// Both the row menu and keyboard use the current filtered order. Pinning
+    /// remains a separate action; moving a row cannot cross that boundary.
+    static func adjacentTarget(for id: String, movingDown: Bool, rows: [AgentSession], pinned: Set<String>) -> String? {
+        let group = rows.filter { pinned.contains($0.id) == pinned.contains(id) }
+        guard let index = group.firstIndex(where: { $0.id == id }) else { return nil }
+        let next = index + (movingDown ? 1 : -1)
+        return group.indices.contains(next) ? group[next].id : nil
+    }
+
+    @discardableResult static func move(_ id: String, movingDown: Bool, rows: [AgentSession], store: SessionStore) throws -> Bool {
+        guard let target = adjacentTarget(for: id, movingDown: movingDown, rows: rows, pinned: store.arrangement.pinned) else { return false }
+        try store.move(id, before: target, after: movingDown, visible: rows.map(\.id))
+        return true
+    }
+
     @Published var rows: [AgentSession]?
     @Published var target: String?
     @Published var insertAfter = false

@@ -1,0 +1,6 @@
+{
+  "status": "passed",
+  "provenance": "passed",
+  "measurement_report": "performance-report.json",
+  "build_manifest": "build-manifest.json"
+}

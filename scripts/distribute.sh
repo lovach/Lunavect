@@ -5,8 +5,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ACTION="${1:-}"
 VERSION="${2:-}"
 BUILD="${3:-}"
+PREVIOUS_APPCAST="${4:-}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$BUILD" =~ ^[0-9]+$ ]]; then
-  echo 'Usage: scripts/distribute.sh archive|submit|export VERSION BUILD' >&2
+  echo 'Usage: scripts/distribute.sh archive|submit|export VERSION BUILD [PREVIOUS_APPCAST (required for archive)]' >&2
   exit 2
 fi
 OUTPUT="${LUNAVECT_RELEASE_ROOT:-$HOME/Library/Developer/Xcode/Archives/Lunavect}"
@@ -15,14 +16,23 @@ mkdir -p "$OUTPUT"
 cd "$ROOT"
 case "$ACTION" in
   archive)
+    if [ -z "$PREVIOUS_APPCAST" ]; then echo 'Archive requires a fresh published PREVIOUS_APPCAST file.' >&2; exit 2; fi
+    python3 "$ROOT/scripts/release-preflight.py" --source-root "$ROOT" --version "$VERSION" --build "$BUILD" --previous-appcast "$PREVIOUS_APPCAST"
     if [ -e "$ARCHIVE" ]; then echo 'Archive already exists; use a new build number.' >&2; exit 1; fi
+    MANIFEST="$OUTPUT/Lunavect-$VERSION-$BUILD-manifest.json"
+    python3 "$ROOT/scripts/build-manifest.py" begin --source-root "$ROOT" --kind distribution --require-clean --output "$MANIFEST"
     xcodebuild -project Weekleft.xcodeproj -scheme Weekleft -configuration Release \
       -destination 'generic/platform=macOS' -archivePath "$ARCHIVE" \
       -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/Lunavect-Distribution.noindex" \
       -xcconfig Config/Distribution.xcconfig -allowProvisioningUpdates \
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS=LUNAVECT_DISTRIBUTION \
       CURRENT_PROJECT_VERSION="$BUILD" MARKETING_VERSION="$VERSION" REGISTER_APP_WITH_LAUNCH_SERVICES=NO archive
+    python3 "$ROOT/scripts/verify-product-resources.py" "$ARCHIVE/Products/Applications/Lunavect.app" --source-root "$ROOT"
+    python3 "$ROOT/scripts/verify-awake-policy.py" "$ARCHIVE/Products/Applications/Lunavect.app" --policy developer-id
+    python3 "$ROOT/scripts/build-manifest.py" finalize --source-root "$ROOT" --manifest "$MANIFEST" --app "$ARCHIVE/Products/Applications/Lunavect.app"
     ;;
   submit)
+    python3 "$ROOT/scripts/verify-product-resources.py" "$ARCHIVE/Products/Applications/Lunavect.app"
     OPTIONS=$(mktemp)
     trap 'rm -f "$OPTIONS"' EXIT
     python3 - "$OPTIONS" "$ROOT/Config/Distribution.xcconfig" <<'PY'
@@ -37,6 +47,7 @@ PY
     ;;
   export)
     xcodebuild -exportNotarizedApp -archivePath "$ARCHIVE" -exportPath "$OUTPUT/Notarized-$BUILD"
+    python3 "$ROOT/scripts/verify-product-resources.py" "$OUTPUT/Notarized-$BUILD/Lunavect.app"
     ;;
   *) echo 'Choose archive, submit, or export.' >&2; exit 2 ;;
 esac

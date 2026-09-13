@@ -8,28 +8,40 @@ import WeekleftCore
     @ObservedObject var store: AppStore
     @ObservedObject var sessions: SessionStore
     var onFinish: () -> Void
+    /// The last step's button is labelled «Open sessions» and must do exactly that.
+    var onOpenSessions: (() -> Void)?
     @State var step = 0
     @State private var provider: ProviderID?
     @State private var exampleHidden = false
     @State private var exampleOpened = false
-    @StateObject var widgetSetup = WidgetSetupStatus()
+    @StateObject var widgetSetup: WidgetSetupStatus
+
+    init(store: AppStore, sessions: SessionStore, onFinish: @escaping () -> Void, onOpenSessions: (() -> Void)? = nil,
+         step: Int = 0, widgetSetup: WidgetSetupStatus? = nil) {
+        self.store = store; self.sessions = sessions; self.onFinish = onFinish; self.onOpenSessions = onOpenSessions
+        _step = State(initialValue: step)
+        _widgetSetup = StateObject(wrappedValue: widgetSetup ?? WidgetSetupStatus())
+    }
     private let titles = ["Добро пожаловать в Lunavect", "Подключите приложения", "Добавьте виджет на рабочий стол", "Сессии под рукой"]
-    private var visibleSteps: [Int] { widgetSetup.hasWidgets && step != 2 ? [0, 1, 3] : [0, 1, 2, 3] }
+    // Widget registration can change while this window is open. It must not
+    // renumber the guide or make Back follow a different route from Next.
+    var visibleSteps: [Int] { Array(titles.indices) }
+    var stepLabel: String { L("Шаг {0} из {1}", String(step + 1), String(visibleSteps.count)) }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                if let mark = AppArtwork.brandMark { Image(nsImage: mark).resizable().scaledToFit().frame(width: 46, height: 46) }
+                if let mark = AppArtwork.brandMark { Image(nsImage: mark).resizable().scaledToFit().frame(width: 46, height: 46).accessibilityHidden(true) }
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Lunavect").font(.system(size: 23, weight: .semibold))
-                    Text(L("Шаг {0} из {1}", String((visibleSteps.firstIndex(of: step) ?? 0) + 1), String(visibleSteps.count))).font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(stepLabel).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                ForEach(visibleSteps, id: \.self) { index in Capsule().fill(index <= step ? Color.accentColor : .secondary.opacity(0.25)).frame(width: 24, height: 4) }
+                ForEach(visibleSteps, id: \.self) { index in Capsule().fill(index <= step ? Color.accentColor : .secondary.opacity(0.25)).frame(width: 24, height: 4).accessibilityHidden(true) }
             }.padding(28)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Text(L(titles[step])).font(.system(size: 24, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                    Text(L(titles[step])).font(.system(size: 24, weight: .semibold)).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
                     page
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(28)
             }
@@ -37,8 +49,8 @@ import WeekleftCore
             HStack {
                 Button(L("Пропустить обучение"), action: onFinish).buttonStyle(.plain).foregroundStyle(.secondary)
                 Spacer()
-                if step > 0 { Button(L("Назад")) { step = step == 3 && widgetSetup.hasWidgets ? 1 : step - 1 } }
-                Button(L(step == 3 ? "Открыть сессии" : "Далее")) { if step == 3 { onFinish() } else { step = widgetSetup.nextStep(after: step) } }
+                if step > 0 { Button(L("Назад")) { step = max(0, step - 1) } }
+                Button(L(step == 3 ? "Открыть сессии" : "Далее")) { if step == 3 { (onOpenSessions ?? onFinish)() } else { step = widgetSetup.nextStep(after: step) } }
                     .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }.padding(24)
         }.frame(width: 640, height: 620).background(Color(nsColor: .windowBackgroundColor))
@@ -88,18 +100,25 @@ import WeekleftCore
                 }.padding(18)
             } else {
             HStack(spacing: 12) {
-                InterfaceIcon(.sessions, size: 26).foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L("Пример сессии")).font(.system(size: 14, weight: .semibold))
-                    Text(L("Ответ готов")).font(.system(size: 12)).foregroundStyle(.green)
-                }
-                Spacer()
+                Button { exampleOpened = true } label: {
+                    HStack(spacing: 12) {
+                        InterfaceIcon(.sessions, size: 26).foregroundStyle(.blue).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L("Пример сессии")).font(.system(size: 14, weight: .semibold))
+                            Text(L("Ответ готов")).font(.system(size: 12)).foregroundStyle(.green)
+                        }
+                        Spacer(minLength: 0)
+                    }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityIdentifier("welcome-example-open")
+                    .accessibilityLabel(L("Открыть сессию") + ": " + L("Пример сессии"))
                 Menu {
                     Button(L("Открыть сессию")) { exampleOpened = true }
-                    Button(L("Убрать из Lunavect")) { exampleHidden = true }
-                } label: { InterfaceIcon(.more) }.menuStyle(.borderlessButton).frame(width: 24)
+                    Button(L("Скрыть в Lunavect")) { exampleHidden = true }
+                } label: { Image(systemName: "ellipsis") }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                    .frame(width: InterfaceMetrics.compactControlSize)
+                    .accessibilityLabel(L("Действия: {0}", L("Пример сессии")))
             }.padding(18).background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-                .contentShape(Rectangle()).onTapGesture { exampleOpened = true }
             }
             if exampleOpened {
                 Text(L("Это учебный пример. В панели нажатие на строку откроет сессию в её приложении."))

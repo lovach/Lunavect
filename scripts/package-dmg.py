@@ -7,6 +7,10 @@ from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
+import sys
+
+ARTWORK = Path(__file__).resolve().parent / 'dmg'
+REGISTER = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
 
 ARTWORK = Path(__file__).resolve().parent / 'dmg'
 REGISTER = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
@@ -26,6 +30,7 @@ def verify_app(app):
     checked('codesign', '--verify', '--deep', '--strict', str(app))
     checked('spctl', '--assess', '--type', 'execute', str(app))
     checked('xcrun', 'stapler', 'validate', str(app))
+    checked(sys.executable, str(Path(__file__).with_name('verify-awake-policy.py')), str(app), '--policy', 'developer-id')
     return info
 
 
@@ -90,7 +95,7 @@ def main():
                 'filesystem': 'APFS', 'format': 'ULFO',
                 'files': [(str(app), 'Lunavect.app')],
                 'symlinks': {'Applications': '/Applications'},
-                'icon': str(app / 'Contents/Resources/AppIcon.icns'),
+                'icon': str(app / 'Contents/Resources' / Path(info['CFBundleIconFile']).with_suffix('.icns')),
                 'background': str(temporary / 'background.png'),
                 'default_view': 'icon-view', 'grid_spacing': 80,
                 'show_toolbar': False, 'show_sidebar': False,

@@ -1,4 +1,32 @@
 {
+  "Иконки и проценты": {
+    "de": "Symbole und Prozent",
+    "en": "Icons and percentages",
+    "es": "Iconos y porcentajes",
+    "fr": "Icônes et pourcentages",
+    "zh-Hans": "图标和百分比"
+  },
+  "Компактный вид без шкал: иконки и остаток в процентах. Подробности — по нажатию.": {
+    "de": "Kompakte Ansicht ohne Balken: Symbole und verbleibende Prozentwerte. Klicken für Details.",
+    "en": "Compact view without bars: icons and remaining percentages. Click for details.",
+    "es": "Vista compacta sin barras: iconos y porcentajes restantes. Haz clic para ver los detalles.",
+    "fr": "Vue compacte sans barres : icônes et pourcentages restants. Cliquez pour les détails.",
+    "zh-Hans": "无进度条的紧凑视图：图标和剩余百分比。点击查看详情。"
+  },
+  "Показывать время до сброса": {
+    "de": "Zeit bis zum Zurücksetzen anzeigen",
+    "en": "Show time until reset",
+    "es": "Mostrar el tiempo hasta el reinicio",
+    "fr": "Afficher le temps avant réinitialisation",
+    "zh-Hans": "显示重置倒计时"
+  },
+  "Проценты и шкала показывают остаток. Подробности — по нажатию.": {
+    "de": "Prozentwert und Balken zeigen das verbleibende Kontingent. Klicken für Details.",
+    "en": "Percentages and bars show the remaining allowance. Click for details.",
+    "es": "Los porcentajes y las barras muestran el límite restante. Haz clic para ver los detalles.",
+    "fr": "Les pourcentages et les barres indiquent le quota restant. Cliquez pour les détails.",
+    "zh-Hans": "百分比和进度条显示剩余额度。点击查看详情。"
+  },
   "Активность по дням": {
     "de": "Aktivität pro Tag",
     "en": "Daily activity",
@@ -75,6 +103,13 @@
     "es": "El límite de 5 horas se restablece: ",
     "fr": "Réinitialisation du quota de 5 h : ",
     "zh-Hans": "5 小时额度重置时间："
+  },
+  "7 д": {
+    "de": "7 T.",
+    "en": "7d",
+    "es": "7 d",
+    "fr": "7 j",
+    "zh-Hans": "7天"
   },
   "7 дней": {
     "de": "7 Tage",
@@ -307,6 +342,13 @@
     "fr": "{0} h {1} min",
     "zh-Hans": "{0}小时 {1}分钟"
   },
+  "{0}д {1}ч": {
+    "de": "{0}T {1}h",
+    "en": "{0}d {1}h",
+    "es": "{0}d {1}h",
+    "fr": "{0}j {1}h",
+    "zh-Hans": "{0}天 {1}时"
+  },
   "{0}м": {
     "de": "{0}m",
     "en": "{0}m",
@@ -350,7 +392,7 @@
     "zh-Hans": "活动"
   },
   "Активные": {
-    "de": "Aktiv",
+    "de": "Laufend",
     "en": "Active",
     "es": "Activas",
     "fr": "Actives",
@@ -678,6 +720,13 @@
     "fr": "La durée de maintien actif est écoulée.",
     "zh-Hans": "保持唤醒时间已到。"
   },
+  "Время сброса неизвестно": {
+    "de": "Zeitpunkt des Zurücksetzens unbekannt",
+    "en": "Reset time unavailable",
+    "es": "Hora de reinicio no disponible",
+    "fr": "Heure de réinitialisation indisponible",
+    "zh-Hans": "重置时间未知"
+  },
   "Вручную": {
     "de": "Manuell",
     "en": "Manual",
@@ -705,6 +754,13 @@
     "es": "Todos los ajustes…",
     "fr": "Tous les réglages…",
     "zh-Hans": "所有设置…"
+  },
+  "Все подключённые": {
+    "de": "Alle verbundenen",
+    "en": "All connected",
+    "es": "Todos los conectados",
+    "fr": "Tous les services connectés",
+    "zh-Hans": "所有已连接服务"
   },
   "Всплывающие уведомления": {
     "de": "Banner-Mitteilungen",
@@ -1441,6 +1497,20 @@
     "fr": "Aucun enregistrement de durée trouvé",
     "zh-Hans": "未找到时长记录"
   },
+  "Заполнение кольца показывает остаток. Проценты и время до сброса доступны по нажатию.": {
+    "de": "Die Ringfüllung zeigt das verbleibende Limit. Klicken Sie für Prozentwerte und die Zeit bis zum Zurücksetzen.",
+    "en": "The ring fill shows what remains. Click for percentages and time until reset.",
+    "es": "El relleno del anillo muestra lo que queda. Haz clic para ver porcentajes y tiempo hasta el reinicio.",
+    "fr": "Le remplissage de l’anneau indique le quota restant. Cliquez pour voir les pourcentages et le temps avant la réinitialisation.",
+    "zh-Hans": "圆环填充部分表示剩余额度，点击查看百分比和距离重置的时间。"
+  },
+  "Заполнение показывает остаток": {
+    "de": "Füllung zeigt das verbleibende Limit",
+    "en": "Fill shows remaining allowance",
+    "es": "El relleno indica lo que queda",
+    "fr": "Remplissage = quota restant",
+    "zh-Hans": "填充部分表示剩余额度"
+  },
   "Запуск и быстрый доступ": {
     "de": "Start und Schnellzugriff",
     "en": "Startup and quick access",
@@ -1728,6 +1798,13 @@
     "fr": "Quand me prévenir",
     "zh-Hans": "通知时机"
   },
+  "Кольца": {
+    "de": "Ringe",
+    "en": "Rings",
+    "es": "Anillos",
+    "fr": "Anneaux",
+    "zh-Hans": "圆环"
+  },
   "Компонент": {
     "de": "Komponente",
     "en": "Component",
@@ -1797,6 +1874,13 @@
     "es": "Los límites se actualizarán automáticamente. Los datos del widget permanecen en este Mac.",
     "fr": "Les quotas seront actualisés automatiquement. Les données du widget restent sur ce Mac.",
     "zh-Hans": "额度将自动更新，组件数据保留在这台 Mac 上。"
+  },
+  "Лимиты в строке меню": {
+    "de": "Limits in der Menüleiste",
+    "en": "Menu bar limits",
+    "es": "Límites en la barra de menús",
+    "fr": "Quotas dans la barre des menus",
+    "zh-Hans": "菜单栏额度"
   },
   "Лимиты и активность": {
     "de": "Limits und Aktivität",
@@ -2077,6 +2161,13 @@
     "es": "Haz clic para abrir la sesión. Arrastra la fila para cambiar el orden. Clic derecho o «…» para el menú.",
     "fr": "Cliquez pour ouvrir la session. Faites glisser la ligne pour changer l’ordre. Clic droit ou « … » pour le menu.",
     "zh-Hans": "点击打开会话。拖动行可调整顺序。右键点击或使用“…”打开菜单。"
+  },
+  "Меню": {
+    "de": "Menü",
+    "en": "Menu",
+    "es": "Menú",
+    "fr": "Menu",
+    "zh-Hans": "菜单"
   },
   "Назад": {
     "de": "Zurück",
@@ -2441,6 +2532,13 @@
     "es": "Límites semanales de Claude y Codex",
     "fr": "Quotas hebdomadaires de Claude et Codex",
     "zh-Hans": "Claude 和 Codex 的每周额度"
+  },
+  "Сессии, лимиты и статистика Claude и Codex": {
+    "de": "Sitzungen, Limits und Statistiken für Claude und Codex",
+    "en": "Sessions, usage limits and statistics for Claude and Codex",
+    "es": "Sesiones, límites de uso y estadísticas de Claude y Codex",
+    "fr": "Sessions, quotas et statistiques de Claude et Codex",
+    "zh-Hans": "Claude 和 Codex 的会话、用量额度和统计"
   },
   "Недельные лимиты Claude и Codex. Настройка 5 часов — в приложении Lunavect.": {
     "de": "Wöchentliche Limits für Claude und Codex. Das 5-Stunden-Limit wird in Lunavect konfiguriert.",
@@ -2889,6 +2987,13 @@
     "es": "Respuesta lista",
     "fr": "Réponse prête",
     "zh-Hans": "回复已就绪"
+  },
+  "Отдельный индикатор рядом со статусом сессий. Нажмите на проценты, чтобы открыть лимиты.": {
+    "de": "Eine eigene Anzeige neben dem Sitzungsstatus. Klicken Sie auf die Prozentwerte, um die Limits zu öffnen.",
+    "en": "A separate indicator beside session status. Click the percentages to open limits.",
+    "es": "Un indicador junto al estado de las sesiones. Haz clic en los porcentajes para abrir los límites.",
+    "fr": "Un indicateur distinct à côté de l’état des sessions. Cliquez sur les pourcentages pour ouvrir les quotas.",
+    "zh-Hans": "在会话状态旁单独显示。点击百分比查看额度。"
   },
   "Отключение останавливает опрос, удаляет обработчики Lunavect и восстанавливает прежнюю строку состояния Claude. Сохранённые данные остаются.": {
     "de": "Beim Trennen werden Abfragen beendet, die Ereignishandler von Lunavect entfernt und die vorherige Claude-Statuszeile wiederhergestellt. Gespeicherte Daten bleiben erhalten.",
@@ -3387,6 +3492,13 @@
     "fr": "À connecter dans les réglages",
     "zh-Hans": "请在设置中连接"
   },
+  "Подключите выбранный сервис в настройках подключений.": {
+    "de": "Verbinden Sie den gewählten Dienst in den Verbindungseinstellungen.",
+    "en": "Connect the selected service in Connections settings.",
+    "es": "Conecta el servicio seleccionado en los ajustes de Conexiones.",
+    "fr": "Connectez le service sélectionné dans les réglages de connexion.",
+    "zh-Hans": "请在连接设置中连接所选服务。"
+  },
   "Подключите приложения": {
     "de": "Apps verbinden",
     "en": "Connect your apps",
@@ -3428,6 +3540,13 @@
     "es": "Suscripciones",
     "fr": "Abonnements",
     "zh-Hans": "订阅"
+  },
+  "Подробнее": {
+    "de": "Details",
+    "en": "Details",
+    "es": "Detalles",
+    "fr": "Détails",
+    "zh-Hans": "详情"
   },
   "Подробности активности": {
     "de": "Aktivitätsdetails",
@@ -3533,6 +3652,13 @@
     "es": "Mostrar límite de 5 horas",
     "fr": "Afficher le quota de 5 h",
     "zh-Hans": "显示 5 小时额度"
+  },
+  "Показывать остаток лимитов": {
+    "de": "Verbleibende Limits anzeigen",
+    "en": "Show remaining limits",
+    "es": "Mostrar límites restantes",
+    "fr": "Afficher les quotas restants",
+    "zh-Hans": "显示剩余额度"
   },
   "Получаем сессии…": {
     "de": "Sitzungen werden geladen…",
@@ -3652,6 +3778,13 @@
     "es": "Mes anterior",
     "fr": "Mois précédent",
     "zh-Hans": "上个月"
+  },
+  "Прерывистое кольцо означает сохранённые или недоступные данные. Подробности — по нажатию.": {
+    "de": "Ein gestrichelter Ring bedeutet gespeicherte oder nicht verfügbare Daten. Klicken Sie für Details.",
+    "en": "A dashed ring means saved or unavailable data. Click for details.",
+    "es": "Un anillo discontinuo indica datos guardados o no disponibles. Haz clic para ver los detalles.",
+    "fr": "Un anneau discontinu indique des données enregistrées ou indisponibles. Cliquez pour les détails.",
+    "zh-Hans": "虚线圆环表示已保存或不可用的数据，点击查看详情。"
   },
   "При закрытии крышки Mac засыпает.": {
     "de": "Beim Zuklappen geht der Mac in den Ruhezustand.",
@@ -3891,6 +4024,13 @@
     "fr": "Liens symboliques ignorés",
     "zh-Hans": "已跳过符号链接"
   },
+  "Проценты и шкала показывают остаток. Под ними — время до фактического сброса.": {
+    "de": "Prozentwert und Balken zeigen das verbleibende Limit. Darunter steht die Zeit bis zum tatsächlichen Zurücksetzen.",
+    "en": "The percentage and bar show what remains. Below them is the time until the actual reset.",
+    "es": "El porcentaje y la barra muestran lo que queda. Debajo aparece el tiempo hasta el próximo reinicio.",
+    "fr": "Le pourcentage et la barre indiquent le quota restant. En dessous figure le temps avant la prochaine réinitialisation.",
+    "zh-Hans": "百分比和进度条显示剩余额度，下方显示距离实际重置的时间。"
+  },
   "Прочитано журналов: {0}. Без записей длительности: {1}.": {
     "de": "Gelesene Protokolle: {0}. Ohne Dauereinträge: {1}.",
     "en": "Logs read: {0}. Without duration records: {1}.",
@@ -3920,7 +4060,7 @@
     "zh-Hans": "5 小时额度"
   },
   "Работает": {
-    "de": "Aktiv",
+    "de": "Arbeitet",
     "en": "Working",
     "es": "En curso",
     "fr": "En cours",
@@ -4171,6 +4311,13 @@
     "fr": "L’icône par défaut est utilisée",
     "zh-Hans": "当前使用默认图标"
   },
+  "Сервис": {
+    "de": "Dienst",
+    "en": "Service",
+    "es": "Servicio",
+    "fr": "Service",
+    "zh-Hans": "服务"
+  },
   "Сессии": {
     "de": "Sitzungen",
     "en": "Sessions",
@@ -4234,12 +4381,26 @@
     "fr": "Session masquée",
     "zh-Hans": "会话已隐藏"
   },
+  "Системный": {
+    "de": "System",
+    "en": "System",
+    "es": "Sistema",
+    "fr": "Système",
+    "zh-Hans": "系统"
+  },
   "Системный цвет значка": {
     "de": "Systemfarbe für das Symbol",
     "en": "System icon colour",
     "es": "Color del sistema para el icono",
     "fr": "Couleur système de l’icône",
     "zh-Hans": "使用系统图标颜色"
+  },
+  "Системный цвет подстраивается под светлую и тёмную строку меню.": {
+    "de": "Die Systemfarbe passt sich an helle und dunkle Menüleisten an.",
+    "en": "System color adapts to light and dark menu bars.",
+    "es": "El color del sistema se adapta a las barras de menús claras y oscuras.",
+    "fr": "La couleur système s’adapte aux barres des menus claires et sombres.",
+    "zh-Hans": "系统颜色会自动适应浅色和深色菜单栏。"
   },
   "Скачивается версия {0}": {
     "de": "Version {0} wird geladen",
@@ -4500,6 +4661,13 @@
     "fr": "La ligne d’état de Claude Code est également connectée pour transmettre les quotas. Votre ligne d’état actuelle est conservée.",
     "zh-Hans": "同时会连接 Claude Code 状态栏以传递额度，并保留您现有的状态栏。"
   },
+  "Текущие данные. Звёздочка означает сохранённое значение; прочерк — недоступный лимит.": {
+    "de": "Aktuelle Daten. Ein Sternchen kennzeichnet einen gespeicherten Wert; ein Strich bedeutet, dass das Limit nicht verfügbar ist.",
+    "en": "Current data. An asterisk marks a saved value; a dash means the limit is unavailable.",
+    "es": "Datos actuales. El asterisco indica un valor guardado; el guion, un límite no disponible.",
+    "fr": "Données actuelles. Un astérisque indique une valeur enregistrée ; un tiret, un quota indisponible.",
+    "zh-Hans": "当前数据。星号表示已保存的数值；横线表示额度不可用。"
+  },
   "Текущие сессии": {
     "de": "Aktuelle Sitzungen",
     "en": "Current sessions",
@@ -4745,12 +4913,47 @@
     "fr": "Session en arrière-plan",
     "zh-Hans": "后台会话"
   },
+  "Формат индикатора": {
+    "de": "Anzeigeformat",
+    "en": "Indicator style",
+    "es": "Estilo del indicador",
+    "fr": "Style de l’indicateur",
+    "zh-Hans": "指示器样式"
+  },
   "Формат статуса, персонаж и анимация в верхней строке экрана.": {
     "de": "Statusformat, Figur und Animation am oberen Bildschirmrand.",
     "en": "Status format, character and animation at the top of the screen.",
     "es": "Formato del estado, personaje y animación en la parte superior de la pantalla.",
     "fr": "Format de l’état, personnage et animation en haut de l’écran.",
     "zh-Hans": "屏幕顶部的状态格式、角色和动画。"
+  },
+  "Цвет иконок": {
+    "de": "Symbolfarbe",
+    "en": "Icon color",
+    "es": "Color de los iconos",
+    "fr": "Couleur des icônes",
+    "zh-Hans": "图标颜色"
+  },
+  "Цвет колец": {
+    "de": "Ringfarbe",
+    "en": "Ring color",
+    "es": "Color de los anillos",
+    "fr": "Couleur des anneaux",
+    "zh-Hans": "圆环颜色"
+  },
+  "Цвет сервиса": {
+    "de": "Dienstfarbe",
+    "en": "Service color",
+    "es": "Color del servicio",
+    "fr": "Couleur du service",
+    "zh-Hans": "服务颜色"
+  },
+  "Цвет шкал": {
+    "de": "Balkenfarbe",
+    "en": "Bar color",
+    "es": "Color de las barras",
+    "fr": "Couleur des barres",
+    "zh-Hans": "进度条颜色"
   },
   "Часть журналов недоступна или пропущена. Показаны только прочитанные данные.": {
     "de": "Einige Protokolle waren nicht verfügbar oder wurden übersprungen. Es werden nur gelesene Daten angezeigt.",
@@ -4800,6 +5003,13 @@
     "es": "Paso {0} de {1}",
     "fr": "Étape {0} sur {1}",
     "zh-Hans": "第 {0} 步，共 {1} 步"
+  },
+  "Шкалы и проценты": {
+    "de": "Balken und Prozente",
+    "en": "Bars and percentages",
+    "es": "Barras y porcentajes",
+    "fr": "Barres et pourcentages",
+    "zh-Hans": "进度条和百分比"
   },
   "Экран может гаснуть": {
     "de": "Das Display darf sich ausschalten",
@@ -4872,7 +5082,7 @@
     "zh-Hans": "等待回复"
   },
   "в работе": {
-    "de": "aktiv",
+    "de": "in Arbeit",
     "en": "working",
     "es": "en curso",
     "fr": "en cours",
@@ -4933,5 +5143,964 @@
     "es": "≈ Incluye tiempo de los registros",
     "fr": "≈ Inclut la durée des journaux",
     "zh-Hans": "≈ 包含日志中的时长"
+  },
+  "В строке меню": {
+    "en": "In the menu bar",
+    "de": "In der Menüleiste",
+    "es": "En la barra de menús",
+    "fr": "Dans la barre des menus",
+    "zh-Hans": "在菜单栏中"
+  },
+  "Показывать значок и статус работы": {
+    "en": "Show work icon and status",
+    "de": "Arbeitssymbol und Status anzeigen",
+    "es": "Mostrar icono y estado de trabajo",
+    "fr": "Afficher l’icône et l’état du travail",
+    "zh-Hans": "显示工作图标和状态"
+  },
+  "Отключите оба, чтобы оставить только виджеты. Сбор данных продолжится. Чтобы вернуться к настройкам, откройте Lunavect из папки «Программы» или Spotlight.": {
+    "en": "Turn both off to use only widgets. Data collection continues. To return to settings, open Lunavect from Applications or Spotlight.",
+    "de": "Deaktivieren Sie beide Optionen, um nur Widgets zu verwenden. Daten werden weiter erfasst. Öffnen Sie Lunavect über „Programme“ oder Spotlight, um zu den Einstellungen zurückzukehren.",
+    "es": "Desactiva ambas opciones para usar solo widgets. La recopilación de datos continúa. Para volver a los ajustes, abre Lunavect desde Aplicaciones o Spotlight.",
+    "fr": "Désactivez les deux options pour utiliser uniquement les widgets. La collecte des données continue. Pour revenir aux réglages, ouvrez Lunavect depuis Applications ou Spotlight.",
+    "zh-Hans": "关闭这两个选项以仅使用小组件。数据收集将继续。要返回设置，请从“应用程序”或 Spotlight 打开 Lunavect。"
+  },
+  "Для этого периода нет разбивки по сессиям. Общий итог статистики включает все доступные записи.": {
+    "en": "There is no session breakdown for this period. The statistics total includes all available records.",
+    "de": "Für diesen Zeitraum gibt es keine Aufschlüsselung nach Sitzungen. Die Gesamtstatistik enthält alle verfügbaren Aufzeichnungen.",
+    "es": "No hay un desglose por sesiones para este período. El total de estadísticas incluye todos los registros disponibles.",
+    "fr": "Aucune répartition par session pour cette période. Le total des statistiques inclut tous les enregistrements disponibles.",
+    "zh-Hans": "此时间段没有按会话分类的数据。统计总计包含所有可用记录。"
+  },
+  "Персонажи": {
+    "en": "Characters",
+    "de": "Figuren",
+    "es": "Personajes",
+    "fr": "Personnages",
+    "zh-Hans": "角色"
+  },
+  "Лимиты и персонажи в верхней строке экрана.": {
+    "en": "Limits and characters in the menu bar.",
+    "de": "Limits und Figuren in der Menüleiste.",
+    "es": "Límites y personajes en la barra de menús.",
+    "fr": "Limites et personnages dans la barre des menus.",
+    "zh-Hans": "菜单栏中的限额和角色。"
+  },
+  "Раздел": {
+    "en": "Section",
+    "de": "Bereich",
+    "es": "Sección",
+    "fr": "Section",
+    "zh-Hans": "部分"
+  },
+  "Показывает Claude или Codex — у кого больше работающих и ожидающих ответа сессий. При равенстве и после завершения задач сохраняется последний значок.": {
+    "en": "Shows Claude or Codex, whichever has more working or waiting sessions. Ties and finished tasks keep the last icon.",
+    "de": "Zeigt Claude oder Codex mit mehr aktiven oder wartenden Sitzungen. Bei Gleichstand und nach Aufgabenende bleibt das letzte Symbol.",
+    "es": "Muestra Claude o Codex, según cuál tenga más sesiones trabajando o esperando. En empate y al terminar se conserva el último icono.",
+    "fr": "Affiche Claude ou Codex selon le nombre de sessions actives ou en attente. En cas d’égalité et après leur fin, la dernière icône est conservée.",
+    "zh-Hans": "显示工作或等待中的会话较多的 Claude 或 Codex。数量相同或任务结束后保留上一个图标。"
+  },
+  "Наблюдено Lunavect": {
+    "en": "Observed by Lunavect",
+    "de": "Von Lunavect erfasst",
+    "es": "Observado por Lunavect",
+    "fr": "Observé par Lunavect",
+    "zh-Hans": "由 Lunavect 观测"
+  },
+  "Периоды и пробелы": {
+    "en": "Periods and gaps",
+    "de": "Zeiträume und Lücken",
+    "es": "Períodos y lagunas",
+    "fr": "Périodes et lacunes",
+    "zh-Hans": "时段与空缺"
+  },
+  "Помощник не ответил. Режим с закрытой крышкой не включён. Повторите подключение помощника.": {
+    "en": "The helper did not respond. Closed-lid mode is unconfirmed. Retry the helper connection.",
+    "de": "Der Hilfsdienst antwortet nicht. Der Betrieb bei geschlossenem Deckel ist unbestätigt. Verbindung erneut versuchen.",
+    "es": "El servicio auxiliar no respondió. El modo con tapa cerrada no está confirmado. Reintenta la conexión.",
+    "fr": "Le service auxiliaire ne répond pas. Le mode capot fermé n’est pas confirmé. Réessayez la connexion.",
+    "zh-Hans": "辅助服务未响应。合盖运行模式尚未确认，请重试连接。"
+  },
+  "Автоматически, пока работают сессии": {
+    "en": "Automatically while sessions work",
+    "de": "Automatisch während Sitzungen arbeiten",
+    "es": "Automáticamente mientras trabajan las sesiones",
+    "fr": "Automatiquement pendant le travail des sessions",
+    "zh-Hans": "会话工作时自动保持唤醒"
+  },
+  "После завершения задач сон вернётся через минуту.": {
+    "en": "Sleep resumes one minute after tasks stop working.",
+    "de": "Eine Minute nach Ende der Arbeit ist der Ruhezustand wieder möglich.",
+    "es": "El reposo se restablece un minuto después de que las tareas dejen de trabajar.",
+    "fr": "La veille reprend une minute après l’arrêt du travail des tâches.",
+    "zh-Hans": "任务停止工作一分钟后恢复睡眠。"
+  },
+  "Ждём работающие сессии. Ожидание ввода не удерживает Mac без сна.": {
+    "en": "Waiting for working sessions. Waiting for input does not keep the Mac awake.",
+    "de": "Warten auf aktive Sitzungen. Warten auf Eingaben hält den Mac nicht wach.",
+    "es": "Esperando sesiones en ejecución. Esperar una respuesta no mantiene el Mac despierto.",
+    "fr": "En attente de sessions actives. L’attente d’une saisie ne maintient pas le Mac éveillé.",
+    "zh-Hans": "等待工作中的会话。等待输入不会阻止 Mac 睡眠。"
+  },
+  "Повторить подключение": {
+    "en": "Retry connection",
+    "de": "Verbindung erneut versuchen",
+    "es": "Reintentar conexión",
+    "fr": "Réessayer la connexion",
+    "zh-Hans": "重试连接"
+  },
+  "Звук работает отдельно от баннеров и не требует разрешения на уведомления.": {
+    "en": "Sound works without banners or notification permission.",
+    "de": "Ton funktioniert ohne Banner oder Mitteilungserlaubnis.",
+    "es": "El sonido funciona sin banners ni permiso de notificaciones.",
+    "fr": "Le son fonctionne sans bannière ni autorisation de notification.",
+    "zh-Hans": "声音无需横幅或通知权限即可使用。"
+  },
+  "Завершение сессии": {
+    "en": "Session completion",
+    "de": "Sitzungsabschluss",
+    "es": "Sesión finalizada",
+    "fr": "Fin de session",
+    "zh-Hans": "会话完成"
+  },
+  "Прослушать": {
+    "en": "Play sound",
+    "de": "Anhören",
+    "es": "Escuchar",
+    "fr": "Écouter",
+    "zh-Hans": "试听"
+  },
+  "Пока работают сессии": {
+    "en": "While sessions work",
+    "de": "Während Sitzungen arbeiten",
+    "es": "Mientras trabajan las sesiones",
+    "fr": "Pendant le travail des sessions",
+    "zh-Hans": "会话工作期间"
+  },
+  "Звук завершения — не чаще одного раза в 5 секунд.": {
+    "en": "Completion sound plays at most once every 5 seconds.",
+    "de": "Der Abschlusston erklingt höchstens alle 5 Sekunden.",
+    "es": "El sonido de finalización se reproduce como máximo cada 5 segundos.",
+    "fr": "Le son de fin se déclenche au maximum toutes les 5 secondes.",
+    "zh-Hans": "完成提示音最多每 5 秒播放一次。"
+  },
+  "Ждём работающие сессии": {
+    "en": "Waiting for working sessions",
+    "de": "Warten auf aktive Sitzungen",
+    "es": "Esperando sesiones en ejecución",
+    "fr": "En attente de sessions actives",
+    "zh-Hans": "等待工作中的会话"
+  },
+  "Базовые настройки": {
+    "en": "Default settings",
+    "de": "Grundeinstellungen",
+    "es": "Ajustes predeterminados",
+    "fr": "Réglages par défaut",
+    "zh-Hans": "默认设置"
+  },
+  "При первом запуске: системная тема, значок Lunavect и статус сессий. Звук, баннеры, автозапуск, Keep Awake и лимиты в строке меню включаются отдельно.": {
+    "en": "On first launch: system theme, Lunavect icon and session status. Enable sound, banners, launch at login, Keep Awake and menu bar limits separately.",
+    "de": "Beim ersten Start: Systemdesign, Lunavect-Symbol und Sitzungsstatus. Ton, Banner, Anmeldestart, Keep Awake und Menüleistenlimits aktivieren Sie separat.",
+    "es": "Al iniciar por primera vez: tema del sistema, icono de Lunavect y estado de sesiones. Activa por separado el sonido, los avisos, el inicio automático, Keep Awake y los límites en la barra de menús.",
+    "fr": "Au premier lancement : thème du système, icône Lunavect et état des sessions. Activez séparément le son, les bannières, le lancement à la connexion, Keep Awake et les limites dans la barre des menus.",
+    "zh-Hans": "首次启动时使用系统主题、Lunavect 图标和会话状态。声音、横幅、登录时启动、Keep Awake 和菜单栏额度需单独开启。"
+  },
+  "Восстановить базовые настройки": {
+    "en": "Restore default settings",
+    "de": "Grundeinstellungen wiederherstellen",
+    "es": "Restablecer ajustes predeterminados",
+    "fr": "Rétablir les réglages par défaut",
+    "zh-Hans": "恢复默认设置"
+  },
+  "Восстановить базовые настройки?": {
+    "en": "Restore default settings?",
+    "de": "Grundeinstellungen wiederherstellen?",
+    "es": "¿Restablecer los ajustes predeterminados?",
+    "fr": "Rétablir les réglages par défaut ?",
+    "zh-Hans": "恢复默认设置？"
+  },
+  "Восстановить": {
+    "en": "Restore",
+    "de": "Wiederherstellen",
+    "es": "Restablecer",
+    "fr": "Rétablir",
+    "zh-Hans": "恢复"
+  },
+  "Оформление, уведомления, автозапуск и Keep Awake вернутся к базовым значениям. Подключения, история, скрытые сессии и даты подписок сохранятся.": {
+    "en": "Appearance, notifications, launch at login and Keep Awake return to defaults. Connections, history, hidden sessions and subscription dates are kept.",
+    "de": "Darstellung, Mitteilungen, Anmeldestart und Keep Awake werden zurückgesetzt. Verbindungen, Verlauf, ausgeblendete Sitzungen und Abonnementdaten bleiben erhalten.",
+    "es": "Se restablecerán la apariencia, las notificaciones, el inicio automático y Keep Awake. Se conservarán las conexiones, el historial, las sesiones ocultas y las fechas de suscripción.",
+    "fr": "L’apparence, les notifications, le lancement à la connexion et Keep Awake retrouveront leurs valeurs par défaut. Les connexions, l’historique, les sessions masquées et les dates d’abonnement seront conservés.",
+    "zh-Hans": "外观、通知、登录时启动和 Keep Awake 将恢复默认值。连接、历史记录、隐藏会话和订阅日期将保留。"
+  },
+  "Поведение": {
+    "en": "Behavior",
+    "de": "Verhalten",
+    "es": "Comportamiento",
+    "fr": "Comportement",
+    "zh-Hans": "行为"
+  },
+  "Длительность ручного режима": {
+    "en": "Manual mode duration",
+    "de": "Dauer im manuellen Modus",
+    "es": "Duración del modo manual",
+    "fr": "Durée du mode manuel",
+    "zh-Hans": "手动模式时长"
+  },
+  "Применяется при следующем включении ручного режима.": {
+    "en": "Applies the next time manual mode starts.",
+    "de": "Gilt beim nächsten Start des manuellen Modus.",
+    "es": "Se aplica la próxima vez que inicies el modo manual.",
+    "fr": "S’applique au prochain démarrage du mode manuel.",
+    "zh-Hans": "下次开启手动模式时生效。"
+  },
+  "После завершения сессий": {
+    "en": "After sessions finish",
+    "de": "Nach Sitzungsende",
+    "es": "Al terminar las sesiones",
+    "fr": "Après la fin des sessions",
+    "zh-Hans": "会话结束后"
+  },
+  "Сразу": {
+    "en": "Immediately",
+    "de": "Sofort",
+    "es": "Inmediatamente",
+    "fr": "Immédiatement",
+    "zh-Hans": "立即"
+  },
+  "Через 30 секунд": {
+    "en": "After 30 seconds",
+    "de": "Nach 30 Sekunden",
+    "es": "Tras 30 segundos",
+    "fr": "Après 30 secondes",
+    "zh-Hans": "30 秒后"
+  },
+  "Через 1 минуту": {
+    "en": "After 1 minute",
+    "de": "Nach 1 Minute",
+    "es": "Tras 1 minuto",
+    "fr": "Après 1 minute",
+    "zh-Hans": "1 分钟后"
+  },
+  "Через 2 минуты": {
+    "en": "After 2 minutes",
+    "de": "Nach 2 Minuten",
+    "es": "Tras 2 minutos",
+    "fr": "Après 2 minutes",
+    "zh-Hans": "2 分钟后"
+  },
+  "Задержка автоматического режима. Новая работа отменяет отсчёт.": {
+    "en": "Delay in automatic mode. New work cancels the countdown.",
+    "de": "Verzögerung im Automatikmodus. Neue Arbeit beendet den Countdown.",
+    "es": "Espera del modo automático. Una nueva tarea cancela la cuenta atrás.",
+    "fr": "Délai du mode automatique. Une nouvelle tâche annule le compte à rebours.",
+    "zh-Hans": "自动模式的延迟。开始新任务会取消倒计时。"
+  },
+  "Условия остановки": {
+    "en": "Stop conditions",
+    "de": "Stoppbedingungen",
+    "es": "Condiciones de parada",
+    "fr": "Conditions d’arrêt",
+    "zh-Hans": "停止条件"
+  },
+  "Разрешать работу от аккумулятора": {
+    "en": "Allow on battery power",
+    "de": "Akkubetrieb erlauben",
+    "es": "Permitir con batería",
+    "fr": "Autoriser sur batterie",
+    "zh-Hans": "允许使用电池供电"
+  },
+  "Останавливать при низком заряде": {
+    "en": "Stop at low battery",
+    "de": "Bei niedrigem Akkustand stoppen",
+    "es": "Detener con batería baja",
+    "fr": "Arrêter si la batterie est faible",
+    "zh-Hans": "低电量时停止"
+  },
+  "Порог заряда": {
+    "en": "Battery threshold",
+    "de": "Akkuschwelle",
+    "es": "Umbral de batería",
+    "fr": "Seuil de batterie",
+    "zh-Hans": "电量阈值"
+  },
+  "Останавливать при перегреве": {
+    "en": "Stop when overheating",
+    "de": "Bei Überhitzung stoppen",
+    "es": "Detener si se sobrecalienta",
+    "fr": "Arrêter en cas de surchauffe",
+    "zh-Hans": "过热时停止"
+  },
+  "Эти условия управляют только Keep Awake. Системные защиты macOS не изменяются.": {
+    "en": "These conditions control Keep Awake only. macOS system protections are unchanged.",
+    "de": "Diese Bedingungen steuern nur Keep Awake. Die Schutzfunktionen von macOS bleiben unverändert.",
+    "es": "Estas condiciones solo controlan Keep Awake. Las protecciones de macOS no cambian.",
+    "fr": "Ces conditions concernent uniquement Keep Awake. Les protections de macOS restent inchangées.",
+    "zh-Hans": "这些条件仅控制 Keep Awake，不会更改 macOS 系统保护。"
+  },
+  "Отключённые условия не остановят Keep Awake при нагреве или разряде. Не убирайте работающий Mac в сумку.": {
+    "en": "Disabled conditions will not stop Keep Awake as the Mac heats up or the battery drains. Keep an awake Mac out of bags.",
+    "de": "Deaktivierte Bedingungen stoppen Keep Awake bei Erwärmung oder sinkendem Akkustand nicht. Legen Sie den wachen Mac nicht in eine Tasche.",
+    "es": "Las condiciones desactivadas no detendrán Keep Awake si el Mac se calienta o se descarga. No guardes el Mac activo en una bolsa.",
+    "fr": "Les conditions désactivées n’arrêteront pas Keep Awake en cas de chauffe ou de décharge. Ne rangez pas un Mac éveillé dans un sac.",
+    "zh-Hans": "条件关闭后，Keep Awake 不会因发热或电量下降而停止。请勿将未休眠的 Mac 放入包中。"
+  },
+  "При потере связи помощник снимает блокировку сна; при сбое повторяет попытку.": {
+    "en": "If the app connection is lost, the helper releases the sleep override and retries if restoration fails.",
+    "de": "Bei Verbindungsverlust hebt der Helfer die Schlafsperre auf und versucht es bei einem Fehler erneut.",
+    "es": "Si se pierde la conexión, el asistente retira el bloqueo de reposo y lo reintenta si falla.",
+    "fr": "En cas de perte de connexion, l’assistant lève le blocage de veille et réessaie en cas d’échec.",
+    "zh-Hans": "连接丢失时，助手会解除睡眠阻止；恢复失败时会重试。"
+  },
+  "Запуск, язык, тема и базовые настройки.": {
+    "en": "Startup, language, theme and defaults.",
+    "de": "Start, Sprache, Design und Grundeinstellungen.",
+    "es": "Inicio, idioma, tema y ajustes predeterminados.",
+    "fr": "Démarrage, langue, thème et réglages par défaut.",
+    "zh-Hans": "启动、语言、主题和默认设置。"
+  },
+  "Работа с закрытой крышкой, питание и условия остановки.": {
+    "en": "Closed-lid operation, power and stop conditions.",
+    "de": "Betrieb mit geschlossenem Deckel, Stromversorgung und Stoppbedingungen.",
+    "es": "Funcionamiento con la tapa cerrada, alimentación y condiciones de parada.",
+    "fr": "Fonctionnement capot fermé, alimentation et conditions d’arrêt.",
+    "zh-Hans": "合盖运行、供电和停止条件。"
+  },
+  "Сон вернётся через {0} с после завершения работы.": {
+    "en": "Sleep resumes {0} seconds after work ends.",
+    "de": "Der Ruhezustand wird {0} Sekunden nach Arbeitsende wieder erlaubt.",
+    "es": "El reposo se restablece {0} segundos después de terminar.",
+    "fr": "La veille est rétablie {0} secondes après la fin du travail.",
+    "zh-Hans": "工作结束 {0} 秒后恢复睡眠。"
+  },
+  "Только от зарядки": {
+    "en": "AC power only",
+    "de": "Nur am Netzteil",
+    "es": "Solo con cargador",
+    "fr": "Sur secteur uniquement",
+    "zh-Hans": "仅限接通电源时"
+  },
+  "Остановка при заряде ≤{0}%": {
+    "en": "Stop at battery ≤{0}%",
+    "de": "Stopp bei Akku ≤{0}%",
+    "es": "Detener con batería ≤{0}%",
+    "fr": "Arrêt si batterie ≤{0}%",
+    "zh-Hans": "电量 ≤{0}% 时停止"
+  },
+  "Остановка при перегреве": {
+    "en": "Stop on overheating",
+    "de": "Stopp bei Überhitzung",
+    "es": "Detener por sobrecalentamiento",
+    "fr": "Arrêt en cas de surchauffe",
+    "zh-Hans": "过热时停止"
+  },
+  "Остановка по заряду и температуре выключена": {
+    "en": "Battery and temperature stops are off",
+    "de": "Akku- und Temperaturstopps sind aus",
+    "es": "Paradas por batería y temperatura desactivadas",
+    "fr": "Arrêts liés à la batterie et à la température désactivés",
+    "zh-Hans": "电量和温度停止条件已关闭"
+  },
+  "Режим выключен: заряд аккумулятора {0}% или ниже.": {
+    "en": "Mode stopped: battery is at {0}% or below.",
+    "de": "Modus beendet: Akkustand bei {0}% oder darunter.",
+    "es": "Modo detenido: batería al {0}% o menos.",
+    "fr": "Mode arrêté : batterie à {0}% ou moins.",
+    "zh-Hans": "模式已停止：电量为 {0}% 或更低。"
+  },
+  "Режим выключен: разрешена работа только от зарядки.": {
+    "en": "Mode stopped: AC power is required.",
+    "de": "Modus beendet: Netzbetrieb erforderlich.",
+    "es": "Modo detenido: se requiere el cargador.",
+    "fr": "Mode arrêté : alimentation secteur requise.",
+    "zh-Hans": "模式已停止：需要接通电源。"
+  },
+  "Пауза между звуками завершения": {
+    "en": "Pause between completion sounds",
+    "de": "Pause zwischen Abschlusstönen",
+    "es": "Pausa entre sonidos de finalización",
+    "fr": "Pause entre les sons de fin",
+    "zh-Hans": "完成提示音间隔"
+  },
+  "Без паузы": {
+    "en": "No pause",
+    "de": "Keine Pause",
+    "es": "Sin pausa",
+    "fr": "Sans pause",
+    "zh-Hans": "无间隔"
+  },
+  "События можно настроить заранее. Уведомления начнут приходить после включения звука или баннеров.": {
+    "en": "Choose events in advance. Notifications begin when sound or banners are enabled.",
+    "de": "Wählen Sie Ereignisse vorab. Mitteilungen beginnen, sobald Ton oder Banner aktiviert sind.",
+    "es": "Elige los eventos de antemano. Recibirás notificaciones al activar el sonido o los avisos.",
+    "fr": "Choisissez les événements à l’avance. Les notifications commenceront après l’activation du son ou des bannières.",
+    "zh-Hans": "可提前选择事件。开启声音或横幅后才会收到通知。"
+  },
+  "Автоматически проверять обновления": {
+    "en": "Check for updates automatically",
+    "de": "Automatisch nach Updates suchen",
+    "es": "Buscar actualizaciones automáticamente",
+    "fr": "Rechercher les mises à jour automatiquement",
+    "zh-Hans": "自动检查更新"
+  },
+  "Проверка сообщает о новых версиях. Автоматическое скачивание — отдельная настройка; при его включении проверка тоже включается. Установка не прерывает текущую работу.": {
+    "en": "Checks notify you about new versions. Automatic download is separate; enabling it also enables checks. Installation does not interrupt your work.",
+    "de": "Die Prüfung meldet neue Versionen. Automatische Downloads sind separat; ihre Aktivierung schaltet auch die Prüfung ein. Die Installation unterbricht Ihre Arbeit nicht.",
+    "es": "La búsqueda avisa de nuevas versiones. La descarga automática es independiente; al activarla también se activa la búsqueda. La instalación no interrumpe tu trabajo.",
+    "fr": "La recherche signale les nouvelles versions. Le téléchargement automatique est indépendant ; son activation active aussi la recherche. L’installation n’interrompt pas votre travail.",
+    "zh-Hans": "检查会提示新版本。自动下载是单独的设置，开启后也会开启检查。安装不会中断当前工作。"
+  },
+  "Общие настройки виджетов": {
+    "en": "Shared widget settings",
+    "de": "Gemeinsame Widget-Einstellungen",
+    "es": "Ajustes compartidos de widgets",
+    "fr": "Réglages communs des widgets",
+    "zh-Hans": "共享小组件设置"
+  },
+  "Применяются к установленным виджетам и предпросмотру. macOS обновляет виджеты по своему расписанию.": {
+    "en": "Apply to installed widgets and previews. macOS schedules widget updates.",
+    "de": "Gelten für installierte Widgets und die Vorschau. macOS plant die Aktualisierung der Widgets.",
+    "es": "Se aplican a los widgets instalados y a la vista previa. macOS programa las actualizaciones.",
+    "fr": "S’appliquent aux widgets installés et à l’aperçu. macOS planifie les actualisations.",
+    "zh-Hans": "适用于已安装的小组件和预览。macOS 按系统计划更新小组件。"
+  },
+  "Посмотреть варианты": {
+    "en": "Explore layouts",
+    "de": "Varianten ansehen",
+    "es": "Ver variantes",
+    "fr": "Voir les variantes",
+    "zh-Hans": "查看样式"
+  },
+  "Только предпросмотр": {
+    "en": "Preview only",
+    "de": "Nur Vorschau",
+    "es": "Solo vista previa",
+    "fr": "Aperçu uniquement",
+    "zh-Hans": "仅预览"
+  },
+  "Переместить выше": {
+    "en": "Move Up",
+    "de": "Nach oben verschieben",
+    "es": "Mover arriba",
+    "fr": "Déplacer vers le haut",
+    "zh-Hans": "上移"
+  },
+  "Переместить ниже": {
+    "en": "Move Down",
+    "de": "Nach unten verschieben",
+    "es": "Mover abajo",
+    "fr": "Déplacer vers le bas",
+    "zh-Hans": "下移"
+  },
+  "Нажмите, чтобы открыть сессию. Option и стрелки вверх или вниз меняют порядок. Правая кнопка или «…» — меню.": {
+    "en": "Press to open the session. Option and the up or down arrow change its order. Right-click or use “…” for the menu.",
+    "de": "Drücken, um die Sitzung zu öffnen. Mit Option und Pfeil nach oben oder unten die Reihenfolge ändern. Rechtsklick oder „…“ öffnet das Menü.",
+    "es": "Pulsa para abrir la sesión. Option y las flechas arriba o abajo cambian el orden. Clic derecho o «…» abre el menú.",
+    "fr": "Appuyez pour ouvrir la session. Option et les flèches haut ou bas changent l’ordre. Clic droit ou « … » ouvre le menu.",
+    "zh-Hans": "点击以打开会话。按 Option 和上下箭头调整顺序。右键点击或使用“…”打开菜单。"
+  },
+  "{0} из {1}": {
+    "en": "{0} of {1}",
+    "de": "{0} von {1}",
+    "es": "{0} de {1}",
+    "fr": "{0} sur {1}",
+    "zh-Hans": "{0} / {1}"
+  },
+  "Вернуть: {0}": {
+    "en": "Restore: {0}",
+    "de": "Wiederherstellen: {0}",
+    "es": "Restaurar: {0}",
+    "fr": "Restaurer : {0}",
+    "zh-Hans": "恢复：{0}"
+  },
+  "Вернуть найденные": {
+    "en": "Restore Matches",
+    "de": "Treffer wiederherstellen",
+    "es": "Restaurar coincidencias",
+    "fr": "Restaurer les résultats",
+    "zh-Hans": "恢复匹配项"
+  },
+  "Системная тема": {
+    "en": "System appearance",
+    "de": "Systemdarstellung",
+    "es": "Apariencia del sistema",
+    "fr": "Apparence du système",
+    "zh-Hans": "系统外观"
+  },
+  "Клиент Codex по выбранному пути недоступен. Откройте «Подключения» и выберите исполняемый файл заново.": {
+    "en": "The Codex client is unavailable at the selected path. Open Connections and select the executable again.",
+    "de": "Der Codex-Client ist unter dem ausgewählten Pfad nicht verfügbar. Öffnen Sie „Verbindungen“ und wählen Sie die ausführbare Datei erneut aus.",
+    "es": "El cliente de Codex no está disponible en la ruta seleccionada. Abre Conexiones y vuelve a seleccionar el archivo ejecutable.",
+    "fr": "Le client Codex n’est pas disponible à l’emplacement sélectionné. Ouvrez Connexions et sélectionnez à nouveau le fichier exécutable.",
+    "zh-Hans": "所选路径下的 Codex 客户端不可用。请打开“连接”，重新选择可执行文件。"
+  },
+  "Повреждённый порядок сессий сохранён отдельно. Закрепление и перемещение снова доступны.": {
+    "en": "The corrupted session order was saved separately. Pinning and moving sessions are available again.",
+    "de": "Die beschädigte Sitzungsreihenfolge wurde separat gesichert. Anheften und Verschieben sind wieder möglich.",
+    "es": "El orden de sesiones dañado se ha guardado por separado. Ya puedes volver a fijar y mover sesiones.",
+    "fr": "L’ordre corrompu des sessions a été enregistré séparément. Vous pouvez à nouveau épingler et déplacer les sessions.",
+    "zh-Hans": "已单独保存损坏的会话排序。现在可以再次置顶和移动会话。"
+  },
+  "Не удалось прочитать порядок сессий. Исходный файл сохранён; закрепление и перемещение отключены до перезапуска.": {
+    "en": "The session order could not be read. The original file has been preserved; pinning and moving sessions are disabled until the app restarts.",
+    "de": "Die Sitzungsreihenfolge konnte nicht gelesen werden. Die Originaldatei wurde beibehalten; Anheften und Verschieben sind bis zum Neustart der App deaktiviert.",
+    "es": "No se ha podido leer el orden de las sesiones. Se ha conservado el archivo original; no podrás fijar ni mover sesiones hasta que reinicies la aplicación.",
+    "fr": "Impossible de lire l’ordre des sessions. Le fichier d’origine a été conservé ; l’épinglage et le déplacement sont désactivés jusqu’au redémarrage de l’application.",
+    "zh-Hans": "无法读取会话排序。原始文件已保留；在应用重新启动前，置顶和移动功能将保持禁用。"
+  },
+  "Повреждённый порядок сессий сохранён отдельно. Повторите закрепление или перемещение.": {
+    "en": "The corrupted session order was saved separately. Try pinning or moving the session again.",
+    "de": "Die beschädigte Sitzungsreihenfolge wurde separat gesichert. Versuchen Sie erneut, die Sitzung anzuheften oder zu verschieben.",
+    "es": "El orden de sesiones dañado se ha guardado por separado. Vuelve a intentar fijar o mover la sesión.",
+    "fr": "L’ordre corrompu des sessions a été enregistré séparément. Essayez à nouveau d’épingler ou de déplacer la session.",
+    "zh-Hans": "已单独保存损坏的会话排序。请重新尝试置顶或移动会话。"
+  },
+  "Каталог Codex получен не полностью. Известные активные сессии сохранены; свежий статус появится после подтверждения клиентом.": {
+    "en": "The Codex session catalog was only partially retrieved. Previously known active sessions have been retained; their status will update once confirmed by the client.",
+    "de": "Der Codex-Sitzungskatalog wurde nur teilweise abgerufen. Bereits bekannte aktive Sitzungen wurden beibehalten; ihr Status wird aktualisiert, sobald der Client ihn bestätigt.",
+    "es": "El catálogo de sesiones de Codex se ha obtenido solo parcialmente. Se han conservado las sesiones activas conocidas; su estado se actualizará cuando el cliente lo confirme.",
+    "fr": "Le catalogue des sessions Codex n’a été récupéré qu’en partie. Les sessions actives déjà connues ont été conservées ; leur état sera actualisé après confirmation par le client.",
+    "zh-Hans": "未能完整获取 Codex 会话目录。已保留此前已知的活跃会话；客户端确认后将更新其状态。"
+  },
+  "Отключение не завершено. Повторите попытку, чтобы завершить оставшиеся шаги.": {
+    "en": "Disconnection is incomplete. Try again to complete the remaining steps.",
+    "de": "Die Verbindung wurde noch nicht vollständig getrennt. Versuchen Sie es erneut, um die verbleibenden Schritte abzuschließen.",
+    "es": "La desconexión no se ha completado. Vuelve a intentarlo para completar los pasos restantes.",
+    "fr": "La déconnexion n’est pas terminée. Réessayez pour effectuer les étapes restantes.",
+    "zh-Hans": "断开连接尚未完成。请重试以完成剩余步骤。"
+  },
+  "statusLine: {0}. События: {1}.": {
+    "en": "statusLine: {0}. Events: {1}.",
+    "de": "statusLine: {0}. Ereignisse: {1}.",
+    "es": "statusLine: {0}. Eventos: {1}.",
+    "fr": "statusLine : {0}. Événements : {1}.",
+    "zh-Hans": "statusLine：{0}。事件：{1}。"
+  },
+  "События: {0}.": {
+    "en": "Events: {0}.",
+    "de": "Ereignisse: {0}.",
+    "es": "Eventos: {0}.",
+    "fr": "Événements : {0}.",
+    "zh-Hans": "事件：{0}。"
+  },
+  "Не настроено": {
+    "en": "Not configured",
+    "de": "Nicht eingerichtet",
+    "es": "Sin configurar",
+    "fr": "Non configuré",
+    "zh-Hans": "未配置"
+  },
+  "Настроено": {
+    "en": "Configured",
+    "de": "Eingerichtet",
+    "es": "Configurado",
+    "fr": "Configuré",
+    "zh-Hans": "已配置"
+  },
+  "Требуется завершить настройку": {
+    "en": "Setup needs to be completed",
+    "de": "Einrichtung muss abgeschlossen werden",
+    "es": "Es necesario completar la configuración",
+    "fr": "La configuration doit être terminée",
+    "zh-Hans": "需要完成配置"
+  },
+  "Не удалось прочитать настройки": {
+    "en": "Could not read settings",
+    "de": "Einstellungen konnten nicht gelesen werden",
+    "es": "No se ha podido leer la configuración",
+    "fr": "Impossible de lire les réglages",
+    "zh-Hans": "无法读取设置"
+  },
+  "Завершить подключение": {
+    "en": "Complete connection",
+    "de": "Verbindung abschließen",
+    "es": "Completar la conexión",
+    "fr": "Terminer la connexion",
+    "zh-Hans": "完成连接"
+  },
+  "statusLine: {0}": {
+    "en": "statusLine: {0}",
+    "de": "statusLine: {0}",
+    "es": "statusLine: {0}",
+    "fr": "statusLine : {0}",
+    "zh-Hans": "statusLine：{0}"
+  },
+  "События: {0}": {
+    "en": "Events: {0}",
+    "de": "Ereignisse: {0}",
+    "es": "Eventos: {0}",
+    "fr": "Événements : {0}",
+    "zh-Hans": "事件：{0}"
+  },
+  "Повторите действие, чтобы завершить настройку. Остальные настройки клиента сохранятся.": {
+    "en": "Try the action again to finish setup. The client's other settings will be preserved.",
+    "de": "Wiederholen Sie den Vorgang, um die Einrichtung abzuschließen. Die übrigen Einstellungen des Clients bleiben erhalten.",
+    "es": "Repite la acción para completar la configuración. Se conservarán los demás ajustes del cliente.",
+    "fr": "Répétez l’action pour terminer la configuration. Les autres réglages du client seront conservés.",
+    "zh-Hans": "请重试该操作以完成配置。客户端的其他设置将保持不变。"
+  },
+  "Оформление значка": {
+    "de": "Symbolgestaltung",
+    "en": "Icon appearance",
+    "es": "Apariencia del icono",
+    "fr": "Apparence de l’icône",
+    "zh-Hans": "图标外观"
+  },
+  "Действия: {0}": {
+    "de": "Aktionen: {0}",
+    "en": "Actions: {0}",
+    "es": "Acciones: {0}",
+    "fr": "Actions : {0}",
+    "zh-Hans": "操作：{0}"
+  },
+  "Удалить из Lunavect: {0}": {
+    "de": "Aus Lunavect entfernen: {0}",
+    "en": "Remove from Lunavect: {0}",
+    "es": "Eliminar de Lunavect: {0}",
+    "fr": "Retirer de Lunavect : {0}",
+    "zh-Hans": "从 Lunavect 移除：{0}"
+  },
+  "Формат ответа клиента пока не поддерживается. Сохранённые данные остаются на месте.": {
+    "en": "The client's response format is not supported yet. Saved data is preserved.",
+    "de": "Das Antwortformat des Clients wird noch nicht unterstützt. Gespeicherte Daten bleiben erhalten.",
+    "es": "El formato de respuesta del cliente aún no es compatible. Se conservan los datos guardados.",
+    "fr": "Le format de réponse du client n’est pas encore pris en charge. Les données enregistrées sont conservées.",
+    "zh-Hans": "暂不支持客户端的响应格式。已保存的数据将予以保留。"
+  },
+  "Клиент не поддерживает нужную операцию. Проверьте его версию и официальную инструкцию.": {
+    "en": "The client does not support the required operation. Check its version and official documentation.",
+    "de": "Der Client unterstützt die erforderliche Aktion nicht. Prüfen Sie seine Version und die offizielle Anleitung.",
+    "es": "El cliente no admite la operación necesaria. Comprueba su versión y consulta la documentación oficial.",
+    "fr": "Le client ne prend pas en charge l’opération requise. Vérifiez sa version et consultez la documentation officielle.",
+    "zh-Hans": "客户端不支持所需操作。请检查其版本并查阅官方文档。"
+  },
+  "Официальный клиент не найден.": {
+    "en": "The official client was not found.",
+    "de": "Der offizielle Client wurde nicht gefunden.",
+    "es": "No se ha encontrado el cliente oficial.",
+    "fr": "Le client officiel est introuvable.",
+    "zh-Hans": "未找到官方客户端。"
+  },
+  "Клиент по выбранному пути недоступен. Выберите исполняемый файл заново.": {
+    "en": "The client is unavailable at the selected path. Select the executable again.",
+    "de": "Der Client ist unter dem ausgewählten Pfad nicht verfügbar. Wählen Sie die ausführbare Datei erneut aus.",
+    "es": "El cliente no está disponible en la ruta seleccionada. Vuelve a seleccionar el archivo ejecutable.",
+    "fr": "Le client n’est pas disponible à l’emplacement sélectionné. Sélectionnez à nouveau le fichier exécutable.",
+    "zh-Hans": "所选路径下的客户端不可用。请重新选择可执行文件。"
+  },
+  "Клиент не ответил вовремя. Повторите проверку.": {
+    "en": "The client did not respond in time. Check again.",
+    "de": "Der Client hat nicht rechtzeitig geantwortet. Wiederholen Sie die Prüfung.",
+    "es": "El cliente no ha respondido a tiempo. Repite la comprobación.",
+    "fr": "Le client n’a pas répondu à temps. Relancez la vérification.",
+    "zh-Hans": "客户端未及时响应。请重新检查。"
+  },
+  "Войдите в официальный клиент и повторите проверку.": {
+    "en": "Sign in to the official client and check again.",
+    "de": "Melden Sie sich im offiziellen Client an und wiederholen Sie die Prüfung.",
+    "es": "Inicia sesión en el cliente oficial y repite la comprobación.",
+    "fr": "Connectez-vous au client officiel et relancez la vérification.",
+    "zh-Hans": "请登录官方客户端，然后重新检查。"
+  },
+  "Завершите первый запуск в официальном клиенте и повторите проверку.": {
+    "en": "Complete the initial setup in the official client and check again.",
+    "de": "Schließen Sie die Ersteinrichtung im offiziellen Client ab und wiederholen Sie die Prüfung.",
+    "es": "Completa la configuración inicial en el cliente oficial y repite la comprobación.",
+    "fr": "Terminez la configuration initiale dans le client officiel et relancez la vérification.",
+    "zh-Hans": "请在官方客户端中完成首次设置，然后重新检查。"
+  },
+  "Клиент пока не передал эти данные.": {
+    "en": "The client has not provided this data yet.",
+    "de": "Der Client hat diese Daten noch nicht übermittelt.",
+    "es": "El cliente aún no ha enviado estos datos.",
+    "fr": "Le client n’a pas encore transmis ces données.",
+    "zh-Hans": "客户端尚未提供这些数据。"
+  },
+  "Сохранённые данные устарели. Повторите проверку.": {
+    "en": "Saved data is out of date. Check again.",
+    "de": "Die gespeicherten Daten sind veraltet. Wiederholen Sie die Prüfung.",
+    "es": "Los datos guardados están desactualizados. Repite la comprobación.",
+    "fr": "Les données enregistrées sont obsolètes. Relancez la vérification.",
+    "zh-Hans": "已保存的数据已过时。请重新检查。"
+  },
+  "Источник временно недоступен. Сохранённые данные остаются на месте.": {
+    "en": "The source is temporarily unavailable. Saved data is preserved.",
+    "de": "Die Quelle ist vorübergehend nicht verfügbar. Gespeicherte Daten bleiben erhalten.",
+    "es": "La fuente no está disponible temporalmente. Se conservan los datos guardados.",
+    "fr": "La source est temporairement indisponible. Les données enregistrées sont conservées.",
+    "zh-Hans": "数据源暂时不可用。已保存的数据将予以保留。"
+  },
+  "Открыть инструкцию клиента": {
+    "en": "Open client documentation",
+    "de": "Client-Anleitung öffnen",
+    "es": "Abrir la documentación del cliente",
+    "fr": "Ouvrir la documentation du client",
+    "zh-Hans": "打开客户端文档"
+  },
+  "Выбрать клиент": {
+    "en": "Choose client",
+    "de": "Client auswählen",
+    "es": "Elegir cliente",
+    "fr": "Choisir un client",
+    "zh-Hans": "选择客户端"
+  },
+  "Формат ответа клиента пока не поддерживается": {
+    "en": "Client response format not yet supported",
+    "de": "Antwortformat des Clients noch nicht unterstützt",
+    "es": "Formato de respuesta del cliente aún no compatible",
+    "fr": "Format de réponse du client pas encore pris en charge",
+    "zh-Hans": "暂不支持客户端的响应格式"
+  },
+  "Операция недоступна в этом клиенте": {
+    "en": "Operation unavailable in this client",
+    "de": "Aktion in diesem Client nicht verfügbar",
+    "es": "Operación no disponible en este cliente",
+    "fr": "Opération indisponible dans ce client",
+    "zh-Hans": "此客户端不支持该操作"
+  },
+  "Выбранный клиент недоступен": {
+    "en": "Selected client unavailable",
+    "de": "Ausgewählter Client nicht verfügbar",
+    "es": "Cliente seleccionado no disponible",
+    "fr": "Client sélectionné indisponible",
+    "zh-Hans": "所选客户端不可用"
+  },
+  "Проверьте обновления официального клиента и Lunavect. До поддержки этого формата сохранённые данные остаются на месте; повторный вход не требуется.": {
+    "en": "Check for updates to the official client and Lunavect. While this format is unsupported, saved data is preserved; you do not need to sign in again.",
+    "de": "Prüfen Sie, ob Updates für den offiziellen Client und Lunavect verfügbar sind. Solange dieses Format nicht unterstützt wird, bleiben gespeicherte Daten erhalten; eine erneute Anmeldung ist nicht erforderlich.",
+    "es": "Busca actualizaciones del cliente oficial y de Lunavect. Mientras este formato no sea compatible, se conservarán los datos guardados; no es necesario volver a iniciar sesión.",
+    "fr": "Recherchez des mises à jour du client officiel et de Lunavect. Tant que ce format n’est pas pris en charge, les données enregistrées sont conservées ; vous n’avez pas besoin de vous reconnecter.",
+    "zh-Hans": "请检查官方客户端和 Lunavect 是否有更新。在支持此格式前，已保存的数据将保持不变；无需重新登录。"
+  },
+  "Проверьте выбранный путь в «Подключениях». Другой клиент не будет подставлен автоматически.": {
+    "en": "Check the selected path in Connections. A different client will not be used automatically.",
+    "de": "Prüfen Sie den ausgewählten Pfad unter „Verbindungen“. Es wird nicht automatisch auf einen anderen Client ausgewichen.",
+    "es": "Comprueba la ruta seleccionada en Conexiones. No se usará otro cliente automáticamente.",
+    "fr": "Vérifiez l’emplacement sélectionné dans Connexions. Aucun autre client ne sera utilisé automatiquement.",
+    "zh-Hans": "请在“连接”中检查所选路径。不会自动改用其他客户端。"
+  },
+  "{0} мин": {
+    "en": "{0} min",
+    "de": "{0} Min.",
+    "es": "{0} min",
+    "fr": "{0} min",
+    "zh-Hans": "{0}分钟"
+  },
+  "{0} д": {
+    "en": "{0} d",
+    "de": "{0} T.",
+    "es": "{0} d",
+    "fr": "{0} j",
+    "zh-Hans": "{0}天"
+  },
+  "< 1 мин": {
+    "en": "< 1 min",
+    "de": "< 1 Min.",
+    "es": "< 1 min",
+    "fr": "< 1 min",
+    "zh-Hans": "< 1分钟"
+  },
+  "Скрыть": {
+    "en": "Hide",
+    "de": "Ausblenden",
+    "es": "Ocultar",
+    "fr": "Masquer",
+    "zh-Hans": "隐藏"
+  },
+  "Скрыть в Lunavect": {
+    "en": "Hide in Lunavect",
+    "de": "In Lunavect ausblenden",
+    "es": "Ocultar en Lunavect",
+    "fr": "Masquer dans Lunavect",
+    "zh-Hans": "在 Lunavect 中隐藏"
+  },
+  "Скрыто: {0}": {
+    "en": "Hidden: {0}",
+    "de": "Ausgeblendet: {0}",
+    "es": "Oculta: {0}",
+    "fr": "Masquée : {0}",
+    "zh-Hans": "已隐藏：{0}"
+  },
+  "В ожидании: {0}": {
+    "en": "Awaiting input: {0}",
+    "de": "Warten auf Eingabe: {0}",
+    "es": "En espera: {0}",
+    "fr": "En attente : {0}",
+    "zh-Hans": "等待回复：{0}"
+  },
+  "Закрыть сообщение": {
+    "en": "Dismiss message",
+    "de": "Meldung schließen",
+    "es": "Cerrar mensaje",
+    "fr": "Fermer le message",
+    "zh-Hans": "关闭消息"
+  },
+  "Сессия больше не активна или скрыта. Проверьте скрытые сессии внизу панели.": {
+    "en": "This session is no longer active or is hidden. Check hidden sessions at the bottom of the panel.",
+    "de": "Diese Sitzung ist nicht mehr aktiv oder ausgeblendet. Prüfen Sie die ausgeblendeten Sitzungen unten im Panel.",
+    "es": "Esta sesión ya no está activa o está oculta. Revisa las sesiones ocultas al final del panel.",
+    "fr": "Cette session n’est plus active ou est masquée. Consultez les sessions masquées en bas du panneau.",
+    "zh-Hans": "此会话已不再活跃或已隐藏。请查看面板底部的隐藏会话。"
+  },
+  "Нет записей за выбранный период": {
+    "en": "No records for the selected period",
+    "de": "Keine Aufzeichnungen für den gewählten Zeitraum",
+    "es": "No hay registros del período seleccionado",
+    "fr": "Aucune donnée pour la période sélectionnée",
+    "zh-Hans": "所选时段没有记录"
+  },
+  "Проверьте условия остановки ниже. Повторное включение доступно после изменения условий.": {
+    "en": "Check the stop conditions below. You can turn the mode on again when conditions change.",
+    "de": "Prüfen Sie die Abschaltbedingungen unten. Nach einer Änderung der Bedingungen können Sie den Modus wieder einschalten.",
+    "es": "Revisa las condiciones de detención abajo. Podrás activar el modo cuando cambien las condiciones.",
+    "fr": "Consultez les conditions d’arrêt ci-dessous. Vous pourrez réactiver le mode lorsque les conditions auront changé.",
+    "zh-Hans": "请检查下方的停止条件。条件改变后可重新开启此模式。"
+  },
+  "День — по часам, неделя — последние 7 дней, месяц — последние 30 дней. Пик считается в текущем часовом поясе. Линия соединяет известные точки; между ними значения без записей остаются неизвестными.": {
+    "en": "Day shows hours, week the last 7 days, and month the last 30 days. Peak time uses the current time zone. The line connects recorded points; values without records between them remain unknown.",
+    "de": "Tag zeigt Stunden, Woche die letzten 7 Tage und Monat die letzten 30 Tage. Die Spitzenzeit gilt in der aktuellen Zeitzone. Die Linie verbindet bekannte Punkte; Werte ohne Aufzeichnungen dazwischen bleiben unbekannt.",
+    "es": "Día muestra horas, semana los últimos 7 días y mes los últimos 30. El pico usa la zona horaria actual. La línea conecta puntos registrados; los valores sin registros entre ellos siguen siendo desconocidos.",
+    "fr": "Jour affiche les heures, semaine les 7 derniers jours et mois les 30 derniers jours. Le pic suit le fuseau horaire actuel. La ligne relie les points connus ; les valeurs sans données entre eux restent inconnues.",
+    "zh-Hans": "日视图按小时显示，周视图显示最近 7 天，月视图显示最近 30 天。峰值按当前时区计算。曲线连接已知数据点；点之间没有记录的数值仍为未知。"
+  },
+  "Язык и тема станут системными. Сбросятся оформление строки меню и виджетов, уведомления и звук, сочетание клавиш, автозапуск, автоскрытие сессий и настройки обновлений. Keep Awake выключится, его параметры и ожидание разрешения сбросятся. Подключения, история, скрытые сессии, их порядок и даты подписок сохранятся.": {
+    "en": "Language and theme will follow the system. Menu bar and widget appearance, notifications and sound, the shortcut, launch at login, session auto-hide and update preferences will reset. Keep Awake will stop, and its settings and pending permission request will reset. Connections, history, hidden sessions, their order and subscription dates will be kept.",
+    "de": "Sprache und Design folgen wieder dem System. Menüleisten- und Widget-Darstellung, Mitteilungen und Ton, Tastenkürzel, Anmeldestart, automatisches Ausblenden und Update-Einstellungen werden zurückgesetzt. Keep Awake wird beendet; seine Einstellungen und die ausstehende Berechtigungsanfrage werden zurückgesetzt. Verbindungen, Verlauf, ausgeblendete Sitzungen, deren Reihenfolge und Abonnementdaten bleiben erhalten.",
+    "es": "El idioma y el tema seguirán al sistema. Se restablecerán el aspecto de la barra de menús y los widgets, notificaciones y sonido, atajo, inicio de sesión, ocultación automática y actualizaciones. Keep Awake se detendrá y se restablecerán sus ajustes y la solicitud de permiso pendiente. Se conservarán conexiones, historial, sesiones ocultas, su orden y fechas de suscripción.",
+    "fr": "La langue et le thème suivront le système. L’apparence de la barre des menus et des widgets, les notifications et le son, le raccourci, le lancement à la connexion, le masquage automatique et les mises à jour seront réinitialisés. Keep Awake s’arrêtera ; ses réglages et sa demande d’autorisation en attente seront réinitialisés. Connexions, historique, sessions masquées, leur ordre et dates d’abonnement seront conservés.",
+    "zh-Hans": "语言和主题将跟随系统。菜单栏和小组件外观、通知和声音、快捷键、登录时启动、自动隐藏会话和更新偏好将重置。Keep Awake 将停止，其设置和待处理的权限请求将重置。连接、历史记录、隐藏会话及其顺序和订阅日期将保留。"
+  },
+  "События {0} отключены. Сохранённые данные остались в Lunavect.": {
+    "en": "{0} events are disconnected. Saved data remains in Lunavect.",
+    "de": "Ereignisse von {0} sind getrennt. Gespeicherte Daten bleiben in Lunavect.",
+    "es": "Se desconectaron los eventos de {0}. Los datos guardados siguen en Lunavect.",
+    "fr": "Les événements de {0} sont déconnectés. Les données enregistrées restent dans Lunavect.",
+    "zh-Hans": "已断开 {0} 事件。已保存的数据仍保留在 Lunavect 中。"
+  },
+  "{0} отключён в Lunavect. Сохранённые данные остались, остальные настройки клиента не изменены.": {
+    "en": "{0} is disconnected in Lunavect. Saved data remains, and other client settings are unchanged.",
+    "de": "{0} ist in Lunavect getrennt. Gespeicherte Daten bleiben erhalten; andere Client-Einstellungen sind unverändert.",
+    "es": "{0} está desconectado en Lunavect. Se conservan los datos guardados y los demás ajustes del cliente.",
+    "fr": "{0} est déconnecté dans Lunavect. Les données enregistrées et les autres réglages du client sont conservés.",
+    "zh-Hans": "已在 Lunavect 中断开 {0}。已保存的数据仍保留，客户端的其他设置未更改。"
+  },
+  "Подключить снова": {
+    "en": "Reconnect",
+    "de": "Erneut verbinden",
+    "es": "Volver a conectar",
+    "fr": "Reconnecter",
+    "zh-Hans": "重新连接"
+  },
+  "Оба индикатора выключены. Включите лимиты или статус сессий здесь, чтобы вернуть значок в строку меню.": {
+    "en": "Both indicators are off. Enable limits or session status here to restore a menu bar icon.",
+    "de": "Beide Anzeigen sind ausgeschaltet. Aktivieren Sie hier Limits oder Sitzungsstatus, um ein Symbol in der Menüleiste wiederherzustellen.",
+    "es": "Ambos indicadores están desactivados. Activa aquí los límites o el estado de sesiones para recuperar un icono en la barra de menús.",
+    "fr": "Les deux indicateurs sont désactivés. Activez ici les limites ou le statut des sessions pour rétablir une icône dans la barre des menus.",
+    "zh-Hans": "两个指示器均已关闭。在此开启限额或会话状态即可恢复菜单栏图标。"
+  },
+  "Не удалось получить доступ к локальным данным. Проверьте права доступа и запустите Lunavect снова.": {
+    "en": "Could not access local data. Check access permissions and launch Lunavect again.",
+    "de": "Auf lokale Daten konnte nicht zugegriffen werden. Prüfen Sie die Zugriffsrechte und starten Sie Lunavect erneut.",
+    "es": "No se pudo acceder a los datos locales. Revisa los permisos y vuelve a abrir Lunavect.",
+    "fr": "Impossible d’accéder aux données locales. Vérifiez les autorisations d’accès et relancez Lunavect.",
+    "zh-Hans": "无法访问本地数据。请检查访问权限并重新启动 Lunavect。"
+  },
+  "Сессия может быть открыта в терминале. Вернитесь в исходное окно. Через «…» можно открыть папку проекта или скопировать ID сессии.": {
+    "en": "This session may be open in a terminal. Return to its original window. Use “…” to open the project folder or copy the session ID.",
+    "de": "Diese Sitzung ist möglicherweise in einem Terminal geöffnet. Kehren Sie zum ursprünglichen Fenster zurück. Über „…“ können Sie den Projektordner öffnen oder die Sitzungs-ID kopieren.",
+    "es": "Esta sesión puede estar abierta en un terminal. Vuelve a la ventana original. Usa «…» para abrir la carpeta del proyecto o copiar el ID de sesión.",
+    "fr": "Cette session est peut-être ouverte dans un terminal. Revenez à sa fenêtre d’origine. Utilisez « … » pour ouvrir le dossier du projet ou copier l’ID de session.",
+    "zh-Hans": "此会话可能已在终端中打开。请返回原来的窗口。通过“…”可打开项目文件夹或复制会话 ID。"
+  },
+  "Каталог сессий получен не полностью": {
+    "en": "Session catalog is incomplete",
+    "de": "Sitzungskatalog ist unvollständig",
+    "es": "El catálogo de sesiones está incompleto",
+    "fr": "Le catalogue des sessions est incomplet",
+    "zh-Hans": "会话目录不完整"
+  },
+  "Известные сессии сохранены. Обновите каталог, чтобы получить остальные сессии и их свежий статус.": {
+    "en": "Known sessions have been kept. Refresh the catalog to retrieve the remaining sessions and their current status.",
+    "de": "Bekannte Sitzungen bleiben erhalten. Aktualisieren Sie den Katalog, um die übrigen Sitzungen und ihren aktuellen Status abzurufen.",
+    "es": "Se conservaron las sesiones conocidas. Actualiza el catálogo para obtener las demás sesiones y su estado actual.",
+    "fr": "Les sessions connues sont conservées. Actualisez le catalogue pour récupérer les autres sessions et leur statut actuel.",
+    "zh-Hans": "已保留已知会话。请刷新目录以获取其余会话及其最新状态。"
+  },
+  "Не удалось прочитать список скрытых сессий. Проверьте доступ к файлу и повторите действие.": {
+    "en": "Could not read hidden sessions. Check file access and try again.",
+    "de": "Ausgeblendete Sitzungen konnten nicht gelesen werden. Prüfen Sie den Dateizugriff und versuchen Sie es erneut.",
+    "es": "No se pudieron leer las sesiones ocultas. Revisa el acceso al archivo e inténtalo de nuevo.",
+    "fr": "Impossible de lire les sessions masquées. Vérifiez l’accès au fichier et réessayez.",
+    "zh-Hans": "无法读取隐藏会话列表。请检查文件访问权限后重试。"
+  },
+  "Клавиша {0}": {
+    "en": "Key {0}",
+    "de": "Taste {0}",
+    "es": "Tecla {0}",
+    "fr": "Touche {0}",
+    "zh-Hans": "按键 {0}"
+  },
+  "Прозрачность подложки": {
+    "en": "Backdrop transparency",
+    "de": "Transparenz der Hintergrundfläche",
+    "es": "Transparencia del fondo",
+    "fr": "Transparence du fond",
+    "zh-Hans": "背景透明度"
+  },
+  "Меняет плотность тёмного фона. macOS и настройки доступности могут сделать его непрозрачным.": {
+    "en": "Adjusts the density of the dark background. macOS and accessibility settings may make it opaque.",
+    "de": "Ändert die Dichte des dunklen Hintergrunds. macOS und Bedienungshilfen können ihn undurchsichtig machen.",
+    "es": "Ajusta la densidad del fondo oscuro. macOS y los ajustes de accesibilidad pueden hacerlo opaco.",
+    "fr": "Règle la densité du fond sombre. macOS et les réglages d’accessibilité peuvent le rendre opaque.",
+    "zh-Hans": "调整深色背景的浓度。macOS 和辅助功能设置可能使其不透明。"
+  },
+  "Ещё ниже: {0}": {
+    "en": "{0} more below",
+    "de": "Weiter unten: {0}",
+    "es": "Más abajo: {0}",
+    "fr": "Plus bas : {0}",
+    "zh-Hans": "下方还有 {0} 个"
+  },
+  "Выше: {0}": {
+    "en": "Above: {0}",
+    "de": "Weiter oben: {0}",
+    "es": "Más arriba: {0}",
+    "fr": "Plus haut : {0}",
+    "zh-Hans": "上方还有 {0} 个"
+  },
+  "Показать следующие сессии": {
+    "en": "Show the next sessions",
+    "de": "Nächste Sitzungen anzeigen",
+    "es": "Mostrar las sesiones siguientes",
+    "fr": "Afficher les sessions suivantes",
+    "zh-Hans": "显示后面的会话"
+  },
+  "Показать предыдущие сессии": {
+    "en": "Show the previous sessions",
+    "de": "Vorherige Sitzungen anzeigen",
+    "es": "Mostrar las sesiones anteriores",
+    "fr": "Afficher les sessions précédentes",
+    "zh-Hans": "显示前面的会话"
+  },
+  "0% — плотная подложка, 100% — без подложки. Стеклянный эффект задаёт macOS; настройки доступности могут сделать фон непрозрачным.": {
+    "en": "0% is a solid backdrop; 100% removes it. macOS controls the glass effect; accessibility settings may make the background opaque.",
+    "de": "0 % bedeutet eine deckende Fläche, 100 % blendet sie aus. macOS steuert den Glaseffekt; Bedienungshilfen können den Hintergrund undurchsichtig machen.",
+    "es": "0 % muestra un fondo sólido; 100 % lo elimina. macOS controla el efecto de cristal; los ajustes de accesibilidad pueden hacer el fondo opaco.",
+    "fr": "0 % affiche un fond plein ; 100 % le retire. macOS gère l’effet de verre ; les réglages d’accessibilité peuvent rendre le fond opaque.",
+    "zh-Hans": "0% 为实色底层，100% 隐藏底层。玻璃效果由 macOS 控制；辅助功能设置可能使背景不透明。"
+  },
+  "Стеклянный фон": {
+    "en": "Glass background",
+    "de": "Glashintergrund",
+    "es": "Fondo de cristal",
+    "fr": "Fond en verre",
+    "zh-Hans": "玻璃背景"
+  },
+  "0% — плотная подложка, 100% — только системное стекло. Размытие и оттенок фона подстраиваются под обои и настройки macOS.": {
+    "en": "0% is a solid backdrop; 100% leaves only system glass. Blur and tint adapt to your wallpaper and macOS settings.",
+    "de": "0 % bedeutet eine deckende Fläche, 100 % zeigt nur das Systemglas. Unschärfe und Farbton passen sich an das Hintergrundbild und die macOS-Einstellungen an.",
+    "es": "0 % muestra un fondo sólido; 100 % deja solo el cristal del sistema. El desenfoque y el tono se adaptan al fondo de pantalla y a los ajustes de macOS.",
+    "fr": "0 % affiche un fond plein ; 100 % ne garde que le verre du système. Le flou et la teinte s’adaptent au fond d’écran et aux réglages de macOS.",
+    "zh-Hans": "0% 为实色底层，100% 仅保留系统玻璃效果。模糊和色调随墙纸及 macOS 设置调整。"
   }
 }

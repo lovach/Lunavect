@@ -57,7 +57,11 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
         XCTAssertNil(features.waitingPermission); XCTAssertEqual(returns, 1)
     }
     @MainActor func testOfflineCacheSurvivesAndNetworkRestorationRefreshesOnce() async throws {
-        let network = NetworkConnection(settle: {})
+        let network = NetworkConnection(settle: {}, makeMonitor: { nil })
+        let suite = "NetworkRecoveryTest." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("/fixture/codex", forKey: "codexPath")
         var preferences = WidgetPreferences(); preferences.enabledProviders = [.codex]
         let old = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: nil), fetchedAt: Date())
         let finished = expectation(description: "Network restored")
@@ -65,13 +69,23 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
         let store = AppStore(state: SharedState(snapshots: [old], preferences: preferences), savesChanges: false, quotaFetcher: { id, _ in
             calls += 1
             return try UsageSnapshot(provider: id, weekly: QuotaWindow(usedPercent: 41, durationMinutes: 10080, resetsAt: nil), fetchedAt: Date())
-        }, network: network)
+        }, network: network, defaults: defaults,
+           dataServices: .init(snapshots: SnapshotPersistence(), activity: ActivityService(isolated: true)))
+        defer { store.stop() }
         store.onNetworkRestored = { restored += 1; finished.fulfill() }
-        network.update(available: false); await store.refresh()
+        await network.onRestored?()
+        XCTAssertEqual(calls, 0, "An unstarted store must not refresh from a network callback")
+        network.update(available: false); store.start(); await store.refresh()
+        // Drain the initial refresh while still offline, so it cannot race recovery.
+        await Task.yield(); await Task.yield()
         XCTAssertEqual(calls, 0); XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 40); XCTAssertNil(store.snapshots.first?.issue)
         network.update(available: true); network.update(available: true)
         await fulfillment(of: [finished], timeout: 2)
         XCTAssertEqual(calls, 1); XCTAssertEqual(restored, 1); XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 41)
+        store.stop()
+        await network.onRestored?()
+        XCTAssertEqual(calls, 1, "A stopped store must ignore a late network callback")
+        XCTAssertEqual(restored, 1)
     }
     @MainActor func testTargetedRetryDoesNotPollAnotherProvider() async {
         var preferences = WidgetPreferences(); preferences.enabledProviders = [.claude, .codex]
@@ -104,6 +118,7 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
     }
     @MainActor func testNativeSimplifiedFlows() async throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_SIMPLIFY"] else { throw XCTSkip("Opt-in native render") }
+        try LegacyRenderIsolation.require()
         _ = NSApplication.shared
         let directory = URL(fileURLWithPath: output); try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let missing = WidgetSetupStatus(fetch: { [] }); await missing.check()
@@ -115,7 +130,7 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
         let client = FakeFeaturePermissions(); client.notifications = .denied
         let suite = "FeaturePermissionRender." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
-        let features = AppFeatures(defaults: defaults, permissionAccess: client)
+        let features = AppFeatures(defaults: defaults, permissionAccess: client, isolated: true)
         await features.setBanners(true)
         try await render(PermissionWaitView(features: features, kind: .notifications).padding(20), width: 570, height: 220, to: directory.appendingPathComponent("permission-wait.png"))
         await features.cancelPermissionWait()
@@ -136,20 +151,30 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
     }
     @MainActor func testNativeReleaseFeatures() async throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_RELEASE"] else { throw XCTSkip("Opt-in native render") }
+        try LegacyRenderIsolation.require()
         _ = NSApplication.shared
         let directory = URL(fileURLWithPath: output)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let sessions = SessionStore(directory: directory.appendingPathComponent("sessions")), store = AppStore()
+        let preview = try LegacyRenderFixture(snapshots: [])
+        defer { preview.stop() }
+        let sessions = preview.environment.sessions, store = preview.environment.store
         store.snapshots = []
         for step in 0..<4 {
-            try await render(WelcomeView(store: store, sessions: sessions, onFinish: {}, step: step), width: 640, height: 620, to: directory.appendingPathComponent("welcome-\(step).png"))
+            try await render(
+                WelcomeView(
+                    store: store, sessions: sessions, onFinish: {}, step: step,
+                    widgetSetup: WidgetSetupStatus(fetch: { [] })), width: 640, height: 620,
+                to: directory.appendingPathComponent("welcome-\(step).png"))
         }
         let diagnostics = ConnectionDiagnostics()
         diagnostics.results = [ConnectionDiagnostic(provider: .claude, clientFound: true, signIn: .signedIn, eventsConfigured: true,
             snapshot: UsageSnapshot(provider: .claude, issue: UsageError.claudeUsageUnavailable.errorDescription), sessionIssue: nil),
             ConnectionDiagnostic(provider: .codex, clientFound: false, signIn: .unavailable, eventsConfigured: false, snapshot: nil, sessionIssue: nil)]
-        try await render(ConnectionDiagnosticsView(store: store, sessions: sessions, diagnostics: diagnostics, onConnect: { _, _ in }), width: 620, height: 640, to: directory.appendingPathComponent("diagnostics.png"))
-        let updates = AppUpdates()
+        try await render(
+            ConnectionDiagnosticsView(
+                store: store, sessions: sessions, diagnostics: diagnostics, onConnect: { _, _ in }), width: 620,
+            height: 640, to: directory.appendingPathComponent("diagnostics.png"))
+        let updates = preview.environment.updates
         try await render(UpdateSettingsView(updates: updates).padding(24), width: 590, height: 400, to: directory.appendingPathComponent("updates-unconfigured.png"))
         updates.phase = .ready("0.2.0"); updates.canCheck = true
         try await render(UpdateNoticeView(updates: updates).padding(12), width: 360, height: 90, to: directory.appendingPathComponent("update-ready-example.png"))

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.1 — 2026-09-13
+
+- Stable session ordering while the panel is open, consistent waiting counts and clearer navigation through long lists.
+- More reliable Codex desktop session discovery and activity recovery, including supported CLI launchers.
+- Compact menu-bar limits with icons and percentages, plus configurable countdowns and provider colors.
+- Widget backdrop transparency from 0–100%, with removable backgrounds and optional native glass material.
+- Clearer activity widgets with full duration values, persistent period context and compact overview limits.
+- More space and intermediate scale labels for the overview chart; manual subscription dates stay in Settings.
+- Empty Claude lifecycle-only launches stay out of session lists until actual task activity starts.
+- Settings that preserve existing choices during upgrades, keep Lunavect in the menu bar and return directly to sessions.
+- Safer data persistence, local history recovery and Keep Awake helper lifecycle, with expanded regression checks.
+
+
 ## 0.1.0 — First public release
 
 - macOS menu-bar session overview for Claude Code and Codex, with one-client or two-client setup.

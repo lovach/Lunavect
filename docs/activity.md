@@ -28,7 +28,9 @@ The peach series represents Claude and the blue series represents Codex. Each po
 
 In **Settings → Statistics**, hover over a point for its values or click to keep it selected. Arrow keys move the selection; Escape or the clear control returns to the period view. Selecting a point also narrows the project breakdown to that hour or day.
 
-Below the chart, the app shows observed and recovered time, provider overlap and available project/session details. Search the breakdown by session, project or provider. Records without a reliable project association remain in the overall total rather than being assigned to a made-up project.
+Below the chart, the app shows observed and recovered time and provider overlap. After the history section, **Projects and sessions** shows a count and opens a separate panel. Search and **Done** stay above the scrolling project list; Escape closes the panel. The number of projects does not increase the height of the main statistics page.
+
+Selecting a chart point narrows the breakdown to that hour or day. **Entire period**, Escape or clicking the selected point again clears selection and focus. Without a selected point, the value summary shows the period total (the current hour in Day view), while the breakdown covers the entire period. Search by session, project or provider. Records without a reliable project association remain in the overall total rather than being assigned to a made-up project.
 
 A missing observation is different from a known zero. The trend may connect known points across an internal gap, but that line does not create measured work in the gap. Leading or trailing unknown intervals are not extended as if observed. Check the history and data-accuracy section for source freshness and recovery details.
 
@@ -48,7 +50,7 @@ Lunavect can recover recent timing records from local client logs, including wor
 
 Recovery uses available timing metadata from Codex session and archived-session logs and Claude project logs. It does not turn every conversation, file timestamp or unfinished task into measured work. Unsupported, inconsistent or incomplete timing records can be skipped. Client formats and the available files determine how much can be recovered.
 
-Recovery runs on initial setup and when an importer update requires it. **Refresh history** retries against the stored import boundary. The history section shows the outcome and any limits; an empty import is not proof that no work happened.
+Recovery runs on initial setup, when a provider is enabled for the first time, and when an importer update requires it. Each provider keeps its own boundary at the start of its observations. **Refresh history** retries against those stored boundaries. The history section shows the outcome and any limits; an empty import is not proof that no work happened.
 
 ## Storage and refresh
 
@@ -56,7 +58,7 @@ Aggregate activity is stored in `activity.json` beside the shared quota snapshot
 
 History is limited to 35 days. Aggregate storage is also capped at 50,000 intervals; detailed storage at 2,000 records and 100,000 intervals. Busy histories can cover less time. Files are written atomically; a corrupt file is preserved rather than silently replaced with empty data.
 
-The app normally saves aggregate activity once a minute and on ordinary quit. A crash can lose the latest unsaved interval. WidgetKit reads saved observations and does not poll the providers itself. macOS decides when a requested widget refresh runs, so a widget may lag behind the app.
+The app normally saves measured activity once a minute, saves continuous idle coverage every five minutes, and saves on state changes and ordinary quit. A crash can lose the latest unsaved interval. Activity widget reload requests are coalesced over fifteen minutes; saving an observation does not require a widget reload. WidgetKit reads saved observations and does not poll the providers itself. macOS decides when a requested widget refresh runs, so a widget may lag behind the app.
 
 Desktop placement and refresh across supported Macs remain separate compatibility checks. See [verification](verification.md) and [Apple's WidgetKit refresh guide](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date).
 

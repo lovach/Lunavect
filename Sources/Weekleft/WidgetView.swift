@@ -23,7 +23,7 @@ struct WeekleftCard: View {
                 Text(L("Недельный остаток")).font(.system(size: 10, weight: .regular))
                 Spacer()
                 if demo { Text(L("Демо")).font(.system(size: 9)) }
-                else if snapshots.contains(where: { $0.issue != nil || ($0.fetchedAt != nil && $0.isStale(now: now)) }) {
+                else if snapshots.contains(where: { $0.issue != nil || ($0.fetchedAt != nil && $0.isStale(window: $0.weekly, now: now)) }) {
                     Image(systemName: "exclamationmark.circle").font(.system(size: 10))
                         .help(L("Некоторые данные не обновились. Откройте настройки для подробностей."))
                 }
@@ -37,8 +37,11 @@ struct WeekleftCard: View {
         .foregroundStyle(.white)
         .overlay {
             if drawsOutline {
-                RoundedRectangle(cornerRadius: 26).stroke(LinearGradient(colors: [.white.opacity(0.3), .white.opacity(0.08), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.7)
-            }
+                    RoundedRectangle(cornerRadius: 26).stroke(
+                        LinearGradient(
+                            colors: [.white.opacity(0.3), .white.opacity(0.08), .clear], startPoint: .topLeading,
+                            endPoint: .bottomTrailing), lineWidth: 0.7)
+                }
         }
         .contentShape(RoundedRectangle(cornerRadius: 26))
     }
@@ -55,13 +58,6 @@ struct WeekleftCard: View {
             VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
                     Text(id.title).font(.system(size: 12, weight: .semibold))
-                    if let date = preferences.subscriptionDates[id.rawValue], !date.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "calendar").font(.system(size: 9))
-                            Text(L("до ") + displayDate(date)).font(.system(size: 9)).fixedSize()
-                        }.foregroundStyle(.white.opacity(0.78)).padding(.leading, 6)
-                            .help(L("Срок подписки указан вручную: {0}", date))
-                    }
                     Spacer(minLength: 6)
                     if let weekly {
                         HStack(spacing: 4) {
@@ -74,27 +70,27 @@ struct WeekleftCard: View {
                     HStack(alignment: .firstTextBaseline, spacing: 1) {
                         Text(weekly.map { String(Int($0.remaining.rounded())) } ?? "—").font(.system(size: 25, weight: .semibold)).monospacedDigit()
                         if weekly != nil { Text("%").font(.system(size: 12)) }
-                    }
+                    }.opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.6 : 1)
                 }.frame(height: 23).lineLimit(1)
-                bar(weekly, accent: accent, height: 5).padding(.top, 7)
-                HStack(spacing: 7) {
+                bar(weekly, accent: accent, height: 5).opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.5 : 1).padding(.top, 7)
+                HStack(spacing: 6) {
+                    if weekly == nil || snapshot.isStale(window: snapshot.weekly, now: now) {
+                        Text(widgetQuotaStatus(snapshot, now: now)).font(.system(size: 9))
+                            .foregroundStyle(.white.opacity(0.78)).lineLimit(1).minimumScaleFactor(0.8)
+                    }
                     if preferences.showFiveHour {
-                        Text(L("5 ч")).font(.system(size: 10)).foregroundStyle(.white.opacity(0.8))
-                        bar(fiveHour, accent: accent, height: 2).frame(width: 43)
-                        Text(fiveHour.map { "\(Int($0.remaining.rounded()))%" } ?? "—").font(.system(size: 10)).monospacedDigit()
-                    } else if weekly == nil {
-                        Text(snapshot.fetchedAt == nil ? L("Подключите в настройках") : L("Недельный лимит недоступен")).font(.system(size: 9)).foregroundStyle(.white.opacity(0.7))
+                        Text(L("5 ч") + " · " + (fiveHour.map { "\(Int($0.remaining.rounded()))%" } ?? "—"))
+                            .font(.system(size: 9)).monospacedDigit().foregroundStyle(.white.opacity(0.78)).fixedSize()
                     }
                     Spacer(minLength: 0)
-                    if !demo, snapshot.isStale(now: now), let fetched = snapshot.fetchedAt {
-                        Text(L("Данные: {0}", fetched.formatted(Calendar.current.isDate(fetched, inSameDayAs: now) ? .dateTime.hour().minute().locale(L10n.locale) : .dateTime.day().month(.twoDigits).hour().minute().locale(L10n.locale))))
-                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
-                            .help(L("Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."))
+                    if !demo, snapshot.isStale(window: snapshot.weekly, now: now), let fetched = snapshot.fetchedAt {
+                        Text(widgetQuotaDate(fetched, now: now)).font(.system(size: 9)).foregroundStyle(.white.opacity(0.65)).fixedSize()
                     }
                 }.frame(height: 14).padding(.top, 6)
-                    .help(fiveHour.map { L("5-часовой лимит: сброс ") + resetDescription($0) } ?? L("Источник не предоставил 5-часовой лимит"))
+                    .help(widgetQuotaExplanation(snapshot, now: now))
             }
         }.frame(height: 55).accessibilityElement(children: .contain)
+            .accessibilityValue(widgetQuotaExplanation(snapshot, now: now))
     }
     private func bar(_ window: QuotaWindow?, accent: Color, height: CGFloat) -> some View {
         GeometryReader { geometry in
@@ -103,12 +99,6 @@ struct WeekleftCard: View {
                 if let window { Capsule().fill(accent).frame(width: geometry.size.width * window.remaining / 100) }
             }
         }.frame(height: height).accessibilityLabel(L("Осталось")).accessibilityValue(window.map { L("{0} процентов", String(Int($0.remaining.rounded()))) } ?? L("Нет данных"))
-    }
-    private func displayDate(_ iso: String) -> String {
-        let parser = DateFormatter(); parser.locale = Locale(identifier: "en_US_POSIX"); parser.dateFormat = "yyyy-MM-dd"
-        guard let date = parser.date(from: iso) else { return "—" }
-        let formatter = DateFormatter(); formatter.locale = L10n.locale; formatter.setLocalizedDateFormatFromTemplate("MMdd")
-        return formatter.string(from: date)
     }
     private func resetDescription(_ window: QuotaWindow) -> String {
         guard let date = window.resetsAt else { return L("время неизвестно") }
@@ -136,12 +126,8 @@ struct SingleProviderLimitsCard: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(snapshot.provider.title).font(.system(size: compact ? 13 : 15, weight: .semibold))
-                if !compact, let date = preferences.subscriptionDates[snapshot.provider.rawValue] {
-                    Text(L("до ") + subscriptionDate(date)).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-                        .help(L("Срок подписки указан вручную: {0}", date))
-                }
                 Spacer(minLength: 4)
-                if snapshot.issue != nil || (snapshot.fetchedAt != nil && snapshot.isStale(now: now)) {
+                if snapshot.issue != nil || (snapshot.fetchedAt != nil && snapshot.isStale(window: snapshot.weekly, now: now)) {
                     Image(systemName: "exclamationmark.circle").font(.system(size: 10)).foregroundStyle(.secondary)
                 }
                 ProviderLogo(id: snapshot.provider).foregroundStyle(activityAccent(snapshot.provider)).scaleEffect(0.75).frame(width: 24, height: 24)
@@ -149,6 +135,7 @@ struct SingleProviderLimitsCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(weekly.map { "\(Int($0.remaining.rounded()))%" } ?? "—")
                     .font(.system(size: compact ? 28 : 36, weight: .semibold)).monospacedDigit()
+                    .opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.6 : 1)
                 if !compact { Text(L("Недельный остаток")).font(.system(size: 11)).foregroundStyle(.secondary) }
             }.lineLimit(1).minimumScaleFactor(0.8)
             if compact { Text(L("Недельный остаток")).font(.system(size: 9)).foregroundStyle(.secondary) }
@@ -157,7 +144,7 @@ struct SingleProviderLimitsCard: View {
                     Capsule().fill(.white.opacity(0.12))
                     if let weekly { Capsule().fill(activityAccent(snapshot.provider)).frame(width: geometry.size.width * weekly.remaining / 100) }
                 }
-            }.frame(height: 5).accessibilityLabel(L("Осталось"))
+            }.frame(height: 5).opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.5 : 1).accessibilityLabel(L("Осталось"))
                 .accessibilityValue(weekly.map { L("{0} процентов", String(Int($0.remaining.rounded()))) } ?? L("Нет данных"))
             if preferences.showFiveHour {
                 HStack {
@@ -167,19 +154,24 @@ struct SingleProviderLimitsCard: View {
                 }.font(.system(size: 10)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            Text(weekly.map { L("Сброс через {0}", $0.countdown(now: now)) } ?? L("Ждём лимиты"))
-                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
-            if snapshot.isStale(now: now), let fetched = snapshot.fetchedAt {
-                Text(L("Данные: {0}", fetched.formatted(Calendar.current.isDate(fetched, inSameDayAs: now) ? .dateTime.hour().minute().locale(L10n.locale) : .dateTime.day().month(.twoDigits).hour().minute().locale(L10n.locale))))
-                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+            Text(
+                snapshot.isStale(window: snapshot.weekly, now: now) || weekly == nil
+                    ? widgetQuotaStatus(snapshot, now: now)
+                    : weekly.map { L("Сброс через {0}", $0.countdown(now: now)) } ?? L("Ждём лимиты")
+            )
+            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+            if snapshot.isStale(window: snapshot.weekly, now: now), let fetched = snapshot.fetchedAt {
+                Text(
+                    L(
+                        "Данные: {0}",
+                        fetched.formatted(
+                            Calendar.current.isDate(fetched, inSameDayAs: now)
+                                ? .dateTime.hour().minute().locale(L10n.locale)
+                                : .dateTime.day().month(.twoDigits).hour().minute().locale(L10n.locale)))
+                )
+                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
             }
-        }.padding(14).foregroundStyle(.white)
-    }
-    private func subscriptionDate(_ value: String) -> String {
-        let parser = DateFormatter(); parser.locale = Locale(identifier: "en_US_POSIX"); parser.dateFormat = "yyyy-MM-dd"
-        guard let date = parser.date(from: value) else { return "—" }
-        let formatter = DateFormatter(); formatter.locale = L10n.locale; formatter.setLocalizedDateFormatFromTemplate("MMdd")
-        return formatter.string(from: date)
+        }.padding(14).foregroundStyle(.white).help(widgetQuotaExplanation(snapshot, now: now))
     }
 }
 
@@ -193,7 +185,7 @@ struct ProviderLogo: View {
         }.frame(width: id == .claude ? 29 : 25, height: id == .claude ? 29 : 25)
             .padding(.leading, id == .codex ? 2 : 0).accessibilityHidden(true)
     }
-    private static let images: [ProviderID: NSImage] = Dictionary(uniqueKeysWithValues: ProviderID.allCases.compactMap { id in
+    static let images: [ProviderID: NSImage] = Dictionary(uniqueKeysWithValues: ProviderID.allCases.compactMap { id in
         loadImage(id).map { (id, $0) }
     })
     private static func loadImage(_ id: ProviderID) -> NSImage? {
@@ -216,4 +208,23 @@ struct GlassMaterial: NSViewRepresentable {
         return view
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+/// A compact state label is always visible, including with five-hour values.
+/// The full source and diagnostic remain available to help and accessibility.
+func widgetQuotaStatus(_ snapshot: UsageSnapshot, now: Date) -> String {
+    guard let weekly = snapshot.weekly, !weekly.isExpired(at: now) else {
+        return L(snapshot.fetchedAt == nil ? "Ждём лимиты" : "Недельный лимит недоступен")
+    }
+    return L(snapshot.freshnessVerified ? "Данные устарели" : "Лимиты сохранены")
+}
+func widgetQuotaDate(_ date: Date, now: Date) -> String {
+    date.formatted(Calendar.current.isDate(date, inSameDayAs: now)
+        ? .dateTime.hour().minute().locale(L10n.locale)
+        : .dateTime.day().month(.twoDigits).hour().minute().locale(L10n.locale))
+}
+func widgetQuotaExplanation(_ snapshot: UsageSnapshot, now: Date) -> String {
+    [snapshot.source, snapshot.issue.map { L($0) }, snapshot.fetchedAt.map {
+        L("Данные: {0}", $0.formatted(.dateTime.day().month().year().hour().minute().locale(L10n.locale)))
+    }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
 }

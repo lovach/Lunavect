@@ -55,7 +55,13 @@ final class ReleaseFeaturesTests: XCTestCase {
         let key = Data(repeating: 7, count: 32).base64EncodedString()
         let valid = "https://github.com/example/Lunavect/releases/latest/download/appcast.xml"
         XCTAssertNotNil(ReleaseConfiguration(feed: valid, publicKey: key))
-        for feed in [nil, "", "$(LUNAVECT_UPDATE_FEED_URL)", "http://github.com/example/Lunavect/releases/latest/download/appcast.xml", "https://evil.example/appcast.xml", valid + "?token=abc", valid + "#test", "https://user@github.com/example/Lunavect/releases/latest/download/appcast.xml", "https://github.com/example/Lunavect/releases/latest/download/other.xml"] {
+        for feed in [
+            nil, "", "$(LUNAVECT_UPDATE_FEED_URL)",
+            "http://github.com/example/Lunavect/releases/latest/download/appcast.xml",
+            "https://evil.example/appcast.xml", valid + "?token=abc", valid + "#test",
+            "https://user@github.com/example/Lunavect/releases/latest/download/appcast.xml",
+            "https://github.com/example/Lunavect/releases/latest/download/other.xml",
+        ] {
             XCTAssertNil(ReleaseConfiguration(feed: feed, publicKey: key), feed ?? "nil")
         }
         for badKey in [nil, "", "bad", Data(repeating: 0, count: 31).base64EncodedString()] {

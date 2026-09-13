@@ -63,14 +63,14 @@ final class ClaudeUsageProbeTests: XCTestCase {
         let status = root.appendingPathComponent("quota.json"), usage = root.appendingPathComponent("usage.json")
         let result = try ClaudeUsageText.parse(text, now: now)
         try ClaudeProvider.saveUsage(result, destination: usage)
-        let old = try UsageParser.claude(["seven_day": ["used_percentage": 84, "resets_at": 1_900_000_000]], now: now.addingTimeInterval(-3600))
+        let old = try UsageParser.claude(["seven_day": ["used_percentage": 84, "resets_at": now.addingTimeInterval(3 * 86400).timeIntervalSince1970]], now: now.addingTimeInterval(-3600))
         try JSONEncoder().encode(old).write(to: status)
         XCTAssertEqual(try ClaudeProvider.latest(statusLineURL: status, usageURL: usage, now: now), result)
-        let newer = try UsageParser.claude(["seven_day": ["used_percentage": 86, "resets_at": 1_900_000_000]], now: now.addingTimeInterval(30))
+        let newer = try UsageParser.claude(["seven_day": ["used_percentage": 86, "resets_at": now.addingTimeInterval(3 * 86400).timeIntervalSince1970]], now: now.addingTimeInterval(30))
         try JSONEncoder().encode(newer).write(to: status)
         let combined = try ClaudeProvider.latest(statusLineURL: status, usageURL: usage, now: now.addingTimeInterval(30))
-        XCTAssertEqual(combined.weekly, newer.weekly)
-        XCTAssertEqual(combined.fetchedAt, newer.fetchedAt)
+        XCTAssertEqual(combined.weekly, result.weekly)
+        XCTAssertEqual(combined.fetchedAt, result.fetchedAt)
         XCTAssertEqual(combined.modelQuotas, result.modelQuotas)
         XCTAssertTrue(try XCTUnwrap(combined.modelQuotas?.first).isStale(now: now.addingTimeInterval(901)))
         XCTAssertEqual(try ClaudeProvider.latest(statusLineURL: status, usageURL: usage, now: now.addingTimeInterval(1000)).fetchedAt, newer.fetchedAt)
@@ -95,8 +95,8 @@ final class ClaudeUsageProbeTests: XCTestCase {
         try Data("#!/bin/sh\necho $$ > '\(pidFile.path)'\ntrap '' TERM\nexec /bin/sleep 30\n".utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let started = Date()
-        do { _ = try await ClaudeUsageProbe.fetch(cliPath: executable.path, timeout: 2); XCTFail("A hung command cannot produce quotas") }
-        catch { XCTAssertEqual((error as? UsageError)?.errorDescription, UsageError.claudeUsageUnavailable.errorDescription) }
+        do { _ = try await ClaudeUsageProbe.fetch(cliPath: executable.path, timeout: 2, directory: root.appendingPathComponent("probe")); XCTFail("A hung command cannot produce quotas") }
+        catch { XCTAssertEqual(error as? ClientIntegrationIssue, .init(provider: .claude, capability: .usageProbe, reason: .timedOut)) }
         XCTAssertLessThan(Date().timeIntervalSince(started), 5)
         let pid = try XCTUnwrap(Int32(String(contentsOf: pidFile).trimmingCharacters(in: .whitespacesAndNewlines)))
         XCTAssertEqual(kill(pid, 0), -1)

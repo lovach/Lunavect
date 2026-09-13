@@ -25,11 +25,16 @@ public struct SessionNoticeTracker {
     private var lastPoll: Date?
     public init() {}
     public mutating func update(_ rows: [AgentSession], now: Date = Date()) -> [SessionNotice] {
-        let resumed = lastPoll.map { now.timeIntervalSince($0) > 120 } ?? false
+        let resumed = lastPoll.map { now.timeIntervalSince($0) > 120 || now.timeIntervalSince($0) < -300 } ?? false
         lastPoll = now
         if resumed { seen.removeAll() }
         var result: [SessionNotice] = []
         for row in rows {
+            // Retained task state is neither a live transition nor a baseline
+            // for an alert when the user later reopens that session.
+            guard !(row.catalogHistory == true && [.input, .permission].contains(row.phase)) else {
+                seen.removeValue(forKey: row.id); continue
+            }
             let phase = row.effectivePhase(now: now)
             guard phase != .unknown else {
                 if seen[row.id] != nil { seen[row.id]?.lastSeenAt = now }

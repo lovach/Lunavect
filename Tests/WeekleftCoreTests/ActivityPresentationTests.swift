@@ -40,7 +40,9 @@ final class ActivityPresentationTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1800000000)
         var history = ActivityHistory()
         history.append(start: now.addingTimeInterval(-1800), end: now, providers: 3)
-        let combined = history.summary(now: now, period: .day), claude = history.summary(now: now, period: .day, providers: [.claude]), codex = history.summary(now: now, period: .day, providers: [.codex])
+        let combined = history.summary(now: now, period: .day),
+            claude = history.summary(now: now, period: .day, providers: [.claude]),
+            codex = history.summary(now: now, period: .day, providers: [.codex])
         XCTAssertEqual(combined.totals.active, 1800)
         XCTAssertEqual(claude.totals.active, 1800); XCTAssertEqual(codex.totals.active, 1800)
         XCTAssertEqual(ActivityChartScale.ceiling(3500), 3600)

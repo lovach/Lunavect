@@ -17,7 +17,7 @@ public struct ActivityDetailRecord: Codable, Equatable, Identifiable, Sendable {
         var result = ActivityTotals()
         for span in intervals {
             let seconds = min(range.end, span.end).timeIntervalSince(max(range.start, span.start))
-            if seconds > 0 { result.add(seconds: seconds, providers: span.providers, recovered: span.recovered == true) }
+            if seconds > 0 { result.add(seconds: seconds, providers: span.providers, recovered: span.providers != 0 && span.providers & ~span.recoveredProviderMask == 0) }
         }
         return result
     }
@@ -26,14 +26,17 @@ public struct ActivityDetailRecord: Codable, Equatable, Identifiable, Sendable {
 public struct ActivityDetails: Codable, Equatable, Sendable {
     public private(set) var records: [String: ActivityDetailRecord] = [:]
     public init() {}
-    public mutating func append(_ session: AgentSession, start: Date, end: Date) {
+    public mutating func append(_ session: AgentSession, start: Date, end: Date, reconcilingClockCorrection: Bool = false) {
         guard start < end else { return }
         let incoming = ActivityDetailRecord(provider: session.provider, sessionID: session.sessionID,
                                            title: session.title, cwd: session.cwd)
         var record = records[incoming.id] ?? incoming
-        record.title = incoming.title
+        // An observation without a title must not erase a name recorded earlier.
+        if !incoming.title.isEmpty { record.title = incoming.title }
         let mask = session.provider == .claude ? 1 : 2
-        if let last = record.intervals.last, last.end == start, last.recovered != true {
+        if let last = record.intervals.last, last.end > start, reconcilingClockCorrection {
+            record.intervals = ActivityHistory.union(record.intervals + [ActivityInterval(start: start, end: end, providers: mask, observedProviders: mask)])
+        } else if let last = record.intervals.last, last.end == start, last.recovered != true {
             record.intervals[record.intervals.count - 1].end = end
         } else { record.intervals.append(ActivityInterval(start: start, end: end, providers: mask, observedProviders: mask)) }
         records[record.id] = record
@@ -87,7 +90,9 @@ public struct ActivityDetails: Codable, Equatable, Sendable {
                   record.title.count <= 1000, record.cwd.count <= 4096 else { throw CocoaError(.fileReadCorruptFile) }
             var end = Date.distantPast
             for span in record.intervals {
-                guard span.start >= end, span.end > span.start, span.providers == (record.provider == .claude ? 1 : 2) else { throw CocoaError(.fileReadCorruptFile) }
+                guard span.start >= end, span.end > span.start, span.providers == (record.provider == .claude ? 1 : 2),
+                      span.recoveredProviders.map({ (0...3).contains($0) && ($0 & span.providers) == $0 }) ?? true,
+                      span.liveObservedProviders.map({ (0...3).contains($0) && ($0 & span.knownProviders) == $0 }) ?? true else { throw CocoaError(.fileReadCorruptFile) }
                 end = span.end
             }
         }
@@ -95,6 +100,6 @@ public struct ActivityDetails: Codable, Equatable, Sendable {
     }
     public func save(to url: URL = fileURL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try SessionHooks.secureWrite(JSONEncoder().encode(self), to: url)
+        try LocalStateRecovery.write(JSONEncoder().encode(self), to: url)
     }
 }

@@ -6,6 +6,8 @@ Lunavect uses Sparkle for signed updates distributed through GitHub Releases. Th
 
 Use **Settings → Updates** to check for updates or change automatic checks and downloads. A ready update is shown in the menu bar and session panel. Automatic installation is scheduled for an ordinary app quit; users can also apply it through the updater interface. Lunavect does not terminate Claude or Codex to install its own update.
 
+New profiles enable update checks and leave automatic downloads/installation off. Upgrades retain the previous Sparkle choices, including 0.1.0 profiles that enabled automatic installation at ordinary quit. This difference is intentional preference preservation; installing an update does not reset existing users to the new-profile defaults.
+
 Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](../PRIVACY.md#network-requests).
 
 The [first public release](https://github.com/lovach/Lunavect/releases/tag/v0.1.0) is 0.1.0 (103). Testing an update between two different public versions is still an open item in [verification](verification.md).
@@ -27,14 +29,16 @@ A local build or successful packaging command does not establish public download
 
 Public build configuration is in `Config/Distribution.xcconfig` and `Config/Updates.xcconfig`. Private signing and update keys stay outside the repository.
 
-The following commands show the first release's version and build. For a new release, replace them with the intended version and a higher build number:
+First refresh release tags and download the currently published appcast into a private evidence directory. Review that baseline; the tools do not fetch it automatically. Use a new version/tag and a build and marketing version above every published entry. For example, after replacing these illustrative values with the intended release:
 
 ```sh
-./scripts/distribute.sh archive 0.1.0 103
-./scripts/distribute.sh submit 0.1.0 103
+./scripts/distribute.sh archive 0.1.1 104 /path/to/published-appcast.xml
+./scripts/distribute.sh submit 0.1.1 104
 # After Apple's notarization completes:
-./scripts/distribute.sh export 0.1.0 103
+./scripts/distribute.sh export 0.1.1 104
 ```
+
+Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, and a build or marketing version that does not exceed the supplied appcast. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.
 
 The distribution workflow uses the Apple account configured in Xcode. Export reports when notarization has not yet completed. A completed export contains the app's notarization ticket.
 
@@ -66,7 +70,8 @@ Use the exported, notarized app and a new output directory:
 python3 scripts/package-update.py \
   --app '/path/to/Lunavect.app' \
   --output '/path/to/new-release-assets' \
-  --key-file '/private/location/sparkle.key'
+  --key-file '/private/location/sparkle.key' \
+  --previous-appcast '/path/to/published-appcast.xml'
 ```
 
 The script checks release configuration, codesign, Gatekeeper and the notarization ticket. It creates the ZIP and signed appcast, then checks signatures and the public key in the app. It does not publish files. Do not edit the appcast after signing.
@@ -102,3 +107,28 @@ xcrun stapler validate '/Volumes/Lunavect/Lunavect.app'
 Use the actual mounted volume path. Then check installation, launch, retained settings, fresh client events and allowances. Widget placement and refresh require their own desktop check.
 
 References: [Sparkle setup](https://sparkle-project.org/documentation/), [customization](https://sparkle-project.org/documentation/customization/), [gentle reminders](https://sparkle-project.org/documentation/gentle-reminders/), [publishing](https://sparkle-project.org/documentation/publishing/).
+
+## Keep Awake signing and upgrade policy
+
+`scripts/distribute.sh archive` passes `LUNAVECT_DISTRIBUTION` to both XPC peers. The signing xcconfig itself does not select this policy: it can also be needed for a compatible local Apple Development upgrade with the existing team and App Group. That policy requires the expected bundle identifier, the same signing team, a Developer ID Application certificate and no enabled `com.apple.security.get-task-allow` entitlement. Local Debug **and Release** builds deliberately accept Apple Development from their own team, including local builds that explicitly select `Config/Distribution.xcconfig` to preserve an installed team/App Group. Build configuration names alone do not select the public-distribution policy. Unsigned callers and other teams remain rejected in both policies. Archive and update packaging invoke the embedded helper with `--signing-policy`; this read-only probe exits before root-service initialization and requires `developer-id` for a public candidate. See Apple's [requirement syntax](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/RequirementLang/RequirementLang.html) and [Developer ID requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
+An enabled helper is refreshed at client startup when the recorded build differs, even when Keep Awake is off. This replaces the 0.1.0 daemon definition without waiting for the first lease. Unregistered or approval-pending services remain untouched; startup does not open Settings or acquire a lease. Before unregistering an old helper, startup and reconnect both verify that system sleep has been restored. An interrupted old lease keeps its recovery service registered and records a retryable failure until restoration succeeds. Migration and removal tests use injected ServiceManagement boundaries. A real 0.1.0-to-candidate BTM transition and signed Apple Development/Developer ID interoperability still need an authorized installed-app check.
+
+## Complete removal
+
+Before deleting the app, use its existing controls in this order:
+
+1. In **Settings → Connections**, disconnect Claude and Codex, and resolve any reported cleanup error. This uses the app's ownership-aware cleanup: unrelated hooks/configuration are preserved and the previous Claude status line is restored only where Lunavect still owns it. Do not delete the client configuration files or use a broad search/replace on hook commands.
+2. Disable **Open at login** in Settings. Turn off automatic **Keep Awake while working**, then stop Keep Awake and wait for its inactive state. Quit the ordinary Lunavect instance. Do not leave another app copy running.
+3. Run the candidate app's maintenance command from its exact installed location. For a user-local installation:
+
+   ```sh
+   "$HOME/Applications/Lunavect.app/Contents/MacOS/Lunavect" --unregister-awake-helper
+   ```
+
+   Use `/Applications/Lunavect.app/Contents/MacOS/Lunavect` for a system installation. The command uses [SMAppService.unregister](https://developer.apple.com/documentation/servicemanagement/smappservice/unregister(completionhandler:)) from the app bundle and exits nonzero if sleep is still disabled or unregistration fails. Resolve a failure before removing the app. This command is introduced after 0.1.0; an older binary that does not support it must be updated to the candidate first.
+4. Verify `pmset -g` shows `SleepDisabled 0` (or omits that setting). `launchctl print system/com.weekleft.awake-helper` must report that the service is absent. These are verification commands; `launchctl bootout` alone is not a substitute for removing the ServiceManagement registration. If sleep is still disabled, preserve the helper and resolve recovery before proceeding.
+5. Remove desktop widgets, then remove the app with `brew uninstall --cask lovach/lunavect/lunavect` or move the exact installed app to Trash. A local source installer may also have created `~/Applications/Weekleft.app`: remove that path **only if it is a symlink whose literal target is `Lunavect.app`**. Leave any real app or other symlink untouched.
+6. The root recovery directory can be removed only when empty, after the previous checks: `sudo rmdir /var/db/com.weekleft.awake`. If it is nonempty, preserve it; never delete a pending `restore-sleep` record to make removal appear successful.
+
+Settings/history are retained by default. For deliberate data erasure, first back up and review only Lunavect's `~/Library/Application Support/Weekleft` and the exact shared-container path identified by the removed app's `WeekleftAppGroup` Info.plist value, plus its `com.weekleft.app` preferences. That support folder also holds install/config backups; keeping them enables recovery. Do not erase `~/.claude`, `~/.codex`, client conversations, another App Group, or an entire Group Containers directory. Homebrew `--zap` is not an ownership-aware hook cleanup and does not replace steps 1–4. The procedure and fixtures do not claim a live uninstall or hardware sleep test.

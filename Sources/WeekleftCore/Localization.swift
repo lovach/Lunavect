@@ -26,7 +26,12 @@ public enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
 }
 
 public enum L10n {
-    public static let defaults: UserDefaults = {
+    // Foundation guarantees concurrent access to the same UserDefaults object:
+    // https://developer.apple.com/documentation/foundation/userdefaults
+    // This immutable reference is created once, never subclassed or replaced.
+    // The SDK lacks Sendable here; this exemption covers only that reference.
+    // Core callers read a String value; UI preference writes remain MainActor.
+    nonisolated(unsafe) public static let defaults: UserDefaults = {
         if let group = Bundle.main.object(forInfoDictionaryKey: "WeekleftAppGroup") as? String,
            let shared = UserDefaults(suiteName: group) { return shared }
         return .standard
@@ -63,4 +68,25 @@ public enum L10n {
 }
 public func L(_ key: String, _ arguments: String...) -> String {
     L10n.text(key, language: L10n.selection, arguments: arguments)
+}
+
+/// Shared abbreviated units for quotas, activity totals and chart readouts.
+/// Quotas round up before calling this; measured activity rounds down.
+public enum DurationText {
+    public static func minutes(_ minutes: Int, includesDays: Bool = false, language: String = L10n.selection) -> String {
+        func text(_ key: String, _ value: Int) -> String { L10n.text(key, language: language, arguments: [String(value)]) }
+        let minutes = max(0, minutes)
+        if includesDays && minutes >= 1440 {
+            let days = text("{0} д", minutes / 1440), hours = minutes % 1440 / 60
+            return hours == 0 ? days : days + " " + text("{0} ч", hours)
+        }
+        let hours = minutes / 60, remainder = minutes % 60
+        if hours == 0 { return text("{0} мин", remainder) }
+        return text("{0} ч", hours) + (remainder == 0 ? "" : " " + text("{0} мин", remainder))
+    }
+    public static func activity(_ seconds: TimeInterval, language: String = L10n.selection) -> String {
+        guard seconds.isFinite, seconds >= 0, seconds / 60 < Double(Int.max) else { return "—" }
+        if seconds > 0 && seconds < 60 { return L10n.text("< 1 мин", language: language) }
+        return minutes(Int(seconds / 60), language: language)
+    }
 }

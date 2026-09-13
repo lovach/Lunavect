@@ -14,9 +14,10 @@ public enum ClaudeSessionMetadata {
         return title.isEmpty ? nil : title
     }
     public static func titles(for ids: Set<String>, at root: URL? = nil) -> [String: String] {
-        records(for: ids, at: root).mapValues { $0.title }
+        records(for: ids, at: root).compactMapValues { $0.title.isEmpty ? nil : $0.title }
     }
-    public struct Record { public let title: String; public let desktopID: String }
+    /// The title may be empty while Desktop is still naming a session; its route stays valid.
+    public struct Record: Sendable { public let title: String; public let desktopID: String }
     public static func records(for ids: Set<String>, at root: URL? = nil) -> [String: Record] {
         guard !ids.isEmpty else { return [:] }
         let base = root ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Claude/claude-code-sessions")
@@ -36,9 +37,16 @@ public enum ClaudeSessionMetadata {
                     guard let info = try? file.resourceValues(forKeys: keys), info.isSymbolicLink != true,
                           (info.fileSize ?? Int.max) < 2_000_000, let data = try? Data(contentsOf: file),
                           let entry = try? JSONDecoder().decode(Entry.self, from: data),
-                          let id = entry.cliSessionId, ids.contains(id), let title = title(from: data, sessionID: id) else { continue }
+                          let id = entry.cliSessionId, ids.contains(id), entry.isArchived != true else { continue }
+                    let title = self.title(from: data, sessionID: id) ?? ""
                     let modified = info.contentModificationDate ?? .distantPast
-                    if result[id] == nil || modified > result[id]!.1 { result[id] = (Record(title: title, desktopID: file.deletingPathExtension().lastPathComponent), modified) }
+                    let desktopID = file.deletingPathExtension().lastPathComponent
+                    // The newest file owns the route; a name from another copy is kept until a new one arrives.
+                    if let previous = result[id], modified <= previous.1 {
+                        if previous.0.title.isEmpty, !title.isEmpty { result[id] = (Record(title: title, desktopID: previous.0.desktopID), previous.1) }
+                    } else {
+                        result[id] = (Record(title: title.isEmpty ? result[id]?.0.title ?? "" : title, desktopID: desktopID), modified)
+                    }
                 }
             }
         }

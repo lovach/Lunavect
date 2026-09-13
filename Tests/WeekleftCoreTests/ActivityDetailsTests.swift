@@ -22,13 +22,20 @@ final class ActivityDetailsTests: XCTestCase {
         tracker.observe([], now: base.addingTimeInterval(15))
         tracker.observe(rows, now: base.addingTimeInterval(3600))
         XCTAssertEqual(ActivityDetails.totals(for: Array(tracker.details.records.values), in: DateInterval(start: base, duration: 4000)).active, 10)
-        XCTAssertEqual(tracker.details.selected(in: DateInterval(start: base.addingTimeInterval(3), duration: 2), providers: [.claude]).first?.totals(in: DateInterval(start: base.addingTimeInterval(3), duration: 2)).active, 2)
+        XCTAssertEqual(
+            tracker.details.selected(
+                in: DateInterval(start: base.addingTimeInterval(3), duration: 2), providers: [.claude]
+            ).first?.totals(in: DateInterval(start: base.addingTimeInterval(3), duration: 2)).active, 2)
     }
     func testImportClipsAtLiveBoundaryAndCannotDuplicateOnRetry() throws {
         var tracker = ActivityTracker()
         _ = tracker.prepareImport(now: base)
         var result = ActivityImportResult()
-        result.details = [.init(provider: .codex, sessionID: "a", title: "Actual name", cwd: "/tmp/App", intervals: [.init(start: base.addingTimeInterval(-20), end: base.addingTimeInterval(20), providers: 2)])]
+        result.details = [
+            .init(
+                provider: .codex, sessionID: "a", title: "Actual name", cwd: "/tmp/App",
+                intervals: [.init(start: base.addingTimeInterval(-20), end: base.addingTimeInterval(20), providers: 2)])
+        ]
         result.intervals = result.details[0].intervals
         tracker.mergeImport(result, now: base.addingTimeInterval(30))
         tracker.mergeImport(result, now: base.addingTimeInterval(30))

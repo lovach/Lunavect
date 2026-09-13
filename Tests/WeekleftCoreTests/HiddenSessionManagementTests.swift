@@ -10,7 +10,11 @@ final class HiddenSessionManagementTests: XCTestCase {
         let path = dir.appendingPathComponent("state_5.sqlite")
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open(path.path, &db), SQLITE_OK)
-        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE threads(id TEXT,title TEXT,name TEXT); INSERT INTO threads VALUES ('named','# Files mentioned by the user: attachment metadata','Разобраться с лишними сессиями'),('fallback','# Files mentioned by the user:\n\n## image.png: /private/example.png\n\n## My request:\nИсправь историю',NULL),('empty','Old title','   ');", nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(
+            sqlite3_exec(
+                db,
+                "CREATE TABLE threads(id TEXT,title TEXT,name TEXT); INSERT INTO threads VALUES ('named','# Files mentioned by the user: attachment metadata','Разобраться с лишними сессиями'),('fallback','# Files mentioned by the user:\n\n## image.png: /private/example.png\n\n## My request:\nИсправь историю',NULL),('empty','Old title','   ');",
+                nil, nil, nil), SQLITE_OK)
         sqlite3_close(db)
         let before = try Data(contentsOf: path)
         let titles = CodexSessionMetadata.titles(for: ["named", "fallback", "empty"], at: dir)
@@ -22,7 +26,7 @@ final class HiddenSessionManagementTests: XCTestCase {
         var visibility = try SessionVisibility(url: url)
         let row = AgentSession(provider: .codex, sessionID: "named", title: "# Files mentioned by the user: truncated", cwd: "/example", phase: .ready, updatedAt: Date(), observedAt: Date())
         try visibility.hide(row)
-        XCTAssertEqual(try SessionVisibility(url: url).summaries.first?.title, L("Сессия Codex"),
+        XCTAssertEqual(try SessionVisibility(url: url).summaries.first?.title, "",
                        "A cached truncated envelope must stay out of the UI before metadata refresh")
         try visibility.updateTitles(Dictionary(uniqueKeysWithValues: titles.map { ("codex:" + $0.key, $0.value) }))
         XCTAssertEqual(try SessionVisibility(url: url).summaries.first?.title, "Разобраться с лишними сессиями")
@@ -38,7 +42,8 @@ final class HiddenSessionManagementTests: XCTestCase {
         ]])
         let rows = try SessionParser.codex(data)
         XCTAssertEqual(rows[0].title, "Почини название и историю")
-        XCTAssertEqual(rows[1].title, L("Сессия Codex"))
+        XCTAssertEqual(rows[1].title, "")
+        XCTAssertEqual(rows[1].displayTitle, L("Сессия Codex"))
         XCTAssertEqual(rows[2].title, "Обычное название")
     }
     func testRemovalClearsListWithoutReimportingOldSessionButNewTaskReturns() throws {

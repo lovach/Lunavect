@@ -1,24 +1,111 @@
 import AppKit
 import SwiftUI
+import Combine
 #if SWIFT_PACKAGE
 import WeekleftCore
 #endif
 
 @MainActor final class SessionStore: ObservableObject {
+    typealias CatalogResult = (rows: [AgentSession], incomplete: Bool)
+    /// Defaults are inert. Live access is selected only by the production initializer.
+    struct Dependencies {
+        var catalog: (ProviderID, ClientExecutableResolver, [AgentSession], [String]) async throws -> CatalogResult = { _, _, _, _ in ([], false) }
+        var events: ([AgentSession], [ProviderID], Date) async throws -> [AgentSession] = { _, _, _ in [] }
+        var titles: ([AgentSession], [String], [ProviderID]) async throws -> [String: String] = { _, _, _ in [:] }
+        var hooksState: () -> [ProviderID: Bool] = { [:] }
+        var initialEvents: (URL) -> [AgentSession] = { _ in [] }
+        var schedulesTimers = false
+        var watchesEvents = false
+        var allowsClientConfiguration = false
+        /// Hands a manually selected client executable to runtime observation.
+        var configureRuntime: (ClientExecutableResolver) async -> Void = { _ in }
+
+        static func live(directory: URL) -> Self {
+            Self(catalog: { provider, resolver, previous, priorityIDs in
+                try Task.checkCancellation()
+                if provider == .codex {
+                    let result = try await SessionSources.codexCatalog(resolver: resolver, prioritySessionIDs: priorityIDs)
+                    try Task.checkCancellation()
+                    return (result.retainingKnownSessions(previous), !result.isComplete)
+                }
+                return (try await SessionSources.claude(path: resolver.resolve(.claude)), false)
+            }, events: { rows, providers, now in
+                var events = try await readLocal {
+                    let legacy = SessionSources.legacyEvents(catalog: rows, now: now)
+                    try Task.checkCancellation()
+                    return legacy + SessionHooks.load(at: directory)
+                }
+                try Task.checkCancellation()
+                if providers.contains(.codex) { events += await CodexActivityReader.shared.events(catalog: rows, now: now) }
+                try Task.checkCancellation()
+                return events
+            }, titles: { rows, hidden, providers in
+                try await readLocal {
+                    var result: [String: String] = [:]
+                    if providers.contains(.codex) {
+                        let ids = Set(hidden.filter { $0.hasPrefix("codex:") }.map { String($0.dropFirst(6)) })
+                        for (id, title) in CodexSessionMetadata.titles(for: ids) { result["codex:" + id] = title }
+                    }
+                    try Task.checkCancellation()
+                    if providers.contains(.claude) {
+                        let hiddenIDs = hidden.filter { $0.hasPrefix("claude:") }.map { String($0.dropFirst(7)) }
+                        let ids = Set(rows.filter { $0.provider == .claude }.map(\.sessionID) + hiddenIDs)
+                        for (id, title) in ClaudeSessionMetadata.titles(for: ids) { result["claude:" + id] = title }
+                    }
+                    return result
+                }
+            }, hooksState: { Dictionary(uniqueKeysWithValues: ProviderID.allCases.map { ($0, SessionHooks.installed($0)) }) },
+                 initialEvents: { SessionHooks.load(at: $0) }, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
+                 configureRuntime: { resolver in
+                     // Automatic discovery is already checked by the runtime reader itself.
+                     await CodexActivityReader.shared.useExecutable(resolver.codexPath.isEmpty ? nil : resolver.codexPath)
+                 })
+        }
+        private static func readLocal<Value: Sendable>(_ operation: @escaping @Sendable () throws -> Value) async throws -> Value {
+            try Task.checkCancellation()
+            let task = Task.detached(priority: .utility) {
+                try Task.checkCancellation()
+                let result = try operation()
+                try Task.checkCancellation()
+                return result
+            }
+            return try await withTaskCancellationHandler {
+                let result = try await task.value
+                try Task.checkCancellation()
+                return result
+            } onCancel: { task.cancel() }
+        }
+    }
+
     @Published var sessions: [AgentSession] = []
+    let observations = PassthroughSubject<(rows: [AgentSession], date: Date), Never>()
     @Published var refreshing = false
     @Published var issues: [ProviderID: String] = [:]
+    @Published private(set) var typedIssues: [ProviderID: ClientIntegrationIssue] = [:]
+    struct DiagnosticEntry: Equatable {
+        let date: Date
+        let issue: ClientIntegrationIssue
+    }
+    /// Fixed codes only; bounded and local to this store's lifetime.
+    @Published private(set) var diagnosticEntries: [DiagnosticEntry] = []
     @Published var hooksInstalled: [ProviderID: Bool] = [:]
-    @Published var connectionMessage: String?
+    @Published var connectionMessage: String? {
+        didSet { titleSaveOwnsConnectionMessage = false }
+    }
+    private var titleSaveOwnsConnectionMessage = false
     @Published var updatedAt: Date?
     @Published private(set) var providers = ProviderID.allCases
     func useProviders(_ providers: [ProviderID]) {
         guard self.providers != providers else { return }
+        invalidateWork()
         self.providers = providers
+        allSessions = allSessions.filter { providers.contains($0.provider) }
         catalog = catalog.filter { providers.contains($0.key) }
         issues = issues.filter { providers.contains($0.key) }
+        typedIssues = typedIssues.filter { providers.contains($0.key) }
         if let row = lastHidden, !providers.contains(row.provider) { lastHidden = nil }
         publishVisible()
+        watchEvents()
     }
     var onObservation: (([AgentSession], Date) -> Void)?
     @Published private(set) var hiddenCount = 0
@@ -39,39 +126,68 @@ import WeekleftCore
         }
     }
     private let defaults: UserDefaults
+    private let dependencies: Dependencies
+    private let now: () -> Date
+    private let directory: URL
     // Retain observed inactivity beyond the source's status freshness window.
     // Poll timestamps are deliberately not activity timestamps.
+    private var organizationCheckedAt: Date?
     private var inactiveSince: [String: Date] = [:]
     private var arrangementURL: URL?
+    private var arrangementLoadError: Error?
     private var visibility: SessionVisibility?
     private var allSessions: [AgentSession] = []
     private var undoDismissTask: Task<Void, Never>?
     private let undoDelay: Duration
-    init(directory: URL? = nil, undoDelay: Duration = .seconds(4), defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    init(directory: URL? = nil, undoDelay: Duration = .seconds(4), defaults: UserDefaults? = nil,
+         isolated: Bool = false, now: @escaping () -> Date = Date.init, dependencies: Dependencies? = nil) {
+        let defaults = defaults ?? (isolated ? UserDefaults(suiteName: "Lunavect.SessionFixture." + UUID().uuidString)! : .standard)
+        let base = directory ?? (isolated ? FileManager.default.temporaryDirectory.appendingPathComponent("Lunavect-preview-" + UUID().uuidString) : SessionHooks.directory)
+        self.defaults = defaults; self.now = now; self.directory = base
+        self.dependencies = dependencies ?? (isolated ? Dependencies() : .live(directory: base))
+        if isolated { resolveClient = { ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { nil }) } }
         let savedMinutes = defaults.integer(forKey: "sessionAutoHideMinutes")
         autoHideMinutes = [5, 10, 20].contains(savedMinutes) ? savedMinutes : 0
         self.undoDelay = undoDelay
-        let preview = CommandLine.arguments.contains("--session-preview")
-        let base = directory ?? (preview ? FileManager.default.temporaryDirectory.appendingPathComponent("Lunavect-preview-" + UUID().uuidString) : SessionHooks.directory)
         arrangementURL = base.appendingPathComponent("arrangement.json")
-        if let url = arrangementURL, let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode(SessionArrangement.self, from: data) { arrangement = saved }
+        do {
+            if let url = arrangementURL {
+                let result = try SessionArrangement.loadRecovering(from: url)
+                arrangement = result.value
+                if result.backupURL != nil {
+                    connectionMessage = L("Повреждённый порядок сессий сохранён отдельно. Закрепление и перемещение снова доступны.")
+                }
+            }
+        } catch {
+            arrangementLoadError = error
+            connectionMessage = L("Не удалось прочитать порядок сессий. Исходный файл сохранён; закрепление и перемещение отключены до перезапуска.")
+        }
         do {
             let file = base.appendingPathComponent("hidden-sessions.json")
             let result = try LocalStateRecovery.load(from: file, empty: Optional<SessionVisibility>.none) { try Optional(SessionVisibility(url: $0)) }
-            visibility = try result.value ?? SessionVisibility(url: file)
+            visibility = try result.value ?? SessionVisibility(url: file, now: now())
             if result.backupURL != nil { connectionMessage = L("Повреждённый список скрытых сессий сохранён отдельно. Управление сессиями восстановлено.") }
             // Include old events outside the merge freshness window when repairing history.
-            try visibility?.removeUnstartedClaudeLifecycles(SessionHooks.load(at: base))
+            try visibility?.removeUnstartedClaudeLifecycles(self.dependencies.initialEvents(base))
             hiddenCount = visibility?.hidden.count ?? 0
             hiddenIDs = (visibility?.hidden ?? []).sorted()
             hiddenSessions = visibility?.summaries ?? []
         }
-        catch { connectionMessage = error.localizedDescription }
+        catch { connectionMessage = SessionVisibilityError.unreadable.localizedDescription }
+    }
+    private func requireVisibility() throws {
+        guard visibility == nil else { return }
+        do { visibility = try SessionVisibility(url: directory.appendingPathComponent("hidden-sessions.json"), now: now()) }
+        catch {
+            connectionMessage = SessionVisibilityError.unreadable.localizedDescription
+            throw SessionVisibilityError.unreadable
+        }
+        if connectionMessage == SessionVisibilityError.unreadable.localizedDescription { connectionMessage = nil }
+        publishVisible()
     }
     func hide(_ session: AgentSession) throws {
-        guard visibility != nil else { throw SessionError.invalidResponse }
-        try visibility?.hide(session)
+        try requireVisibility()
+        try visibility?.hide(session, now: now())
         registerVisibilityUndo(session, hidden: false)
         if allSessions.isEmpty { allSessions = sessions }
         lastHidden = session
@@ -84,16 +200,21 @@ import WeekleftCore
         }
         publishVisible()
     }
-    func undoHide(now: Date = Date()) throws {
+    func undoHide(now: Date? = nil) throws {
+        let now = now ?? self.now()
         guard let row = lastHidden else { return }
         if undoManager.canUndo { undoManager.undo() }
         else { try restore(row.id, now: now) }
     }
-    func restoreHidden(now: Date = Date()) throws {
+    func restoreHidden(now: Date? = nil) throws {
+        try requireVisibility()
+        let now = now ?? self.now()
         for id in hiddenIDs { inactiveSince[id] = now }
         try visibility?.restoreAll(); undoDismissTask?.cancel(); lastHidden = nil; publishVisible()
     }
-    func restore(_ id: String, now: Date = Date()) throws {
+    func restore(_ id: String, now: Date? = nil) throws {
+        try requireVisibility()
+        let now = now ?? self.now()
         let row = allSessions.first { $0.id == id }
         let wasHidden = hiddenIDs.contains(id)
         try visibility?.setHidden(id, false)
@@ -105,6 +226,7 @@ import WeekleftCore
         publishVisible()
     }
     func removeHidden(_ id: String? = nil) throws {
+        try requireVisibility()
         let ids = id.map { Set([$0]) } ?? Set(hiddenIDs)
         try visibility?.removeHidden(ids)
         // A removed local record must not be recreated by an older Undo entry.
@@ -140,10 +262,17 @@ import WeekleftCore
     }
     private func saveArrangement(_ next: SessionArrangement) throws {
         guard let arrangementURL else { throw SessionError.unavailable }
-        try next.save(to: arrangementURL); arrangement = next
+        if let arrangementLoadError { throw arrangementLoadError }
+        do { try next.save(to: arrangementURL); arrangement = next }
+        catch let error as SessionArrangementRecoveryError {
+            connectionMessage = L("Повреждённый порядок сессий сохранён отдельно. Повторите закрепление или перемещение.")
+            throw error
+        }
+        catch { connectionMessage = error.localizedDescription; throw error }
     }
     private var publishedPhases: [SessionPhase] = []
-    private func publishVisible(now: Date = Date()) {
+    private func publishVisible(now: Date? = nil) {
+        let now = now ?? self.now()
         let visible = (visibility?.visible(allSessions) ?? allSessions).filter { providers.contains($0.provider) }
         let phases = visible.map { $0.effectivePhase(now: now) }
         if sessions != visible || publishedPhases != phases { publishedPhases = phases; sessions = visible }
@@ -159,117 +288,255 @@ import WeekleftCore
     private var sourceTimer: Timer?
     private var eventWatcher: DispatchSourceFileSystemObject?
     private var started = false
+    private var stopped = false
+    private var generation: UInt64 = 0
+    private var refreshTask: Task<Void, Never>?
+    private var eventTask: Task<Void, Never>?
+    private var refreshID: UUID?
+    private var eventID: UUID?
     private var panelVisible = false
     private var polling: SessionPolling?
+    private var lastCatalogPollAt: Date?
     func setPanelVisible(_ visible: Bool) {
         guard panelVisible != visible else { return }
         panelVisible = visible; updatePollingTimers()
     }
     private func updatePollingTimers() {
-        guard started else { return }
-        let policy = SessionPolling(panelVisible: panelVisible, hasActiveSessions: allSessions.contains { $0.effectivePhase().isActive })
+        guard started, !stopped, dependencies.schedulesTimers else { return }
+        let policy = SessionPolling(panelVisible: panelVisible, hasActiveSessions: allSessions.contains { $0.isCurrent(now: now()) && $0.effectivePhase(now: now()).isActive })
         guard polling != policy else { return }
+        let previous = polling
         polling = policy
-        localTimer?.invalidate(); sourceTimer?.invalidate()
-        localTimer = Timer.scheduledTimer(withTimeInterval: policy.events, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.readEvents() }
+        let current = generation
+        if previous?.events != policy.events {
+            localTimer?.invalidate()
+            localTimer = Timer.scheduledTimer(withTimeInterval: policy.events, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.isCurrent(current) else { return }
+                    self.beginEvents()
+                }
+            }
+            localTimer?.tolerance = 0.1
+            if let localTimer { RunLoop.main.add(localTimer, forMode: .common) }
         }
-        sourceTimer = Timer.scheduledTimer(withTimeInterval: policy.catalog, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
+        if previous?.catalog != policy.catalog {
+            let deadline = SessionPolling.nextCatalogDeadline(now: now(), lastPoll: lastCatalogPollAt,
+                                                             scheduled: sourceTimer?.fireDate, interval: policy.catalog)
+            sourceTimer?.invalidate()
+            sourceTimer = Timer(fire: deadline, interval: policy.catalog, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.isCurrent(current) else { return }
+                    self.beginRefresh()
+                }
+            }
+            sourceTimer?.tolerance = 1
+            if let sourceTimer { RunLoop.main.add(sourceTimer, forMode: .common) }
         }
-        localTimer?.tolerance = 0.1; sourceTimer?.tolerance = 1
-        if let localTimer { RunLoop.main.add(localTimer, forMode: .common) }
-        if let sourceTimer { RunLoop.main.add(sourceTimer, forMode: .common) }
     }
-    func stop() {
-        started = false; polling = nil
+    private func isCurrent(_ expected: UInt64) -> Bool { !stopped && generation == expected && !Task.isCancelled }
+    private func cancelEventRead() {
+        eventTask?.cancel(); eventTask = nil; eventID = nil
+    }
+    private func invalidateWork() {
+        generation &+= 1
+        refreshTask?.cancel(); refreshTask = nil; refreshID = nil
+        cancelEventRead()
+        refreshing = false
+        polling = nil
         localTimer?.invalidate(); localTimer = nil
         sourceTimer?.invalidate(); sourceTimer = nil
         eventWatcher?.cancel(); eventWatcher = nil
     }
+    func stop() {
+        stopped = true; started = false
+        invalidateWork()
+        undoDismissTask?.cancel(); undoDismissTask = nil
+    }
+    isolated deinit {
+        refreshTask?.cancel(); eventTask?.cancel(); undoDismissTask?.cancel()
+        localTimer?.invalidate(); sourceTimer?.invalidate(); eventWatcher?.cancel()
+    }
     private var desktopTitles: [String: String] = [:]
     private var titlesCheckedAt = Date.distantPast
-    private var codexPath: () -> String = { CodexProvider.discoverCLI() ?? "" }
-    var currentSessions: [AgentSession] { sessions.filter { $0.isCurrent() } }
-    var activeCount: Int { currentSessions.filter { $0.effectivePhase().isActive }.count }
+    private var resolveClient: () -> ClientExecutableResolver = { ClientExecutableResolver() }
+    var clientResolver: ClientExecutableResolver { resolveClient() }
+    var currentSessions: [AgentSession] { sessions.filter { $0.isCurrent(now: now()) } }
+    var activeCount: Int { currentSessions.filter { $0.effectivePhase(now: now()).isActive }.count }
     func start(codexPath: @escaping () -> String) {
-        guard !started else { return }; started = true
-        self.codexPath = codexPath
+        start(clientResolver: { ClientExecutableResolver(codexPath: codexPath()) })
+    }
+    func start(clientResolver: @escaping () -> ClientExecutableResolver) {
+        guard !started, !Task.isCancelled else { return }
+        stopped = false; started = true
+        self.resolveClient = clientResolver
         repairMovedConnections()
         updateHookConfiguration()
-        Task { await refresh() }
+        beginRefresh()
         updatePollingTimers()
-        // Atomic hook writes notify the app immediately, including while hidden.
-        try? FileManager.default.createDirectory(at: SessionHooks.directory, withIntermediateDirectories: true)
-        let fd = Darwin.open(SessionHooks.directory.path, O_EVTONLY)
-        if fd >= 0 {
-            let watcher = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename], queue: .global(qos: .utility))
-            watcher.setEventHandler { [weak self] in Task { @MainActor in await self?.readEvents() } }
-            watcher.setCancelHandler { close(fd) }
-            eventWatcher = watcher; watcher.resume()
-        }
+        watchEvents()
     }
-    func refresh() async {
-        guard !refreshing else { return }; refreshing = true
-        defer { refreshing = false }
-        let path = codexPath()
-        async let codex = fetchIfEnabled(.codex, path: path)
-        async let claude = fetchIfEnabled(.claude, path: path)
-        for (provider, result) in await [(ProviderID.codex, codex), (.claude, claude)] {
-            guard providers.contains(provider), let result else { continue }
-            switch result {
-            case .success(let rows): catalog[provider] = rows; issues.removeValue(forKey: provider)
-            case .failure(let error):
-                issues[provider] = error.localizedDescription
-                catalog[provider] = (catalog[provider] ?? []).map { row in var row = row; row.observedAt = .distantPast; return row }
+    private func watchEvents() {
+        guard started, !stopped, dependencies.watchesEvents, eventWatcher == nil else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fd = Darwin.open(directory.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let current = generation
+        let watcher = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename], queue: .global(qos: .utility))
+        watcher.setEventHandler { [weak self] in
+            Task { @MainActor in
+                guard let self, self.isCurrent(current) else { return }
+                self.beginEvents()
             }
         }
-        updatedAt = Date(); await readEvents(); updateHookConfiguration()
+        watcher.setCancelHandler { close(fd) }
+        eventWatcher = watcher; watcher.resume()
     }
-    private func fetchIfEnabled(_ id: ProviderID, path: String) async -> Result<[AgentSession], Error>? {
-        guard providers.contains(id) else { return nil }
-        return await Self.capture {
-            if id == .codex { return try await SessionSources.codex(path: path) }
-            return try await SessionSources.claude(path: SessionSources.discoverClaude() ?? "")
+    @discardableResult private func beginRefresh() -> Task<Void, Never>? {
+        guard !stopped, !Task.isCancelled else { return nil }
+        if let refreshTask { return refreshTask }
+        let current = generation, id = UUID()
+        refreshing = true; refreshID = id
+        lastCatalogPollAt = now()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performRefresh(generation: current)
+            if self.refreshID == id { self.refreshTask = nil; self.refreshID = nil; self.refreshing = false }
+        }
+        refreshTask = task
+        return task
+    }
+    func refresh() async {
+        guard let task = beginRefresh() else { return }
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+    private func performRefresh(generation expected: UInt64) async {
+        guard isCurrent(expected) else { return }
+        let resolver = clientResolver
+        await dependencies.configureRuntime(resolver)
+        guard isCurrent(expected) else { return }
+        async let codex = fetchIfEnabled(.codex, resolver: resolver, generation: expected)
+        async let claude = fetchIfEnabled(.claude, resolver: resolver, generation: expected)
+        for (provider, result) in await [(ProviderID.codex, codex), (.claude, claude)] {
+            guard isCurrent(expected) else { return }
+            guard providers.contains(provider), let result else { continue }
+            switch result {
+            case .success(let result):
+                catalog[provider] = result.rows
+                typedIssues.removeValue(forKey: provider)
+                if result.incomplete {
+                    typedIssues[provider] = ClientIntegrationIssue(provider: provider, capability: .sessionCatalog, reason: .incompleteCatalog)
+                    issues[provider] = L("Каталог Codex получен не полностью. Известные активные сессии сохранены; свежий статус появится после подтверждения клиентом.")
+                } else { issues.removeValue(forKey: provider) }
+            case .failure(let error):
+                if error is CancellationError { return }
+                record(error, provider: provider)
+                // A failed poll is not evidence that sessions ended. Keep the last
+                // observations; their own freshness lifetime expires them if the
+                // source stays unavailable, so one timeout cannot blank the list.
+            }
+        }
+        guard isCurrent(expected) else { return }
+        // An in-flight local poll captured the previous catalog. Supersede its
+        // owned task before starting a read of this catalog; late event/title
+        // completions fail the existing cancellation guards and cannot publish.
+        cancelEventRead()
+        updatedAt = now()
+        await readEvents()
+        guard isCurrent(expected) else { return }
+        updateHookConfiguration()
+    }
+    private func fetchIfEnabled(_ id: ProviderID, resolver: ClientExecutableResolver, generation expected: UInt64) async -> Result<CatalogResult, Error>? {
+        guard isCurrent(expected), providers.contains(id) else { return nil }
+        let previous = (catalog[id] ?? []) + allSessions.filter { $0.provider == id }
+        let priorityIDs = allSessions.filter { $0.provider == .codex && $0.phase.isActive }
+            .sorted { $0.observedAt > $1.observedAt }.map(\.sessionID)
+        do {
+            let result = try await dependencies.catalog(id, resolver, previous, priorityIDs)
+            guard isCurrent(expected) else { return nil }
+            return .success(result)
+        } catch {
+            guard isCurrent(expected), !(error is CancellationError) else { return nil }
+            return .failure(error)
         }
     }
-    private var readingEvents = false
-    private func readEvents() async {
-        guard !readingEvents else { return }; readingEvents = true
-        defer { readingEvents = false }
+    @discardableResult private func beginEvents() -> Task<Void, Never>? {
+        guard !stopped, !Task.isCancelled else { return nil }
+        if let eventTask { return eventTask }
+        let current = generation, id = UUID()
+        eventID = id
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performReadEvents(generation: current)
+            if self.eventID == id { self.eventTask = nil; self.eventID = nil }
+        }
+        eventTask = task
+        return task
+    }
+    func readEvents() async {
+        guard let task = beginEvents() else { return }
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+    private func performReadEvents(generation expected: UInt64) async {
+        guard isCurrent(expected) else { return }
         guard !providers.isEmpty else { acceptSessions([]); return }
         let rows = catalog.values.flatMap { $0 }
-        var events = await Task.detached(priority: .utility) {
-            SessionSources.legacyEvents(catalog: rows) + SessionHooks.load()
-        }.value
-        if providers.contains(.codex) { events += await CodexActivityReader.shared.events(catalog: rows) }
-        events = events.filter { providers.contains($0.provider) }
-        var merged = SessionList.merge(catalog: catalog.values.flatMap { $0 }, events: events)
-        if Date().timeIntervalSince(titlesCheckedAt) >= (polling?.titles ?? 15) {
-            let hidden = hiddenIDs
-            let missingCodex = Set(hidden.compactMap { id -> String? in
-                id.hasPrefix("codex:") ? String(id.dropFirst(6)) : nil
-            })
-            let savedTitles = await Task.detached(priority: .utility) { CodexSessionMetadata.titles(for: missingCodex) }.value
-            let hiddenClaude = hidden.filter { $0.hasPrefix("claude:") }.map { String($0.dropFirst(7)) }
-            let ids = Set(merged.filter { $0.provider == .claude }.map(\.sessionID) + hiddenClaude)
-            desktopTitles = await Task.detached(priority: .utility) { ClaudeSessionMetadata.titles(for: ids) }.value
-            var titles = Dictionary(uniqueKeysWithValues: savedTitles.map { ("codex:" + $0.key, $0.value) })
-            for (id, title) in desktopTitles { titles["claude:" + id] = title }
-            for row in merged where titles[row.id] == nil { titles[row.id] = row.title }
-            do { try visibility?.updateTitles(titles) } catch { connectionMessage = error.localizedDescription }
-            titlesCheckedAt = Date()
-        }
-        for i in merged.indices where merged[i].provider == .claude {
-            if let title = desktopTitles[merged[i].sessionID] { merged[i].title = title }
-            else if merged[i].title.hasPrefix("scratch-") { merged[i].title = L("Сессия Claude") }
-        }
-        acceptSessions(merged)
-    }
-    func acceptSessions(_ rows: [AgentSession], now: Date = Date()) {
-        let taskRows = rows.filter { providers.contains($0.provider) && !($0.isUnstartedClaudeLifecycle && $0.phase == .finished) }
-        onObservation?(taskRows, now)
         do {
+            let events = try await dependencies.events(rows, providers, now())
+            guard isCurrent(expected) else { return }
+            var merged = SessionList.merge(catalog: rows, events: events.filter { providers.contains($0.provider) }, now: now())
+            if now().timeIntervalSince(titlesCheckedAt) >= (polling?.titles ?? 15) {
+                let titles = try await dependencies.titles(merged, hiddenIDs, providers)
+                guard isCurrent(expected) else { return }
+                desktopTitles = titles
+                var savedTitles = titles
+                for row in merged where savedTitles[row.id] == nil { savedTitles[row.id] = row.title }
+                // A local title write must not suppress fresh lifecycle data.
+                // Retry on the normal title cadence, retaining an honest error
+                // until recovery without clearing another operation's message.
+                do {
+                    try visibility?.updateTitles(savedTitles)
+                    guard isCurrent(expected) else { return }
+                    if titleSaveOwnsConnectionMessage { connectionMessage = nil }
+                } catch {
+                    guard isCurrent(expected) else { return }
+                    connectionMessage = L("Не удалось сохранить изменение. Попробуйте ещё раз.")
+                    titleSaveOwnsConnectionMessage = true
+                }
+                titlesCheckedAt = now()
+            }
+            guard isCurrent(expected) else { return }
+            for i in merged.indices where merged[i].provider == .claude {
+                if let title = desktopTitles[merged[i].id] { merged[i].title = title }
+            }
+            acceptSessions(merged, now: now())
+        } catch {
+            guard isCurrent(expected), !(error is CancellationError) else { return }
+            if let issue = error as? ClientIntegrationIssue { record(issue, provider: issue.provider) }
+            else { connectionMessage = L("Не удалось сохранить изменение. Попробуйте ещё раз.") }
+        }
+    }
+    private func record(_ error: Error, provider: ProviderID) {
+        guard let issue = ClientIntegrationIssue.classify(error, provider: provider, capability: .sessionCatalog) else { return }
+        typedIssues[provider] = issue
+        issues[provider] = L(issue.message)
+        diagnosticEntries.append(DiagnosticEntry(date: now(), issue: issue))
+        if diagnosticEntries.count > 32 { diagnosticEntries.removeFirst(diagnosticEntries.count - 32) }
+    }
+    func acceptSessions(_ rows: [AgentSession], now: Date? = nil) {
+        let now = now ?? self.now()
+        // Starting a CLI to inspect its UI is not a task. Include it only once
+        // a prompt, tool, response or request establishes actual task activity.
+        let taskRows = rows.filter { providers.contains($0.provider) && !$0.isUnstartedClaudeLifecycle }
+        // Keep history available to the panel without reporting retained state
+        // as a current observation to activity tracking or Keep Awake.
+        onObservation?(taskRows.filter { $0.catalogHistory != true }, now)
+        do {
+            if organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
+                try visibility?.pruneRemoved(now: now)
+                var next = arrangement
+                if next.observe(Set(taskRows.map(\.id)), now: now) { try saveArrangement(next) }
+                organizationCheckedAt = now
+            }
             try visibility?.removeUnstartedClaudeLifecycles(rows)
             let restored = try visibility?.restoreNewTasks(taskRows, now: now) ?? []
             if let lastHidden, restored.contains(lastHidden.id) {
@@ -278,6 +545,7 @@ import WeekleftCore
             try hideInactiveSessions(taskRows, now: now)
         } catch { connectionMessage = error.localizedDescription }
         allSessions = taskRows; publishVisible(now: now)
+        observations.send((sessions, now))
     }
     private func hideInactiveSessions(_ rows: [AgentSession], now: Date) throws {
         guard [5, 10, 20].contains(autoHideMinutes), let visibility else { return }
@@ -306,11 +574,13 @@ import WeekleftCore
         }
     }
     func updateHookConfiguration() {
-        for provider in ProviderID.allCases { hooksInstalled[provider] = SessionHooks.installed(provider) }
+        hooksInstalled = dependencies.hooksState()
     }
     private func repairMovedConnections() {
+        guard dependencies.allowsClientConfiguration else { return }
         guard let executable = SessionHooks.monitorExecutable() else { return }
         for provider in providers {
+            let setup = ClientConnection.LocalSetup(provider: provider, executable: executable)
             do {
                 if SessionHooks.configured(provider), !SessionHooks.installed(provider) {
                     try SessionHooks.install(provider: provider, executable: executable)
@@ -318,21 +588,34 @@ import WeekleftCore
                 if provider == .claude, ClaudeProvider.statusLineConfigured(), !ClaudeProvider.statusLineInstalled() {
                     try ClaudeProvider.installStatusLine(executable: executable)
                 }
-            } catch { connectionMessage = L("Не удалось восстановить подключение после переноса приложения. Откройте «Подключения» и повторите настройку.") }
+            } catch {
+                connectionMessage = L("Не удалось восстановить подключение после переноса приложения. Откройте «Подключения» и повторите настройку.")
+                    + " " + localConnectionSummary(setup.inspect())
+            }
         }
     }
     func disconnect(_ provider: ProviderID) -> Bool {
+        guard dependencies.allowsClientConfiguration else { return false }
+        let setup = ClientConnection.LocalSetup(provider: provider)
+        defer { updateHookConfiguration() }
         do {
-            if provider == .claude { try ClaudeProvider.removeStatusLine() }
-            try SessionHooks.remove(provider: provider)
-            updateHookConfiguration()
+            try setup.apply(.disconnect)
             return true
         } catch {
-            connectionMessage = L("Не удалось отключить обработчики. Настройки клиента сохранены; повторите попытку.")
+            let state = (error as? ClientConnection.LocalFailure)?.state ?? setup.inspect()
+            connectionMessage = L("Отключение не завершено. Повторите попытку, чтобы завершить оставшиеся шаги.")
+                + " " + localConnectionSummary(state)
             return false
         }
     }
+    private func localConnectionSummary(_ state: ClientConnection.LocalState) -> String {
+        if let status = state.statusLine {
+            return L("statusLine: {0}. События: {1}.", L(status.message), L(state.hooks.message))
+        }
+        return L("События: {0}.", L(state.hooks.message))
+    }
     func toggleHooks(_ provider: ProviderID) {
+        guard dependencies.allowsClientConfiguration else { return }
         do {
             if hooksInstalled[provider] == true {
                 try SessionHooks.remove(provider: provider)
@@ -347,17 +630,12 @@ import WeekleftCore
         } catch { connectionMessage = error.localizedDescription }
         updateHookConfiguration()
     }
-    nonisolated private static func capture(_ body: () async throws -> [AgentSession]) async -> Result<[AgentSession], Error> {
-        do { return .success(try await body()) } catch { return .failure(error) }
-    }
 }
 
 enum SessionNavigation {
-    @MainActor static func open(_ session: AgentSession) async throws {
+    @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver()) async throws {
         if session.client == .terminal || session.client == .background {
-            let executable = session.provider == .claude ? SessionSources.discoverClaude() : CodexProvider.discoverCLI()
-            guard let executable else { throw SessionOpeningError.missingCLI(session.provider) }
-            guard let script = session.terminalScript(executable: executable) else { throw SessionOpeningError.invalidID }
+            let script = try session.terminalScript(resolver: resolver)
             var directoryExists: ObjCBool = false
             guard FileManager.default.fileExists(atPath: session.cwd, isDirectory: &directoryExists), directoryExists.boolValue else { throw SessionOpeningError.missingProject }
             guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { throw SessionOpeningError.missingTerminal }
@@ -409,9 +687,10 @@ enum AppArtwork {
     static let brandMarkRight = mark(named: "LunavectMarkRight")
     static var icon: NSImage? {
         #if SWIFT_PACKAGE
-        let url = Bundle.module.url(forResource: "AppIcon", withExtension: "icns", subdirectory: "Resources")
+        let url = Bundle.module.url(forResource: "LunavectTide", withExtension: "icns", subdirectory: "Resources")
         #else
-        let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns")
+        let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleIconFile") as? String ?? "LunavectTide"
+        let url = Bundle.main.url(forResource: (name as NSString).deletingPathExtension, withExtension: "icns")
         #endif
         return url.flatMap(NSImage.init(contentsOf:))
     }

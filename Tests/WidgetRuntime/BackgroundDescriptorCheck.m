@@ -11,9 +11,10 @@ static id descriptor(Class cls, NSString *kind) {
         NSSelectorFromString(@"initWithExtensionBundleIdentifier:containerBundleIdentifier:kind:supportedFamilies:intentType:"),
         @"com.weekleft.app.widget", @"com.weekleft.app", kind, 7, nil);
 }
-static BOOL hasMaterial(id value, BOOL expected) {
+static BOOL hasBackground(id value, BOOL transparent, BOOL material) {
     for (NSInteger family = 0; family < 3; family++) {
         for (NSString *name in @[@"isTransparentForFamily:", @"wantsMaterialBackgroundForFamily:"]) {
+            BOOL expected = [name isEqualToString:@"isTransparentForFamily:"] ? transparent : material;
             if (((BOOL (*)(id, SEL, NSInteger))objc_msgSend)(value, NSSelectorFromString(name), family) != expected) return NO;
         }
     }
@@ -46,20 +47,27 @@ int main(int argc, const char **argv) { @autoreleasepool {
             strcmp([method getArgumentTypeAtIndex:2], @encode(NSInteger)) != 0) return 77;
     }
     id own = descriptor(cls, @"WeekleftWidget"), other = descriptor(cls, @"OtherWidget");
-    if (!hasMaterial(own, NO) || !hasMaterial(other, NO)) return 1;
+    if (!hasBackground(own, NO, NO) || !hasBackground(other, NO, NO)) return 1;
     LunavectSetWidgetBackgroundEnabled(NO);
-    if (!hasMaterial(own, NO)) return 4;
+    if (!hasBackground(own, NO, NO)) return 4;
     LunavectSetWidgetBackgroundEnabled(YES);
-    if (!hasMaterial(own, YES) || !hasMaterial(other, NO)) return 2;
+    if (!hasBackground(own, YES, YES) || !hasBackground(other, NO, NO)) return 2;
     LunavectSetWidgetBackgroundEnabled(NO);
-    if (!hasMaterial(own, NO) || !hasMaterial(other, NO)) return 5;
+    if (!hasBackground(own, NO, NO) || !hasBackground(other, NO, NO)) return 5;
     LunavectSetWidgetBackgroundEnabled(YES);
-    for (NSInteger cycle = 0; cycle < 3; cycle++) {
-        NSError *error = nil;
-        NSData *archive = [NSKeyedArchiver archivedDataWithRootObject:own requiringSecureCoding:YES error:&error];
-        own = [NSKeyedUnarchiver unarchivedObjectOfClass:cls fromData:archive error:&error];
-        if (!own || error || !hasMaterial(own, YES)) return 3;
+    for (NSString *kind in @[@"WeekleftWidget", @"LunavectActivityWidget", @"LunavectOverviewWidget"]) {
+        own = descriptor(cls, kind);
+        for (NSInteger cycle = 0; cycle < 3; cycle++) {
+            NSError *error = nil;
+            NSData *archive = [NSKeyedArchiver archivedDataWithRootObject:own requiringSecureCoding:YES error:&error];
+            // chronod/WidgetKit read the archive without the extension's hook.
+            LunavectSetWidgetBackgroundEnabled(NO);
+            own = [NSKeyedUnarchiver unarchivedObjectOfClass:cls fromData:archive error:&error];
+            if (!own || error || !hasBackground(own, YES, YES)) return 3;
+            LunavectSetWidgetBackgroundEnabled(YES);
+        }
     }
-    puts("PASS: on/off/on + 3 archived descriptors, other widget unchanged");
+    if (!hasBackground(other, NO, NO)) return 6;
+    puts("PASS: on/off/on + 3 kinds x 3 archives read without hooks, native material, other widget unchanged");
     return 0;
 }}

@@ -83,6 +83,8 @@ final class InterfaceAuditTests: XCTestCase {
         item.tool = nil; XCTAssertEqual(label(.running), "Думает")
     }
     @MainActor func testNativeAuditScreens() throws {
+        let uiDependencies = try AppEnvironment.preview(rows: [])
+        defer { uiDependencies.stop() }
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_AUDIT"] else { throw XCTSkip("Opt-in native UI inspection") }
         _ = NSApplication.shared
         let directory = URL(fileURLWithPath: output)
@@ -110,15 +112,26 @@ final class InterfaceAuditTests: XCTestCase {
             L10n.defaults.set(language, forKey: "languageCode")
             for scheme in [ColorScheme.dark, .light] {
                 let suffix = language + (scheme == .dark ? "-dark" : "-light")
-                try render(SessionsView(store: sessions, isPreview: true, onSettings: {}), size: CGSize(width: 360, height: 370), scheme: scheme,
-                           path: directory.appendingPathComponent("sessions-" + suffix + ".png"))
-                try render(SessionsView(store: sessions, isPreview: true, onSettings: {}, attentionOnly: true), size: CGSize(width: 360, height: 330), scheme: scheme,
-                           path: directory.appendingPathComponent("waiting-" + suffix + ".png"))
+                try render(
+                    SessionsView(
+                        store: sessions, updates: uiDependencies.updates, awake: uiDependencies.awake, isPreview: true,
+                        onSettings: {}), size: CGSize(width: 360, height: 370), scheme: scheme,
+                    path: directory.appendingPathComponent("sessions-" + suffix + ".png"))
+                try render(
+                    SessionsView(
+                        store: sessions, updates: uiDependencies.updates, awake: uiDependencies.awake, isPreview: true,
+                        onSettings: {}, attentionOnly: true), size: CGSize(width: 360, height: 330), scheme: scheme,
+                    path: directory.appendingPathComponent("waiting-" + suffix + ".png"))
                 if language == "ru" || language == "de" {
                     for section in SettingsSection.allCases {
                         UserDefaults.standard.set(section.rawValue, forKey: "settingsSection")
-                        try render(SettingsView(store: store, menuBarAppearance: appearance, sessions: sessions), size: CGSize(width: 840, height: 680), scheme: scheme,
-                                   path: directory.appendingPathComponent(section.rawValue + "-" + suffix + ".png"))
+                        try render(
+                            SettingsView(
+                                store: store, menuBarAppearance: appearance, sessions: sessions,
+                                updates: uiDependencies.updates, awake: uiDependencies.awake,
+                                features: uiDependencies.features, language: uiDependencies.language),
+                            size: CGSize(width: 840, height: 680), scheme: scheme,
+                            path: directory.appendingPathComponent(section.rawValue + "-" + suffix + ".png"))
                     }
                 }
             }

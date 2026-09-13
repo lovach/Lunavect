@@ -4,14 +4,18 @@ import WeekleftCore
 #endif
 
 struct SessionsView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
     @ObservedObject var store: SessionStore
-    var panelState = SessionPanelState(isVisible: true)
-    @ObservedObject var updates = AppUpdates.shared
-    var awake: KeepAwake = .shared
+    @ObservedObject var panelState = SessionPanelState(isVisible: true)
+    @ObservedObject var updates: AppUpdates
+    var awake: KeepAwake
     var isPreview = false
     var onSettings: () -> Void
     var onConnections: (() -> Void)? = nil
     var onMenuBarSettings: (() -> Void)? = nil
+    var onKeepAwakeSettings: (() -> Void)? = nil
     var onHeightChange: ((CGFloat) -> Void)? = nil
     var onReorderingChange: ((Bool) -> Void)? = nil
     @StateObject private var reorder = SessionReorderState()
@@ -30,7 +34,16 @@ struct SessionsView: View {
     @State private var showingHidden = false
     private func visible(at now: Date) -> [AgentSession] {
         if let rows = reorder.rows { return rows }
-        return store.arrangement.arranged(SessionList.filter(store.sessions, query: query, provider: ProviderID(rawValue: provider), activeOnly: activeOnly, now: now)).filter { !attentionOnly || [.permission, .input].contains($0.effectivePhase(now: now)) }
+        return filteredSessions(at: now)
+    }
+    func filteredSessions(at now: Date) -> [AgentSession] {
+        panelState.stableOrder(store.arrangement.arranged(SessionList.filter(store.sessions, query: query, provider: ProviderID(rawValue: provider), activeOnly: activeOnly, now: now)))
+            .filter { !attentionOnly || [.permission, .input].contains($0.effectivePhase(now: now)) }
+    }
+    func currentCounts(at now: Date) -> (total: Int, working: Int, waiting: Int) {
+        let phases = store.sessions.filter { $0.isCurrent(now: now) }.map { $0.effectivePhase(now: now) }
+        return (phases.count, phases.filter { $0 == .running }.count,
+                phases.filter { [.permission, .input].contains($0) }.count)
     }
     var body: some View {
         SessionPanelContent(state: panelState) {
@@ -41,33 +54,68 @@ struct SessionsView: View {
             }.frame(width: 360, height: height)
                 .onChange(of: height, initial: true) { _, value in onHeightChange?(value) }
         }
+            .onChange(of: panelState.isVisible, initial: true) { _, visible in
+                if visible { panelState.reconcileOrder(store.arrangement.arranged(store.sessions)) }
+            }
+            .onChange(of: store.sessions) { _, rows in
+                panelState.reconcileOrder(store.arrangement.arranged(rows))
+            }
         }
             .onChange(of: store.providers) { _, values in
                 if values.count < 2 || !values.contains(where: { $0.rawValue == provider }) { provider = "" }
             }
+            .onChange(of: showingHidden) { _, hidden in
+                if !hidden { focusedSession = SessionKeyboardFocus.search }
+            }
+            .transaction { transaction in
+                if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
+            }
+            .alert(L("Не удалось выполнить действие"), isPresented: Binding(get: { actionIssue != nil }, set: { if !$0 { actionIssue = nil } })) {
+                Button(L("Понятно")) { actionIssue = nil }
+            } message: { Text(L(actionIssue ?? "")) }
     }
     private var hasFilters: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !provider.isEmpty || activeOnly || attentionOnly }
     private func panelHeight(at now: Date) -> CGFloat {
         if showingHidden { return min(480, max(300, CGFloat(store.hiddenCount) * 62 + 180)) }
-        let count = visible(at: now).count
-        // Measure the actual controls, including wrapped errors and expanded settings.
-        // A minimum panel height would otherwise leave more than one empty row.
-        let chrome = (sectionHeights["top"] ?? 142) + (sectionHeights["bottom"] ?? 30)
-        let content = count == 0 ? 180 : CGFloat(count) * SessionRow.height + CGFloat(count - 1) * 2 + 8
-        return min(480, chrome + content + SessionRow.height)
+        return listLayout(rowCount: visible(at: now).count).panelHeight
+    }
+    private func listLayout(rowCount: Int) -> SessionPanelLayout {
+        SessionPanelLayout(rowCount: rowCount, topHeight: sectionHeights["top"] ?? 142,
+                           bottomHeight: sectionHeights["bottom"] ?? 30)
     }
     private var hiddenList: some View {
         HiddenSessionsView(sessions: store.hiddenSessions,
                            onBack: { showingHidden = false },
                            onRestore: { id in perform { try store.restore(id) } },
                            onRemove: { id in perform { try store.removeHidden(id) } },
-                           onRemoveAll: { perform { try store.removeHidden() } })
+                           onRemoveAll: { perform { try store.removeHidden() } },
+                           onRestoreMany: restoreHidden)
+    }
+    func restoreHidden(_ ids: [String]) {
+        perform {
+            store.undoManager.beginUndoGrouping()
+            defer { store.undoManager.endUndoGrouping() }
+            for id in ids { try store.restore(id) }
+        }
     }
     private func sessionList(at now: Date) -> some View {
         let rows = visible(at: now)
+        let layout = listLayout(rowCount: rows.count)
         return VStack(spacing: 0) {
             VStack(spacing: 0) {
             header(at: now).padding(.horizontal, 12).padding(.vertical, 8).fixedSize(horizontal: false, vertical: true)
+            if let issue = panelState.issue {
+                HStack(alignment: .top, spacing: 8) {
+                    InterfaceLabel(issue, .warning)
+                        .font(.system(size: 12)).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button { panelState.issue = nil } label: {
+                        InterfaceIcon(.close).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityLabel(L("Закрыть сообщение"))
+                }.padding(.horizontal, 12).padding(.bottom, 8)
+                    .accessibilityIdentifier("session-navigation-issue")
+            }
             if updates.notice != nil { UpdateNoticeView(updates: updates).padding(.horizontal, 12).padding(.bottom, 8) }
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
@@ -75,9 +123,12 @@ struct SessionsView: View {
                     TextField(L("Найти сессию или проект"), text: $query).textFieldStyle(.plain)
                         .accessibilityIdentifier("session-search")
                         .focused($focusedSession, equals: "search-field")
-                        .onKeyPress(.downArrow) { focusedSession = rows.first?.id; return .handled }
+                        .onKeyPress(.downArrow) {
+                            guard let first = rows.first else { return .ignored }
+                            focusedSession = first.id; return .handled
+                        }
                     if !query.isEmpty {
-                        Button { query = "" } label: { InterfaceIcon(.close) }
+                        Button { query = "" } label: { InterfaceIcon(.close).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle()) }
                             .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Очистить поиск")).accessibilityLabel(L("Очистить поиск"))
                     }
                 }.padding(7).background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
@@ -86,7 +137,7 @@ struct SessionsView: View {
                         Picker(L("Приложение"), selection: $provider) {
                         Text(L("Все")).tag("")
                         ForEach(store.providers) { Text($0.title).tag($0.rawValue) }
-                    }.pickerStyle(.segmented).labelsHidden().accessibilityIdentifier("session-provider-filter")
+                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("session-provider-filter")
                     } else {
                         Text(store.providers.first?.title ?? L("Сессии")).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                         Spacer()
@@ -97,16 +148,17 @@ struct SessionsView: View {
                 }
                 if hasFilters {
                     HStack {
-                        let total = store.sessions.filter { $0.isCurrent(now: now) }.count
+                        let total = currentCounts(at: now).total
                         Text(L("Показано {0} из {1}", String(rows.count), String(total)))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button(L("Сбросить фильтры")) { query = ""; provider = ""; activeOnly = false; attentionOnly = false }
-                            .buttonStyle(.plain).foregroundStyle(.blue)
-                    }.font(.system(size: 10)).padding(.top, 3)
+                        Button { query = ""; provider = ""; activeOnly = false; attentionOnly = false } label: {
+                            Text(L("Сбросить фильтры")).frame(minHeight: 24).contentShape(Rectangle())
+                        }.buttonStyle(.plain).foregroundStyle(.blue)
+                    }.font(.system(size: 12)).padding(.top, 3)
                 }
             }.padding(.horizontal, 12).padding(.bottom, 7).disabled(reorder.rows != nil)
-            Divider().opacity(0.45)
+            Divider().opacity(contrast == .increased ? 1 : 0.45)
             }.fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: SessionPanelSectionHeights.self, value: ["top": geometry.size.height])
@@ -115,14 +167,21 @@ struct SessionsView: View {
                 // Only the centre may scroll when translated copy or diagnostics
                 // needs more room. Never push the panel controls outside its bounds.
                 ScrollView { emptyState.frame(maxWidth: .infinity) }
-                    .frame(minHeight: 0, maxHeight: .infinity)
+                    .frame(height: layout.viewportHeight).padding(.vertical, SessionPanelLayout.verticalInset)
             } else {
                 ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 2) {
+                    LazyVStack(spacing: SessionPanelLayout.rowSpacing) {
                         ForEach(rows) { row in
-                            SessionRow(session: row, now: now, phase: row.effectivePhase(now: now), swipePresentation: swipePresentation, onHide: { perform { try store.hide(row) } }, onError: { actionIssue = $0 }, isPinned: store.arrangement.pinned.contains(row.id),
-                                       onPin: { perform { try store.setPinned(row.id, !store.arrangement.pinned.contains(row.id)) } },
+                                SessionRow(
+                                    session: row, now: now, phase: row.effectivePhase(now: now),
+                                    swipePresentation: swipePresentation, onHide: { perform { try store.hide(row) } },
+                                    onError: { actionIssue = $0 }, clientResolver: store.clientResolver,
+                                    isPinned: store.arrangement.pinned.contains(row.id),
+                                    onPin: { perform(userReordered: true) { try store.setPinned(row.id, !store.arrangement.pinned.contains(row.id)) } },
+                                       onMove: { movingDown in move(row.id, movingDown: movingDown, rows: rows) },
+                                       canMoveUp: SessionReorderState.adjacentTarget(for: row.id, movingDown: false, rows: rows, pinned: store.arrangement.pinned) != nil,
+                                       canMoveDown: SessionReorderState.adjacentTarget(for: row.id, movingDown: true, rows: rows, pinned: store.arrangement.pinned) != nil,
                                        onDragStart: { image, windowFrame, grab in
                                            guard let frame = rowRegions[row.id] else { return }
                                            onReorderingChange?(true)
@@ -134,7 +193,7 @@ struct SessionsView: View {
                                            if let point {
                                                reorder.update(windowPoint: point, regions: rowRegions, viewport: scrollRegion)
                                                if let id = reorder.id, let target = reorder.target {
-                                                   perform { try store.move(id, before: target, after: reorder.insertAfter, visible: rows.map(\.id)) }
+                                                   perform(userReordered: true) { try store.move(id, before: target, after: reorder.insertAfter, visible: rows.map(\.id)) }
                                                }
                                            }
                                            reorder.end(); onReorderingChange?(false)
@@ -144,6 +203,10 @@ struct SessionsView: View {
                                 .focusEffectDisabled()
                                 .onKeyPress(.return) { open(row); return .handled }
                                 .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+                                    if press.modifiers.contains(.option) {
+                                        move(row.id, movingDown: press.key == .downArrow, rows: rows)
+                                        return .handled
+                                    }
                                     guard let index = rows.firstIndex(where: { $0.id == row.id }) else { return .ignored }
                                     let next = index + (press.key == .downArrow ? 1 : -1)
                                     if rows.indices.contains(next) { focusedSession = rows[next].id }
@@ -155,28 +218,48 @@ struct SessionsView: View {
                                         Capsule().fill(Color.accentColor).frame(height: 3).padding(.horizontal, 4).allowsHitTesting(false)
                                     }
                                 }
-                                .transition(.asymmetric(insertion: .opacity, removal: .move(edge: .leading).combined(with: .opacity)))
+                                .transition(reduceMotion ? .identity : .asymmetric(insertion: .opacity, removal: .move(edge: .leading).combined(with: .opacity)))
                                 .background(GeometryReader { geometry in
                                     Color.clear.preference(key: SessionRowRegions.self, value: [row.id: geometry.frame(in: .named("session-panel"))])
                                 })
                         }
-                    }.padding(.horizontal, 8).padding(.vertical, 4)
+                    }.padding(.horizontal, 8)
+                        .background(SessionScrollOffsetReader { [panelState] offset in
+                            panelState.observeScrollOffset(offset)
+                        })
                 }.background(GeometryReader { geometry in
                     Color.clear.preference(key: SessionScrollRegion.self, value: geometry.frame(in: .named("session-panel")))
                 })
-                .onChange(of: focusedSession) { _, id in if let id { proxy.scrollTo(id) } }
+                .scrollIndicators(.visible)
+                .frame(height: layout.viewportHeight).padding(.vertical, SessionPanelLayout.verticalInset)
+                .onChange(of: panelState.viewportRequest) { _, request in
+                    if let request, rows.contains(where: { $0.id == request.id }) {
+                        proxy.scrollTo(request.id, anchor: request.alignToTop ? .top : nil)
+                    }
                 }
+                }.frame(height: layout.viewportHeight + SessionPanelLayout.verticalInset * 2)
             }
-            // Keep one empty card's space visible even when the list scrolls.
-            Color.clear.frame(height: SessionRow.height).contentShape(Rectangle())
-                .onTapGesture { focusedSession = nil }.accessibilityHidden(true)
+            if layout.showsOverflow {
+                overflowControl(rows: rows, layout: layout)
+            }
             VStack(spacing: 0) {
-            Divider().opacity(0.45)
+            Divider().opacity(contrast == .increased ? 1 : 0.45)
             footer.padding(.horizontal, 12).padding(.vertical, 7).fixedSize(horizontal: false, vertical: true)
             }.fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: SessionPanelSectionHeights.self, value: ["bottom": geometry.size.height])
                 })
+        }
+        .onChange(of: rows.map(\.id)) { _, ids in
+            focusedSession = SessionKeyboardFocus.recover(focusedSession, visibleIDs: ids)
+        }
+        .onChange(of: focusedSession) { old, current in
+            panelState.focusChanged(from: old, to: current, visibleIDs: rows.map(\.id))
+            // Removing the focused native control can clear FocusState before
+            // the changed list is delivered. Recover only when its row vanished.
+            if current == nil, let old, old != SessionKeyboardFocus.search, !rows.contains(where: { $0.id == old }) {
+                focusedSession = SessionKeyboardFocus.search
+            }
         }
         .overlay(alignment: .topLeading) {
             if let image = reorder.image, reorder.id != nil {
@@ -194,31 +277,55 @@ struct SessionsView: View {
         .onPreferenceChange(SessionScrollRegion.self) { scrollRegion = $0 }
         .onPreferenceChange(SessionPanelSectionHeights.self) { sectionHeights = $0 }
         .background(SessionSwipeView(regions: rowRegions, viewport: scrollRegion, enabled: reorder.rows == nil, onOffset: { id, offset in
-            swipePresentation.update(id: id, offset: offset)
+            swipePresentation.update(id: id, offset: offset, reduceMotion: reduceMotion)
         }, onAction: { id, action in
             guard let row = store.sessions.first(where: { $0.id == id }) else { return }
             if action == .hide { perform { try store.hide(row) } }
             else {
                 Task { @MainActor in
-                    do { try await SessionNavigation.open(row) }
-                    catch { actionIssue = (error as? SessionOpeningError)?.errorDescription ?? L("Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…».") }
-                }
+                    do { try await SessionNavigation.open(row, resolver: store.clientResolver) }
+                            catch {
+                                actionIssue =
+                                    (error as? SessionOpeningError)?.errorDescription
+                                    ?? L(
+                                        "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."
+                                    )
+                            }
+                        }
             }
         }))
         .background {
-            Color(nsColor: .windowBackgroundColor).opacity(0.94)
+            Color(nsColor: .windowBackgroundColor).opacity(reduceTransparency || contrast == .increased ? 1 : 0.94)
                 .contentShape(Rectangle()).onTapGesture { focusedSession = nil }
         }
         .onKeyPress(.escape) {
             guard focusedSession != nil else { return .ignored }
             focusedSession = nil; return .handled
         }
-        .alert(L("Не удалось выполнить действие"), isPresented: Binding(get: { actionIssue != nil }, set: { if !$0 { actionIssue = nil } })) {
-            Button(L("Понятно")) { actionIssue = nil }
-        } message: { Text(L(actionIssue ?? "")) }
     }
-    private func header(at now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func overflowControl(rows: [AgentSession], layout: SessionPanelLayout) -> some View {
+        let ids = rows.map(\.id)
+        let position = panelState.overflowPosition(ids: ids, layout: layout)
+        return Button {
+            if let target = position.targetID { panelState.scrollPage(to: target, visibleIDs: ids) }
+        } label: {
+            HStack(spacing: 5) {
+                Text(position.label).monospacedDigit()
+                InterfaceIcon(.down, size: 10).rotationEffect(.degrees(position.pointsDown ? 0 : 180))
+                    .accessibilityHidden(true)
+            }.frame(maxWidth: .infinity, minHeight: SessionPanelLayout.overflowHeight)
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            .frame(height: SessionPanelLayout.overflowHeight)
+            .disabled(position.targetID == nil || reorder.rows != nil)
+            .help(position.accessibilityLabel)
+            .accessibilityLabel(position.accessibilityLabel)
+            .accessibilityValue(position.label)
+            .accessibilityIdentifier("session-overflow-control")
+    }
+    func header(at now: Date) -> some View {
+        let counts = currentCounts(at: now)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 if let mark = AppArtwork.brandMark { Image(nsImage: mark).resizable().renderingMode(.original).scaledToFit().frame(width: 36, height: 36).accessibilityHidden(true) }
                 VStack(alignment: .leading, spacing: 3) {
@@ -227,7 +334,12 @@ struct SessionsView: View {
                 }
                 Spacer()
                 KeepAwakeButton(awake: awake, isExpanded: showingAwake) { showingAwake.toggle() }.disabled(isPreview)
-                    .popover(isPresented: $showingAwake) { KeepAwakeControls(awake: awake).padding(10).frame(width: 330) }
+                    .popover(isPresented: $showingAwake) {
+                        KeepAwakeControls(awake: awake, onReviewConditions: {
+                            showingAwake = false
+                            onKeepAwakeSettings?()
+                        }).padding(10).frame(width: 330)
+                    }
                 Button { Task { await store.refresh() } } label: { InterfaceIcon(.refresh, size: 18) }
                     .buttonStyle(InterfaceToolbarStyle()).disabled(store.refreshing || isPreview).help(L("Обновить сессии"))
                     .accessibilityLabel(L("Обновить сессии"))
@@ -242,14 +354,17 @@ struct SessionsView: View {
                     }
             }
             HStack(spacing: 10) {
-                metric(store.sessions.filter { $0.effectivePhase(now: now) == .running }.count, L("в работе"), .blue)
+                metric(counts.working, L("в работе"), .blue)
                 Button { attentionOnly.toggle() } label: {
-                    metric(store.sessions.filter { [.permission, .input].contains($0.effectivePhase(now: now)) }.count, L("в ожидании"), .orange)
-                        .padding(.vertical, 3).padding(.horizontal, 5)
-                        .background(attentionOnly ? Color.orange.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                }.buttonStyle(.plain).help(L("Показать сессии, которым нужен ответ или разрешение"))
-                    .accessibilityLabel(L("Только ожидание"))
+                    metric(counts.waiting,
+                           L(attentionOnly ? "Только ожидание" : "в ожидании"), .orange)
+                        .frame(minHeight: 24).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .help(L("Показать сессии, которым нужен ответ или разрешение"))
+                    .disabled(reorder.rows != nil)
+                    .accessibilityLabel(L("В ожидании: {0}", String(counts.waiting)))
                     .accessibilityValue(L(attentionOnly ? "Включено" : "Выключено"))
+                    .accessibilityAddTraits(attentionOnly ? .isSelected : [])
                     .accessibilityIdentifier("session-attention-filter")
                 Spacer()
             }
@@ -270,9 +385,11 @@ struct SessionsView: View {
             Text(loading ? L("Получаем сессии…") : hasFilters ? L("Ничего не найдено") : L("Нет подтверждённых текущих сессий"))
                 .font(.system(size: 13, weight: .medium)).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(hasFilters ? L("Нет сессий для выбранных фильтров. Сбросьте фильтры, чтобы увидеть остальные сессии.") : L("Приложения ещё не передали живой статус."))
-                .font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            if !loading {
+                Text(hasFilters ? L("Нет сессий для выбранных фильтров. Сбросьте фильтры, чтобы увидеть остальные сессии.") : L("Приложения ещё не передали живой статус."))
+                    .font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if !loading && !hasFilters && store.providers.isEmpty {
                 Button(L("Подключить приложения"), action: onConnections ?? onSettings)
                     .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(.blue)
@@ -281,21 +398,36 @@ struct SessionsView: View {
     }
     private func open(_ row: AgentSession) {
         Task { @MainActor in
-            do { try await SessionNavigation.open(row) }
-            catch { actionIssue = (error as? SessionOpeningError)?.errorDescription ?? L("Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…».") }
+            do { try await SessionNavigation.open(row, resolver: store.clientResolver) }
+            catch {
+                actionIssue =
+                    (error as? SessionOpeningError)?.errorDescription
+                    ?? L(
+                        "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."
+                    )
+            }
         }
     }
-    private func perform(_ action: () throws -> Void) {
+    private func move(_ id: String, movingDown: Bool, rows: [AgentSession]) {
+        guard reorder.rows == nil else { return }
+        perform(userReordered: true) { _ = try SessionReorderState.move(id, movingDown: movingDown, rows: rows, store: store) }
+    }
+    private func perform(userReordered: Bool = false, _ action: () throws -> Void) {
         do {
-            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { try action() }
-            else { try withAnimation(.easeOut(duration: 0.2), action) }
-        } catch { actionIssue = L("Не удалось сохранить изменение. Попробуйте ещё раз.") }
+            var transaction = Transaction(animation: reduceMotion ? nil : .easeOut(duration: 0.2))
+            transaction.disablesAnimations = reduceMotion
+            try withTransaction(transaction, action)
+            if userReordered {
+                panelState.reconcileOrder(store.arrangement.arranged(store.sessions), userReordered: true)
+                panelState.scrollAfterReorder(focusedID: focusedSession, visibleIDs: filteredSessions(at: Date()).map(\.id))
+            }
+        } catch { actionIssue = SessionActionFeedback.message(for: error) }
     }
     private var footer: some View {
         VStack(alignment: .leading, spacing: 9) {
             if let hidden = store.lastHidden {
                 HStack {
-                    Text(L("Убрано: {0}", hidden.title)).lineLimit(1)
+                    Text(L("Скрыто: {0}", hidden.displayTitle)).lineLimit(1)
                     Spacer()
                     Button(L("Отменить")) { perform { try store.undoHide() } }.buttonStyle(.plain).foregroundStyle(.blue)
                 }.font(.system(size: 11))
@@ -320,7 +452,9 @@ struct SessionsView: View {
 }
 
 struct SessionRow: View {
-    static let height: CGFloat = 42
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+    static let height = SessionPanelLayout.rowHeight
     var session: AgentSession
     var now: Date
     var phase: SessionPhase
@@ -328,8 +462,12 @@ struct SessionRow: View {
     private var swipeOffset: Double { swipePresentation.id == session.id ? swipePresentation.offset : 0 }
     var onHide: () -> Void
     var onError: (String) -> Void
+    var clientResolver = ClientExecutableResolver()
     var isPinned = false
     var onPin: (() -> Void)? = nil
+    var onMove: ((Bool) -> Void)? = nil
+    var canMoveUp = false
+    var canMoveDown = false
     var onDragStart: ((NSImage, CGRect, CGPoint) -> Void)? = nil
     var onDragMove: ((CGPoint) -> Void)? = nil
     var onDragEnd: ((CGPoint?) -> Void)? = nil
@@ -339,6 +477,12 @@ struct SessionRow: View {
     @StateObject private var menuAnchor = SessionMenuAnchor()
     @State private var opening = false
     @State private var hovering = false
+    var displayTitle: String { session.displayTitle }
+    var accessibilityName: String {
+        let title = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [displayTitle, session.provider.title, session.project, title.isEmpty ? session.id : ""]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+    }
     var color: Color {
         switch phase {
         case .permission, .input: return .orange
@@ -361,17 +505,28 @@ struct SessionRow: View {
         Button(action: showActions) {
             InterfaceIcon(.more).frame(width: 28, height: 30).contentShape(Rectangle())
         }
-            .buttonStyle(.plain).help(L("Действия с сессией")).accessibilityLabel(L("Действия с сессией"))
+            .buttonStyle(.plain).help(L("Действия с сессией")).accessibilityLabel(L("Действия: {0}", accessibilityName))
             .accessibilityIdentifier("session-actions-" + session.id)
             .background(SessionMenuAnchorView(anchor: menuAnchor))
     }
-    private var menuItems: [SessionMenuAnchor.Item] {
+    var reorderMenuItems: [SessionMenuAnchor.Item] {
+        guard let onMove else { return [] }
+        return [
+            .init(title: L("Переместить выше"), enabled: canMoveUp && !isDragging,
+                  keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!), keyModifiers: .option, action: { onMove(false) }),
+            .init(title: L("Переместить ниже"), enabled: canMoveDown && !isDragging,
+                  keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!), keyModifiers: .option, action: { onMove(true) })
+        ]
+    }
+    var accessibilityReorderItems: [SessionMenuAnchor.Item] { reorderMenuItems.filter(\.enabled) }
+    var menuItems: [SessionMenuAnchor.Item] {
         [
             .init(title: L("Открыть сессию"), enabled: !opening, action: openSession),
             session.client == .vscode ? .init(title: L("В VS Code должен быть открыт проект этой сессии."), enabled: false, action: {}) : nil,
             .separator,
             onPin.map { .init(title: L(isPinned ? "Открепить" : "Закрепить"), action: $0) },
-            .init(title: L("Убрать из Lunavect"), action: onHide),
+        ].compactMap { $0 } + reorderMenuItems + [
+            .init(title: L("Скрыть в Lunavect"), action: onHide),
             .separator,
             .init(title: L("Открыть папку проекта"), enabled: !session.cwd.isEmpty, action: {
                 if !SessionNavigation.revealProject(session) { onError(L("Папка проекта недоступна.")) }
@@ -385,8 +540,14 @@ struct SessionRow: View {
         guard !opening else { return }; opening = true
         Task { @MainActor in
             defer { opening = false }
-            do { try await SessionNavigation.open(session) }
-            catch { onError((error as? SessionOpeningError)?.errorDescription ?? L("Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…».")) }
+            do { try await SessionNavigation.open(session, resolver: clientResolver) }
+            catch {
+                onError(
+                    (error as? SessionOpeningError)?.errorDescription
+                        ?? L(
+                            "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."
+                        ))
+            }
         }
     }
     var statusTitle: String {
@@ -397,8 +558,8 @@ struct SessionRow: View {
             ZStack(alignment: .bottomTrailing) {
                 ProviderLogo(id: session.provider).scaleEffect(0.58).frame(width: 24, height: 24)
                     .foregroundStyle(session.provider == .claude ? Color.orange : Color.blue)
-                if phase == .running {
-                    ProgressView().controlSize(.mini).scaleEffect(0.65).frame(width: 10, height: 10)
+                if phase == .running && !reduceMotion {
+                    ProgressView().controlSize(.mini).tint(color).frame(width: 12, height: 12).accessibilityHidden(true)
                         .background(Color(nsColor: .windowBackgroundColor), in: Circle()).offset(x: 3, y: 3)
                 }
             }
@@ -406,7 +567,7 @@ struct SessionRow: View {
     }
     private var rowText: some View {
             VStack(alignment: .leading, spacing: 3) {
-                Text(session.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                Text(displayTitle).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 4) {
                     Circle().fill(color).frame(width: 4, height: 4)
@@ -440,7 +601,7 @@ struct SessionRow: View {
             .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 11))
             .overlay {
                 RoundedRectangle(cornerRadius: 11)
-                    .strokeBorder(isFocused ? Color.accentColor : .primary.opacity(hovering ? 0.10 : 0.035), lineWidth: isFocused ? 2 : 1)
+                    .strokeBorder(isFocused ? Color.accentColor : .primary.opacity(contrast == .increased ? 0.45 : hovering ? 0.10 : 0.035), lineWidth: isFocused ? 2 : 1)
                     .allowsHitTesting(false)
             }
             .contentShape(Rectangle())
@@ -449,7 +610,7 @@ struct SessionRow: View {
     private var interactiveRow: some View {
         rowSurface
             .background(SessionRowDragAnchorView(anchor: dragAnchor))
-            .help(session.project + " · " + session.client.title + "\n" + session.activityTitle)
+            .help(displayTitle + "\n" + session.project + " · " + session.client.title + "\n" + session.activityTitle)
             .overlay(alignment: .leading) {
                 SessionRowInteraction(session: session, anchor: dragAnchor, onClick: openSession, onMenu: showActions,
                                       onStart: { onDragStart?($0, $1, $2) }, onMove: { onDragMove?($0) }, onEnd: { onDragEnd?($0) })
@@ -463,7 +624,7 @@ struct SessionRow: View {
             HStack(spacing: 0) {
                 swipeAction(L("Открыть"), icon: .external, width: max(0, swipeOffset))
                 Spacer(minLength: 0)
-                swipeAction(L("Убрать"), icon: .hidden, width: max(0, -swipeOffset))
+                swipeAction(L("Скрыть"), icon: .hidden, width: max(0, -swipeOffset))
             }.accessibilityHidden(true)
             interactiveRow
             .offset(x: swipeOffset)
@@ -474,31 +635,40 @@ struct SessionRow: View {
             .opacity(isDragging ? 0.2 : 1)
             .onHover { hovering = $0 }
             .accessibilityElement(children: .contain)
+            .accessibilityLabel(accessibilityName)
+            .accessibilityValue(statusTitle)
             .accessibilityAction(.default, openSession)
             .accessibilityIdentifier("session-row-" + session.id)
             .accessibilityAction(named: Text(L("Открыть сессию")), openSession)
-            .accessibilityAction(named: Text(L("Убрать из Lunavect")), onHide)
-            .accessibilityHint(L("Нажмите, чтобы открыть сессию. Перетащите строку, чтобы изменить порядок. Правая кнопка или «…» — меню."))
+            .accessibilityAction(named: Text(L("Скрыть в Lunavect")), onHide)
+            .accessibilityActions {
+                ForEach(accessibilityReorderItems.indices, id: \.self) { index in
+                    if let action = accessibilityReorderItems[index].action {
+                        Button(accessibilityReorderItems[index].title, action: action)
+                    }
+                }
+            }
+            .accessibilityHint(L("Нажмите, чтобы открыть сессию. Option и стрелки вверх или вниз меняют порядок. Правая кнопка или «…» — меню."))
     }
 }
 
 
 struct SessionPanelSectionHeights: PreferenceKey {
-    static var defaultValue: [String: CGFloat] = [:]
+    static let defaultValue: [String: CGFloat] = [:]
     static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
         value.merge(nextValue(), uniquingKeysWith: { _, next in next })
     }
 }
 
 private struct SessionRowRegions: PreferenceKey {
-    static var defaultValue: [String: CGRect] = [:]
+    static let defaultValue: [String: CGRect] = [:]
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { _, next in next })
     }
 }
 
 struct SessionScrollRegion: PreferenceKey {
-    static var defaultValue = CGRect.zero
+    static let defaultValue = CGRect.zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
         // Empty sibling defaults must not erase the ScrollView's measured bounds.
@@ -509,15 +679,12 @@ struct SessionScrollRegion: PreferenceKey {
 @MainActor final class SessionSwipePresentation: ObservableObject {
     var id: String?
     @Published var offset = 0.0
-    func update(id: String, offset: Double) {
+    func update(id: String, offset: Double, reduceMotion: Bool? = nil) {
         guard self.id != id || self.offset != offset else { return }
-        if offset == 0 && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            withAnimation(.interpolatingSpring(stiffness: 320, damping: 30)) {
-                self.id = id; self.offset = 0
-            }
-        } else {
-            var transaction = Transaction(); transaction.disablesAnimations = true
-            withTransaction(transaction) { self.id = id; self.offset = offset }
-        }
+        let reduceMotion = reduceMotion ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let settles = offset == 0 && !reduceMotion
+        var transaction = Transaction(animation: settles ? .interpolatingSpring(stiffness: 320, damping: 30) : nil)
+        transaction.disablesAnimations = !settles
+        withTransaction(transaction) { self.id = id; self.offset = offset }
     }
 }

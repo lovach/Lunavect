@@ -17,17 +17,34 @@ enum AwakeDuration: Int, CaseIterable {
     }
 }
 
+enum AwakePermissionOrigin { case sessions, settings }
+enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
+
 @MainActor final class KeepAwake: ObservableObject {
+    typealias TimerScheduler = @MainActor (TimeInterval, @escaping @Sendable (Timer) -> Void) -> Timer
     static let shared = KeepAwake(client: AwakeServiceClient())
     @Published private(set) var isEnabled = false
     @Published private(set) var isBusy = false
     @Published private(set) var isAvailable: Bool
     @Published private(set) var isAwaitingPermission = false
     @Published private(set) var endsAt: Date?
-    @Published var issue: String?
-    @Published var duration: AwakeDuration = .untilStopped
+    @Published var issue: String? {
+        didSet { if issue == nil { recoveryAction = .none } }
+    }
+    @Published private(set) var recoveryAction = AwakeRecoveryAction.none
+    @Published var duration: AwakeDuration {
+        didSet { defaults.set(duration.rawValue, forKey: "awake.duration") }
+    }
+    @Published private(set) var safetyPolicy: AwakeSafetyPolicy
+    @Published private(set) var idleGraceSeconds: Int
+    @Published private(set) var automatic: Bool
+    @Published private(set) var idleDeadline: Date?
+    private var rows: [AgentSession] = []
+    private var automaticSuspended = false
+    private let defaults: UserDefaults
     private let client: AwakeClient
     private let now: () -> Date
+    private let scheduleTimer: TimerScheduler
     private var timer: Timer?
     private var checking = false
     private var generation = 0
@@ -35,25 +52,111 @@ enum AwakeDuration: Int, CaseIterable {
     private var permissionDeadline: Date?
     private var permissionDuration: AwakeDuration?
     private var permissionGeneration = 0
-    var onPermissionFinished: (() -> Void)?
-    init(client: AwakeClient, now: @escaping () -> Date = Date.init) {
+    private var permissionOrigin = AwakePermissionOrigin.sessions
+    var onPermissionFinished: ((AwakePermissionOrigin) -> Void)?
+    var automaticStopDescription: String {
+        L("Сон вернётся через {0} с после завершения работы.", String(idleGraceSeconds))
+    }
+    var protectionDescription: String {
+        var parts: [String] = []
+        if !safetyPolicy.allowBattery { parts.append(L("Только от зарядки")) }
+        if safetyPolicy.batteryProtection { parts.append(L("Остановка при заряде ≤{0}%", String(safetyPolicy.minimumBatteryPercent))) }
+        if safetyPolicy.thermalProtection { parts.append(L("Остановка при перегреве")) }
+        if parts.isEmpty { parts.append(L("Остановка по заряду и температуре выключена")) }
+        return parts.joined(separator: " · ")
+    }
+    var statusDescription: String {
+        if automatic && endsAt == nil {
+            if let idleDeadline { return L("До {0}", idleDeadline.formatted(.dateTime.hour().minute().locale(L10n.locale))) }
+            return L(isEnabled ? "Пока работают сессии" : "Ждём работающие сессии")
+        }
+        return endsAt.map { L("До {0}", $0.formatted(.dateTime.hour().minute().locale(L10n.locale))) }
+            ?? L(isEnabled ? "Работает до выключения" : "Экран погаснет, задачи продолжатся")
+    }
+    init(client: AwakeClient, now: @escaping () -> Date = Date.init, defaults: UserDefaults = .standard,
+         scheduleTimer: TimerScheduler? = nil) {
         self.client = client; self.now = now; isAvailable = client.isAvailable
+        self.scheduleTimer = scheduleTimer ?? { interval, action in
+            let timer = Timer(timeInterval: interval, repeats: true, block: action)
+            RunLoop.main.add(timer, forMode: .common)
+            return timer
+        }
+        self.defaults = defaults; automatic = defaults.bool(forKey: "awake.whileWorking")
+        duration = AwakeDuration(rawValue: defaults.integer(forKey: "awake.duration")) ?? .untilStopped
+        safetyPolicy = defaults.data(forKey: "awake.safety").flatMap {
+            try? JSONDecoder().decode(AwakeSafetyPolicy.self, from: $0)
+        }?.normalized ?? .init()
+        let grace = defaults.object(forKey: "awake.idleGraceSeconds") as? Int ?? 60
+        idleGraceSeconds = [0, 30, 60, 120, 300].contains(grace) ? grace : 60
+    }
+    func setIdleGrace(_ seconds: Int) {
+        guard [0, 30, 60, 120, 300].contains(seconds) else { return }
+        if let deadline = idleDeadline { idleDeadline = deadline.addingTimeInterval(Double(seconds - idleGraceSeconds)) }
+        idleGraceSeconds = seconds; defaults.set(seconds, forKey: "awake.idleGraceSeconds")
+        Task { await reconcileAutomatic() }
+    }
+    func setSafetyPolicy(_ policy: AwakeSafetyPolicy) async {
+        guard !isBusy else { return }
+        safetyPolicy = policy.normalized
+        if let data = try? JSONEncoder().encode(safetyPolicy) { defaults.set(data, forKey: "awake.safety") }
+        guard isEnabled else { return }
+        isBusy = true; defer { isBusy = false }
+        do { try await client.configure(policy: safetyPolicy); issue = nil }
+        catch {
+            automaticSuspended = automatic; clearState(); client.disconnect()
+            issue = message(for: error)
+        }
+    }
+    func restoreDefaults() async {
+        guard !isBusy else { return }
+        cancelPermission()
+        await setAutomatic(false)
+        if isEnabled { await stop() }
+        duration = AppDefaultSettings.awakeDuration
+        setIdleGrace(AppDefaultSettings.awakeIdleGrace)
+        await setSafetyPolicy(.init())
+    }
+    func observe(_ rows: [AgentSession]) {
+        self.rows = rows
+        guard automatic else { return }
+        Task { await reconcileAutomatic() }
+    }
+    func setAutomatic(_ enabled: Bool) async {
+        guard !isBusy else { return }
+        automatic = enabled; defaults.set(enabled, forKey: "awake.whileWorking")
+        automaticSuspended = false; idleDeadline = nil; issue = nil
+        if enabled { await reconcileAutomatic() }
+        else if isEnabled { await stop() }
+    }
+    func reconcileAutomatic() async {
+        guard automatic, !automaticSuspended, !isBusy else { return }
+        if rows.contains(where: { $0.effectivePhase(now: now()) == .running }) {
+            idleDeadline = nil
+            if !isEnabled {
+                refreshPermission()
+                guard isAvailable else { return }
+                await start(for: .untilStopped)
+            }
+        } else if isEnabled {
+            if idleDeadline == nil { idleDeadline = now().addingTimeInterval(Double(idleGraceSeconds)) }
+            if let idleDeadline, now() >= idleDeadline { await stop() }
+        }
     }
     func refreshPermission() { isAvailable = client.isAvailable }
-    func requestPermission() {
+    func requestPermission(from origin: AwakePermissionOrigin = .sessions) {
         guard !isBusy else { return }
         do {
             try client.requestPermission()
             refreshPermission(); issue = nil
             permissionGeneration += 1
             permissionDuration = duration
+            permissionOrigin = origin
             permissionDeadline = now().addingTimeInterval(600)
             isAwaitingPermission = true
             if permissionTimer == nil {
-                let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                permissionTimer = scheduleTimer(1) { [weak self] _ in
                     Task { @MainActor in await self?.checkPermission() }
                 }
-                RunLoop.main.add(timer, forMode: .common); permissionTimer = timer
             }
             Task { await checkPermission() }
         } catch { cancelPermission(); issue = message(for: error) }
@@ -78,13 +181,17 @@ enum AwakeDuration: Int, CaseIterable {
             return
         }
         guard isAvailable, let requestedDuration = permissionDuration else { return }
-        let attempt = permissionGeneration
+        let attempt = permissionGeneration, origin = permissionOrigin
         endPermissionWatch()
-        await start(for: requestedDuration)
+        if automatic { await reconcileAutomatic() }
+        else { await start(for: requestedDuration) }
         guard attempt == permissionGeneration else { return }
-        onPermissionFinished?()
+        onPermissionFinished?(origin)
     }
-    func toggle() async { if isEnabled { await stop() } else { await start() } }
+    func toggle() async {
+        if automatic { await setAutomatic(false) }
+        else if isEnabled { await stop() } else { await start() }
+    }
     func start(for requestedDuration: AwakeDuration? = nil) async {
         guard !isBusy else { return }
         refreshPermission()
@@ -93,18 +200,17 @@ enum AwakeDuration: Int, CaseIterable {
         generation += 1
         let generation = generation, duration = requestedDuration ?? self.duration
         do {
-            try await client.begin(seconds: duration.rawValue)
+            try await client.begin(seconds: duration.rawValue, policy: safetyPolicy)
             guard generation == self.generation else { return }
-            self.duration = duration
+            if !automatic { self.duration = duration }
             endsAt = duration == .untilStopped ? nil : now().addingTimeInterval(TimeInterval(duration.rawValue))
             isEnabled = true; issue = nil
             if timer == nil {
-                let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+                timer = scheduleTimer(10) { [weak self] _ in
                     Task { @MainActor in await self?.check() }
                 }
-                RunLoop.main.add(timer, forMode: .common); self.timer = timer
             }
-        } catch { clearState(); client.disconnect(); refreshPermission(); issue = message(for: error) }
+        } catch { automaticSuspended = automatic; clearState(); client.disconnect(); refreshPermission(); issue = message(for: error) }
     }
     func stop() async {
         guard !isBusy else { return }
@@ -119,31 +225,41 @@ enum AwakeDuration: Int, CaseIterable {
     }
     func check() async {
         guard isEnabled, !isBusy, !checking else { return }
+        if automatic { await reconcileAutomatic(); guard isEnabled else { return } }
         if let endsAt, now() >= endsAt { await stop(); return }
         checking = true; defer { checking = false }
         let generation = generation
         do { try await client.keepAlive() }
         catch {
             guard generation == self.generation else { return }
+            automaticSuspended = automatic
             clearState(); client.disconnect(); issue = message(for: error)
         }
     }
     /// Invalidation releases the daemon lease even if the UI exits.
     func shutdown() { generation += 1; cancelPermission(); client.disconnect(); clearState() }
-    private func clearState() { isEnabled = false; endsAt = nil; timer?.invalidate(); timer = nil }
+    private func clearState() { isEnabled = false; endsAt = nil; idleDeadline = nil; timer?.invalidate(); timer = nil }
     private func message(for error: Error) -> String {
+        switch error as? AwakeFailure {
+        case .battery, .thermal, .power: recoveryAction = .reviewConditions
+        case .permission, .external, .recovery, .expired, .busy: recoveryAction = .none
+        default: recoveryAction = .retryConnection
+        }
         switch error as? AwakeFailure {
         case .permission: return L("Для работы с закрытой крышкой разрешите Lunavect в настройках macOS.")
         case .external: return L("Сон уже отключён другой программой. Сначала выключите её режим без сна.")
-        case .battery: return L("Режим выключен: заряд аккумулятора 10% или ниже.")
+        case .battery: return L("Режим выключен: заряд аккумулятора {0}% или ниже.", String(safetyPolicy.minimumBatteryPercent))
         case .thermal: return L("Режим выключен: Mac слишком нагрелся.")
+        case .power: return L("Режим выключен: разрешена работа только от зарядки.")
         case .recovery: return L("Не удалось подтвердить возврат обычного сна. Системный помощник повторяет попытку.")
         case .expired: return L("Время режима без сна истекло.")
         case .busy: return L("Режим уже используется другой копией Lunavect.")
-        default: return L("Нет связи с системным помощником. Режим не подтверждён; обычный сон вернётся после потери связи.")
+        default: return L("Помощник не ответил. Режим с закрытой крышкой не включён. Повторите подключение помощника.")
         }
     }
-    deinit { timer?.invalidate(); permissionTimer?.invalidate() }
+    // Timer invalidation stays on the same actor that registered each timer,
+    // including when the last reference is released away from the main actor.
+    isolated deinit { timer?.invalidate(); permissionTimer?.invalidate() }
 }
 
 struct KeepAwakeButton: View {
@@ -156,31 +272,36 @@ struct KeepAwakeButton: View {
         }
         .buttonStyle(InterfaceToolbarStyle(selected: isExpanded, active: awake.isEnabled))
         .accessibilityIdentifier("keep-awake-controls")
-        .accessibilityLabel(L("Не спать с закрытой крышкой"))
-        .accessibilityValue(awake.isEnabled ? L("Включено") : L("Выключено"))
-        .help(L("Не спать с закрытой крышкой") + " · " + (awake.isEnabled ? awake.endsAt.map { L("До {0}", $0.formatted(.dateTime.hour().minute().locale(L10n.locale))) } ?? L("Работает до выключения") : L("Выключено")))
-        .alert(L("Режим без сна"), isPresented: Binding(get: { awake.issue != nil }, set: { if !$0 { awake.issue = nil } })) {
-            Button(L("Понятно")) { awake.issue = nil }
-        } message: { Text(awake.issue ?? "") }
+        .accessibilityLabel("Keep Awake")
+        .accessibilityValue([awake.isEnabled ? L("Включено") : L("Выключено"), awake.issue].compactMap { $0 }.joined(separator: ". "))
+        .help("Keep Awake · " + awake.statusDescription)
+        .overlay(alignment: .topTrailing) {
+            if awake.issue != nil { Circle().fill(.orange).frame(width: 6, height: 6).allowsHitTesting(false) }
+        }
     }
 }
 
 struct KeepAwakeControls: View {
     @ObservedObject var awake: KeepAwake
+    var showsModeControls = true
+    var permissionOrigin = AwakePermissionOrigin.sessions
+    var onReviewConditions: (() -> Void)? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(L("Не спать с закрытой крышкой")).font(.system(size: 12, weight: .semibold))
-                    Text(!awake.isAvailable ? L("Разрешение macOS · один раз") : awake.endsAt.map { L("До {0}", $0.formatted(.dateTime.hour().minute().locale(L10n.locale))) }
-                         ?? (awake.isEnabled ? L("Работает до выключения") : L("Экран погаснет, задачи продолжатся")))
+                    Text("Keep Awake").font(.system(size: 12, weight: .semibold))
+                    Text(!awake.isAvailable ? L("Разрешение macOS · один раз") : awake.statusDescription)
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 if awake.isBusy { ProgressView().controlSize(.small) }
                 if awake.isAvailable && !awake.isAwaitingPermission {
-                    Toggle(L("Не спать с закрытой крышкой"), isOn: Binding(get: { awake.isEnabled }, set: { value in
-                        Task { if value { await awake.start() } else { await awake.stop() } }
+                    Toggle("Keep Awake", isOn: Binding(get: { awake.isEnabled || awake.automatic }, set: { value in
+                        Task {
+                            if !value && awake.automatic { await awake.setAutomatic(false) }
+                            else if value { await awake.start() } else { await awake.stop() }
+                        }
                     }))
                     .labelsHidden().toggleStyle(.switch).controlSize(.small).tint(.orange)
                     .disabled(awake.isBusy)
@@ -197,16 +318,26 @@ struct KeepAwakeControls: View {
                     Text(L("Ждём разрешение…")).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
                 HStack {
-                    Button(L("Открыть настройки")) { awake.requestPermission() }
+                    Button(L("Открыть настройки")) { awake.requestPermission(from: permissionOrigin) }
                         .buttonStyle(.bordered).controlSize(.small).accessibilityIdentifier("awake-open-settings")
                     Spacer(minLength: 0)
-                    Button(L("Отмена")) { awake.cancelPermission() }
-                        .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Button { awake.cancelPermission() } label: {
+                        Text(L("Отмена")).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+                    }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(.secondary)
                         .accessibilityIdentifier("awake-cancel-permission")
                 }
                 Text(L("После подтверждения вернёмся сюда и включим режим."))
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             } else if awake.isAvailable {
+                if showsModeControls {
+                Toggle(L("Автоматически, пока работают сессии"), isOn: Binding(get: { awake.automatic }, set: { enabled in
+                    Task { await awake.setAutomatic(enabled) }
+                })).toggleStyle(.switch).controlSize(.small).font(.system(size: 11))
+                    .disabled(awake.isBusy).accessibilityIdentifier("awake-automatic")
+                if awake.automatic {
+                    Text(awake.isEnabled ? awake.automaticStopDescription : L("Ждём работающие сессии. Ожидание ввода не удерживает Mac без сна."))
+                        .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                } else {
                 HStack(spacing: 5) {
                     ForEach(AwakeDuration.allCases, id: \.rawValue) { duration in
                         Button {
@@ -224,12 +355,14 @@ struct KeepAwakeControls: View {
                             .help(duration.title)
                     }
                 }
-                Text(L("Отключится при заряде ≤10% или перегреве. Не убирайте работающий Mac в сумку."))
+                }
+                }
+                Text(awake.protectionDescription)
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             } else {
                 Text(L("Откроем нужный раздел macOS. Включите Lunavect и подтвердите доступ."))
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Button { awake.requestPermission() } label: {
+                Button { awake.requestPermission(from: permissionOrigin) } label: {
                     HStack {
                         Text(L("Разрешить и включить"))
                         Spacer()
@@ -240,6 +373,24 @@ struct KeepAwakeControls: View {
                     .accessibilityIdentifier("awake-authorize")
                 Text(L("Режим также блокирует ручной сон. Не убирайте работающий Mac в сумку."))
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if let issue = awake.issue {
+                Text(issue).font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                if awake.recoveryAction == .retryConnection {
+                Button(L("Повторить подключение")) {
+                    if awake.automatic { Task { await awake.setAutomatic(true) } }
+                    else { Task { await awake.start() } }
+                }.disabled(awake.isBusy).accessibilityIdentifier("awake-retry")
+                } else if awake.recoveryAction == .reviewConditions {
+                    if let onReviewConditions {
+                        Button(L("Условия остановки"), action: onReviewConditions)
+                            .accessibilityIdentifier("awake-review-conditions")
+                    } else {
+                        Text(L("Проверьте условия остановки ниже. Повторное включение доступно после изменения условий."))
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }.padding(11)
             .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
