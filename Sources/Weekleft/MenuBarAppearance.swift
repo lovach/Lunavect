@@ -486,8 +486,7 @@ struct ThinkingPhraseCycle {
     private var windowObserver: NSObjectProtocol?
     private var renderAvailable: Bool {
         guard visible && !asleep && !displayAsleep && sessionActive else { return false }
-        guard let window = button?.window else { return true }
-        return window.isVisible && window.occlusionState.contains(.visible)
+        return canRenderAnimation(button?.window)
     }
     private var visible = true
     private var animationStartedAt: TimeInterval?
@@ -499,6 +498,7 @@ struct ThinkingPhraseCycle {
     private let diagnosticsEnabled: Bool
     private let now: () -> TimeInterval
     private let scheduleTimer: @MainActor (Timer) -> Void
+    private let canRenderAnimation: @MainActor (NSWindow?) -> Bool
 
     func setVisible(_ visible: Bool) {
         self.visible = visible
@@ -535,9 +535,14 @@ struct ThinkingPhraseCycle {
     init(statusItem: NSStatusItem, updates: AppUpdates? = nil,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          scheduleTimer: @escaping @MainActor (Timer) -> Void = { RunLoop.main.add($0, forMode: .common) },
+         canRenderAnimation: @escaping @MainActor (NSWindow?) -> Bool = { window in
+             !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                 && (window.map { $0.isVisible && $0.occlusionState.contains(.visible) } ?? true)
+         },
          diagnosticsEnabled: Bool = ProcessInfo.processInfo.environment["LUNAVECT_MENU_BAR_DIAGNOSTICS"] == "1") {
         self.now = now
         self.scheduleTimer = scheduleTimer
+        self.canRenderAnimation = canRenderAnimation
         self.diagnosticsEnabled = diagnosticsEnabled
         self.statusItem = statusItem
         self.button = statusItem.button
@@ -601,12 +606,12 @@ struct ThinkingPhraseCycle {
         updateTimer()
     }
     private var shouldAnimate: Bool {
-        renderAvailable && icon != .system && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && (!onlyWhileWorking || running > 0)
+        renderAvailable && icon != .system && (!onlyWhileWorking || running > 0)
     }
     private func updateTimer() {
         updatePhrase()
         let animatedStatus = (thinkingPhrases && content.style == .summary) || content.style == .activity
-        let rotates = renderAvailable && animatedStatus && running > 0 && waiting == 0 && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let rotates = renderAvailable && animatedStatus && running > 0 && waiting == 0
         if rotates && phraseTimer == nil {
             let timer = Timer(timeInterval: ThinkingPhrases.dotInterval, repeats: true) { [weak self] fired in
                 let identity = ObjectIdentifier(fired)

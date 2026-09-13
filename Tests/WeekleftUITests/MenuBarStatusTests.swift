@@ -74,10 +74,12 @@ final class MenuBarStatusTests: XCTestCase {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
         var timers: [Timer] = []
-        var animator: MenuBarAnimator? = MenuBarAnimator(statusItem: item, scheduleTimer: { timers.append($0) })
-        try await Task.sleep(for: .milliseconds(100))
+        // Timer ownership is independent of the CI host's window occlusion and
+        // Reduce Motion preference. Capture timers without scheduling a run loop.
+        var animator: MenuBarAnimator? = MenuBarAnimator(statusItem: item,
+            scheduleTimer: { timers.append($0) }, canRenderAnimation: { _ in true })
         animator?.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
-        XCTAssertFalse(timers.isEmpty)
+        XCTAssertEqual(timers.count, 2, "Both artwork and phrase timers must be exercised")
         XCTAssertTrue(timers.allSatisfy(\.isValid))
         let owner = MenuBarAnimatorReferenceOwner(try XCTUnwrap(animator))
         animator = nil
@@ -87,6 +89,29 @@ final class MenuBarStatusTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertTrue(timers.allSatisfy { !$0.isValid })
+    }
+
+    @MainActor func testAnimationTimersStopWhenRenderingBecomesUnavailable() {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        var available = false
+        var timers: [Timer] = []
+        let animator = MenuBarAnimator(statusItem: item,
+            scheduleTimer: { timers.append($0) }, canRenderAnimation: { _ in available })
+        animator.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertTrue(timers.isEmpty)
+        available = true
+        animator.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertEqual(timers.filter(\.isValid).count, 2)
+        available = false
+        animator.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertTrue(timers.allSatisfy { !$0.isValid })
+        available = true
+        animator.update(icon: .codex, onlyWhileWorking: true, running: 1, waiting: 0)
+        XCTAssertEqual(timers.filter(\.isValid).count, 2)
+        animator.setVisible(false)
+        XCTAssertTrue(timers.allSatisfy { !$0.isValid }, "A hidden item stays inactive even when the display is available")
     }
 
     @MainActor private func reservedWidth(of item: NSStatusItem) -> CGFloat {
