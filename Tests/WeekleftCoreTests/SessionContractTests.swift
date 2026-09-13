@@ -151,6 +151,70 @@ final class SessionContractTests: XCTestCase {
         XCTAssertEqual(reminder.session, ready.session)
         XCTAssertEqual(try event("Notification", previous: ready, at: now.addingTimeInterval(71), extra: ["notification_type": "elicitation_dialog"]).session.phase, .input)
     }
+    func testClosingDecisionQuestionsNeedInputInsteadOfClaimingCompletion() throws {
+        let running = try event("UserPromptSubmit")
+        for text in [
+            "Предлагаю пять правок.\n\n1. Делаем все пять? Если выбирать, то 1 и 2.\n2. Подписи на английском? Предлагаю да.",
+            "Подробный разбор допишу позже.\n\n1. Делаю все шесть? Предлагаю да.",
+            "**Продолжаем?**", "Жду вашего подтверждения перед публикацией.",
+            "Выберите один из двух вариантов.", "Shall I apply these changes?",
+            "Please confirm the target directory.", "Which option do you prefer?",
+            "Soll ich die Änderungen anwenden?",
+        ] {
+            let stopped = try event("Stop", previous: running, extra: ["last_assistant_message": text])
+            XCTAssertEqual(stopped.session.phase, .input, text)
+            XCTAssertEqual(stopped.session.responseRequestsInput, true)
+            XCTAssertTrue(stopped.session.isCurrent(now: now))
+            XCTAssertTrue(stopped.pendingApprovals.isEmpty, "A prose question is not a tool permission request")
+            let encoded = try JSONEncoder().encode(stopped)
+            XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains(text), "Do not persist conversation text")
+            XCTAssertEqual(try JSONDecoder().decode(SessionRecord.self, from: encoded).session.phase, .input)
+        }
+    }
+    func testReadyResponsesExamplesAndOptionalOffersDoNotInventInputRequests() throws {
+        for text in [
+            "Готово. Все проверки прошли.", "Почему так? Причина — старый кэш.",
+            "Если хотите, могу добавить ещё один вариант.", "Хочешь, покажу другой вариант?",
+            "You can choose a different theme in Settings.", "Что дальше? Работа завершена.",
+            "Пример сообщения:\n> Делаем все пять?",
+            "Пример:\n```text\nShall I proceed?\n```",
+            "Пример:\n~~~\nВыберите вариант.\n~~~", "Кнопка называется «Продолжаем?».",
+            "| Подтвердите выбор | Пример текста |", "`Please confirm the path.`",
+        ] {
+            XCTAssertEqual(try event("Stop", extra: ["last_assistant_message": text]).session.phase, .ready, text)
+        }
+        XCTAssertEqual(try event("Stop").session.phase, .ready, "Older clients may omit the response")
+        XCTAssertEqual(try event("Stop", extra: ["last_assistant_message": ["bad": "shape"]]).session.phase, .ready)
+    }
+    func testResponseQuestionSurvivesIdleCatalogButNewWorkAndTerminalStatesWin() throws {
+        let question = try event("Stop", extra: ["last_assistant_message": "Делаем все пять?"])
+        let later = now.addingTimeInterval(15)
+        for values: [String: Any] in [["status": "idle"], ["pid": 123]] {
+            let row = try catalog(values, at: later)
+            let merged = try XCTUnwrap(SessionList.merge(catalog: [row], events: [question.session], now: later).first)
+            XCTAssertEqual(merged.phase, .input)
+            XCTAssertEqual(merged.observedAt, now, "Polling must not renew inferred evidence")
+            XCTAssertEqual(SessionList.filter([merged], query: "", provider: nil, activeOnly: true, now: later).count, 1)
+        }
+        for (values, phase): ([String: Any], SessionPhase) in [
+            (["status": "busy"], .running), (["status": "waiting", "waitingFor": "permission prompt"], .permission),
+            (["kind": "background", "state": "done"], .ready), (["kind": "background", "state": "failed"], .failed),
+        ] {
+            let row = try catalog(values, at: later)
+            XCTAssertEqual(SessionList.merge(catalog: [row], events: [question.session], now: later).first?.phase, phase)
+        }
+        let expired = now.addingTimeInterval(601)
+        let idle = try catalog(["status": "idle"], at: expired)
+        XCTAssertNotEqual(SessionList.merge(catalog: [idle], events: [question.session], now: expired).first?.phase, .input)
+        let reminder = try event("Notification", previous: question, at: later, extra: ["notification_type": "idle_prompt"])
+        XCTAssertEqual(reminder.session, question.session)
+        let resumed = try event("UserPromptSubmit", previous: question, at: later)
+        XCTAssertEqual(resumed.session.phase, .running)
+        XCTAssertNil(resumed.session.responseRequestsInput)
+        let finished = try event("Stop", previous: resumed, at: later.addingTimeInterval(10), extra: ["last_assistant_message": "Готово."])
+        XCTAssertEqual(finished.session.phase, .ready)
+        XCTAssertNil(finished.session.responseRequestsInput)
+    }
     func testClockCorrectionAcceptsStopAndSmallReorderingIsIgnored() throws {
         let running = try event("UserPromptSubmit")
         XCTAssertEqual(try event("Stop", previous: running, at: now.addingTimeInterval(-3600)).session.phase, .ready)

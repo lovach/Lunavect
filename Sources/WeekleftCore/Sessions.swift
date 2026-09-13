@@ -73,6 +73,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     public var runtimeObservedAt: Date?
     /// Task evidence survives SessionEnd even when the initial prompt hook was missed.
     public var hasTaskActivity: Bool?
+    /// A conservative local inference from Claude's final response, not an open
+    /// permission dialog. Keep only the result; never persist the response text.
+    public var responseRequestsInput: Bool?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -229,15 +232,20 @@ public enum SessionList {
                 // Reading a persisted blocked task again does not refresh its
                 // runtime presence or supersede an independently fresh hook.
                 let dormantClaudeWait = row.provider == .claude && row.catalogHistory == true && [.input, .permission].contains(row.phase)
-                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && row.phase != .unknown && row.observedAt > event.observedAt
+                // An idle process is expected after a final response asking for
+                // a decision. It cannot dismiss that question. Busy/waiting and
+                // terminal catalog states still supersede the earlier response.
+                let idleAfterQuestion = fresh && row.phase == .idle && event.phase == .input && event.responseRequestsInput == true
+                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && row.phase != .unknown && row.observedAt > event.observedAt
                 let moreSpecificApproval = !newerClaudeCatalog && row.effectivePhase(now: now) == .input && event.phase == .permission
-                if fresh && !newerClaudeCatalog && (dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
+                if fresh && !newerClaudeCatalog && (idleAfterQuestion || dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
                     row.phase = event.phase; row.observedAt = event.observedAt; row.evidence = event.evidence; row.tool = event.tool
                     row.runtimeConfirmed = event.runtimeConfirmed
                     row.catalogHistory = nil
                     row.turnStartedAt = event.turnStartedAt
                     row.runtimeObservedAt = event.runtimeObservedAt
                     row.hasTaskActivity = event.isUnstartedClaudeLifecycle ? false : event.hasTaskActivity
+                    row.responseRequestsInput = event.responseRequestsInput
                     row.updatedAt = max(row.updatedAt, event.updatedAt)
                 } else if newerClaudeCatalog && row.effectivePhase(now: now) != .unknown {
                     // A fresh idle interactive process ends the unfinished hook
@@ -338,12 +346,17 @@ public struct SessionRecord: Codable, Sendable {
                 record.unidentifiedApproval = nil
             }
             record.session.phase = record.pendingApprovals.isEmpty && record.unidentifiedApproval != true ? .running : .permission
-        case "Stop": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .ready
+        case "Stop":
+            record.pendingApprovals = []; record.unidentifiedApproval = nil
+            let asksForReply = provider == .claude && ClaudeResponseQuestion.requiresReply(payload["last_assistant_message"] as? String)
+            record.session.responseRequestsInput = asksForReply ? true : nil
+            record.session.phase = asksForReply ? .input : .ready
         case "SessionEnd": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
         case "Interrupt": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .interrupted
         case "StopFailure": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .failed
         default: throw SessionError.invalidResponse
         }
+        if name != "Stop" { record.session.responseRequestsInput = nil }
         if name != "SessionStart" && name != "SessionEnd" {
             record.session.hasTaskActivity = true
         } else if provider == .claude && record.session.hasTaskActivity == nil && record.session.turnStartedAt == nil {
@@ -355,5 +368,50 @@ public struct SessionRecord: Codable, Sendable {
         record.session.tool = name == "PreToolUse" && !tool.isEmpty ? tool : nil
         if client != .unknown { record.session.client = client }
         return record
+    }
+}
+
+/// Stop means generation ended, even when the assistant explicitly asks the
+/// user to choose or approve its next step. This deliberately narrow heuristic
+/// examines closing prose, not arbitrary question marks, quotes or code. Unknown
+/// wording stays `ready`; structured permission/input events remain authoritative.
+enum ClaudeResponseQuestion {
+    private static let requests = [
+        #"^(?:делаем|делаю|продолжаем|продолжать|начинаем|начинаю|начинать|запускаем|запускаю|запускать|применяем|применить|вносим|внести|отправляем|отправить|публикуем|публиковать|подтверждаете)\b[^?？]*[?？]"#,
+        #"^(?:можно\s+(?:мне\s+)?(?:начать|продолжить|запустить|применить|внести|отправить|опубликовать)|какой\s+вариант\s+(?:выбираем|выбираете|выбрать))\b[^?？]*[?？]"#,
+        #"^(?:пожалуйста[, ]+)?(?:подтвердите|подтверди|выберите|выбери|уточните|уточни|скажите|скажи)\b"#,
+        #"^жду\s+(?:вашего|твоего)\s+(?:ответа|решения|подтверждения|выбора)\b"#,
+        #"^(?:shall|should|may|can)\s+(?:i|we)\s+(?:proceed|continue|start|apply|run|send|publish|implement|make|do)\b[^?？]*[?？]"#,
+        #"^(?:please\s+)?(?:confirm|choose|select|clarify|let me know which)\b"#,
+        #"^which\s+(?:option|version|approach)\s+(?:do you|should we|would you)\b[^?？]*[?？]"#,
+        #"^(?:soll|darf)\s+(?:ich|wir)\b[^?？]*[?？]"#,
+        #"^(?:bitte\s+)?(?:bestätige|bestätigen sie|wähle|wählen sie)\b"#,
+    ].compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+
+    static func requiresReply(_ message: String?) -> Bool {
+        guard let message, message.utf8.count <= 128_000 else { return false }
+        var fence: String?
+        var closingLines: [String] = []
+        for raw in message.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("```") || line.hasPrefix("~~~") {
+                let marker = String(line.prefix(3))
+                if fence == nil { fence = marker }
+                else if fence == marker { fence = nil }
+                closingLines.append("")
+            } else if fence == nil {
+                // Preserve boundaries so a trailing example cannot expose an
+                // earlier question as if it were the closing request.
+                closingLines.append(line.hasPrefix(">") || line.hasPrefix("|") || line.contains("`") ? "" : line)
+            }
+        }
+        while closingLines.last == "" { closingLines.removeLast() }
+        for raw in closingLines.suffix(6) {
+            let line = raw.replacingOccurrences(of: #"^(?:[-*+]\s+|\d+[.)]\s+)"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespaces)
+            let range = NSRange(line.startIndex..<line.endIndex, in: line)
+            if requests.contains(where: { $0.firstMatch(in: line, range: range) != nil }) { return true }
+        }
+        return false
     }
 }
