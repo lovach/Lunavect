@@ -1,6 +1,6 @@
 # Trying Lunavect on another Mac
 
-A short check for a new installation. Use the [public DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.0/Lunavect-0.1.0-installer-2.dmg), then report what actually happened in a [bug report](https://github.com/lovach/Lunavect/issues/new/choose). No terminal commands are needed.
+A short check for a new installation. Use the [public DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.1/Lunavect-0.1.1.dmg), then report what actually happened in a [bug report](https://github.com/lovach/Lunavect/issues/new/choose). No terminal commands are needed.
 
 1. **Install.** Open the DMG, drag Lunavect to Applications and launch it. Note any Gatekeeper message, missing icon or failed launch.
 2. **Connect one client.** Choose Claude or Codex. If you already use the client, check that your existing sign-in is reused. Otherwise follow the connection guide. Record the exact step if it stops.

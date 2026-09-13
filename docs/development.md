@@ -82,7 +82,16 @@ python3 scripts/check-native-renders.py --run --require-render \
 
 Its 12 images cover stale/fresh allowances, import reports at 340/580 points, light/dark contour gaps and the control icon alphabet. The icon captions are internal glyph names and intentionally identical across languages. Every selected XCTest invocation must report exactly one passed test with no skips, in addition to the exact image set. A successful empty filter cannot satisfy the check. Preview composition uses `AppEnvironment.preview`, private defaults and temporary files; its construction and stop are checked inside the same sandbox.
 
-Other legacy exporters now require sandbox proof and process-only language before evaluating views. Exporters that need stores use the same preview environment with injected features, updates, language and keep-awake dependencies. Whole Settings, ReleaseScreenshots, onboarding and session-window renderers are **not allowlisted**: their complete native control/window behavior has not been verified under the restricted launcher. Do not set the proof variables by hand or remove the guard to run them. The launcher keeps shared preferences, client processes and network access denied.
+The reviewed `public-gallery` suite captures eleven current production layouts in English, using a single fictional dataset and offscreen AppKit windows at native 2× resolution:
+
+```sh
+python3 scripts/check-native-renders.py --run --require-render \
+  --suite public-gallery --output build/public-gallery
+```
+
+Its settings, sessions and native menu-bar controls use injected preview dependencies under the same sandbox; no windows are shown. See [gallery reproduction](public-screenshots.md) for the image set and capture-time fixture.
+
+Other legacy exporters require sandbox proof and process-only language before evaluating views. Their guard alone does not permit a new method: only the methods selected by the launcher are allowlisted. Other Settings, onboarding and session-window exporters remain excluded. Do not set proof variables by hand or remove the guard. Shared preferences, client processes and network access remain denied.
 
 ## Synthetic performance measurements
 
@@ -145,7 +154,7 @@ Diagnostic output from `--session-probe` contains session titles and project pat
 
 ## README screenshots
 
-The public gallery uses fictional sessions, allowances and activity. Its broader `ReleaseScreenshots` suite and the [media app](../scripts/presentation/README.md) are separate from the isolated smoke matrix above. Legacy test exporters have been migrated to the injected preview environment and protected by the isolation guard; whole-window exports remain excluded from the allowlist until their complete sandboxed rendering is verified. The separate media app also needs its own isolation review before use. Do not enable those exporters in routine CI. Associate reviewed media with the source manifest of the actual run before updating public images. They document the interface and do not prove desktop widget placement or live account behavior.
+Use the reviewed `public-gallery` suite above and follow the [screenshot instructions](public-screenshots.md). Inspect every native image and retain its source manifest before replacing README assets. These exports document the interface and do not prove desktop widget placement or live account behavior.
 
 ## Releases
 

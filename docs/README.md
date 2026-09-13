@@ -19,7 +19,7 @@
 
 [Report a bug](https://github.com/lovach/Lunavect/issues/new?template=bug.yml) · [Suggest an improvement](https://github.com/lovach/Lunavect/issues/new?template=feature.yml) · [Report a vulnerability privately](../SECURITY.md)
 
-[Contributing](../CONTRIBUTING.md) covers proposed changes and pull requests. The [development guide](development.md) covers the source layout and checks; [localization](localization.md) covers translations, and [release packaging](updates.md) covers signing and distribution.
+[Contributing](../CONTRIBUTING.md) covers proposed changes and pull requests. The [development guide](development.md) covers the source layout and checks; [localization](localization.md) covers translations, [public screenshots](public-screenshots.md) covers the reproducible gallery, and [release packaging](updates.md) covers signing and distribution.
 
 The [engineering case study](case-study.md) records the synthetic performance baseline, render isolation and the limits of those measurements.
 

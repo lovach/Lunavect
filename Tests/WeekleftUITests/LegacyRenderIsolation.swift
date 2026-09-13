@@ -55,11 +55,11 @@ enum LegacyRenderIsolation {
     let presentation: PresentationFixture
     let environment: AppEnvironment
 
-    init(snapshots: [UsageSnapshot]? = nil, preferences: WidgetPreferences? = nil, history: ActivityHistory? = nil) throws {
+    init(snapshots: [UsageSnapshot]? = nil, preferences: WidgetPreferences? = nil, history: ActivityHistory? = nil, now: Date = LegacyRenderIsolation.now) throws {
         try LegacyRenderIsolation.require()
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        presentation = try PresentationFixture(now: LegacyRenderIsolation.now, calendar: calendar)
+        presentation = try PresentationFixture(now: now, calendar: calendar)
         environment = try AppEnvironment.preview(rows: presentation.sessions(), now: presentation.now,
             languageCode: LegacyRenderIsolation.language(),
             state: SharedState(snapshots: snapshots ?? presentation.snapshots, preferences: preferences ?? presentation.preferences),
