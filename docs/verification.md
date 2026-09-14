@@ -1,8 +1,21 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.1.3 (154)**. These records distinguish checks that ran from scenarios still requiring verification.
+The current public release is **Lunavect 0.1.4 (157)**. These records distinguish checks that ran from scenarios still requiring verification.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.3) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.4) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
+
+## 0.1.4 release checks — September 14, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `d832c57259861f327add2213c614dfd7bd5bbd7e`, tagged `v0.1.4`. Archive source provenance passed. |
+| Automated checks | Local `scripts/check.sh` passed: 79 Python tests; 638 Swift tests with 55 conditional skips and no failures; universal Release app, WidgetKit, hook, product resources, intent metadata and provenance checks. [Release CI](https://github.com/lovach/Lunavect/actions/runs/34837714173) passed. |
+| Focused behavior | 48 focused checks, 2 conditional skips and no failures. Delayed timer callbacks retain each visible dot step, phrase changes follow two displayed cycles, and reserved dot width stays fixed. Added confirmation phrasing and inline-filename cases preserve quoted/code-example exclusions. |
+| Native interface | Menu-bar artwork, the update notice and dot states in all three styles were rendered and visually inspected. Development build 156 launched with current sessions; user preferences and shared widget settings were retained. Only the helper registration build record changed. |
+| Distribution | Developer ID signed and Apple notarized, build 157. Anonymous downloads of the DMG, ZIP, appcast and checksums matched the packaged bytes. The downloaded app passed strict codesign, Gatekeeper, stapler, product-resource and helper-policy checks. ZIP and feed signatures passed, and the latest appcast matches this release. |
+| Remaining scope | Existing Claude replies are not reprocessed; unfamiliar request wording can still be missed. Automatic installation of this exact release and prolonged animation behavior under real system load have not been verified live. |
+
+The 0.1.4 DMG SHA-256 is `c5d4d6a7362c6926e412de5129f046f8cc59c828731fb20b0d5687d3e4bc6bfe`. Previous release downloads retain their original URLs.
 
 ## 0.1.3 release checks — September 14, 2026
 
@@ -53,7 +66,7 @@ Test counts above belong to the release source, not subsequent documentation or 
 
 ## Homebrew and installer
 
-The cask points to the 0.1.3 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
+The cask points to the 0.1.4 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
 
 The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstall on September 12. That exercise preserved the existing application and validated the downloaded signature and notarization. A Homebrew upgrade between distinct versions is a separate scenario; the real Sparkle update above does not establish it.
 
@@ -72,8 +85,8 @@ The deployment minimum is macOS 14. Release checks were performed on macOS 26.5.
 | Other Macs | Intel hardware, macOS 14/15 and every supported OS revision have not been exercised. |
 | First-time setup | Clean-Mac setup, different account plans and client versions, failed sign-in and retry need broader coverage. |
 | Session lifecycle | More real-client coverage is needed for prolonged tasks, cancellation, sleep/wake, offline periods and returning to the exact original session. |
-| Desktop widgets | Native layouts and the owner's glass setting were checked. Placement, editing and refresh of build 154 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
-| Updates | Upgrade from public 0.1.2 (149) to 0.1.3 (154), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
+| Desktop widgets | Native layouts and the owner's glass setting were checked. Placement, editing and refresh of build 157 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
+| Updates | Upgrade from public 0.1.3 (154) to 0.1.4 (157), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
 | Accessibility | Full VoiceOver, keyboard navigation and widget appearance with increased contrast or reduced transparency need live verification. |
 | Battery use | Short process samples and synthetic benchmarks do not establish prolonged idle energy consumption. |
 | Experimental features | Optional glass and closed-lid Keep Awake are not guaranteed across Macs or future macOS releases. Glass is off by default. |
