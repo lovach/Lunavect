@@ -1,8 +1,22 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.1.2 (149)**. These records distinguish checks that ran from scenarios still requiring verification.
+The current public release is **Lunavect 0.1.3 (154)**. These records distinguish checks that ran from scenarios still requiring verification.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.2) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.3) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
+
+## 0.1.3 release checks — September 14, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `a7c051b331cf1efcb751e2c5c8d2fff8ecf767ec`, tagged `v0.1.3`. Source provenance remained unchanged throughout the signed archive. |
+| Automated checks | Local `scripts/check.sh` passed: 79 Python tests; 637 Swift tests with 55 conditional skips and no failures; universal Release build with WidgetKit, hook, resource, intent metadata and provenance checks. [Release CI](https://github.com/lovach/Lunavect/actions/runs/34829559280) passed. |
+| Covered behavior | Widget timestamp refresh and stale recovery; resumed Claude work superseding old waiting questions; compaction lifecycle; bounded count badges, idle artwork and two-cycle phrases across all three menu-bar styles. |
+| Native gallery | Twelve native images rendered with fictional data under the existing isolation policy and were visually inspected. The new settings image exposes icon choices directly. A fresh Finder capture shows the actual mounted 0.1.3 DMG; its layout is unchanged. |
+| Distribution | Developer ID signed and Apple notarized, build 154. Public DMG, ZIP, appcast and checksum files were downloaded anonymously and matched the packaged bytes. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, product-resource and helper-policy checks; ZIP and feed signatures verified. The latest appcast matches this release. |
+| Compatibility | Bundle IDs, App Group, data paths and update key are unchanged. Saved appearance preferences retain their decoding behavior. |
+| Actual update | Automatic installation of this exact release and its desktop widget refresh have not been verified live. Earlier update evidence below is separate. |
+
+The 0.1.3 DMG SHA-256 is `269b42b0e1840789417f61a97100fe4c29193c70a8b20cb2ba46236c2f855575`. Previous release downloads remain available at their original URLs.
 
 ## 0.1.2 release checks — September 13, 2026
 
@@ -39,13 +53,13 @@ Test counts above belong to the release source, not subsequent documentation or 
 
 ## Homebrew and installer
 
-The cask points to the 0.1.2 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
+The cask points to the 0.1.3 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
 
 The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstall on September 12. That exercise preserved the existing application and validated the downloaded signature and notarization. A Homebrew upgrade between distinct versions is a separate scenario; the real Sparkle update above does not establish it.
 
 ## Public screenshots
 
-The current gallery contains eleven native 2× images captured on September 13 from the production UI and a single fictional dataset: light/dark sessions, limits, statistics, menu-bar styles and four widget layouts. All eleven were visually inspected. The sandbox preflight, exact image set, dimensions and source-provenance checks passed.
+The current gallery contains twelve native 2× images captured on September 14 from the production UI and a single fictional dataset: light/dark sessions, limits, statistics, menu-bar styles, appearance settings and four widget layouts. All twelve were visually inspected. The sandbox preflight, exact image set, dimensions and source-provenance checks passed.
 
 Settings and session controls were rendered in offscreen AppKit windows with private preview dependencies. The images demonstrate layout, not interactive settings flows, external-client navigation, desktop WidgetKit placement or system glass compositing. Older screenshots, the retouched desktop capture and the unused movie have been removed. [Source and reproduction instructions](public-screenshots.md).
 
@@ -58,8 +72,8 @@ The deployment minimum is macOS 14. Release checks were performed on macOS 26.5.
 | Other Macs | Intel hardware, macOS 14/15 and every supported OS revision have not been exercised. |
 | First-time setup | Clean-Mac setup, different account plans and client versions, failed sign-in and retry need broader coverage. |
 | Session lifecycle | More real-client coverage is needed for prolonged tasks, cancellation, sleep/wake, offline periods and returning to the exact original session. |
-| Desktop widgets | Native layouts and the owner's glass setting were checked. Placement, editing and refresh of build 149 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
-| Updates | Upgrade from public 0.1.1 (147) to 0.1.2 (149), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
+| Desktop widgets | Native layouts and the owner's glass setting were checked. Placement, editing and refresh of build 154 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
+| Updates | Upgrade from public 0.1.2 (149) to 0.1.3 (154), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
 | Accessibility | Full VoiceOver, keyboard navigation and widget appearance with increased contrast or reduced transparency need live verification. |
 | Battery use | Short process samples and synthetic benchmarks do not establish prolonged idle energy consumption. |
 | Experimental features | Optional glass and closed-lid Keep Awake are not guaranteed across Macs or future macOS releases. Glass is off by default. |

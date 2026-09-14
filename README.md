@@ -7,7 +7,7 @@
 A macOS menu bar app and desktop widgets for **Claude Code** and **Codex**.
 
 <p>
-  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.2/Lunavect-0.1.2.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
+  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.3/Lunavect-0.1.3.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
 </p>
 
 macOS 14+ · Apple silicon & Intel · Free and open source
@@ -42,7 +42,7 @@ open -a Lunavect
 
 </div>
 
-Or [download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.2/Lunavect-0.1.2.dmg) and drag **Lunavect** to **Applications**. The release is Developer ID signed and notarized by Apple.
+Or [download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.3/Lunavect-0.1.3.dmg) and drag **Lunavect** to **Applications**. The release is Developer ID signed and notarized by Apple.
 
 Open **Connect Claude** or **Connect Codex** in Lunavect. Claude requires **Claude Code CLI**; Claude Desktop alone is not enough. Connect either service or both. Sign-in stays with the official clients.
 

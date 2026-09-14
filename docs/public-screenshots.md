@@ -31,4 +31,4 @@ One capture-time fixture keeps the sessions fresh and the displayed totals consi
 
 Inspect every image for clipped text, missing controls, inconsistent totals and unintended private data before copying the twelve PNGs into `docs/images`. The README switches its hero between light/dark appearances and uses a single session panel on narrow screens.
 
-The installer image documents the unchanged branded Finder layout; its historical inspection is recorded separately in [verification](verification.md). Obsolete galleries, the retouched desktop image and the unused demo movie have been removed.
+The [installer image](images/installer.jpg) was captured directly from the mounted 0.1.3 DMG in Finder on September 14. Its branded layout is unchanged. Obsolete galleries, the retouched desktop image and the unused demo movie have been removed.
