@@ -4,7 +4,7 @@ Lunavect uses Sparkle for signed updates distributed through GitHub Releases. Th
 
 ## Updating the app
 
-Use **Settings → Updates** to check for updates or change automatic checks and downloads. A ready update is shown in the menu bar and session panel. Automatic installation is scheduled for an ordinary app quit; users can also apply it through the updater interface. Lunavect does not terminate Claude or Codex to install its own update.
+Use **Settings → Updates** to check for updates or change automatic checks and downloads. A ready update appears as an actionable row in the session panel and in the menu-bar tooltip and accessibility label. No update dot is drawn over the character. Automatic installation is scheduled for an ordinary app quit; users can also apply it through the updater interface. Lunavect does not terminate Claude or Codex to install its own update.
 
 New profiles enable update checks and leave automatic downloads/installation off. Upgrades retain the previous Sparkle choices, including 0.1.0 profiles that enabled automatic installation at ordinary quit. This difference is intentional preference preservation; installing an update does not reset existing users to the new-profile defaults.
 

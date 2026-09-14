@@ -189,6 +189,10 @@ final class SessionContractTests: XCTestCase {
             "Выберите один из двух вариантов.", "Shall I apply these changes?",
             "Please confirm the target directory.", "Which option do you prefer?",
             "Soll ich die Änderungen anwenden?",
+            "Хук принимаем? Рекомендую да.", "Правки 1–6 оставляем? Рекомендую да.",
+            "Можно скачать `example.dmg` во временную папку? Тогда проверю установщик.",
+            "Готов предварительный вариант.\n\nВопросы:\n1. Хук принимаем? Рекомендую да.\n2. Правки оставляем?\n3. Можно скачать `example.dmg`?",
+
         ] {
             let stopped = try event("Stop", previous: running, extra: ["last_assistant_message": text])
             XCTAssertEqual(stopped.session.phase, .input, text)
@@ -209,6 +213,9 @@ final class SessionContractTests: XCTestCase {
             "Пример:\n```text\nShall I proceed?\n```",
             "Пример:\n~~~\nВыберите вариант.\n~~~", "Кнопка называется «Продолжаем?».",
             "| Подтвердите выбор | Пример текста |", "`Please confirm the path.`",
+            "Пример: `Хук принимаем?`", "> Можно скачать файл?", "Правки оставляем как есть.",
+            "В документации есть фраза «Хук принимаем?». Это пример.",
+            "`Можно скачать файл?`", "Можно скачать файл на сайте. Работа завершена.",
         ] {
             XCTAssertEqual(try event("Stop", extra: ["last_assistant_message": text]).session.phase, .ready, text)
         }

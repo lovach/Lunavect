@@ -74,28 +74,49 @@ enum ThinkingPhrases {
     ]
 }
 
+// Advance only one visible step after a delayed callback. Catching up to a
+// wall-clock phase would skip dots and shorten the cycles the user actually saw.
+struct ThinkingDotCycle {
+    private var step = 0
+    private(set) var nextStepAt: TimeInterval?
+    private(set) var dotCount = 3
+
+    mutating func update(active: Bool, at time: TimeInterval, rotates: Bool) -> Bool {
+        guard active && rotates else {
+            step = 0; nextStepAt = nil; dotCount = 3
+            return false
+        }
+        guard let deadline = nextStepAt else {
+            step = 0; dotCount = 1; nextStepAt = time + ThinkingPhrases.dotInterval
+            return false
+        }
+        guard time >= deadline else { return false }
+        step = (step + 1) % (ThinkingPhrases.dotsPerCycle * ThinkingPhrases.cyclesPerPhrase)
+        dotCount = step % ThinkingPhrases.dotsPerCycle + 1
+        nextStepAt = time + ThinkingPhrases.dotInterval
+        return step == 0
+    }
+}
+
 struct ThinkingPhraseCycle {
     private var remaining: [String] = []
     private var previous: String?
-    private var startedAt: TimeInterval?
+    private var dots = ThinkingDotCycle()
     private(set) var current: String?
-    private(set) var dotCount = 3
+    var dotCount: Int { dots.dotCount }
+    var nextStepAt: TimeInterval? { dots.nextStepAt }
 
     mutating func update(active: Bool, at time: TimeInterval, rotates: Bool = true) {
-        guard active else { current = nil; startedAt = nil; dotCount = 3; return }
-        let elapsed = max(0, time - (startedAt ?? time))
-        if current == nil || (rotates && elapsed >= ThinkingPhrases.interval) {
+        let completed = dots.update(active: active, at: time, rotates: rotates)
+        guard active else { current = nil; return }
+        if current == nil || completed {
             if remaining.isEmpty {
                 remaining = ThinkingPhrases.all.shuffled()
                 if remaining.last == previous { remaining.swapAt(0, remaining.count - 1) }
             }
             current = remaining.removeLast()
             previous = current
-            // Each newly displayed phrase starts its own two complete dot cycles,
-            // including after a delayed timer callback or a suspended animation.
-            startedAt = time
         }
-        dotCount = rotates ? ThinkingPhrases.dotCount(at: time - (startedAt ?? time)) : 3
     }
 }
 
@@ -260,7 +281,6 @@ struct ThinkingPhraseCycle {
         }
     }
     let artwork = NSImageView()
-    let updateBadge = NSView()
     var pixelAlignedArtwork = false
     var constrainsSummaryWidth = false
     var style: MenuBarStatusStyle = .summary
@@ -294,13 +314,6 @@ struct ThinkingPhraseCycle {
         artwork.imageScaling = .scaleProportionallyDown
         artwork.wantsLayer = true
         addSubview(artwork)
-        updateBadge.wantsLayer = true
-        updateBadge.layer?.backgroundColor = NSColor.systemBlue.cgColor
-        updateBadge.layer?.cornerRadius = 3
-        updateBadge.frame = NSRect(x: 2, y: 2, width: 6, height: 6)
-        updateBadge.isHidden = true
-        updateBadge.setAccessibilityElement(false)
-        addSubview(updateBadge)
         setAccessibilityElement(false)
         artwork.setAccessibilityElement(false)
     }
@@ -391,7 +404,6 @@ struct ThinkingPhraseCycle {
         let frame = NSRect(x: contentOriginX, y: (bounds.height - height) / 2, width: iconWidth, height: height)
         artwork.frame = pixelAlignedArtwork
             ? backingAlignedRect(frame, options: .alignAllEdgesNearest) : frame
-        updateBadge.frame.origin.x = contentOriginX
     }
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
@@ -506,7 +518,7 @@ struct ThinkingPhraseCycle {
     private var timer: Timer?
     private var phraseTimer: Timer?
     private var phraseCycle = ThinkingPhraseCycle()
-    private var activityStartedAt: TimeInterval?
+    private var activityDots = ThinkingDotCycle()
     private var thinkingPhrases = true
     private var icon = MenuBarIcon.system
     private var onlyWhileWorking = true
@@ -542,7 +554,6 @@ struct ThinkingPhraseCycle {
 
     func setUpdateNotice(_ notice: String?) {
         updateNotice = notice
-        content.updateBadge.isHidden = notice == nil
         refreshAccessibility()
     }
     private func refreshAccessibility() {
@@ -647,15 +658,17 @@ struct ThinkingPhraseCycle {
         let animatedStatus = thinkingPhrases || content.style == .activity
         let rotates = renderAvailable && animatedStatus && running > 0 && waiting == 0
         if rotates && phraseTimer == nil {
-            let timer = Timer(timeInterval: ThinkingPhrases.dotInterval, repeats: true) { [weak self] fired in
+            let deadline = thinkingPhrases ? phraseCycle.nextStepAt : activityDots.nextStepAt
+            let delay = max(0.001, (deadline ?? (now() + ThinkingPhrases.dotInterval)) - now())
+            let timer = Timer(timeInterval: delay, repeats: false) { [weak self] fired in
                 let identity = ObjectIdentifier(fired)
                 MainActor.assumeIsolated {
                     guard let self, self.phraseTimer.map(ObjectIdentifier.init) == identity else { return }
-                    self.updatePhrase()
-                    self.drawFrame()
+                    self.phraseTimer = nil
+                    self.updateTimer()
                 }
             }
-            timer.tolerance = ThinkingPhrases.dotInterval * 0.1
+            timer.tolerance = 0.01
             scheduleTimer(timer)
             phraseTimer = timer
         } else if !rotates { phraseTimer?.invalidate(); phraseTimer = nil }
@@ -691,11 +704,8 @@ struct ThinkingPhraseCycle {
         let now = now()
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let activeBubble = visible && content.style == .activity && running > 0 && waiting == 0
-        if activeBubble {
-            if activityStartedAt == nil { activityStartedAt = now }
-        } else { activityStartedAt = nil }
-        content.activityDotCount = activeBubble && renderAvailable && !reduceMotion
-            ? ThinkingPhrases.dotCount(at: now - (activityStartedAt ?? now)) : 0
+        _ = activityDots.update(active: activeBubble, at: now, rotates: renderAvailable && !reduceMotion)
+        content.activityDotCount = activeBubble && renderAvailable && !reduceMotion ? activityDots.dotCount : 0
         phraseCycle.update(active: visible && thinkingPhrases && running > 0 && waiting == 0,
                            at: now, rotates: renderAvailable && !reduceMotion)
         content.thinkingPhrase = phraseCycle.current
