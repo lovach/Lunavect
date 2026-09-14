@@ -32,10 +32,10 @@ Public build configuration is in `Config/Distribution.xcconfig` and `Config/Upda
 First refresh release tags and download the currently published appcast into a private evidence directory. Review that baseline; the tools do not fetch it automatically. Use a new version/tag and a build and marketing version above every published entry. For example, after replacing these illustrative values with the intended release:
 
 ```sh
-./scripts/distribute.sh archive 0.1.3 150 /path/to/published-appcast.xml
-./scripts/distribute.sh submit 0.1.3 150
+./scripts/distribute.sh archive 0.1.4 157 /path/to/published-appcast.xml
+./scripts/distribute.sh submit 0.1.4 157
 # After Apple's notarization completes:
-./scripts/distribute.sh export 0.1.3 150
+./scripts/distribute.sh export 0.1.4 157
 ```
 
 Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, and a build or marketing version that does not exceed the supplied appcast. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.
