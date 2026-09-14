@@ -22,8 +22,6 @@
 
 [Contributing](../CONTRIBUTING.md) covers proposed changes and pull requests. The [development guide](development.md) covers the source layout and checks, and [architecture](architecture.md) explains data ownership and persistence. See [localization](localization.md) for translations, [public screenshots](public-screenshots.md) for the reproducible gallery, and [release packaging](updates.md) for signing and distribution.
 
-The [engineering case study](case-study.md) records the synthetic performance baseline, render isolation and the limits of those measurements.
-
 To try the release on another Mac, use the [first-install checklist](first-install-check.md). It is a checklist for new testing, not a statement that every item has passed.
 
 [Back to Lunavect](../README.md)

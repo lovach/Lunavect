@@ -32,7 +32,7 @@ public enum SessionHooks {
     static func marker(_ provider: ProviderID) -> String { "# lunavect-session-monitor:\(provider.rawValue)" }
     static func events(_ provider: ProviderID) -> [String] {
         ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd"] +
-        (provider == .claude ? ["Notification", "PostToolUseFailure", "StopFailure"] : ["Interrupt"])
+        (provider == .claude ? ["Notification", "PostToolUseFailure", "StopFailure", "PreCompact", "PostCompact"] : ["Interrupt"])
     }
     public static func configured(_ provider: ProviderID, configURL: URL? = nil) -> Bool {
         guard let data = try? Data(contentsOf: configURL ?? self.configURL(provider)),

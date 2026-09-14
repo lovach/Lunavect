@@ -26,7 +26,7 @@ macOS 14+ · Apple silicon & Intel · Free and open source
   </a>
 </p>
 
-<sub>Current interface, captured on September 13, 2026 with fictional data. [About the screenshots](docs/verification.md#public-screenshots).</sub>
+<sub>Current interface, captured on September 14, 2026 with fictional data. [About the screenshots](docs/verification.md#public-screenshots).</sub>
 
 ## Install
 
@@ -100,6 +100,15 @@ The compact mode removes the bars and reduces the height of the indicator.
 
 <p>
   <a href="docs/images/menu-bar.png"><img src="docs/images/menu-bar.png" width="720" alt="Three native menu-bar limit styles: bars and percentages, icons and percentages, and rings"></a>
+</p>
+
+### Make it yours
+
+Choose a character and session-status style, or let Lunavect pick the character automatically.<br>
+Activity phrases switch after two dot cycles. Input and approval requests take priority.
+
+<p>
+  <a href="docs/images/settings-menu-bar.png"><img src="docs/images/settings-menu-bar.png" width="800" alt="Menu-bar settings with all character choices visible and configurable session status"></a>
 </p>
 
 All images open at full resolution when clicked. Session names, paths and usage values are samples.

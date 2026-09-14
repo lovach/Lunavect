@@ -552,6 +552,7 @@ struct SessionRow: View {
     }
     var statusTitle: String {
         guard phase == .running else { return phase.title }
+        if session.compactionTrigger != nil { return session.activityTitle }
         return L(session.tool?.isEmpty == false ? "Работает" : "Думает")
     }
     private var providerImage: some View {

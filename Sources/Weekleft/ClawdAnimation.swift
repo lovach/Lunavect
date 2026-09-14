@@ -88,6 +88,41 @@ import ImageIO
 
     static func resetFrameCache() {
         rendered.removeAll(); cachedPixelBytes = 0; cacheClock = 0
+        idleFrames.removeAll()
+    }
+
+    private static var idleFrames: [Int: NSImage] = [:]
+    /// Trim only transparent side columns of the static pose. Pixel scale,
+    /// vertical baseline and the full animation canvas remain unchanged.
+    static func idleImage(size: CGFloat) -> NSImage? {
+        let height = max(1, Int(size.rounded()))
+        if let image = idleFrames[height] { return image }
+        guard let base = image(at: 0, size: size) else { return nil }
+        let reps = base.representations.compactMap { $0 as? NSBitmapImageRep }
+        var left = base.size.width, right: CGFloat = 0
+        for rep in reps {
+            let scale = CGFloat(rep.pixelsHigh) / base.size.height
+            for x in 0..<rep.pixelsWide {
+                if (0..<rep.pixelsHigh).contains(where: { (rep.colorAt(x: x, y: $0)?.alphaComponent ?? 0) > 0 }) {
+                    left = min(left, floor(CGFloat(x) / scale))
+                    right = max(right, ceil(CGFloat(x + 1) / scale))
+                }
+            }
+        }
+        guard right > left else { return base }
+        left = max(0, left - 1); right = min(base.size.width, right + 1)
+        let image = NSImage(size: NSSize(width: right - left, height: base.size.height))
+        for rep in reps {
+            let scale = CGFloat(rep.pixelsHigh) / base.size.height
+            guard let crop = rep.cgImage?.cropping(to: CGRect(x: left * scale, y: 0,
+                width: image.size.width * scale, height: CGFloat(rep.pixelsHigh))) else { return base }
+            let trimmed = NSBitmapImageRep(cgImage: crop); trimmed.size = image.size
+            image.addRepresentation(trimmed)
+        }
+        // Menu bars use a small set of heights; bound unusual preview sizes too.
+        if idleFrames.count >= 8 { idleFrames.removeAll() }
+        idleFrames[height] = image
+        return image
     }
 
     private static func cached(_ key: FrameKey) -> NSImage? {

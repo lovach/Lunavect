@@ -76,6 +76,8 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// A conservative local inference from Claude's final response, not an open
     /// permission dialog. Keep only the result; never persist the response text.
     public var responseRequestsInput: Bool?
+    /// Only the lifecycle trigger is retained, never compaction instructions or summary.
+    public var compactionTrigger: String?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -93,6 +95,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     }
     public var activityTitle: String {
         guard phase == .running else { return phase.title }
+        if compactionTrigger != nil { return L("Сжимает контекст") }
         switch tool?.lowercased() {
         case "bash", "shell", "exec_command": return L("Выполняет команду")
         case "read", "readfile": return L("Читает файл")
@@ -236,9 +239,10 @@ public enum SessionList {
                 // a decision. It cannot dismiss that question. Busy/waiting and
                 // terminal catalog states still supersede the earlier response.
                 let idleAfterQuestion = fresh && row.phase == .idle && event.phase == .input && event.responseRequestsInput == true
-                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && row.phase != .unknown && row.observedAt > event.observedAt
+                let idleDuringCompaction = fresh && row.phase == .idle && event.compactionTrigger != nil
+                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && !idleDuringCompaction && row.phase != .unknown && row.observedAt > event.observedAt
                 let moreSpecificApproval = !newerClaudeCatalog && row.effectivePhase(now: now) == .input && event.phase == .permission
-                if fresh && !newerClaudeCatalog && (idleAfterQuestion || dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
+                if fresh && !newerClaudeCatalog && (idleAfterQuestion || idleDuringCompaction || dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
                     row.phase = event.phase; row.observedAt = event.observedAt; row.evidence = event.evidence; row.tool = event.tool
                     row.runtimeConfirmed = event.runtimeConfirmed
                     row.catalogHistory = nil
@@ -246,6 +250,7 @@ public enum SessionList {
                     row.runtimeObservedAt = event.runtimeObservedAt
                     row.hasTaskActivity = event.isUnstartedClaudeLifecycle ? false : event.hasTaskActivity
                     row.responseRequestsInput = event.responseRequestsInput
+                    row.compactionTrigger = event.compactionTrigger
                     row.updatedAt = max(row.updatedAt, event.updatedAt)
                 } else if newerClaudeCatalog && row.effectivePhase(now: now) != .unknown {
                     // A fresh idle interactive process ends the unfinished hook
@@ -259,6 +264,7 @@ public enum SessionList {
                     row.hasTaskActivity = event.isUnstartedClaudeLifecycle ? false : event.hasTaskActivity
                     if row.phase == .running && event.phase == .running {
                         row.turnStartedAt = event.turnStartedAt
+                        if fresh { row.compactionTrigger = event.compactionTrigger }
                     }
                 }
                 if fresh && event.client != .unknown && row.client != .background { row.client = event.client }
@@ -318,10 +324,26 @@ public struct SessionRecord: Codable, Sendable {
         let toolID = SessionParser.text(payload["tool_use_id"])
         switch name {
         case "SessionStart":
+            if provider == .claude, payload["source"] as? String == "compact", let trigger = record.session.compactionTrigger {
+                record.session.phase = trigger == "auto" ? .running : .idle
+                if trigger == "manual" { record.session.turnStartedAt = nil }
+                break
+            }
             // Hooks run concurrently: startup may finish after the first prompt/tool event.
             if previous?.session.effectivePhase(now: now).isActive == true { return record }
             record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .idle
         case "UserPromptSubmit": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .running; record.session.turnStartedAt = now
+        case "PreCompact", "PostCompact":
+            guard provider == .claude, let trigger = payload["trigger"] as? String, ["manual", "auto"].contains(trigger) else { throw SessionError.invalidResponse }
+            record.pendingApprovals = []; record.unidentifiedApproval = nil
+            if name == "PreCompact" {
+                record.session.phase = .running
+                record.session.compactionTrigger = trigger
+                if trigger == "manual" { record.session.turnStartedAt = now }
+            } else {
+                record.session.phase = trigger == "auto" ? .running : .idle
+                if trigger == "manual" { record.session.turnStartedAt = nil }
+            }
         case "PermissionRequest":
             if toolID.isEmpty { record.unidentifiedApproval = true }
             else { record.pendingApprovals.insert(toolID) }
@@ -357,6 +379,7 @@ public struct SessionRecord: Codable, Sendable {
         default: throw SessionError.invalidResponse
         }
         if name != "Stop" { record.session.responseRequestsInput = nil }
+        if name != "PreCompact" { record.session.compactionTrigger = nil }
         if name != "SessionStart" && name != "SessionEnd" {
             record.session.hasTaskActivity = true
         } else if provider == .claude && record.session.hasTaskActivity == nil && record.session.turnStartedAt == nil {

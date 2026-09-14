@@ -38,6 +38,35 @@ final class SessionContractTests: XCTestCase {
         let newer = try event("UserPromptSubmit", at: now.addingTimeInterval(16)).session
         XCTAssertEqual(SessionList.merge(catalog: [row], events: [newer], now: now.addingTimeInterval(16)).first?.phase, .running)
     }
+
+    func testCompactionLifecycleCountsWorkWithoutPersistingSummaryOrInventingAReply() throws {
+        for trigger in ["manual", "auto"] {
+            let prior = try event("UserPromptSubmit", at: now.addingTimeInterval(-120))
+            let compact = try event("PreCompact", previous: prior, extra: ["trigger": trigger, "custom_instructions": "PRIVATE"])
+            XCTAssertEqual(compact.session.phase, .running)
+            XCTAssertEqual(compact.session.compactionTrigger, trigger)
+            XCTAssertEqual(compact.session.turnStartedAt, trigger == "manual" ? now : prior.session.turnStartedAt)
+            for status in ["idle", "busy"] {
+                let later = now.addingTimeInterval(200)
+                let row = try catalog(["status": status], at: later)
+                let merged = try XCTUnwrap(SessionList.merge(catalog: [row], events: [compact.session], now: later).first)
+                XCTAssertEqual(merged.effectivePhase(now: later), .running)
+                XCTAssertEqual(merged.compactionTrigger, trigger)
+            }
+            let ended = try event("PostCompact", previous: compact, at: now.addingTimeInterval(240),
+                                  extra: ["trigger": trigger, "compact_summary": "PRIVATE"])
+            XCTAssertNil(ended.session.compactionTrigger)
+            XCTAssertEqual(ended.session.phase, trigger == "manual" ? .idle : .running)
+            let start = try event("SessionStart", previous: compact, at: now.addingTimeInterval(240), extra: ["source": "compact"])
+            XCTAssertEqual(start.session.phase, ended.session.phase)
+            XCTAssertNil(start.session.compactionTrigger)
+            XCTAssertFalse(String(decoding: try JSONEncoder().encode(ended), as: UTF8.self).contains("PRIVATE"))
+            let idle = try catalog(["status": "idle"], at: now.addingTimeInterval(601))
+            XCTAssertNotEqual(SessionList.merge(catalog: [idle], events: [compact.session], now: now.addingTimeInterval(601)).first?.phase, .running)
+            let resumed = try event("UserPromptSubmit", previous: compact, at: now.addingTimeInterval(250))
+            XCTAssertNil(resumed.session.compactionTrigger)
+        }
+    }
     func testFailedCatalogCannotClaimInterruptionAndNewHookSupersedesLastSuccessfulPoll() throws {
         let running = try event("UserPromptSubmit").session
         var row = try catalog(["status": "idle"], at: now.addingTimeInterval(15))

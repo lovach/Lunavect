@@ -1,6 +1,6 @@
 # Public screenshots
 
-The README gallery shows the production interface from Lunavect 0.1.1, captured on September 13, 2026. All session titles, paths, quotas and activity are fictional. The eleven images were generated together and visually inspected at their native resolution.
+The README gallery shows the production interface from Lunavect 0.1.3, captured on September 14, 2026. All session titles, paths, quotas and activity are fictional. The twelve images were generated together and visually inspected at their native resolution.
 
 ## Rebuild the gallery
 
@@ -24,10 +24,11 @@ One capture-time fixture keeps the sessions fresh and the displayed totals consi
 | Limits settings | 920 × 640 |
 | Activity statistics | 920 × 980 |
 | Menu-bar styles | 720 × 144 |
+| Menu-bar settings | 920 × 760 |
 | Overview and large activity widgets | 344 × 344 |
 | Small activity widget | 164 × 164 |
 | Limits widget | 344 × 164 |
 
-Inspect every image for clipped text, missing controls, inconsistent totals and unintended private data before copying the eleven PNGs into `docs/images`. The README switches its hero between light/dark appearances and uses a single session panel on narrow screens.
+Inspect every image for clipped text, missing controls, inconsistent totals and unintended private data before copying the twelve PNGs into `docs/images`. The README switches its hero between light/dark appearances and uses a single session panel on narrow screens.
 
 The installer image documents the unchanged branded Finder layout; its historical inspection is recorded separately in [verification](verification.md). Obsolete galleries, the retouched desktop image and the unused demo movie have been removed.

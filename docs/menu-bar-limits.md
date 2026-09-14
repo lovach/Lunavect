@@ -27,7 +27,9 @@ The indicator reads existing quota snapshots, without extra provider requests. A
 
 ## Session status
 
-The **Characters** section has its own **Show work icon and status** switch and animation, color and text settings. Limits and session status can be hidden independently. Turning off both leaves desktop widgets available.
+The **Session status** section has its own **Show work icon and status** switch and animation, color and text settings. Limits and session status can be hidden independently. Turning off both leaves desktop widgets available.
+
+The **Icon appearance** group exposes character selection, automatic mode, color and animation directly. Optional [activity phrases](thinking-phrases.md) work in all three status styles.
 
 Hiding session status stops its animation timers while activity collection and quota refresh continue. Reopening Lunavect from Applications or Spotlight opens Menu Bar settings when session status is hidden, so the switches remain reachable. Upgrades preserve existing selections.
 

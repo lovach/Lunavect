@@ -34,6 +34,11 @@ final class ReleaseScreenshots: XCTestCase {
             try render(preview.settings(), size: CGSize(width: 920, height: height),
                 to: output.appendingPathComponent(name + ".png"))
         }
+        defaults.set("menuBar", forKey: "settingsSection")
+        preview.environment.menuBarAppearance.thinkingPhrases = true
+        preview.environment.menuBarAppearance.selectIcon(.codex)
+        try render(preview.settings(), size: CGSize(width: 920, height: 760),
+            to: output.appendingPathComponent("settings-menu-bar.png"))
         let entries = MenuBarLimitEntry.make(snapshots: fixture.snapshots, providers: [.claude, .codex],
             preferences: MenuBarLimitsPreferences(enabled: true), now: fixture.now)
         let menuBar = VStack(alignment: .leading, spacing: 18) {

@@ -284,6 +284,9 @@ import WeekleftCore
         updatePollingTimers()
     }
     private var catalog: [ProviderID: [AgentSession]] = [:]
+    // A persisted Stop can outlive a new response when Desktop misses a prompt
+    // hook. Once runtime confirms progress, that same inferred question is spent.
+    private var resolvedClaudeQuestions: [String: Date] = [:]
     private var localTimer: Timer?
     private var sourceTimer: Timer?
     private var eventWatcher: DispatchSourceFileSystemObject?
@@ -483,7 +486,9 @@ import WeekleftCore
         do {
             let events = try await dependencies.events(rows, providers, now())
             guard isCurrent(expected) else { return }
-            var merged = SessionList.merge(catalog: rows, events: events.filter { providers.contains($0.provider) }, now: now())
+            let date = now()
+            let currentEvents = suppressResolvedClaudeQuestions(events.filter { providers.contains($0.provider) }, catalog: rows, now: date)
+            var merged = SessionList.merge(catalog: rows, events: currentEvents, now: date)
             if now().timeIntervalSince(titlesCheckedAt) >= (polling?.titles ?? 15) {
                 let titles = try await dependencies.titles(merged, hiddenIDs, providers)
                 guard isCurrent(expected) else { return }
@@ -522,6 +527,31 @@ import WeekleftCore
         diagnosticEntries.append(DiagnosticEntry(date: now(), issue: issue))
         if diagnosticEntries.count > 32 { diagnosticEntries.removeFirst(diagnosticEntries.count - 32) }
     }
+    private func suppressResolvedClaudeQuestions(_ events: [AgentSession], catalog: [AgentSession], now: Date) -> [AgentSession] {
+        resolvedClaudeQuestions = resolvedClaudeQuestions.filter {
+            let age = now.timeIntervalSince($0.value)
+            return age >= -60 && age < 600
+        }
+        let confirmed = Dictionary(catalog.filter {
+            $0.provider == .claude && $0.catalogHistory != true &&
+                ![.idle, .unknown].contains($0.effectivePhase(now: now))
+        }.map { ($0.id, $0.observedAt) }, uniquingKeysWith: max)
+        return events.map { event in
+            guard event.provider == .claude, event.phase == .input, event.responseRequestsInput == true else { return event }
+            if let observed = confirmed[event.id], observed > event.observedAt {
+                resolvedClaudeQuestions[event.id] = max(resolvedClaudeQuestions[event.id] ?? .distantPast, event.observedAt)
+            }
+            guard let resolved = resolvedClaudeQuestions[event.id], event.observedAt <= resolved else { return event }
+            // Keep identity/title/history, but do not reuse the old question as
+            // evidence of current waiting or successful completion of new work.
+            var historical = event
+            historical.phase = .unknown
+            historical.responseRequestsInput = nil
+            historical.runtimeConfirmed = false
+            return historical
+        }
+    }
+
     func acceptSessions(_ rows: [AgentSession], now: Date? = nil) {
         let now = now ?? self.now()
         // Starting a CLI to inspect its UI is not a task. Include it only once

@@ -50,6 +50,7 @@ LEGACY_TESTS = (
     ('WeekleftUITests.InterfaceIconRenderingTests/testRenderCompleteControlAlphabet', 'LUNAVECT_RENDER_ICONS', 'icons'),
 )
 PUBLIC_EXPECTED = {
+    "settings-menu-bar.png": (1840, 1520),
     "limits.png": (1840, 1280), "readme-activity.png": (1840, 1960), "menu-bar.png": (1440, 288),
     **{f"readme-overview-{scheme}.png": (1568, 806) for scheme in ('light', 'dark')},
     **{f"readme-sessions-{scheme}.png": (784, 774) for scheme in ('light', 'dark')},

@@ -419,7 +419,7 @@ struct AppBehaviorSettings: View {
     @State private var monitor: Any?
     var body: some View {
         GroupBox(L("Запуск и быстрый доступ")) {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(L("Запускать при входе в macOS")); Spacer()
                     Toggle(
@@ -477,9 +477,9 @@ struct AppBehaviorSettings: View {
 struct NotificationSettingsView: View {
     @ObservedObject var features = AppFeatures.shared
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: InterfaceMetrics.settingsSectionSpacing) {
             GroupBox(L("Способ уведомления")) {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
                     Toggle(isOn: Binding(get: { features.banners || features.waitingPermission == .notifications }, set: { value in Task { await features.setBanners(value) } })) {
                         Text(L("Всплывающие уведомления")).frame(maxWidth: .infinity, alignment: .leading)
                     }

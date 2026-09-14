@@ -44,6 +44,8 @@ final class SnapshotPersistence: @unchecked Sendable {
     private var readFailed = false
     private var readOnly = false
     private var lastReload: WidgetQuotaFingerprint?
+    private var lastReloadState: SharedState?
+    private var lastReloadAt: Date?
 
     init(url: URL = SnapshotStore.directory.appendingPathComponent("snapshot.json"),
          read: @escaping @Sendable (URL) -> SharedState = { SnapshotStore.load(from: $0) },
@@ -139,8 +141,6 @@ final class SnapshotPersistence: @unchecked Sendable {
                 lastSaved = state
                 disposition = .written; issue = recoveryIssue
                 submissionLock.withLock { counts.written += 1 }
-                let fingerprint = WidgetQuotaFingerprint(state, now: clock())
-                if fingerprint != lastReload { lastReload = fingerprint; reload() }
             } catch {
                 // A failed or partial write cannot seed the next deduplication.
                 lastSaved = nil
@@ -148,7 +148,31 @@ final class SnapshotPersistence: @unchecked Sendable {
                 submissionLock.withLock { counts.failed += 1 }
             }
         }
+        if disposition == .written || (disposition == .unchanged && lastReloadState != nil) {
+            reloadIfNeeded(state)
+        }
         return WriteResult(disposition: disposition, issue: issue, sequence: sequence, counters: counters)
+    }
+
+    private func reloadIfNeeded(_ state: SharedState) {
+        let now = clock()
+        let fingerprint = WidgetQuotaFingerprint(state, now: now)
+        // Compare the previously delivered observation at today's clock too:
+        // its timeline may now say stale while the app has a fresh receipt.
+        let deliveredNow = lastReloadState.map { WidgetQuotaFingerprint($0, now: now) }
+        let receiptChanged = state.preferences.providers.contains { id in
+            state.snapshots.first { $0.provider == id }?.fetchedAt !=
+                lastReloadState?.snapshots.first { $0.provider == id }?.fetchedAt
+        }
+        let elapsed = lastReloadAt.map { now.timeIntervalSince($0) } ?? .infinity
+        // Persist every receipt, but coalesce timestamp-only reloads to five
+        // minutes, leaving headroom before the 15-minute stale boundary.
+        let refreshReceipt = receiptChanged && (elapsed >= 300 || elapsed < 0)
+        guard fingerprint != lastReload || fingerprint != deliveredNow || refreshReceipt else { return }
+        lastReload = fingerprint
+        lastReloadState = state
+        lastReloadAt = now
+        reload()
     }
 
     private func waitForOperation<Value: Sendable>(_ operation: @escaping @Sendable () -> Value) -> Value {
@@ -163,8 +187,7 @@ final class SnapshotPersistence: @unchecked Sendable {
     }
 }
 
-/// Receipt timestamps remain durable, but do not invalidate every installed
-/// widget. Percentage, window, source, availability and preferences are visible.
+/// Immediate visible changes; receipt-only updates are coalesced separately.
 private struct WidgetQuotaFingerprint: Equatable {
     struct Quota: Equatable {
         let remaining: Int

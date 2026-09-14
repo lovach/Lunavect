@@ -5,6 +5,39 @@ import XCTest
 @MainActor final class SessionStoreLifecycleTests: XCTestCase {
     private let instant = Date(timeIntervalSince1970: 1_800_000_000)
 
+    func testResumedClaudeWorkCannotResurrectEarlierClosingQuestion() async throws {
+        var clock = instant
+        let payload: [String: Any] = ["session_id": "claude-resumed", "hook_event_name": "Stop",
+                                      "last_assistant_message": "Делаем все пять?"]
+        var question = try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: .claude,
+            previous: nil, now: instant).session
+        var phase = SessionPhase.idle
+        var present = true
+        let store = try fixture(.init(catalog: { _, _, _, _ in
+            let row = AgentSession(provider: .claude, sessionID: "claude-resumed", title: "Fixture", cwd: "/fixture",
+                phase: phase, updatedAt: clock, observedAt: clock, runtimeConfirmed: true)
+            return (present ? [row] : [], false)
+        }, events: { _, _, _ in [question] }), now: { clock })
+        store.useProviders([.claude])
+        await store.refresh()
+        XCTAssertEqual(store.currentSessions.first?.phase, .input)
+        clock += 15; phase = .running
+        await store.refresh()
+        XCTAssertEqual(store.currentSessions.first?.phase, .running)
+        clock += 15; phase = .idle
+        await store.refresh()
+        XCTAssertFalse(store.currentSessions.contains { $0.phase == .input }, "An old Stop must not revive after confirmed new work")
+        clock += 15; present = false
+        await store.refresh()
+        XCTAssertFalse(store.currentSessions.contains { $0.phase == .input }, "A missing catalog row cannot revive the answered question either")
+        clock += 15; present = true
+        question = try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: .claude,
+            previous: nil, now: clock).session
+        await store.refresh()
+        XCTAssertEqual(store.currentSessions.first?.phase, .input, "A genuinely new closing question still needs attention")
+        store.stop()
+    }
+
     func testPrecancelledRefreshDoesNotStartAnyDependency() async throws {
         var calls = 0
         let store = try fixture(.init(catalog: { _, _, _, _ in calls += 1; return ([], false) },

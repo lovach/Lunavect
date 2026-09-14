@@ -16,6 +16,24 @@ import AwakeService
 }
 
 final class SessionsUXRenderingTests: XCTestCase {
+    @MainActor func testCompactionRowShowsExplicitActivity() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let payload: [String: Any] = ["session_id": "compact-fixture", "hook_event_name": "PreCompact", "trigger": "manual"]
+        var session = try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: .claude,
+            previous: nil, now: now, client: .desktop).session
+        session.title = "Подготовить презентацию"; session.cwd = "/Projects/Studio"
+        let row = SessionRow(session: session, now: now.addingTimeInterval(184), phase: .running,
+            swipePresentation: SessionSwipePresentation(), onHide: {}, onError: { _ in })
+        XCTAssertEqual(row.statusTitle, L("Сжимает контекст"))
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_SESSIONS_UX"] {
+            _ = NSApplication.shared
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try render(row.padding(8), size: CGSize(width: 360, height: 66), scheme: .dark,
+                to: directory.appendingPathComponent("claude-compacting.png"))
+        }
+    }
+
     @MainActor func testClaudeClosingQuestionCountsAsWaiting() throws {
         let suite = "Lunavect.ClosingQuestion." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

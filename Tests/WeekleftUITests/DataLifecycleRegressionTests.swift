@@ -73,7 +73,7 @@ final class DataLifecycleRegressionTests: XCTestCase {
         XCTAssertEqual(try ActivityHistory.load(from: root.appendingPathComponent("history.json")), service.history)
         XCTAssertEqual(service.history.summary(now: date.now).totals.codex, 120)
     }
-    func testTimestampOnlyQuotaWritesStayDurableWithoutReloadAndVisibleChangeReloads() throws {
+    func testTimestampOnlyQuotaWritesStayDurableAndPeriodicallyRefreshWidget() throws {
         let date = DataClock(now), reloads = DataCount()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -86,14 +86,72 @@ final class DataLifecycleRegressionTests: XCTestCase {
             date.now = now.addingTimeInterval(Double(minute) * 60); state.snapshots[0].fetchedAt = date.now
             _ = persistence.flush(state)
         }
-        XCTAssertEqual(reloads.value, 1)
+        XCTAssertEqual(reloads.value, 12, "Unchanged percentages still renew the widget receipt every five minutes")
         XCTAssertEqual(SnapshotStore.load(from: url).snapshots[0].fetchedAt, date.now)
         state.snapshots[0].weekly = try QuotaWindow(usedPercent: 43, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400))
         _ = persistence.flush(state)
-        XCTAssertEqual(reloads.value, 2)
+        XCTAssertEqual(reloads.value, 13)
         state.snapshots[0].issue = "Fixture unavailable"; _ = persistence.flush(state)
-        XCTAssertEqual(reloads.value, 3)
+        XCTAssertEqual(reloads.value, 14)
     }
+    func testFreshReceiptReplacesWidgetObservationThatHasAgedOut() throws {
+        let date = DataClock(now), reloads = DataCount()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let persistence = SnapshotPersistence(url: root.appendingPathComponent("snapshot.json"),
+            reload: { reloads.increment() }, clock: { date.now })
+        let quota = try QuotaWindow(usedPercent: 99, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400))
+        var state = SharedState(snapshots: [UsageSnapshot(provider: .claude, weekly: quota,
+            fetchedAt: now.addingTimeInterval(-890), source: ClaudeUsageProbe.source)])
+        _ = persistence.flush(state)
+        let delivered = state.snapshots[0]
+        date.now = now.addingTimeInterval(20)
+        state.snapshots[0].fetchedAt = date.now
+        XCTAssertTrue(delivered.isStale(now: date.now))
+        XCTAssertFalse(state.snapshots[0].isStale(now: date.now))
+        _ = persistence.flush(state)
+        XCTAssertEqual(reloads.value, 2, "Freshness recovery must bypass timestamp coalescing")
+    }
+
+    func testDeferredReceiptReloadUsesSavedDataWithoutRewritingOrInventingFreshness() throws {
+        let date = DataClock(now), reloads = DataCount()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("snapshot.json")
+        let persistence = SnapshotPersistence(url: url, reload: { reloads.increment() }, clock: { date.now })
+        let quota = try QuotaWindow(usedPercent: 42, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400))
+        var state = SharedState(snapshots: [UsageSnapshot(provider: .codex, weekly: quota, fetchedAt: now)])
+        _ = persistence.flush(state)
+        date.now = now.addingTimeInterval(60); state.snapshots[0].fetchedAt = date.now
+        _ = persistence.flush(state)
+        XCTAssertEqual(reloads.value, 1)
+        date.now = now.addingTimeInterval(300)
+        XCTAssertEqual(persistence.flush(state).disposition, .unchanged)
+        XCTAssertEqual(reloads.value, 2, "A deferred receipt must not require another provider response")
+        date.now = now.addingTimeInterval(600)
+        _ = persistence.flush(state)
+        XCTAssertEqual(reloads.value, 2, "No new receipt means no periodic reload")
+        date.now = now.addingTimeInterval(1000)
+        _ = persistence.flush(state)
+        XCTAssertTrue(SnapshotStore.load(from: url).snapshots[0].isStale(now: date.now))
+        XCTAssertEqual(SnapshotStore.load(from: url).snapshots[0].fetchedAt, now.addingTimeInterval(60))
+        XCTAssertEqual(persistence.counters.written, 2)
+    }
+
+    func testDisabledProviderReceiptDoesNotReloadVisibleWidget() throws {
+        let date = DataClock(now), reloads = DataCount()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let persistence = SnapshotPersistence(url: root.appendingPathComponent("snapshot.json"),
+            reload: { reloads.increment() }, clock: { date.now })
+        var preferences = WidgetPreferences(); preferences.enabledProviders = [.codex]
+        var state = SharedState(snapshots: [UsageSnapshot(provider: .claude, fetchedAt: now)], preferences: preferences)
+        _ = persistence.flush(state)
+        date.now = now.addingTimeInterval(600); state.snapshots[0].fetchedAt = date.now
+        _ = persistence.flush(state)
+        XCTAssertEqual(reloads.value, 1)
+    }
+
     func testActivityWritesStayDurableWhileReloadRequestsAreCoalesced() {
         let date = DataClock(now), reloads = DataCount()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

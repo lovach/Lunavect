@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3 — 2026-09-14
+
+- Refresh saved widget data when new timestamps arrive, including recovery from stale values. macOS still schedules WidgetKit updates.
+- Prevent a previous Claude closing question from returning to the waiting count after that session resumes work.
+- Recognize Claude context compaction as active work and show an explicit compaction status.
+- Keep the session count inside a frozen menu-bar button and remove empty horizontal space around idle Claude artwork.
+- Change activity phrases after two complete animated-dot cycles, restarting dots for each phrase; make phrases available in all three status styles.
+- Expose icon appearance directly and compact the settings layout while preserving saved preferences.
+
 ## 0.1.2 — 2026-09-13
 
 - Recognize explicit closing decision questions from Claude as awaiting input and include them in the waiting count.
