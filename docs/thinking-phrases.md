@@ -4,6 +4,8 @@ These 70 decorative English phrases appear while a session is working. They are 
 
 Enable or disable these phrases in the Menu Bar settings. They are available in all three session status styles. The single-row style places a count beside the icon; the two-row style keeps counts below the phrase; activity-only places the phrase beside the bubble, with counts in the tooltip. Waiting states take priority over phrases. Idle sessions do not display a working phrase.
 
+Delayed callbacks advance one visible step and schedule the next step from that frame; they do not skip ahead to catch up with elapsed time.
+
 The suffix cycles through `Vibing.`, `Vibing..` and `Vibing...` every 0.5 seconds. Space is reserved for the dots so this animation does not move the menu-bar character. The phrase itself can change the width of the status item.
 
 1. vibing

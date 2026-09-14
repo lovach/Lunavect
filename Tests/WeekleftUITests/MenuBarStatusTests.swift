@@ -558,14 +558,48 @@ final class MenuBarStatusTests: XCTestCase {
         XCTAssertEqual(cycle.dotCount, 1)
         let secondWord = cycle.current
         cycle.update(active: true, at: 9.7)
+        XCTAssertEqual(cycle.current, secondWord, "A delayed callback must not skip the visible cycles")
+        XCTAssertEqual(cycle.dotCount, 2)
+        for (time, dots) in [(10.2, 3), (10.7, 1), (11.2, 2), (11.7, 3)] {
+            cycle.update(active: true, at: time)
+            XCTAssertEqual(cycle.current, secondWord)
+            XCTAssertEqual(cycle.dotCount, dots)
+        }
+        cycle.update(active: true, at: 12.2)
         XCTAssertNotEqual(cycle.current, secondWord)
-        XCTAssertEqual(cycle.dotCount, 1, "A delayed callback must restart the dots with the new word")
-        cycle.update(active: true, at: 10, rotates: false)
-        XCTAssertEqual(cycle.dotCount, 3)
-        cycle.update(active: false, at: 11)
-        XCTAssertNil(cycle.current)
-        cycle.update(active: true, at: 12)
         XCTAssertEqual(cycle.dotCount, 1)
+        cycle.update(active: true, at: 13, rotates: false)
+        XCTAssertEqual(cycle.dotCount, 3)
+        cycle.update(active: false, at: 14)
+        XCTAssertNil(cycle.current)
+        cycle.update(active: true, at: 15)
+        XCTAssertEqual(cycle.dotCount, 1)
+    }
+
+    @MainActor func testDelayedPhraseTimerKeepsEveryStepAndReschedulesFromShownFrame() throws {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { throw XCTSkip("Reduce Motion") }
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        var clock = 0.0
+        var timers: [Timer] = []
+        let animator = MenuBarAnimator(statusItem: item, now: { clock },
+            scheduleTimer: { timers.append($0) }, canRenderAnimation: { _ in true })
+        animator.update(icon: .system, onlyWhileWorking: true, running: 1, waiting: 0)
+        let phrase = animator.content.thinkingPhrase
+        let width = item.button?.image?.size.width
+        for (time, count) in [(0.8, 2), (1.3, 3), (2.6, 1), (3.1, 2), (3.6, 3)] {
+            clock = time
+            try XCTUnwrap(timers.last).fire()
+            XCTAssertEqual(animator.content.thinkingPhrase, phrase)
+            XCTAssertEqual(animator.content.thinkingDotCount, count)
+            XCTAssertEqual(item.button?.image?.size.width, width)
+            XCTAssertEqual(try XCTUnwrap(timers.last).fireDate.timeIntervalSinceNow, 0.5, accuracy: 0.08)
+        }
+        clock = 4.1
+        try XCTUnwrap(timers.last).fire()
+        XCTAssertNotEqual(animator.content.thinkingPhrase, phrase)
+        XCTAssertEqual(animator.content.thinkingDotCount, 1)
     }
 
     func testThinkingCycleExhaustsDeckAndDoesNotResetOnPolling() {
@@ -577,8 +611,10 @@ final class MenuBarStatusTests: XCTestCase {
         for time in [0.5, 1, 1.5, 2, 2.5, 2.99] { cycle.update(active: true, at: time); XCTAssertEqual(cycle.current, first) }
         var seen = [first!]
         for index in 1..<70 {
-            cycle.update(active: true, at: Double(index) * ThinkingPhrases.interval)
+            let start = Double(index) * ThinkingPhrases.interval
+            cycle.update(active: true, at: start)
             seen.append(cycle.current!)
+            for step in 1...5 { cycle.update(active: true, at: start + Double(step) * ThinkingPhrases.dotInterval) }
         }
         XCTAssertEqual(Set(seen), Set(ThinkingPhrases.all))
         cycle.update(active: true, at: 70 * ThinkingPhrases.interval)

@@ -4,7 +4,7 @@ Lunavect uses Sparkle for signed updates distributed through GitHub Releases. Th
 
 ## Updating the app
 
-Use **Settings → Updates** to check for updates or change automatic checks and downloads. A ready update is shown in the menu bar and session panel. Automatic installation is scheduled for an ordinary app quit; users can also apply it through the updater interface. Lunavect does not terminate Claude or Codex to install its own update.
+Use **Settings → Updates** to check for updates or change automatic checks and downloads. A ready update appears as an actionable row in the session panel and in the menu-bar tooltip and accessibility label. No update dot is drawn over the character. Automatic installation is scheduled for an ordinary app quit; users can also apply it through the updater interface. Lunavect does not terminate Claude or Codex to install its own update.
 
 New profiles enable update checks and leave automatic downloads/installation off. Upgrades retain the previous Sparkle choices, including 0.1.0 profiles that enabled automatic installation at ordinary quit. This difference is intentional preference preservation; installing an update does not reset existing users to the new-profile defaults.
 
@@ -32,10 +32,10 @@ Public build configuration is in `Config/Distribution.xcconfig` and `Config/Upda
 First refresh release tags and download the currently published appcast into a private evidence directory. Review that baseline; the tools do not fetch it automatically. Use a new version/tag and a build and marketing version above every published entry. For example, after replacing these illustrative values with the intended release:
 
 ```sh
-./scripts/distribute.sh archive 0.1.3 150 /path/to/published-appcast.xml
-./scripts/distribute.sh submit 0.1.3 150
+./scripts/distribute.sh archive 0.1.4 157 /path/to/published-appcast.xml
+./scripts/distribute.sh submit 0.1.4 157
 # After Apple's notarization completes:
-./scripts/distribute.sh export 0.1.3 150
+./scripts/distribute.sh export 0.1.4 157
 ```
 
 Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, and a build or marketing version that does not exceed the supplied appcast. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.

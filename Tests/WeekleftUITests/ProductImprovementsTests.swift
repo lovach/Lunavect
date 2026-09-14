@@ -5,7 +5,7 @@ import WeekleftCore
 @testable import Weekleft
 
 final class ProductImprovementsTests: XCTestCase {
-    @MainActor func testUpdateBadgeChangesWhileIdleWithoutMovingStatusItem() async throws {
+    @MainActor func testUpdateNoticeStaysAccessibleWithoutOverlayingArtworkOrMovingStatusItem() async throws {
         _ = NSApplication.shared
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
@@ -14,16 +14,28 @@ final class ProductImprovementsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let updates = AppUpdates(defaults: defaults, isolated: true)
         let animator = MenuBarAnimator(statusItem: item, updates: updates)
-        animator.update(icon: .codex, onlyWhileWorking: true, running: 0, waiting: 0)
+        animator.update(icon: .claude, onlyWhileWorking: true, running: 0, waiting: 0)
         let width = item.button?.image?.size.width
         updates.phase = .ready("9.9.9")
         try await Task.sleep(for: .milliseconds(80))
-        XCTAssertFalse(animator.content.updateBadge.isHidden)
+        XCTAssertEqual(animator.content.subviews, [animator.content.artwork])
         XCTAssertTrue(item.button?.toolTip?.contains("9.9.9") == true)
         XCTAssertEqual(item.button?.image?.size.width, width)
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] {
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let button = try XCTUnwrap(item.button)
+            button.appearance = NSAppearance(named: .darkAqua)
+            button.layoutSubtreeIfNeeded(); animator.content.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(button.bitmapImageRepForCachingDisplay(in: button.bounds))
+            button.cacheDisplay(in: button.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("update-menu-bar.png"))
+            updates.canCheck = true
+            try render(UpdateNoticeView(updates: updates).padding(12), size: CGSize(width: 392, height: 76), to: directory.appendingPathComponent("update-panel.png"))
+        }
         updates.phase = .idle
         try await Task.sleep(for: .milliseconds(80))
-        XCTAssertTrue(animator.content.updateBadge.isHidden)
+        XCTAssertEqual(animator.content.subviews, [animator.content.artwork])
         XCTAssertFalse(item.button?.toolTip?.contains("9.9.9") == true)
     }
     @MainActor func testRenderLimitsStatisticsAndUpdates() throws {

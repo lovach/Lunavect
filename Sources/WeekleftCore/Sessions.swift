@@ -409,6 +409,8 @@ enum ClaudeResponseQuestion {
         #"^which\s+(?:option|version|approach)\s+(?:do you|should we|would you)\b[^?？]*[?？]"#,
         #"^(?:soll|darf)\s+(?:ich|wir)\b[^?？]*[?？]"#,
         #"^(?:bitte\s+)?(?:bestätige|bestätigen sie|wähle|wählen sie)\b"#,
+        #"^(?:можно\s+(?:мне\s+)?(?:скачать|установить|обновить|открыть|проверить|сохранить))\b[^?？]*[?？]"#,
+        #"^(?:(?:этот|эту|эти|такой|такую|такие)\s+)?(?:хук|ролик|вариант|версию|правки|изменения|план|дизайн|макет)(?:\s+\d+(?:[–—-]\d+)?)?\s+(?:принимаем|оставляем|утверждаем|согласовываем)\s*[?？]"#,
     ].compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
 
     static func requiresReply(_ message: String?) -> Bool {
@@ -425,7 +427,10 @@ enum ClaudeResponseQuestion {
             } else if fence == nil {
                 // Preserve boundaries so a trailing example cannot expose an
                 // earlier question as if it were the closing request.
-                closingLines.append(line.hasPrefix(">") || line.hasPrefix("|") || line.contains("`") ? "" : line)
+                // Inline paths/code are not prose, but surrounding requests still are.
+                // Keep the line boundary so examples never become requests.
+                closingLines.append(line.hasPrefix(">") || line.hasPrefix("|") ? "" :
+                    line.replacingOccurrences(of: #"`+[^`]*`+"#, with: "", options: .regularExpression))
             }
         }
         while closingLines.last == "" { closingLines.removeLast() }
