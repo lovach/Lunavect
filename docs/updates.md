@@ -10,7 +10,7 @@ New profiles enable update checks and leave automatic downloads/installation off
 
 Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](../PRIVACY.md#network-requests).
 
-The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.1.2) is 0.1.2 (149), a fix for Claude closing questions and the waiting count. Its public DMG, ZIP, appcast and signatures were verified. An actual automatic upgrade to 149 remains open in [verification](verification.md). The earlier Sparkle upgrade from development build 145 to 0.1.1 (147) preserved all 38 captured preferences and shared widget settings.
+The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.1.3) is 0.1.3 (154), with more reliable session status, widget snapshot updates and compact appearance settings. Distribution and live-update check scopes are recorded in [verification](verification.md). The earlier Sparkle upgrade from development build 145 to 0.1.1 (147) preserved all 38 captured preferences and shared widget settings.
 
 ## Preparing a release
 
@@ -84,8 +84,8 @@ Keep packaging dependencies and output outside the repository:
 python3 -m venv /path/outside-repository/dmg-venv
 /path/outside-repository/dmg-venv/bin/pip install -r scripts/dmg/requirements.txt
 /path/outside-repository/dmg-venv/bin/python scripts/package-dmg.py \
-  --app '/path/to/Notarized-149/Lunavect.app' \
-  --output '/path/to/release-assets/Lunavect-0.1.2.dmg'
+  --app '/path/to/Notarized-154/Lunavect.app' \
+  --output '/path/to/release-assets/Lunavect-0.1.3.dmg'
 ```
 
 Replace these paths and version numbers with your exported app and intended output. The DMG is a read-only image containing the app and an Applications link. Its Finder layout uses `scripts/dmg/layout.json`; the AppKit background renderer provides 1× and 2× artwork. The pinned `dmgbuild` dependencies write the layout metadata without automating Finder. See the [installer screenshot](images/installer.jpg).
