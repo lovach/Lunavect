@@ -1,8 +1,8 @@
 # Thinking phrases
 
-These 70 decorative English phrases appear while a session is working. They are not descriptions of tools being called or evidence of a model's internal reasoning. The phrases rotate every 3.5 seconds and are shuffled without repetition until the next cycle. They remain English in every interface language.
+These 70 decorative English phrases appear while a session is working. They are not descriptions of tools being called or evidence of a model's internal reasoning. The phrases rotate after two full dot cycles (`.`, `..`, `...`, repeated twice at 0.5 seconds per step), restarting the dots for each new phrase and are shuffled without repetition until the next cycle. They remain English in every interface language.
 
-Enable or disable these phrases in the Menu Bar settings. They appear during work in the single-row style, while waiting states show their actual counters. Idle sessions do not display a working phrase.
+Enable or disable these phrases in the Menu Bar settings. They are available in all three session status styles. The single-row style places a count beside the icon; the two-row style keeps counts below the phrase; activity-only places the phrase beside the bubble, with counts in the tooltip. Waiting states take priority over phrases. Idle sessions do not display a working phrase.
 
 The suffix cycles through `Vibing.`, `Vibing..` and `Vibing...` every 0.5 seconds. Space is reserved for the dots so this animation does not move the menu-bar character. The phrase itself can change the width of the status item.
 

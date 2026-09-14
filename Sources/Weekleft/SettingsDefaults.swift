@@ -85,7 +85,7 @@ struct KeepAwakeSettingsView: View {
         VStack(alignment: .leading, spacing: InterfaceMetrics.settingsSectionSpacing) {
             KeepAwakeControls(awake: awake, showsModeControls: false, permissionOrigin: .settings)
             GroupBox(L("Поведение")) {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
                     Toggle(isOn: Binding(get: { awake.automatic }, set: { value in
                         Task { await awake.setAutomatic(value) }
                     })) { settingLabel(L("Автоматически, пока работают сессии")) }
@@ -113,7 +113,7 @@ struct KeepAwakeSettingsView: View {
                 }.padding(InterfaceMetrics.settingsContentInset)
             }
             GroupBox(L("Условия остановки")) {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
                     Toggle(isOn: policyBinding(\.allowBattery)) { settingLabel(L("Разрешать работу от аккумулятора")) }
                         .accessibilityIdentifier("awake-allow-battery")
                     Divider()

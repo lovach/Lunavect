@@ -108,7 +108,7 @@ The runner creates only synthetic JSONL archives in a private temporary director
 
 `performance-report.json` contains exact workload sizes, per-sample wall/CPU time, OS I/O block counters and process high-water RSS; `summary.md` shows medians/ranges. RSS includes earlier phases and XCTest, so it is not a phase allocation delta. Cached I/O can report zero blocks. The source manifest covers the measurement report; `run-summary.json` separately combines measurement and provenance status without changing the already-hashed report. A failed provenance result makes the command fail even if the workload completed. Use a new output directory and keep source/index fixed while it runs. Local logs are excluded from the optional `synthetic_performance` GitHub Actions artifacts. This job has been configured; a local run does not prove the remote runner has passed.
 
-For comparisons, keep profile, configuration, toolchain, host, power state and background load comparable, retain all samples, and repeat the same protocol before and after a change. The [case study](case-study.md) records a measured baseline, with no improvement or battery claim.
+For comparisons, keep profile, configuration, toolchain, host, power state and background load comparable, retain all samples, and repeat the same protocol before and after a change. Keep run reports outside the source tree; publish conclusions only with their measurement scope.
 
 ## Read-only installed-process sampling
 

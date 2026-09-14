@@ -54,10 +54,8 @@ Connections, source configuration, activity history, hidden sessions, their arra
 
 The profile is defined in `AppDefaultSettings`; preference owners apply resets through their normal setters so visible UI, registered shortcuts and the helper agree with saved values. Tests use isolated preference domains and a fake helper for defaults, upgrades, reset behavior and configured stop conditions.
 
-## Local verification — build 129
+## Menu-bar appearance
 
-On September 12, 2026, the settings changes passed the full project check: 281 Swift tests ran, 40 opt-in checks were skipped, and the universal unsigned app, widget and helpers built successfully. Native renders of Keep Awake, Notifications and default restoration were inspected in English, Russian and German, including unconfigured and protection-disabled states. The additional update-preference persistence change passed its targeted test and the signed Release build.
+Session status, icon appearance and usage limits are separate visible groups. The character cards remain visible in automatic mode; selecting one switches to manual selection. Short choice rows align labels and controls on one line, and longer labels wrap at smaller window sizes.
 
-Development build 129 was installed with the existing App Group, without moving data. All 16 pre-existing app preference values captured before installation were unchanged afterward. The installed app successfully started the updated helper through the configured-policy XPC method, and macOS confirmed `SleepDisabled = 1`; the owner's previous manual mode was restored after installation.
-
-Live interaction with the new settings window could not be completed because the native UI automation connection closed. The layouts were verified with production native views, and policy changes, reset behavior and migration with isolated tests. Battery and thermal branches used injected conditions; they are not physical low-charge or overheating tests. The earlier physical lid tests are recorded separately in [Keep Awake verification](keep-awake.md#verification-boundary).
+Playful activity phrases are available in all three status styles. Each phrase lasts for two full cycles of animated dots, then the next phrase restarts at one dot. Requests for input or approval always take priority. See [thinking phrases](thinking-phrases.md) and [verification](verification.md) for behavior and testing limits.

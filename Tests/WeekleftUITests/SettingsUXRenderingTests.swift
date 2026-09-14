@@ -50,22 +50,24 @@ final class SettingsUXRenderingTests: XCTestCase {
         let features = AppFeatures(defaults: defaults, permissionAccess: SettingsRenderPermissions(), playSound: { _ in XCTFail("No audio in a render") }, isolated: true)
         let languageSettings = LanguageSettings(defaults: defaults, reloadWidgets: { XCTFail("No widget reload in a render") })
         let language = ProcessInfo.processInfo.environment["LUNAVECT_PREVIEW_LANGUAGE"] ?? "ru"
+        let settingsSize = CGSize(width: Double(ProcessInfo.processInfo.environment["LUNAVECT_SETTINGS_WIDTH"] ?? "840") ?? 840,
+                                  height: Double(ProcessInfo.processInfo.environment["LUNAVECT_SETTINGS_HEIGHT"] ?? "680") ?? 680)
         for scheme in [ColorScheme.light, .dark] {
             let suffix = language + (scheme == .light ? "-light" : "-dark")
-            for section in [SettingsSection.general, .widget, .keepAwake, .updates, .statistics, .menuBar] {
+            for section in SettingsSection.allCases {
                 defaults.set(section.rawValue, forKey: "settingsSection")
                 try render(SettingsView(store: store, menuBarAppearance: appearance, sessions: sessions,
                                         updates: updates, awake: awake, features: features, language: languageSettings).defaultAppStorage(defaults),
-                           size: CGSize(width: 840, height: 680), scheme: scheme,
+                           size: settingsSize, scheme: scheme,
                            url: directory.appendingPathComponent(section.rawValue + "-" + suffix + ".png"))
             }
-            for expanded in [false, true] {
+            do {
                 try render(MenuBarAppearanceView(appearance: appearance, snapshots: fixture.snapshots,
-                                                 providers: [.claude, .codex], iconDetailsExpanded: expanded)
+                                                 providers: [.claude, .codex])
                             .padding(24).background(Color(nsColor: .windowBackgroundColor))
                             .disclosureGroupStyle(FullRowDisclosureStyle()),
-                           size: CGSize(width: 590, height: expanded ? 1480 : 1040), scheme: scheme,
-                           url: directory.appendingPathComponent("menu-bar-\(expanded ? "details" : "overview")-" + suffix + ".png"))
+                           size: CGSize(width: 590, height: 1540), scheme: scheme,
+                           url: directory.appendingPathComponent("menu-bar-details-" + suffix + ".png"))
             }
             try render(WelcomeView(store: store, sessions: sessions, onFinish: {}, step: 3,
                                    widgetSetup: WidgetSetupStatus(fetch: { [] })),

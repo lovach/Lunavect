@@ -1,4 +1,11 @@
 {
+  "Сжимает контекст": {
+    "de": "Komprimiert Kontext",
+    "en": "Compacting context",
+    "es": "Compactando contexto",
+    "fr": "Compression du contexte",
+    "zh-Hans": "正在压缩上下文"
+  },
   "Иконки и проценты": {
     "de": "Symbole und Prozent",
     "en": "Icons and percentages",
@@ -118,12 +125,12 @@
     "fr": "7 jours",
     "zh-Hans": "7天"
   },
-  "70 английских фраз, смена раз в 3,5 секунды и живое троеточие. Ожидание ответа важнее фразы.": {
-    "de": "70 englische Phrasen, alle 3,5 Sekunden mit animierten Punkten. Ausstehende Antworten haben Vorrang.",
-    "en": "70 English phrases, changing every 3.5 seconds with animated dots. Requests for your response take priority.",
-    "es": "70 frases en inglés, cada 3,5 segundos con puntos animados. Las solicitudes de respuesta tienen prioridad.",
-    "fr": "70 phrases en anglais, toutes les 3,5 secondes avec des points animés. Les demandes de réponse sont prioritaires.",
-    "zh-Hans": "70 条英文短语每 3.5 秒切换一次，并显示动态省略号。等待回复的状态优先显示。"
+  "70 английских фраз. После двух циклов троеточия — новая фраза, и точки начинаются заново. Ожидание ответа важнее фразы.": {
+    "de": "70 englische Texte. Nach zwei Punktzyklen beginnt ein neuer Text mit neuen Punkten. Antwortanfragen haben Vorrang.",
+    "en": "70 English phrases. After two dot cycles, a new phrase starts with fresh dots. Requests for your response take priority.",
+    "es": "70 frases en inglés. Tras dos ciclos de puntos, empieza una nueva frase y los puntos se reinician. Las solicitudes de respuesta tienen prioridad.",
+    "fr": "70 phrases en anglais. Après deux cycles de points, une nouvelle phrase commence et les points repartent. Les demandes de réponse ont priorité.",
+    "zh-Hans": "70 条英文短语。省略号循环两次后切换短语，并重新开始。等待回复的状态优先显示。"
   },
   "70 английских фраз, смена раз в 8 секунд в режиме «Одна строка». Ожидание ответа важнее фразы.": {
     "de": "70 englische Phrasen, alle 8 Sekunden im Modus „Eine Zeile“. Ausstehende Antworten haben Vorrang.",

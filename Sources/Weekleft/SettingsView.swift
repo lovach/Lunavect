@@ -75,8 +75,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             Divider()
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(section.title).font(.system(size: 23, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(section.title).font(.system(size: 21, weight: .semibold))
                         Text(section.subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -87,7 +87,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                         } label: { InterfaceLabel(L("Обновить"), .refresh) }
                             .disabled(store.refreshing || sessions.refreshing)
                     }
-                }.padding(24)
+                }.padding(.horizontal, 20).padding(.vertical, 16)
                 Divider()
                 ScrollView {
                     VStack(alignment: .leading, spacing: InterfaceMetrics.settingsSectionSpacing) {
@@ -98,7 +98,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                                 .font(.system(size: 12)).foregroundStyle(.orange)
                         }
                     }.frame(maxWidth: 640, alignment: .leading)
-                        .padding(24).frame(maxWidth: .infinity, alignment: .topLeading)
+                        .padding(20).frame(maxWidth: .infinity, alignment: .topLeading)
                 }.id(section)
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -163,7 +163,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general:
             AppBehaviorSettings(features: features)
             GroupBox {
-                VStack(spacing: 16) {
+                VStack(spacing: 10) {
                     SettingsRow(L("Язык")) {
                         Picker(L("Язык"), selection: $language.code) {
                             ForEach(AppLanguage.allCases) { Text($0.title).tag($0.rawValue) }
@@ -206,7 +206,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 appearance = AppDefaultSettings.appearance
                 language.code = "system"
             }
-            DisclosureGroup(L("Обучение")) {
             GroupBox(L("Начало работы")) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(L("Подключение приложений, виджет и управление сессиями — короткое обучение всегда под рукой."))
@@ -214,7 +213,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                     Button(L("Показать обучение"), action: onShowWelcome)
                         .accessibilityIdentifier("show-welcome")
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            }
             }
             GroupBox(L("О приложении")) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -240,7 +238,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             ActivityStatisticsView(store: store)
         case .widget:
             GroupBox(L("Общие настройки виджетов")) {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text(L("Применяются к установленным виджетам и предпросмотру. macOS обновляет виджеты по своему расписанию."))
                         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     SettingsRow(L("Показывать 5-часовой лимит")) {
@@ -320,6 +318,25 @@ struct SettingsRow<Control: View>: View {
     }
 }
 
+/// A switch and its explanation stay together; controls share the trailing edge.
+struct SettingsToggleRow: View {
+    let title: String
+    @Binding var isOn: Bool
+    var detail: String? = nil
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: $isOn) {
+                Text(title).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }.toggleStyle(.switch).controlSize(.small)
+            if let detail {
+                Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 /// Segmented choices get the available width; long labels wrap above the control.
 struct SettingsChoiceRow<Control: View>: View {
     let title: String
@@ -328,9 +345,16 @@ struct SettingsChoiceRow<Control: View>: View {
         self.title = title; self.control = control
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).fixedSize(horizontal: false, vertical: true).accessibilityHidden(true)
-            control().labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                Text(title).fixedSize().accessibilityHidden(true)
+                Spacer(minLength: 0)
+                control().labelsHidden().fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).fixedSize(horizontal: false, vertical: true).accessibilityHidden(true)
+                control().labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }
@@ -372,7 +396,7 @@ struct WidgetPreviewPicker: View {
         return parts.joined(separator: " · ")
     }
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 10) {
             HStack {
                 Text(L("Посмотреть варианты")).font(.headline)
                 Spacer()
@@ -493,7 +517,7 @@ struct LimitsOverview: View {
     @ObservedObject var store: AppStore
     var onConnections: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             if store.providers.isEmpty {
                 Text(L("Подключите Claude или Codex в настройках подключений.")).foregroundStyle(.secondary)
                 Button(L("Подключить приложения"), action: onConnections).buttonStyle(.borderedProminent)

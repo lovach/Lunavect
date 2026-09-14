@@ -104,9 +104,9 @@ struct UpdateSettingsView: View {
     var body: some View {
         GroupBox(L("Обновления")) {
             VStack(alignment: .leading, spacing: 12) {
-                Toggle(L("Автоматически проверять обновления"), isOn: automaticChecks)
+                SettingsToggleRow(title: L("Автоматически проверять обновления"), isOn: automaticChecks)
                     .disabled(!updates.configured).accessibilityIdentifier("updates-auto-check")
-                Toggle(L("Автоматически скачивать новые версии"), isOn: automaticDownloads)
+                SettingsToggleRow(title: L("Автоматически скачивать новые версии"), isOn: automaticDownloads)
                     .disabled(!updates.configured).accessibilityIdentifier("updates-auto-download")
                 Text(L("Проверка сообщает о новых версиях. Автоматическое скачивание — отдельная настройка; при его включении проверка тоже включается. Установка не прерывает текущую работу."))
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

@@ -11,6 +11,42 @@ private actor MenuBarAnimatorReferenceOwner {
 }
 
 final class MenuBarStatusTests: XCTestCase {
+    @MainActor func testIdleClaudeTrimsTransparentCanvasAndRestoresCompactWidthAfterWork() async throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let animator = MenuBarAnimator(statusItem: item)
+        animator.update(icon: .claude, onlyWhileWorking: true, running: 0, waiting: 0)
+        try await Task.sleep(for: .milliseconds(100))
+        let button = try XCTUnwrap(item.button)
+        let idle = try XCTUnwrap(animator.content.artwork.image)
+        let original = try XCTUnwrap(ClawdAnimation.image(at: 0, size: idle.size.height))
+        XCTAssertLessThan(idle.size.width, original.size.width)
+        XCTAssertEqual(idle.size.height, original.size.height)
+        func ink(_ image: NSImage) -> [Int] {
+            image.representations.compactMap { $0 as? NSBitmapImageRep }.map { rep in
+                (0..<rep.pixelsWide).reduce(0) { total, x in
+                    total + (0..<rep.pixelsHigh).filter { (rep.colorAt(x: x, y: $0)?.alphaComponent ?? 0) > 0 }.count
+                }
+            }
+        }
+        XCTAssertEqual(ink(idle), ink(original), "Every visible source pixel must survive the crop at both scales")
+        let width = reservedWidth(of: item)
+        animator.update(icon: .claude, onlyWhileWorking: true, running: 2, waiting: 0)
+        XCTAssertGreaterThan(reservedWidth(of: item), width)
+        animator.update(icon: .claude, onlyWhileWorking: true, running: 0, waiting: 0)
+        XCTAssertEqual(reservedWidth(of: item), width)
+        button.layoutSubtreeIfNeeded(); animator.content.layoutSubtreeIfNeeded()
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] {
+            button.appearance = NSAppearance(named: .darkAqua)
+            let bitmap = try XCTUnwrap(button.bitmapImageRepForCachingDisplay(in: button.bounds))
+            button.cacheDisplay(in: button.bounds, to: bitmap)
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("idle-claude-trimmed.png"))
+        }
+    }
+
     @MainActor func testWaitingBubbleHasShapeCueWithMotionDisabled() {
         let content = MenuBarStatusContent(frame: NSRect(x: 0, y: 0, width: 50, height: 24))
         content.style = .activity
@@ -314,7 +350,37 @@ final class MenuBarStatusTests: XCTestCase {
         animator.setPopoverOpen(false)
     }
 
-    @MainActor func testWaitingUpdatesStatusWithTheSameClaudeFrame() throws {
+    @MainActor func testRunningBadgeFitsFrozenIconOnlyButtonWithoutWidening() async throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let animator = MenuBarAnimator(statusItem: item)
+        animator.update(icon: .codex, onlyWhileWorking: true, thinkingPhrases: true, running: 0, waiting: 0)
+        try await Task.sleep(for: .milliseconds(100))
+        let button = try XCTUnwrap(item.button)
+        let width = reservedWidth(of: item)
+        animator.setPopoverOpen(true)
+        animator.update(icon: .codex, onlyWhileWorking: true, thinkingPhrases: true, running: 4, waiting: 0)
+        button.layoutSubtreeIfNeeded()
+        animator.content.layoutSubtreeIfNeeded()
+        XCTAssertTrue(animator.content.showsThinkingPhrase)
+        XCTAssertEqual(animator.content.badgeText.string, "4")
+        XCTAssertEqual(reservedWidth(of: item), width)
+        XCTAssertLessThanOrEqual(animator.content.badgeFrame.maxX, button.bounds.maxX - 1)
+        XCTAssertGreaterThanOrEqual(animator.content.badgeFrame.minX, 0)
+        XCTAssertGreaterThanOrEqual(animator.content.badgeWidth, animator.content.badgeText.size().width + 6)
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] {
+            button.appearance = NSAppearance(named: .darkAqua)
+            let bitmap = try XCTUnwrap(button.bitmapImageRepForCachingDisplay(in: button.bounds))
+            button.cacheDisplay(in: button.bounds, to: bitmap)
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                .write(to: directory.appendingPathComponent("frozen-four-badge.png"))
+        }
+    }
+
+    @MainActor func testWaitingUpdatesStatusAfterCompactIdleClaudeFrame() throws {
         _ = NSApplication.shared
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
@@ -326,7 +392,10 @@ final class MenuBarStatusTests: XCTestCase {
         XCTAssertTrue(animator.content.artwork.image === original)
         XCTAssertEqual(animator.content.summaryText.string, initialText)
         animator.update(icon: .claude, onlyWhileWorking: true, thinkingPhrases: false, running: 0, waiting: 1)
-        XCTAssertTrue(animator.content.artwork.image === original)
+        let waitingFrame = try XCTUnwrap(animator.content.artwork.image)
+        XCTAssertGreaterThanOrEqual(waitingFrame.size.width, original.size.width)
+        animator.update(icon: .claude, onlyWhileWorking: true, thinkingPhrases: false, running: 0, waiting: 1)
+        XCTAssertTrue(animator.content.artwork.image === waitingFrame)
         XCTAssertNotEqual(animator.content.summaryText.string, initialText)
         XCTAssertEqual(animator.content.waiting, 1)
         XCTAssertEqual(reservedWidth(of: item), animator.content.preferredWidth)
@@ -405,6 +474,65 @@ final class MenuBarStatusTests: XCTestCase {
         XCTAssertLessThan(reservedWidth(of: item), width)
     }
 
+    @MainActor func testPhrasesAnimateInEveryStyleAndYieldToWaiting() throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        var clock = 0.0
+        let animator = MenuBarAnimator(statusItem: item, now: { clock })
+        for style in MenuBarStatusStyle.allCases {
+            animator.update(icon: .system, onlyWhileWorking: true, statusStyle: style, thinkingPhrases: true, running: 2, waiting: 0)
+            let view = animator.content
+            XCTAssertTrue(view.showsThinkingPhrase, style.rawValue)
+            let word = view.thinkingPhrase
+            let width = reservedWidth(of: item)
+            clock += 0.5
+            animator.update(icon: .system, onlyWhileWorking: true, statusStyle: style, thinkingPhrases: true, running: 2, waiting: 0)
+            XCTAssertEqual(view.thinkingPhrase, word)
+            XCTAssertEqual(reservedWidth(of: item), width)
+            XCTAssertTrue(item.button?.toolTip?.contains("2") == true)
+            if style == .counters { XCTAssertTrue(view.counterSummary.string.contains("2")) }
+            animator.update(icon: .system, onlyWhileWorking: true, statusStyle: style, thinkingPhrases: true, running: 2, waiting: 1)
+            XCTAssertFalse(view.showsThinkingPhrase)
+            XCTAssertNil(view.thinkingPhrase)
+            XCTAssertTrue(item.button?.toolTip?.contains("1") == true)
+            animator.update(icon: .system, onlyWhileWorking: true, statusStyle: style, thinkingPhrases: false, running: 2, waiting: 0)
+            XCTAssertFalse(view.showsThinkingPhrase)
+        }
+    }
+
+    @MainActor func testPhraseModesNativeGeometry() throws {
+        _ = NSApplication.shared
+        let board = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 260))
+        board.appearance = NSAppearance(named: .darkAqua)
+        board.wantsLayer = true
+        board.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        for (row, style) in MenuBarStatusStyle.allCases.enumerated() {
+            let title = NSTextField(labelWithString: style.rawValue)
+            title.frame = NSRect(x: 16, y: 223 - row * 80, width: 120, height: 18)
+            board.addSubview(title)
+            for (column, dots) in [1, 2, 3].enumerated() {
+                let view = MenuBarStatusContent(frame: NSRect(x: 16 + column * 150, y: 190 - row * 80, width: 145, height: 24))
+                view.style = style; view.running = 2; view.language = "en"
+                view.thinkingPhrase = "vibing"; view.thinkingDotCount = dots; view.activityDotCount = dots
+                view.artwork.image = MenuBarArtwork.image(.codex, frame: 0, size: 26)
+                view.iconWidth = view.artwork.image?.size.width ?? 24
+                view.frame.size.width = view.preferredWidth
+                XCTAssertLessThanOrEqual(view.preferredWidth, 145)
+                if style == .activity { XCTAssertLessThan(view.activityBubbleFrame.maxX, view.textOriginX) }
+                board.addSubview(view)
+            }
+        }
+        board.layoutSubtreeIfNeeded()
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_STATUS"] {
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let bitmap = try XCTUnwrap(board.bitmapImageRepForCachingDisplay(in: board.bounds))
+            board.cacheDisplay(in: board.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("phrase-modes.png"))
+        }
+    }
+
     @MainActor func testAnimatedDotsKeepWordAndGeometrySteady() {
         var cycle = ThinkingPhraseCycle()
         let view = MenuBarStatusContent(frame: NSRect(x: 0, y: 0, width: 250, height: 22))
@@ -413,7 +541,7 @@ final class MenuBarStatusTests: XCTestCase {
         let word = cycle.current
         view.thinkingPhrase = word
         let width = view.preferredWidth
-        for (time, dots) in [(0.0, 1), (0.5, 2), (1.0, 3), (1.5, 1), (2.0, 2), (3.49, 1)] {
+        for (time, dots) in [(0.0, 1), (0.5, 2), (1.0, 3), (1.5, 1), (2.0, 2), (2.5, 3), (2.99, 3)] {
             cycle.update(active: true, at: time)
             XCTAssertEqual(cycle.current, word)
             XCTAssertEqual(cycle.dotCount, dots)
@@ -425,8 +553,13 @@ final class MenuBarStatusTests: XCTestCase {
                 XCTAssertEqual(color == .clear, index >= dots)
             }
         }
-        cycle.update(active: true, at: 3.5)
+        cycle.update(active: true, at: 3.0)
         XCTAssertNotEqual(cycle.current, word)
+        XCTAssertEqual(cycle.dotCount, 1)
+        let secondWord = cycle.current
+        cycle.update(active: true, at: 9.7)
+        XCTAssertNotEqual(cycle.current, secondWord)
+        XCTAssertEqual(cycle.dotCount, 1, "A delayed callback must restart the dots with the new word")
         cycle.update(active: true, at: 10, rotates: false)
         XCTAssertEqual(cycle.dotCount, 3)
         cycle.update(active: false, at: 11)
@@ -441,14 +574,14 @@ final class MenuBarStatusTests: XCTestCase {
         var cycle = ThinkingPhraseCycle()
         cycle.update(active: true, at: 0)
         let first = cycle.current
-        for time in [0.5, 1, 1.5, 2, 2.5, 3, 3.49] { cycle.update(active: true, at: time); XCTAssertEqual(cycle.current, first) }
+        for time in [0.5, 1, 1.5, 2, 2.5, 2.99] { cycle.update(active: true, at: time); XCTAssertEqual(cycle.current, first) }
         var seen = [first!]
         for index in 1..<70 {
-            cycle.update(active: true, at: Double(index) * 3.5)
+            cycle.update(active: true, at: Double(index) * ThinkingPhrases.interval)
             seen.append(cycle.current!)
         }
         XCTAssertEqual(Set(seen), Set(ThinkingPhrases.all))
-        cycle.update(active: true, at: 245)
+        cycle.update(active: true, at: 70 * ThinkingPhrases.interval)
         XCTAssertNotEqual(cycle.current, seen.last)
         let frozen = cycle.current
         cycle.update(active: true, at: 600, rotates: false)
@@ -492,6 +625,8 @@ final class MenuBarStatusTests: XCTestCase {
         view.waiting = 0; view.running = 0
         XCTAssertEqual(view.statusWidth, 0)
         view.running = 2; view.style = .activity
+        XCTAssertTrue(view.showsThinkingPhrase)
+        view.thinkingPhrase = nil
         XCTAssertFalse(view.showsThinkingPhrase)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

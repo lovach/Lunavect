@@ -56,10 +56,10 @@ class NativeRendersTests(unittest.TestCase):
             images = Path(temporary)
             for name, dimensions in renders.PUBLIC_EXPECTED.items():
                 png(images / name, dimensions)
-            self.assertEqual(len(renders.inspect_images(images, renders.PUBLIC_EXPECTED)), 11)
+            self.assertEqual(len(renders.inspect_images(images, renders.PUBLIC_EXPECTED)), 12)
             target = images / 'menu-bar.png'
             target.unlink()
-            with self.assertRaisesRegex(ValueError, '11 selected states'):
+            with self.assertRaisesRegex(ValueError, '12 selected states'):
                 renders.inspect_images(images, renders.PUBLIC_EXPECTED)
             png(target, (720, 144))  # A 1x capture is insufficient for this gallery.
             with self.assertRaisesRegex(ValueError, 'dimensions'):

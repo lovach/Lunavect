@@ -7,6 +7,7 @@ Click Lunavect in the macOS menu bar to open the session panel. It brings Claude
 | State | Meaning |
 | --- | --- |
 | Working / Thinking / tool name | A source currently reports work. The timer belongs to the current response, not the session's total lifetime. |
+| Compacting context | Claude's compaction lifecycle reports work. Manual compaction has its own timer; automatic compaction retains the running response's start. |
 | Permission needed | The client is waiting for approval. Return to the client to respond. |
 | Input needed | The client is waiting for input. |
 | Response ready | A response finished; the session may still be open in its client. |
@@ -21,7 +22,11 @@ A retained Claude background `blocked` entry without a live process ID, live sta
 
 From 0.1.2, a recognized closing decision question such as “Shall I apply these changes?” is shown as **Input needed** and included in the waiting count. The adapter examines the documented local [`Stop.last_assistant_message` field](https://code.claude.com/docs/en/hooks#stop-input); it does not read another transcript or save the response text.
 
-This is a conservative inference from selected Russian, English and German wording, rather than confirmation of a permission dialog. Unknown wording remains **Response ready**. A fresh idle poll preserves the question without extending its timestamp; resumed work, explicit later states or the existing ten-minute hook freshness limit supersede it. Structured permission events retain priority.
+This is a conservative inference from selected Russian, English and German wording, rather than confirmation of a permission dialog. Unknown wording remains **Response ready**. A fresh idle poll preserves the question without extending its timestamp; resumed work, explicit later states or the existing ten-minute hook freshness limit supersede it. During the running app session, once a later runtime state supersedes a question, an idle or missing catalog row cannot revive that same saved question. A later closing question is still counted. Structured permission events retain priority.
+
+## Context compaction
+
+The development build observes Claude's documented `PreCompact` and `PostCompact` hooks, with `SessionStart` from compaction as a completion fallback. An idle catalog poll cannot cancel a fresh compaction event. Manual completion returns to idle; automatic completion returns to the running response. Later prompt, tool, stop and permission events supersede compaction normally. Missing completion events expire under the existing ten-minute hook freshness limit. Instructions and compacted summaries are not stored. Adding the handlers does not recover an already-missed start event or prove delivery from an existing client session.
 
 ## Find and arrange sessions
 
