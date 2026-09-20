@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import Weekleft
 
 @MainActor final class WidgetRegistrationTests: XCTestCase {
@@ -91,6 +92,22 @@ import XCTest
         defer {
             if owned.isRunning { owned.terminate() }; if unrelated.isRunning { unrelated.terminate() }
             owned.waitUntilExit(); unrelated.waitUntilExit()
+        }
+        // Process.run can return before the spawned process exposes its final
+        // executable path. Establish that both fixtures are discoverable before
+        // exercising the production path matcher, and report the actual path if not.
+        func path(of process: Process) -> String? {
+            var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+            guard proc_pidpath(process.processIdentifier, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+            return String(cString: buffer)
+        }
+        for (process, target) in [(owned, own), (unrelated, other)] {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while process.isRunning, path(of: process) != target.executable, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(path(of: process), target.executable, "Fixture must expose the path used by the production matcher")
+            guard path(of: process) == target.executable else { return }
         }
         let stopped = await Task.detached { WidgetRegistrationSystem.stopExtension(own) }.value
         XCTAssertTrue(stopped)
