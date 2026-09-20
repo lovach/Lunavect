@@ -1,14 +1,26 @@
 # Verification and compatibility
 
+The current public release is **Lunavect 0.1.5 (162)**. These records distinguish checks that ran from scenarios still requiring verification.
+
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.5) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
+
+## 0.1.5 release checks — September 21, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `83ddad43fc79bd918ee76e6d18f4364d82144d6f`, tagged `v0.1.5`. Signed archive source provenance passed. |
+| Automated checks | Local `scripts/check.sh`: 79 Python tests and 594 Swift tests passed; 55 conditional Swift skips; no failures. Built intent resources passed separately. Universal app/WidgetKit build, runtime probes, hooks, resources and provenance passed. XcodeGen 2.46.0 parity and [release CI](https://github.com/lovach/Lunavect/actions/runs/35543896261) passed. |
+| Distribution | Developer ID signed and Apple notarized, build 162. Anonymous DMG, ZIP, appcast and checksum downloads matched the packaged bytes. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, resource, App Group and helper-policy checks. Public ZIP/feed signatures match the app's update key; the latest feed points to this build. |
+| Compatibility | Existing signing identity, bundle IDs, App Group, update key and preference defaults are unchanged. Older public release assets retain their original identities, digests and URLs. |
+| Remaining scope | A complete Sparkle installation cycle for this release, desktop widget scheduling on other Macs and the separately reported empty waiting indication remain unverified. The local regressions and installed development-build observations below cover the identified causes. |
+
+The 0.1.5 DMG SHA-256 is `30c7ef3277639303563ae08ed13da4be3d754f6c289cb34f7c08740f22ca66b5`.
+
 ## 0.1.5 regression coverage
 
 Two session-lifecycle regressions reproduce an expired waiting count while local event reads fail or remain pending. Internal-agent fixtures reproduce a Codex worker being treated as a current waiting session, including after fresh hook events. Classification uses explicit parent/source metadata and preserves ordinary tasks, independent chats and older saved records. Positive origin survives temporary catalog gaps. Source databases and provider archives are not modified.
 
 Six widget registration tests cover version/path changes, transient and persistent failures, cancellation, excluded bundles and signalling only a synthetic extension at the exact matching executable path. Local installed builds confirmed startup recovery, retention of widget preferences and removal of a known internal worker while real tasks remained. An actual Sparkle download/install cycle and the separately reported empty waiting indication were not independently reproduced.
-
-The current public release is **Lunavect 0.1.4 (157)**. These records distinguish checks that ran from scenarios still requiring verification.
-
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.4) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
 
 ## 0.1.4 release checks — September 14, 2026
 
@@ -72,7 +84,7 @@ Test counts above belong to the release source, not subsequent documentation or 
 
 ## Homebrew and installer
 
-The cask points to the 0.1.4 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
+The cask points to the 0.1.5 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
 
 The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstall on September 12. That exercise preserved the existing application and validated the downloaded signature and notarization. A Homebrew upgrade between distinct versions is a separate scenario; the real Sparkle update above does not establish it.
 
@@ -91,8 +103,8 @@ The deployment minimum is macOS 14. Release checks were performed on macOS 26.5.
 | Other Macs | Intel hardware, macOS 14/15 and every supported OS revision have not been exercised. |
 | First-time setup | Clean-Mac setup, different account plans and client versions, failed sign-in and retry need broader coverage. |
 | Session lifecycle | More real-client coverage is needed for prolonged tasks, cancellation, sleep/wake, offline periods and returning to the exact original session. |
-| Desktop widgets | Native layouts and the owner's glass setting were checked. Placement, editing and refresh of build 157 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
-| Updates | Upgrade from public 0.1.3 (154) to 0.1.4 (157), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
+| Desktop widgets | Native layouts and the owner's glass setting were checked. Startup registration recovery was observed on a local development build; placement, editing and refresh of public build 162 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
+| Updates | Upgrade from public 0.1.4 (157) to 0.1.5 (162), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
 | Accessibility | Full VoiceOver, keyboard navigation and widget appearance with increased contrast or reduced transparency need live verification. |
 | Battery use | Short process samples and synthetic benchmarks do not establish prolonged idle energy consumption. |
 | Experimental features | Optional glass and closed-lid Keep Awake are not guaranteed across Macs or future macOS releases. Glass is off by default. |
