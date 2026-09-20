@@ -33,7 +33,7 @@ import WeekleftCore
                 var events = try await readLocal {
                     let legacy = SessionSources.legacyEvents(catalog: rows, now: now)
                     try Task.checkCancellation()
-                    return legacy + SessionHooks.load(at: directory)
+                    return CodexSessionMetadata.markingSubagents(in: legacy + SessionHooks.load(at: directory))
                 }
                 try Task.checkCancellation()
                 if providers.contains(.codex) { events += await CodexActivityReader.shared.events(catalog: rows, now: now) }
@@ -55,7 +55,7 @@ import WeekleftCore
                     return result
                 }
             }, hooksState: { Dictionary(uniqueKeysWithValues: ProviderID.allCases.map { ($0, SessionHooks.installed($0)) }) },
-                 initialEvents: { SessionHooks.load(at: $0) }, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
+                 initialEvents: { CodexSessionMetadata.markingSubagents(in: SessionHooks.load(at: $0)) }, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
                  configureRuntime: { resolver in
                      // Automatic discovery is already checked by the runtime reader itself.
                      await CodexActivityReader.shared.useExecutable(resolver.codexPath.isEmpty ? nil : resolver.codexPath)
@@ -137,6 +137,9 @@ import WeekleftCore
     private var arrangementLoadError: Error?
     private var visibility: SessionVisibility?
     private var allSessions: [AgentSession] = []
+    // Origin is immutable for a thread ID. A later incomplete catalog or locked
+    // metadata database cannot promote a previously confirmed child to a user task.
+    private var codexSubagentIDs: Set<String> = []
     private var undoDismissTask: Task<Void, Never>?
     private let undoDelay: Duration
     init(directory: URL? = nil, undoDelay: Duration = .seconds(4), defaults: UserDefaults? = nil,
@@ -168,7 +171,10 @@ import WeekleftCore
             visibility = try result.value ?? SessionVisibility(url: file, now: now())
             if result.backupURL != nil { connectionMessage = L("Повреждённый список скрытых сессий сохранён отдельно. Управление сессиями восстановлено.") }
             // Include old events outside the merge freshness window when repairing history.
-            try visibility?.removeUnstartedClaudeLifecycles(self.dependencies.initialEvents(base))
+            let initial = self.dependencies.initialEvents(base)
+            try visibility?.removeUnstartedClaudeLifecycles(initial)
+            codexSubagentIDs.formUnion(initial.filter { $0.isCodexSubagent == true }.map(\.id))
+            try removeHiddenCodexSubagents()
             hiddenCount = visibility?.hidden.count ?? 0
             hiddenIDs = (visibility?.hidden ?? []).sorted()
             hiddenSessions = visibility?.summaries ?? []
@@ -464,6 +470,11 @@ import WeekleftCore
     }
     @discardableResult private func beginEvents() -> Task<Void, Never>? {
         guard !stopped, !Task.isCancelled else { return nil }
+        // Freshness belongs to the display clock, not source success. Keep menu
+        // subscribers in sync even while a read is pending or repeatedly fails.
+        // Do this before coalescing reads; the background timer still has to age
+        // the last observation without starting another source operation.
+        publishVisible()
         if let eventTask { return eventTask }
         let current = generation, id = UUID()
         eventID = id
@@ -554,13 +565,15 @@ import WeekleftCore
 
     func acceptSessions(_ rows: [AgentSession], now: Date? = nil) {
         let now = now ?? self.now()
+        codexSubagentIDs.formUnion(rows.filter { $0.isCodexSubagent == true }.map(\.id))
         // Starting a CLI to inspect its UI is not a task. Include it only once
         // a prompt, tool, response or request establishes actual task activity.
-        let taskRows = rows.filter { providers.contains($0.provider) && !$0.isUnstartedClaudeLifecycle }
+        let taskRows = rows.filter { providers.contains($0.provider) && !$0.isUnstartedClaudeLifecycle && !codexSubagentIDs.contains($0.id) }
         // Keep history available to the panel without reporting retained state
         // as a current observation to activity tracking or Keep Awake.
         onObservation?(taskRows.filter { $0.catalogHistory != true }, now)
         do {
+            try removeHiddenCodexSubagents()
             if organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
                 try visibility?.pruneRemoved(now: now)
                 var next = arrangement
@@ -576,6 +589,10 @@ import WeekleftCore
         } catch { connectionMessage = error.localizedDescription }
         allSessions = taskRows; publishVisible(now: now)
         observations.send((sessions, now))
+    }
+    private func removeHiddenCodexSubagents() throws {
+        let hidden = codexSubagentIDs.intersection(visibility?.hidden ?? [])
+        if !hidden.isEmpty { try visibility?.removeHidden(hidden, now: now()) }
     }
     private func hideInactiveSessions(_ rows: [AgentSession], now: Date) throws {
         guard [5, 10, 20].contains(autoHideMinutes), let visibility else { return }

@@ -82,6 +82,7 @@ import AwakeService
     var noticeObserver: AnyCancellable?
     var connectionsObserver: AnyCancellable?
     private var openedFromURL = false
+    private var widgetRegistration: WidgetRegistration?
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -166,6 +167,9 @@ import AwakeService
                 }
             }
             features.start()
+            let registration = WidgetRegistration(defaults: environment.defaults)
+            widgetRegistration = registration
+            registration.start()
             environment.updates.start()
             noticeObserver = sessions.observations.sink { observation in
                 features.observe(observation.rows, at: observation.date)
@@ -196,6 +200,7 @@ import AwakeService
         }
     }
     func applicationWillTerminate(_ notification: Notification) {
+        widgetRegistration?.stop()
         menuBarLimits?.stop()
         popoverDismissal.stop()
         environment.stop()

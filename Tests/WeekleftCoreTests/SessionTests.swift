@@ -2,6 +2,32 @@ import XCTest
 @testable import WeekleftCore
 
 final class SessionTests: XCTestCase {
+    func testCodexInternalAgentsNeverBecomeIndependentCurrentSessions() throws {
+        let now = Date()
+        let sources: [Any] = [
+            ["subAgent": "review"], ["subAgent": "compact"],
+            ["subAgent": ["thread_spawn": ["parent_thread_id": "parent", "depth": 1]]],
+            ["subagent": ["thread_spawn": ["parent_thread_id": "parent", "depth": 2]]]
+        ]
+        let raw = sources.enumerated().map { index, source in
+            ["id": "child-\(index)", "source": source,
+             "status": ["type": "active", "activeFlags": ["waitingOnUserInput"]]] as [String: Any]
+        } + [
+            ["id": "parent-marker", "source": "vscode", "parentThreadId": "parent", "status": ["type": "active"]],
+            ["id": "parent", "source": "vscode", "parentThreadId": NSNull(), "status": ["type": "active"]],
+            ["id": "peer", "source": "appServer", "status": ["type": "active"]],
+            ["id": "ordinary-cli", "source": "cli", "status": ["type": "active"]]
+        ]
+        let catalog = try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": raw]), now: now)
+        XCTAssertEqual(Set(catalog.filter { $0.isCurrent(now: now) }.map(\.sessionID)), ["parent", "peer", "ordinary-cli"])
+        var event = AgentSession(provider: .codex, sessionID: "child-0", title: "", cwd: "", phase: .permission,
+                                 updatedAt: now, observedAt: now, evidence: .hook)
+        event.observedAt += 1
+        let merged = SessionList.merge(catalog: catalog, events: [event], now: now.addingTimeInterval(1))
+        XCTAssertFalse(try XCTUnwrap(merged.first { $0.sessionID == "child-0" }).isCurrent(now: now.addingTimeInterval(1)),
+                       "A fresh child hook must not erase its catalog origin")
+    }
+
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     func testDesktopTitleUsesExactSessionIDAndPreservesCyrillic() throws {
         let data = Data(#"{"cliSessionId":"abc","title":"Мои проекты","isArchived":false,"messages":["PRIVATE"]}"#.utf8)

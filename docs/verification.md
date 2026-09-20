@@ -1,5 +1,11 @@
 # Verification and compatibility
 
+## 0.1.5 regression coverage
+
+Two session-lifecycle regressions reproduce an expired waiting count while local event reads fail or remain pending. Internal-agent fixtures reproduce a Codex worker being treated as a current waiting session, including after fresh hook events. Classification uses explicit parent/source metadata and preserves ordinary tasks, independent chats and older saved records. Positive origin survives temporary catalog gaps. Source databases and provider archives are not modified.
+
+Six widget registration tests cover version/path changes, transient and persistent failures, cancellation, excluded bundles and signalling only a synthetic extension at the exact matching executable path. Local installed builds confirmed startup recovery, retention of widget preferences and removal of a known internal worker while real tasks remained. An actual Sparkle download/install cycle and the separately reported empty waiting indication were not independently reproduced.
+
 The current public release is **Lunavect 0.1.4 (157)**. These records distinguish checks that ran from scenarios still requiring verification.
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.4) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)

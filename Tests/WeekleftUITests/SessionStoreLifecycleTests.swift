@@ -1,9 +1,104 @@
 import XCTest
+import Combine
 @testable import Weekleft
 @testable import WeekleftCore
 
 @MainActor final class SessionStoreLifecycleTests: XCTestCase {
     private let instant = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func testSubagentWaitDoesNotReachPanelCountsObservationsOrHiddenHistory() async throws {
+        var clock = instant
+        var child = session("child"); child.phase = .input; child.isCodexSubagent = true
+        let parent = session("parent"), peer = session("peer")
+        var catalog = [parent, peer, child]
+        var hook = child; hook.isCodexSubagent = nil; hook.evidence = .hook
+        let root = try directory()
+        var visibility = try SessionVisibility(url: root.appendingPathComponent("hidden-sessions.json"), now: clock)
+        try visibility.hide(child, now: clock.addingTimeInterval(-1))
+        try visibility.hide(peer, now: clock)
+        var observed: [[String]] = [], published: [[String]] = []
+        let store = try fixture(.init(catalog: { _, _, _, _ in (catalog, false) }, events: { _, _, _ in [hook] }), directory: root, now: { clock })
+        defer { store.stop() }
+        store.useProviders([.codex])
+        store.autoHideMinutes = 5
+        store.onObservation = { rows, _ in observed.append(rows.map(\.sessionID)) }
+        let subscriber = store.observations.sink { published.append($0.rows.map(\.sessionID)) }
+        defer { subscriber.cancel() }
+        await store.refresh()
+        XCTAssertEqual(store.currentSessions.map(\.sessionID), ["parent"])
+        XCTAssertEqual(store.activeCount, 1)
+        XCTAssertEqual(store.hiddenIDs, [peer.id], "Repair only internal-agent history, preserving a deliberately hidden peer")
+        clock += 1
+        catalog = [parent, peer]
+        hook.observedAt = clock; hook.updatedAt = clock
+        await store.refresh()
+        XCTAssertEqual(store.currentSessions.map(\.sessionID), ["parent"], "A temporarily absent catalog cannot reintroduce a known child's hook")
+        XCTAssertTrue(observed.allSatisfy { !$0.contains("child") }, "Internal waits cannot reach activity tracking or Keep Awake")
+        XCTAssertTrue(published.allSatisfy { !$0.contains("child") }, "Internal waits cannot trigger user notifications")
+        XCTAssertEqual(store.hiddenIDs, [peer.id])
+    }
+
+    func testWaitingPublicationExpiresDespiteFailedEventReadsAndRecovers() async throws {
+        var clock = instant
+        var fails = true
+        var row = session("waiting")
+        row.phase = .permission
+        let store = try fixture(.init(events: { _, _, _ in
+            if fails { throw SessionError.timeout }
+            return [row]
+        }), now: { clock })
+        defer { store.stop() }
+        var waiting = 0
+        let observer = store.$sessions.sink { rows in
+            waiting = rows.filter { $0.isCurrent(now: clock) && [.permission, .input].contains($0.effectivePhase(now: clock)) }.count
+        }
+        defer { observer.cancel() }
+        store.acceptSessions([row])
+        XCTAssertEqual(waiting, 1)
+        clock += 30
+        await store.readEvents()
+        XCTAssertEqual(waiting, 1, "One read failure cannot discard still-current evidence")
+        clock += 31
+        await store.readEvents()
+        XCTAssertEqual(waiting, 0, "The menu-bar subscriber must expire without opening the panel or a successful read")
+        XCTAssertTrue(store.currentSessions.isEmpty)
+        XCTAssertEqual(store.sessions.map(\.id), [row.id], "Expiring status does not delete the task")
+        fails = false; row.observedAt = clock; row.updatedAt = clock
+        await store.readEvents()
+        XCTAssertEqual(waiting, 1, "Fresh evidence can confirm a real wait again")
+    }
+
+    func testPendingEventReadDoesNotBlockWaitingExpiryOrDuplicateWork() async throws {
+        var clock = instant
+        var row = session("pending-wait")
+        row.phase = .input; row.evidence = .hook
+        let began = expectation(description: "Event read pending")
+        let polled = expectation(description: "Second background poll")
+        var resume: CheckedContinuation<Void, Never>?
+        var calls = 0, waiting = 0
+        let store = try fixture(.init(events: { _, _, _ in
+            calls += 1
+            await withCheckedContinuation { resume = $0; began.fulfill() }
+            return [row]
+        }), now: { clock })
+        defer { store.stop() }
+        let observer = store.$sessions.sink { rows in
+            waiting = rows.filter { $0.isCurrent(now: clock) && $0.effectivePhase(now: clock) == .input }.count
+        }
+        defer { observer.cancel() }
+        store.acceptSessions([row])
+        let first = Task { await store.readEvents() }
+        await fulfillment(of: [began], timeout: 2)
+        XCTAssertEqual(waiting, 1)
+        clock += 601
+        let second = Task { polled.fulfill(); await store.readEvents() }
+        await fulfillment(of: [polled], timeout: 2)
+        XCTAssertEqual(waiting, 0, "Expiry must not wait for the outstanding source operation")
+        XCTAssertEqual(calls, 1, "Background ticks still coalesce the pending source operation")
+        resume?.resume()
+        await first.value; await second.value
+        XCTAssertEqual(waiting, 0, "A late result cannot renew its own observation timestamp")
+    }
 
     func testResumedClaudeWorkCannotResurrectEarlierClosingQuestion() async throws {
         var clock = instant
