@@ -77,15 +77,28 @@ import Darwin
     }
 
     func testOnlyExactExtensionExecutableIsStopped() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        // Foundation can display /private/var as /var; proc_pidpath returns the
+        // POSIX path. Keep the fixture target identical to the kernel's path.
+        let canonical = try XCTUnwrap(realpath(temporary.path, nil))
+        defer { free(canonical) }
+        let root = URL(fileURLWithPath: String(cString: canonical))
         defer { try? FileManager.default.removeItem(at: root) }
+        // A copied Apple-signed /bin/sleep is not a stable synthetic executable:
+        // macOS can reject the relocated binary before discovery. Build our own.
+        let source = root.appendingPathComponent("fixture.c")
+        try Data("#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n".utf8).write(to: source)
         let own = WidgetRegistrationTarget(app: root.appendingPathComponent("Installed/Lunavect.app"), version: "1")
         let other = WidgetRegistrationTarget(app: root.appendingPathComponent("Archive/Lunavect.app"), version: "1")
         func launch(_ target: WidgetRegistrationTarget) throws -> Process {
             let executable = URL(fileURLWithPath: target.executable)
             try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
-            let process = Process(); process.executableURL = executable; process.arguments = ["30"]
+            let compiler = Process(); compiler.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+            compiler.arguments = [source.path, "-o", executable.path]
+            try compiler.run(); compiler.waitUntilExit()
+            XCTAssertEqual(compiler.terminationStatus, 0)
+            let process = Process(); process.executableURL = executable
             try process.run(); return process
         }
         let owned = try launch(own), unrelated = try launch(other)
@@ -113,6 +126,7 @@ import Darwin
         XCTAssertTrue(stopped)
         owned.waitUntilExit()
         XCTAssertEqual(owned.terminationReason, .uncaughtSignal)
+        XCTAssertEqual(owned.terminationStatus, SIGTERM)
         XCTAssertTrue(unrelated.isRunning)
     }
 }
