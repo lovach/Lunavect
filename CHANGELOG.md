@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 — 2026-09-21
+
+- Recover the installed widget extension registration after automatic and manual app updates, then request fresh timelines without resetting widget settings. macOS still schedules widget refreshes.
+- Let expired session statuses leave the menu-bar count even while local event reads are failing or still pending.
+- Keep confirmed internal Codex agents out of user session lists, waiting counts, activity and notifications. Ordinary tasks and independent chats remain visible; provider history is preserved.
+
 ## 0.1.4 — 2026-09-14
 
 - Remove the blue update dot from menu-bar artwork. Update notices remain actionable in the session panel and available in the tooltip and accessibility label.

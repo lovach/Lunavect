@@ -79,6 +79,13 @@ import WeekleftCore
     }
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) { phase = .available(item.displayVersionString) }
     func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) { phase = .downloading(item.displayVersionString) }
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        guard !isolated, let target = WidgetRegistrationTarget.installed() else { return }
+        // Invalidate even for a same-version reinstall. The next host launch
+        // refreshes registration after Sparkle has replaced the bundle.
+        defaults.removeObject(forKey: WidgetRegistration.stampKey)
+        WidgetRegistrationSystem.stopExtension(target)
+    }
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         phase = .ready(item.displayVersionString)
         // Normal scheduling remains active; Sparkle installs on ordinary quit.

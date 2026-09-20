@@ -3,6 +3,34 @@ import SQLite3
 @testable import WeekleftCore
 
 final class HiddenSessionManagementTests: XCTestCase {
+    func testSubagentMetadataClassifiesOrphanHooksWithoutChangingSourceDatabase() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("state_5.sqlite")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path.path, &db), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, #"CREATE TABLE threads(id TEXT,title TEXT,source TEXT); INSERT INTO threads VALUES ('child','Child','{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1}}}'),('parent','Parent','vscode'),('peer','subagent review','appServer');"#, nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+        let before = try Data(contentsOf: path)
+        XCTAssertEqual(CodexSessionMetadata.subagentIDs(for: ["child", "parent", "peer", "missing", "';DROP TABLE threads;--"], at: dir), ["child"])
+        XCTAssertEqual(CodexSessionMetadata.titles(for: ["child", "parent", "peer"], at: dir),
+                       ["child": "Child", "parent": "Parent", "peer": "subagent review"])
+        let now = Date()
+        let rows = ["child", "parent", "peer"].map {
+            AgentSession(provider: .codex, sessionID: $0, title: "", cwd: "", phase: .input,
+                         updatedAt: now, observedAt: now, evidence: .hook)
+        }
+        let marked = CodexSessionMetadata.markingSubagents(in: rows, at: dir)
+        XCTAssertEqual(Set(SessionList.merge(catalog: [], events: marked, now: now).filter { $0.isCurrent(now: now) }.map(\.sessionID)), ["parent", "peer"])
+        XCTAssertEqual(try Data(contentsOf: path), before)
+        let encoded = try JSONEncoder().encode(marked[0])
+        XCTAssertTrue(try XCTUnwrap(JSONDecoder().decode(AgentSession.self, from: encoded).isCodexSubagent))
+        var oldJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        oldJSON.removeValue(forKey: "isCodexSubagent")
+        XCTAssertNil(try JSONDecoder().decode(AgentSession.self, from: JSONSerialization.data(withJSONObject: oldJSON)).isCodexSubagent)
+    }
+
     func testDesktopNameWinsOverRawAttachmentPromptAndRepairsSavedHiddenTitle() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

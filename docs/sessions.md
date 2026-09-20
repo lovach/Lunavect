@@ -48,11 +48,15 @@ Lunavect combines local lifecycle hooks, available client runtime information an
 
 Titles and project metadata are kept separate from activity evidence. Re-reading an event does not change its timestamp. Old events eventually lose authority, and late events from a completed turn should not restart its working indicator. A Claude lifecycle-only launch stays out of both current and hidden sessions until a prompt, tool, response or request establishes actual task activity. This prevents temporary CLI launches used by another agent from appearing as empty user tasks; existing conversations remain untouched.
 
+In the development build, each background event tick also re-evaluates the published session freshness before waiting for a source read. Menu-bar waiting and running counts therefore expire even if a read is blocked or fails repeatedly. This does not renew evidence, delete tasks or start duplicate reads. Fresh source observations can confirm the status again.
+
 The panel updates timers while visible. Closing it stops its display timer, while background collection can continue. Freshness depends on the source; long work, sleep/wake and changes in client formats can affect what Lunavect can confirm.
 
 In the development build, restarting Lunavect also recovers a running response's exact start when it lies before the most recent 8 MB of a Codex log. Recovery searches older lifecycle metadata in bounded chunks and matches the current turn ID. It keeps the original event time, preserves a known start across large appends, and never borrows the start of another response. Very large logs can require several background polls before the timer returns.
 
 ## Codex catalog discovery in the development build
+
+Internal Codex subagents (spawned children, review and compaction workers) are not independent user sessions. The development build recognizes explicit `source.subAgent` or `parentThreadId` metadata from the app-server protocol and the matching persisted local source for hook-only observations. These records stay out of session rows, running/waiting counts, notifications and hidden-session history. Ordinary Desktop/CLI tasks and separately created peer chats remain visible. Parent tasks keep their own observed status; worker activity does not invent parent progress. A temporary catalog gap cannot reintroduce an already identified child.
 
 Codex's general task list can omit Desktop tasks with empty preview metadata even when their individual summaries are available. Lunavect requests all supported source kinds and supplements the list with identifiers from recent, strictly validated local rollout filenames. It then reads each summary through `thread/read` with `includeTurns: false`; filename recency only prioritizes discovery and never establishes a working state. This adapter does not modify the Codex database, repair metadata or resume tasks.
 

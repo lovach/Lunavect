@@ -67,6 +67,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// Retained background waits and completed entries are history without live presence.
     /// Their task phase remains intact; autonomous working tasks can outlive a process.
     public var catalogHistory: Bool?
+    /// Codex's internal child/review/compaction agents are part of their parent
+    /// task, not independently openable user conversations. Nil supports old records.
+    public var isCodexSubagent: Bool?
     public var turnStartedAt: Date?
     /// A live Codex process still owns this unfinished turn's writable log.
     /// Kept separate from event time: polling must not rewrite task history.
@@ -129,7 +132,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     }
     public func isCurrent(now: Date = Date()) -> Bool {
         let phase = effectivePhase(now: now)
-        return !isUnstartedClaudeLifecycle && catalogHistory != true && phase != .unknown && phase != .finished
+        return isCodexSubagent != true && !isUnstartedClaudeLifecycle && catalogHistory != true && phase != .unknown && phase != .finished
     }
 }
 public enum SessionError: LocalizedError {
@@ -145,6 +148,15 @@ public enum SessionError: LocalizedError {
     }
 }
 public enum SessionParser {
+    static func codexSubagent(source: Any?, parentThreadID: Any? = nil) -> Bool {
+        if let parent = parentThreadID as? String, validID(parent) { return true }
+        // The app-server protocol uses subAgent; persisted local metadata uses
+        // subagent. Classify explicit origin only, never names or shared folders.
+        guard let source = source as? [String: Any] else { return false }
+        return ["subAgent", "subagent"].contains { key in
+            source[key].map { !($0 is NSNull) } ?? false
+        }
+    }
     public static func validID(_ id: String) -> Bool {
         !id.isEmpty && id.count <= 128 && id.unicodeScalars.allSatisfy { CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-").contains($0) }
     }
@@ -183,6 +195,7 @@ public enum SessionParser {
                 updatedAt: (row["updatedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? .distantPast,
                 observedAt: now, runtimeConfirmed: phase != .unknown)
             session.activityPath = row["path"] as? String
+            session.isCodexSubagent = codexSubagent(source: row["source"], parentThreadID: row["parentThreadId"]) ? true : nil
             return session
         }
     }
@@ -231,6 +244,7 @@ public enum SessionList {
         var result = Dictionary(catalog.map { ($0.id, $0) }, uniquingKeysWith: { a, b in a.updatedAt >= b.updatedAt ? a : b })
         for event in events.sorted(by: { $0.observedAt < $1.observedAt }) where now.timeIntervalSince(event.observedAt) < 86400 {
             if var row = result[event.id] {
+                if event.isCodexSubagent == true { row.isCodexSubagent = true }
                 let fresh = event.effectivePhase(now: now) != .unknown
                 // Reading a persisted blocked task again does not refresh its
                 // runtime presence or supersede an independently fresh hook.
