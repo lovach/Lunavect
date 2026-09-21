@@ -19,6 +19,12 @@ root = Path(os.environ['INSTALL_FIXTURE_HOME'])
 with (root / 'trace').open('a') as f: f.write(json.dumps([name, args]) + '\\n')
 if name == 'pgrep': sys.exit(1)
 if name in ('ps', 'pkill', 'chflags'): sys.exit(0)
+# Model the observed macOS invalidation: removing a duplicate extension loses
+# its containing-host lookup, even when the installed extension still exists.
+lookup = root / 'host-registered'
+if name == 'pluginkit' and args[0] == '-r': lookup.unlink(missing_ok=True)
+if name == 'lsregister' and args[0] == '-f': lookup.touch()
+if name == 'pluginkit' and args[0] == '-a' and not lookup.exists(): sys.exit(43)
 dest = str(root / 'Applications/Lunavect.app')
 matches = (name == 'codesign' and args[-1] == dest or
            name == 'lsregister' and args == ['-f', dest] or

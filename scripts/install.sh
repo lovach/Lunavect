@@ -107,10 +107,12 @@ fi
 if [ -d "$DERIVED_DIR/Build/Products/Debug/Weekleft.app" ]; then
   "$LSREGISTER" -u "$DERIVED_DIR/Build/Products/Debug/Weekleft.app" || true
 fi
-"$LSREGISTER" -f "$APP_DEST"
 # Explicitly remove the development appex too; unregistering its containing app
 # alone leaves a competing WidgetKit entry on this macOS version.
 pluginkit -r "$APP_SOURCE/Contents/PlugIns/LunavectWidget.appex" || true
+# Register the installed host last: removing another copy of the same extension
+# can invalidate WidgetKit's containing-bundle lookup even when timelines succeed.
+"$LSREGISTER" -f "$APP_DEST"
 pluginkit -a "$APP_DEST/Contents/PlugIns/LunavectWidget.appex"
 INSTALL_COMPLETE=true
 if [ "$MIGRATED_LEGACY_APP" = true ]; then

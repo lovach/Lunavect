@@ -1,5 +1,11 @@
 # Verification and compatibility
 
+## Local widget recovery, September 21, 2026
+
+Both existing desktop widgets displayed placeholders while the extension produced successful timelines and shared data remained fresh. NotificationCenter rejected those timelines with `WidgetArchiver.ValidationError.bundleStubNotSupported` / `Bundle could not be looked up`. The system also logged missing containing bundles during registration changes. Re-registering the installed host followed by its embedded extension restored both existing widget instances to `LIVE` at 23:12; subsequent reloads and foreground transitions through 23:15 also remained `LIVE`. Only the Lunavect extension and host were restarted; system widget services, placements and preference files were not reset. Computer Use exposed only the Screen Time widget window, so direct visual confirmation of the two recovered widgets remains separate from this system-renderer evidence.
+
+Installer cleanup now removes the development extension before registering the installed host. Distribution cleanup re-registers a validated installed host and its matching extension after removing temporary registrations; it does not launch apps or alter installed files/preferences. Nine focused installer/distribution tests passed, including rollback and invalid/foreign bundle cases. Both new invalidation regressions fail against the prior scripts. Shell syntax passed. This is a local tooling fix, not a new app/DMG release; long-term WidgetKit scheduling is not proven by these checks.
+
 ## Local segmented Codex rollout recovery — September 21, 2026
 
 A live ordinary Desktop task remained active while build 162 reported only catalog/unknown state. Its rollout filename contained a second UUID after the thread ID. The legacy suffix guard rejected that file, and filename discovery also missed the new form. The fix accepts the bounded optional segment suffix, discovers only the primary thread ID once, and requires a matching session metadata header for segmented activity files. Directory containment, symlink rejection, lifecycle timestamps, runtime writer checks and internal-agent filtering remain intact.

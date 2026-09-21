@@ -34,6 +34,10 @@ compare their icons, translations, version numbers and App Group. A per-bundle a
 New builds also compare those resources against the current source. These checks cannot certify
 that macOS has refreshed every cached gallery icon.
 
+## Temporary build registration cleanup
+
+Remove temporary app/extension registrations before the final installed-host registration. Unregistering a copy with the same bundle identifier can leave desktop widgets showing placeholders even while timeline generation succeeds. `distribute.sh` restores the validated installed host and embedded extension after cleanup; `install.sh` uses the same ordering. For manual export/install work, finish all temporary-copy cleanup before launching the installed app. If further cleanup is necessary, re-register the installed host with `lsregister -f` and then its embedded extension with `pluginkit -a`. A successful extension timeline alone is not proof of desktop rendering: verify the existing widgets, and distinguish renderer `LIVE` from placeholder or bundle-lookup failures. Do not clear widget placement/preferences or restart global widget services as a routine cleanup step.
+
 ## Build and test
 
 From the repository root:
