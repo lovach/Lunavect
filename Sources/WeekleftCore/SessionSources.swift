@@ -158,7 +158,7 @@ enum CodexSessionDiscovery {
     }
     private static let filename = try! NSRegularExpression(
         pattern:
-            #"^rollout-([0-9]{4})-([0-9]{2})-([0-9]{2})T(?:[01][0-9]|2[0-3])-[0-5][0-9]-[0-5][0-9]-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl$"#
+            #"^rollout-([0-9]{4})-([0-9]{2})-([0-9]{2})T(?:[01][0-9]|2[0-3])-[0-5][0-9]-[0-5][0-9]-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?\.jsonl$"#
     )
 
     static func recentIDs(home: URL, maximumEntries: Int = 4096, maximumCandidates: Int = 256,

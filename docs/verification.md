@@ -1,5 +1,13 @@
 # Verification and compatibility
 
+## Local segmented Codex rollout recovery — September 21, 2026
+
+A live ordinary Desktop task remained active while build 162 reported only catalog/unknown state. Its rollout filename contained a second UUID after the thread ID. The legacy suffix guard rejected that file, and filename discovery also missed the new form. The fix accepts the bounded optional segment suffix, discovers only the primary thread ID once, and requires a matching session metadata header for segmented activity files. Directory containment, symlink rejection, lifecycle timestamps, runtime writer checks and internal-agent filtering remain intact.
+
+The new activity/discovery regressions failed before the fix and passed afterward. Focused activity, discovery, session, hidden-session and store-lifecycle checks passed 74 tests with two conditional skips. A rebuilt read-only live probe changed the same task from unknown/catalog to running/localEvent with a live writer. The signed Release app/widget archive and Developer ID export passed strict signatures, resources, App Group and helper-policy checks.
+
+Local build 163 was installed and the native panel showed both ordinary working tasks, including the previously missing task with its recovered elapsed timer; the hidden count remained unchanged. Widget preferences were identical, and 38 of 40 existing app-default values were identical; only helper-build registration and the widget-registration stamp changed. This local build has not been published or notarized, and the full release check was not run. The public 0.1.5 release remains build 162.
+
 The current public release is **Lunavect 0.1.5 (162)**. These records distinguish checks that ran from scenarios still requiring verification.
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.5) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)

@@ -74,6 +74,39 @@ final class CodexActivityTests: XCTestCase {
         return (home, file, row)
     }
 
+    func testSegmentedRolloutUsesThreadIdentityAndPreservesLifecycle() async throws {
+        let (home, original, catalogRow) = try fixture()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let file = original.deletingLastPathComponent().appendingPathComponent("rollout-test-id_\(UUID().uuidString).jsonl")
+        var row = catalogRow; row.activityPath = file.path
+        let header = Data(#"{"type":"session_meta","payload":{"id":"test-id","originator":"Codex Desktop"}}"#.utf8) + Data([10])
+        try (header + event("task_started", at: now) + Data([10])).write(to: file)
+        let reader = CodexActivityReader(home: home, writerPaths: { $0 })
+        let active = await reader.events(catalog: [row], now: now.addingTimeInterval(180))
+        XCTAssertEqual(active.first?.effectivePhase(now: now.addingTimeInterval(180)), .running)
+        XCTAssertEqual(active.first?.sessionID, "test-id")
+        XCTAssertEqual(active.first?.client, .desktop)
+        XCTAssertEqual(active.first?.turnStartedAt, now)
+        let writer = try FileHandle(forWritingTo: file)
+        try writer.seekToEnd(); try writer.write(contentsOf: event("task_complete", at: now.addingTimeInterval(181)) + Data([10])); try writer.close()
+        let completed = await reader.events(catalog: [row], now: now.addingTimeInterval(181))
+        XCTAssertEqual(completed.first?.phase, .ready)
+        XCTAssertNil(completed.first?.runtimeObservedAt)
+    }
+
+    func testSegmentedRolloutRejectsMissingOrDifferentThreadHeader() async throws {
+        let (home, original, catalogRow) = try fixture()
+        defer { try? FileManager.default.removeItem(at: home) }
+        for id in ["", "other-thread"] {
+            let file = original.deletingLastPathComponent().appendingPathComponent("rollout-test-id_\(UUID().uuidString).jsonl")
+            var row = catalogRow; row.activityPath = file.path
+            let header = id.isEmpty ? Data() : Data("{\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\"}}\n".utf8)
+            try (header + event("task_started", at: now) + Data([10])).write(to: file)
+            let events = await CodexActivityReader(home: home).events(catalog: [row], now: now)
+            XCTAssertTrue(events.isEmpty)
+        }
+    }
+
     private func paddedEvent(_ type: String, at time: Date, turn: String = "turn-1", size: Int) throws -> Data {
         let line = try event(type, at: time, turn: turn)
         return line + Data(repeating: 32, count: max(0, size - line.count - 1)) + Data([10])
