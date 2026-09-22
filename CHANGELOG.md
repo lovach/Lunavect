@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6 — 2026-09-22
+
+- Clear stale menu-bar waiting counts during system event tracking as soon as a session resumes.
+- Reduce whole-panel updates while scrolling long session lists, preserving current gesture hit testing.
+- Recognize segmented Codex rollout filenames so working desktop tasks remain visible.
+- Restore installed widget-host registration after removing temporary build registrations.
+
 ## 0.1.5 — 2026-09-21
 
 - Recover the installed widget extension registration after automatic and manual app updates, then request fresh timelines without resetting widget settings. macOS still schedules widget refreshes.
