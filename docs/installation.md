@@ -22,7 +22,7 @@ The cask downloads the signed release DMG and checks its SHA-256 checksum.
 
 ## Direct download
 
-1. [Download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.5/Lunavect-0.1.5.dmg), about 11 MB.
+1. [Download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.6/Lunavect-0.1.6.dmg), about 11 MB.
 2. Open it and drag **Lunavect** to **Applications**.
 3. Open Lunavect from Applications.
 

@@ -1,5 +1,22 @@
 # Verification and compatibility
 
+The current public release is **Lunavect 0.1.6 (165)**. These records distinguish completed checks from unverified scenarios.
+
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.6)
+
+## 0.1.6 release checks — September 22, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `91ccef1dea35297302d5d95f6cfd6112203b0d83`, tagged `v0.1.6`; archive provenance passed. |
+| Automated checks | Full local check: 83 Python passed; 600 Swift passed, 55 conditional skips; built intent resources passed separately. Universal app/widget build, compatibility probes, resources, hooks and provenance passed. XcodeGen 2.46.0 parity and [source CI](https://github.com/lovach/Lunavect/actions/runs/35745735730) passed. |
+| Distribution | Developer ID signed and Apple notarized, build 165. Anonymous DMG, ZIP, appcast and checksum downloads matched the packaged bytes. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, resource, App Group and helper-policy checks. Public ZIP/feed signatures match the embedded update key; the latest feed points to 165. |
+| Compatibility | Signing identity, bundle IDs, App Group, update key and preference defaults are unchanged. Older public release assets retain their identities, digests and URLs. |
+| Installed build | The same notarized 0.1.6 (165) app was installed locally and launched. Widget preferences were identical; only helper-build and widget-registration defaults changed. NotificationCenter rendered both existing widgets as LIVE after installation; direct desktop visual verification remains separate. |
+| Remaining scope | The event-tracking regression and isolated scroll invalidation are verified; the original transient false-wait incident was not captured, live FPS improvement was not measured, and an automatic Sparkle upgrade for this exact release is unverified. Desktop scheduling on other Macs remains unverified. |
+
+The 0.1.6 DMG SHA-256 is `55e26c876b11448cc32f51526bc36f7ac647c70707b529d5f022d0b978ceabe2`.
+
 ## Local menu-bar delivery and session scrolling — September 22, 2026
 
 A regression through the actual AppDelegate status subscription reproduced a waiting count remaining at one during AppKit event tracking after the session store had already changed the task to running. The old RunLoop.main scheduler delivered only after default-mode processing resumed. Delivering on DispatchQueue.main clears waiting and publishes running during tracking, without opening the panel. The test failed twice on the previous binding and passes with this change. This establishes one stale-display mechanism; the owner's earlier transient incident had already disappeared and its exact source was not captured.
@@ -8,7 +25,7 @@ Scroll offsets now publish only to the small overflow control. Mutable row/viewp
 
 The universal Release archive and Developer ID export passed strict signatures, product resources, App Group, headless hook and awake-policy checks. Local 0.1.5 build 164 was installed; the live native accessibility tree loaded nine rows, six running and zero waiting. Computer Use repeatedly lost access to the transient popover during scrolling, so a live scroll/FPS comparison and final screenshot were not obtained. The pre-install process sample was not a controlled FPS baseline. Automated invalidation checks do not establish a measured frame-rate improvement.
 
-Existing widget preferences were identical after installation. App defaults changed only the helper build, widget-registration stamp and automatic-update check timestamp. NotificationCenter briefly reported missing containing bundles during replacement, then rendered both existing Lunavect widgets as LIVE at 16:16:10. System widget services and placements were not reset. Direct desktop visual verification remains separate. Build 164 is a local signed update, not notarized or published; public 0.1.5 remains build 162. The full release check was not run for this local update.
+Existing widget preferences were identical after installation. App defaults changed only the helper build, widget-registration stamp and automatic-update check timestamp. NotificationCenter briefly reported missing containing bundles during replacement, then rendered both existing Lunavect widgets as LIVE at 16:16:10. System widget services and placements were not reset. Direct desktop visual verification remains separate. Build 164 was a local signed update, not notarized or published; at that check public 0.1.5 remained build 162. The full release check was not run for this local update.
 
 ## Local widget recovery, September 21, 2026
 
@@ -22,9 +39,9 @@ A live ordinary Desktop task remained active while build 162 reported only catal
 
 The new activity/discovery regressions failed before the fix and passed afterward. Focused activity, discovery, session, hidden-session and store-lifecycle checks passed 74 tests with two conditional skips. A rebuilt read-only live probe changed the same task from unknown/catalog to running/localEvent with a live writer. The signed Release app/widget archive and Developer ID export passed strict signatures, resources, App Group and helper-policy checks.
 
-Local build 163 was installed and the native panel showed both ordinary working tasks, including the previously missing task with its recovered elapsed timer; the hidden count remained unchanged. Widget preferences were identical, and 38 of 40 existing app-default values were identical; only helper-build registration and the widget-registration stamp changed. This local build has not been published or notarized, and the full release check was not run. The public 0.1.5 release remains build 162.
+Local build 163 was installed and the native panel showed both ordinary working tasks, including the previously missing task with its recovered elapsed timer; the hidden count remained unchanged. Widget preferences were identical, and 38 of 40 existing app-default values were identical; only helper-build registration and the widget-registration stamp changed. This local build has not been published or notarized, and the full release check was not run. At that check, public 0.1.5 remained build 162.
 
-The current public release is **Lunavect 0.1.5 (162)**. These records distinguish checks that ran from scenarios still requiring verification.
+The previous 0.1.5 release checks remain recorded below.
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.5) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)
 
@@ -108,7 +125,7 @@ Test counts above belong to the release source, not subsequent documentation or 
 
 ## Homebrew and installer
 
-The cask points to the 0.1.5 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
+The cask points to the 0.1.6 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
 
 The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstall on September 12. That exercise preserved the existing application and validated the downloaded signature and notarization. A Homebrew upgrade between distinct versions is a separate scenario; the real Sparkle update above does not establish it.
 
