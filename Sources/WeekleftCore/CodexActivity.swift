@@ -195,13 +195,23 @@ public actor CodexActivityReader {
                     if cursor.file == metadata, let saved = cursor.checkpoint, saved.offset == count { checkpoint = saved }
                     else { checkpoint = try ContentCheckpoint(handle, offset: count) }
                     try handle.seek(toOffset: 0)
-                    if cursor.offset == 0,
-                       let header = try handle.read(upToCount: 1_000_000),
-                       let newline = header.firstIndex(of: 10),
-                       let origin = try? JSONDecoder().decode(Origin.self, from: Data(header.prefix(upTo: newline))),
-                       origin.type == "session_meta", origin.payload.id == row.sessionID,
-                       ["Codex Desktop", "codex_work_desktop"].contains(origin.payload.originator) {
-                        cursor.client = .desktop
+                    if cursor.offset == 0 {
+                        let header = try handle.read(upToCount: 1_000_000) ?? Data()
+                        let origin = header.firstIndex(of: 10).flatMap {
+                            try? JSONDecoder().decode(Origin.self, from: Data(header.prefix(upTo: $0)))
+                        }
+                        // A segmented filename carries both thread and segment IDs.
+                        // Confirm the thread from the bounded header before reading
+                        // lifecycle events that may omit thread_id.
+                        if !file.lastPathComponent.hasSuffix("-\(row.sessionID).jsonl"),
+                           origin?.type != "session_meta" || origin?.payload.id != row.sessionID {
+                            cursors.removeValue(forKey: row.sessionID)
+                            return nil
+                        }
+                        if let origin, origin.type == "session_meta", origin.payload.id == row.sessionID,
+                           ["Codex Desktop", "codex_work_desktop"].contains(origin.payload.originator) {
+                            cursor.client = .desktop
+                        }
                     }
                     // Bound startup and recovery reads, then only consume appended bytes.
                     let start = max(cursor.offset, count > 8_000_000 ? count - 8_000_000 : 0)
@@ -311,8 +321,12 @@ public actor CodexActivityReader {
     }
     private func validFile(_ path: String, id: String) -> URL? {
         let file = URL(fileURLWithPath: path).standardizedFileURL
+        let stem = file.deletingPathExtension().lastPathComponent
+        let segment = stem.range(of: "-\(id)_", options: .backwards).flatMap {
+            UUID(uuidString: String(stem[$0.upperBound...]))
+        }
         guard file.path.hasPrefix(root.path + "/"), file.pathExtension == "jsonl",
-              file.lastPathComponent.hasSuffix("-\(id).jsonl"),
+              file.lastPathComponent.hasSuffix("-\(id).jsonl") || segment != nil,
               file.resolvingSymlinksInPath().path == file.path else { return nil }
         return file
     }

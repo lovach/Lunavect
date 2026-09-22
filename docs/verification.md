@@ -1,5 +1,29 @@
 # Verification and compatibility
 
+## Local menu-bar delivery and session scrolling — September 22, 2026
+
+A regression through the actual AppDelegate status subscription reproduced a waiting count remaining at one during AppKit event tracking after the session store had already changed the task to running. The old RunLoop.main scheduler delivered only after default-mode processing resumed. Delivering on DispatchQueue.main clears waiting and publishes running during tracking, without opening the panel. The test failed twice on the previous binding and passes with this change. This establishes one stale-display mechanism; the owner's earlier transient incident had already disappeared and its exact source was not captured.
+
+Scroll offsets now publish only to the small overflow control. Mutable row/viewport geometry is read by native gesture handling without invalidating the SwiftUI session list on every pixel. A 240-offset regression verifies zero whole-panel publications, while gesture checks verify that hit testing reads updated geometry without a representable update. Existing overflow, paging, drag, swipe and lifecycle checks passed. There were 48 focused test executions across three green runs (one repeated counter test), with no failures. The red counter test is retained as local evidence.
+
+The universal Release archive and Developer ID export passed strict signatures, product resources, App Group, headless hook and awake-policy checks. Local 0.1.5 build 164 was installed; the live native accessibility tree loaded nine rows, six running and zero waiting. Computer Use repeatedly lost access to the transient popover during scrolling, so a live scroll/FPS comparison and final screenshot were not obtained. The pre-install process sample was not a controlled FPS baseline. Automated invalidation checks do not establish a measured frame-rate improvement.
+
+Existing widget preferences were identical after installation. App defaults changed only the helper build, widget-registration stamp and automatic-update check timestamp. NotificationCenter briefly reported missing containing bundles during replacement, then rendered both existing Lunavect widgets as LIVE at 16:16:10. System widget services and placements were not reset. Direct desktop visual verification remains separate. Build 164 is a local signed update, not notarized or published; public 0.1.5 remains build 162. The full release check was not run for this local update.
+
+## Local widget recovery, September 21, 2026
+
+Both existing desktop widgets displayed placeholders while the extension produced successful timelines and shared data remained fresh. NotificationCenter rejected those timelines with `WidgetArchiver.ValidationError.bundleStubNotSupported` / `Bundle could not be looked up`. The system also logged missing containing bundles during registration changes. Re-registering the installed host followed by its embedded extension restored both existing widget instances to `LIVE` at 23:12; subsequent reloads and foreground transitions through 23:15 also remained `LIVE`. Only the Lunavect extension and host were restarted; system widget services, placements and preference files were not reset. Computer Use exposed only the Screen Time widget window, so direct visual confirmation of the two recovered widgets remains separate from this system-renderer evidence.
+
+Installer cleanup now removes the development extension before registering the installed host. Distribution cleanup re-registers a validated installed host and its matching extension after removing temporary registrations; it does not launch apps or alter installed files/preferences. Nine focused installer/distribution tests passed, including rollback and invalid/foreign bundle cases. Both new invalidation regressions fail against the prior scripts. Shell syntax passed. This is a local tooling fix, not a new app/DMG release; long-term WidgetKit scheduling is not proven by these checks.
+
+## Local segmented Codex rollout recovery — September 21, 2026
+
+A live ordinary Desktop task remained active while build 162 reported only catalog/unknown state. Its rollout filename contained a second UUID after the thread ID. The legacy suffix guard rejected that file, and filename discovery also missed the new form. The fix accepts the bounded optional segment suffix, discovers only the primary thread ID once, and requires a matching session metadata header for segmented activity files. Directory containment, symlink rejection, lifecycle timestamps, runtime writer checks and internal-agent filtering remain intact.
+
+The new activity/discovery regressions failed before the fix and passed afterward. Focused activity, discovery, session, hidden-session and store-lifecycle checks passed 74 tests with two conditional skips. A rebuilt read-only live probe changed the same task from unknown/catalog to running/localEvent with a live writer. The signed Release app/widget archive and Developer ID export passed strict signatures, resources, App Group and helper-policy checks.
+
+Local build 163 was installed and the native panel showed both ordinary working tasks, including the previously missing task with its recovered elapsed timer; the hidden count remained unchanged. Widget preferences were identical, and 38 of 40 existing app-default values were identical; only helper-build registration and the widget-registration stamp changed. This local build has not been published or notarized, and the full release check was not run. The public 0.1.5 release remains build 162.
+
 The current public release is **Lunavect 0.1.5 (162)**. These records distinguish checks that ran from scenarios still requiring verification.
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.5) · [GitHub Actions](https://github.com/lovach/Lunavect/actions)

@@ -11,6 +11,37 @@ private actor MenuBarAnimatorReferenceOwner {
 }
 
 final class MenuBarStatusTests: XCTestCase {
+    @MainActor func testWaitingCounterResumesDuringEventTrackingWithoutOpeningPanel() throws {
+        _ = NSApplication.shared
+        let instant = Date()
+        var row = AgentSession(provider: .claude, sessionID: "tracking-wait", title: "Fixture", cwd: "",
+                               phase: .input, updatedAt: instant, observedAt: instant, evidence: .hook)
+        let environment = try AppEnvironment.preview(rows: [row], now: instant)
+        defer { environment.stop() }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let delegate = AppDelegate(environment: environment)
+        let animator = MenuBarAnimator(statusItem: item, canRenderAnimation: { _ in false })
+        delegate.menuBarAnimator = animator
+        delegate.observeSessionStatus()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        XCTAssertEqual(animator.content.waiting, 1)
+        row.phase = .running
+        let resumed = row
+        let timer = Timer(timeInterval: 0.01, repeats: false) { _ in
+            MainActor.assumeIsolated { environment.sessions.acceptSessions([resumed], now: instant) }
+        }
+        RunLoop.main.add(timer, forMode: .eventTracking)
+        let deadline = Date().addingTimeInterval(0.15)
+        while Date() < deadline { RunLoop.main.run(mode: .eventTracking, before: deadline) }
+        XCTAssertEqual(environment.sessions.currentSessions.first?.phase, .running)
+        XCTAssertEqual(animator.content.waiting, 0, "The old wait must clear before tracking ends or the panel opens")
+        XCTAssertEqual(animator.content.running, 1)
+        timer.invalidate()
+        // Drain scheduled callbacks before destroying the fixture.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    }
+
     @MainActor func testIdleClaudeTrimsTransparentCanvasAndRestoresCompactWidthAfterWork() async throws {
         _ = NSApplication.shared
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

@@ -78,5 +78,26 @@ for app in copies:
         subprocess.run([register, '-u', str(app)], check=True)
     for extension in (app / 'Contents/PlugIns').glob('*.appex'):
         subprocess.run(['pluginkit', '-r', str(extension)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-print('Temporary distribution registrations removed; installed app unchanged.')
+# Removing an archive's extension can invalidate the containing-bundle lookup
+# for the installed copy too. Reassert the installed host AFTER all removals.
+# Do not launch it, replace files, change defaults or restart system services.
+for installed in [Path.home() / 'Applications/Lunavect.app', Path('/Applications/Lunavect.app')]:
+    if installed.is_symlink() or not installed.is_dir():
+        continue
+    extension = installed / 'Contents/PlugIns/LunavectWidget.appex'
+    try:
+        host_info = plistlib.loads((installed / 'Contents/Info.plist').read_bytes())
+        widget_info = plistlib.loads((extension / 'Contents/Info.plist').read_bytes())
+    except (OSError, ValueError):
+        continue
+    if (host_info.get('CFBundleIdentifier') != 'com.weekleft.app'
+            or widget_info.get('CFBundleIdentifier') != 'com.weekleft.app.widget'
+            or not host_info.get('CFBundleVersion')
+            or host_info['CFBundleVersion'] != widget_info.get('CFBundleVersion')):
+        continue
+    subprocess.run([register, '-f', str(installed)], check=True)
+    subprocess.run(['pluginkit', '-a', str(extension)], check=True)
+    print('Installed Lunavect widget registration restored after temporary-copy cleanup.')
+    break
+print('Temporary distribution registrations removed; installed files and preferences unchanged.')
 PY

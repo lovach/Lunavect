@@ -5,24 +5,31 @@ import SwiftUI
 import WeekleftCore
 #endif
 
+/// Hit-test geometry is read at gesture time, without publishing every scroll
+/// frame back into the SwiftUI hierarchy.
+@MainActor final class SessionPanelGeometry {
+    var regions: [String: CGRect] = [:]
+    var viewport = CGRect.zero
+}
+
 struct SessionSwipeView: NSViewRepresentable {
-    var regions: [String: CGRect]
-    var viewport: CGRect
+    let geometry: SessionPanelGeometry
     var enabled = true
     var onOffset: (String, Double) -> Void
     var onAction: (String, SessionSwipe.Action) -> Void
     func makeNSView(context: Context) -> SwipeSurface { SwipeSurface() }
     func updateNSView(_ view: SwipeSurface, context: Context) {
         view.enabled = enabled
-        view.regions = regions; view.viewport = viewport; view.onOffset = onOffset; view.onAction = onAction
+        view.geometry = geometry; view.onOffset = onOffset; view.onAction = onAction
         view.diagnose()
     }
     static func dismantleNSView(_ view: SwipeSurface, coordinator: ()) { view.stop() }
 
     final class SwipeSurface: NSView {
         var enabled = true { didSet { if !enabled { trackedID = nil; gesture = SessionSwipe(); consumeMomentum = false } } }
-        var regions: [String: CGRect] = [:]
-        var viewport = CGRect.zero
+        var geometry = SessionPanelGeometry()
+        var regions: [String: CGRect] { geometry.regions }
+        var viewport: CGRect { geometry.viewport }
         var onOffset: (String, Double) -> Void = { _, _ in }
         var onAction: (String, SessionSwipe.Action) -> Void = { _, _ in }
         private var diagnosticSnapshot = ""

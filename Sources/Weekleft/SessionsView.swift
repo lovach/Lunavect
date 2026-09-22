@@ -19,8 +19,7 @@ struct SessionsView: View {
     var onHeightChange: ((CGFloat) -> Void)? = nil
     var onReorderingChange: ((Bool) -> Void)? = nil
     @StateObject private var reorder = SessionReorderState()
-    @State private var rowRegions: [String: CGRect] = [:]
-    @State private var scrollRegion = CGRect.zero
+    @State private var geometry = SessionPanelGeometry()
     @State private var sectionHeights: [String: CGFloat] = [:]
     // Keep per-frame changes out of the panel; only rows observe this object.
     @State private var swipePresentation = SessionSwipePresentation()
@@ -183,15 +182,15 @@ struct SessionsView: View {
                                        canMoveUp: SessionReorderState.adjacentTarget(for: row.id, movingDown: false, rows: rows, pinned: store.arrangement.pinned) != nil,
                                        canMoveDown: SessionReorderState.adjacentTarget(for: row.id, movingDown: true, rows: rows, pinned: store.arrangement.pinned) != nil,
                                        onDragStart: { image, windowFrame, grab in
-                                           guard let frame = rowRegions[row.id] else { return }
+                                           guard let frame = geometry.regions[row.id] else { return }
                                            onReorderingChange?(true)
                                            reorder.begin(row.id, rows: rows, pinned: store.arrangement.pinned)
                                            reorder.lift(image, frame: frame, windowFrame: windowFrame, grab: grab)
                                        },
-                                       onDragMove: { reorder.update(windowPoint: $0, regions: rowRegions, viewport: scrollRegion) },
+                                       onDragMove: { reorder.update(windowPoint: $0, regions: geometry.regions, viewport: geometry.viewport) },
                                        onDragEnd: { point in
                                            if let point {
-                                               reorder.update(windowPoint: point, regions: rowRegions, viewport: scrollRegion)
+                                               reorder.update(windowPoint: point, regions: geometry.regions, viewport: geometry.viewport)
                                                if let id = reorder.id, let target = reorder.target {
                                                    perform(userReordered: true) { try store.move(id, before: target, after: reorder.insertAfter, visible: rows.map(\.id)) }
                                                }
@@ -273,10 +272,10 @@ struct SessionsView: View {
                 .frame(width: 0, height: 0).clipped().accessibilityHidden(true)
         }
         .coordinateSpace(name: "session-panel")
-        .onPreferenceChange(SessionRowRegions.self) { rowRegions = $0 }
-        .onPreferenceChange(SessionScrollRegion.self) { scrollRegion = $0 }
+        .onPreferenceChange(SessionRowRegions.self) { geometry.regions = $0 }
+        .onPreferenceChange(SessionScrollRegion.self) { geometry.viewport = $0 }
         .onPreferenceChange(SessionPanelSectionHeights.self) { sectionHeights = $0 }
-        .background(SessionSwipeView(regions: rowRegions, viewport: scrollRegion, enabled: reorder.rows == nil, onOffset: { id, offset in
+        .background(SessionSwipeView(geometry: geometry, enabled: reorder.rows == nil, onOffset: { id, offset in
             swipePresentation.update(id: id, offset: offset, reduceMotion: reduceMotion)
         }, onAction: { id, action in
             guard let row = store.sessions.first(where: { $0.id == id }) else { return }
@@ -304,24 +303,10 @@ struct SessionsView: View {
         }
     }
     private func overflowControl(rows: [AgentSession], layout: SessionPanelLayout) -> some View {
-        let ids = rows.map(\.id)
-        let position = panelState.overflowPosition(ids: ids, layout: layout)
-        return Button {
-            if let target = position.targetID { panelState.scrollPage(to: target, visibleIDs: ids) }
-        } label: {
-            HStack(spacing: 5) {
-                Text(position.label).monospacedDigit()
-                InterfaceIcon(.down, size: 10).rotationEffect(.degrees(position.pointsDown ? 0 : 180))
-                    .accessibilityHidden(true)
-            }.frame(maxWidth: .infinity, minHeight: SessionPanelLayout.overflowHeight)
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-            .frame(height: SessionPanelLayout.overflowHeight)
-            .disabled(position.targetID == nil || reorder.rows != nil)
-            .help(position.accessibilityLabel)
-            .accessibilityLabel(position.accessibilityLabel)
-            .accessibilityValue(position.label)
-            .accessibilityIdentifier("session-overflow-control")
+        SessionOverflowControl(scrollPosition: panelState.scrollPosition, ids: rows.map(\.id),
+                               layout: layout, reordering: reorder.rows != nil) { target in
+            panelState.scrollPage(to: target, visibleIDs: rows.map(\.id))
+        }
     }
     func header(at now: Date) -> some View {
         let counts = currentCounts(at: now)
@@ -687,5 +672,33 @@ struct SessionScrollRegion: PreferenceKey {
         var transaction = Transaction(animation: settles ? .interpolatingSpring(stiffness: 320, damping: 30) : nil)
         transaction.disablesAnimations = !settles
         withTransaction(transaction) { self.id = id; self.offset = offset }
+    }
+}
+
+/// Pixel-by-pixel scrolling only invalidates this small control.
+private struct SessionOverflowControl: View {
+    @ObservedObject var scrollPosition: SessionScrollPosition
+    let ids: [String]
+    let layout: SessionPanelLayout
+    let reordering: Bool
+    let onPage: (String) -> Void
+    var body: some View {
+        let position = SessionOverflowPosition(ids: ids, layout: layout, offset: scrollPosition.offset)
+        return Button {
+            if let target = position.targetID { onPage(target) }
+        } label: {
+            HStack(spacing: 5) {
+                Text(position.label).monospacedDigit()
+                InterfaceIcon(.down, size: 10).rotationEffect(.degrees(position.pointsDown ? 0 : 180))
+                    .accessibilityHidden(true)
+            }.frame(maxWidth: .infinity, minHeight: SessionPanelLayout.overflowHeight)
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            .frame(height: SessionPanelLayout.overflowHeight)
+            .disabled(position.targetID == nil || reordering)
+            .help(position.accessibilityLabel)
+            .accessibilityLabel(position.accessibilityLabel)
+            .accessibilityValue(position.label)
+            .accessibilityIdentifier("session-overflow-control")
     }
 }

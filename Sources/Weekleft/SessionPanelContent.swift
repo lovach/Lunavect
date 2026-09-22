@@ -84,19 +84,25 @@ struct SessionOverflowPosition {
     }
 }
 
+/// Only the overflow control observes scroll pixels; the session list does not.
+@MainActor final class SessionScrollPosition: ObservableObject {
+    @Published var offset: CGFloat = 0
+}
+
 @MainActor final class SessionPanelState: ObservableObject {
     @Published var isVisible: Bool {
-        didSet { if !isVisible { orderedIDs = []; viewportRequest = nil; scrollOffset = 0 } }
+        didSet { if !isVisible { orderedIDs = []; viewportRequest = nil; scrollPosition.offset = 0 } }
     }
     @Published var issue: String?
     @Published private(set) var orderedIDs: [String] = []
     @Published private(set) var viewportRequest: SessionViewportRequest?
-    @Published private(set) var scrollOffset: CGFloat = 0
+    let scrollPosition = SessionScrollPosition()
+    var scrollOffset: CGFloat { scrollPosition.offset }
     init(isVisible: Bool = false) { self.isVisible = isVisible }
 
     func observeScrollOffset(_ offset: CGFloat) {
         guard isVisible, offset.isFinite, offset != scrollOffset else { return }
-        scrollOffset = offset
+        scrollPosition.offset = offset
     }
     func overflowPosition(ids: [String], layout: SessionPanelLayout) -> SessionOverflowPosition {
         SessionOverflowPosition(ids: ids, layout: layout, offset: scrollOffset)

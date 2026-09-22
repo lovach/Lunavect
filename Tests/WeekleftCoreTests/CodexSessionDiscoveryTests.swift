@@ -2,6 +2,18 @@ import XCTest
 @testable import WeekleftCore
 
 final class CodexSessionDiscoveryTests: XCTestCase {
+    func testSegmentedFilenamesDiscoverTheThreadOnceRatherThanTheSegmentID() throws {
+        let home = try directory(), id = UUID().uuidString.lowercased()
+        let original = try rollout(home: home, id: id)
+        for _ in 0..<2 {
+            let segment = original.deletingPathExtension().path + "_" + UUID().uuidString.lowercased() + ".jsonl"
+            try Data().write(to: URL(fileURLWithPath: segment))
+        }
+        try FileManager.default.removeItem(at: original)
+        let result = try CodexSessionDiscovery.recentIDs(home: home, deadline: 12, uptime: { 0 })
+        XCTAssertEqual(result.ids, [id])
+        XCTAssertTrue(result.isComplete)
+    }
     func testEmptyPreviewPeerTasksAreDiscoveredThroughOfficialReadsWithoutInventingActivity() throws {
         let home = try directory(), ids = (0..<5).map { _ in UUID().uuidString.lowercased() }
         var files: [String: URL] = [:]
