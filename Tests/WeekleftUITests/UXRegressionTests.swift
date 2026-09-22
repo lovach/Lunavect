@@ -127,6 +127,38 @@ final class UXRegressionTests: XCTestCase {
         XCTAssertFalse(empty.showsOverflow)
     }
 
+    @MainActor func testScrollingDoesNotInvalidateTheEntireSessionPanel() {
+        let panel = SessionPanelState(isVisible: true)
+        var panelInvalidations = 0, overflowInvalidations = 0
+        let parent = panel.objectWillChange.sink { panelInvalidations += 1 }
+        let overflow = panel.scrollPosition.objectWillChange.sink { overflowInvalidations += 1 }
+        defer { parent.cancel(); overflow.cancel() }
+        for pixel in 1...240 { panel.observeScrollOffset(CGFloat(pixel)) }
+        XCTAssertEqual(panelInvalidations, 0, "Scroll pixels must not rebuild/filter/sort the full session list")
+        XCTAssertEqual(overflowInvalidations, 240, "The overflow control must still receive live positions")
+        XCTAssertEqual(panel.scrollOffset, 240)
+        panel.observeScrollOffset(.nan)
+        panel.observeScrollOffset(240)
+        XCTAssertEqual(overflowInvalidations, 240)
+        panel.isVisible = false
+        XCTAssertEqual(panel.scrollOffset, 0)
+        panel.observeScrollOffset(100)
+        XCTAssertEqual(panel.scrollOffset, 0)
+    }
+
+    @MainActor func testSwipeSurfaceReadsLatestGeometryWithoutAViewUpdate() {
+        let geometry = SessionPanelGeometry()
+        let surface = SessionSwipeView.SwipeSurface()
+        surface.geometry = geometry
+        geometry.viewport = CGRect(x: 0, y: 0, width: 344, height: 260)
+        geometry.regions = ["first": CGRect(x: 0, y: 0, width: 344, height: 42)]
+        XCTAssertEqual(SessionSwipe.target(at: CGPoint(x: 40, y: 20), regions: surface.regions, viewport: surface.viewport), "first")
+        geometry.regions = ["later": CGRect(x: 0, y: 0, width: 344, height: 42)]
+        XCTAssertEqual(SessionSwipe.target(at: CGPoint(x: 40, y: 20), regions: surface.regions, viewport: surface.viewport), "later")
+        geometry.viewport = .zero
+        XCTAssertNil(SessionSwipe.target(at: CGPoint(x: 40, y: 20), regions: surface.regions, viewport: surface.viewport))
+    }
+
     @MainActor func testOverflowCountsOffscreenRowsAndPagesOnlyOnExplicitRequest() throws {
         let now = Date(timeIntervalSince1970: 1_900_000_000)
         var rows = (0..<9).map { index in

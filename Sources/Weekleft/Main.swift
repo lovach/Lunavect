@@ -126,22 +126,7 @@ import AwakeService
             .combineLatest(environment.language.$code, store.$refreshing).receive(on: RunLoop.main).sink { [weak self] state, _, refreshing in
                 self?.menuBarLimits?.update(snapshots: state.0, providers: state.1, preferences: state.2, refreshing: refreshing)
             }
-        statusObserver = Publishers.CombineLatest4(
-            sessions.$sessions, menuBarAppearance.$icon, menuBarAppearance.$onlyWhileWorking, environment.language.$code
-        ).combineLatest(
-            menuBarAppearance.$systemColor, menuBarAppearance.$automaticIcon,
-            menuBarAppearance.$statusStyle.combineLatest(menuBarAppearance.$thinkingPhrases)
-        ).receive(on: RunLoop.main).sink { [weak self] state, systemColor, _, statusOptions in
-            guard let self else { return }
-            let (observedRows, _, onlyWhileWorking, _) = state
-            let rows = observedRows.filter { $0.isCurrent() }
-            let icon = self.menuBarAppearance.resolvedIcon(for: rows)
-            let running = rows.filter { $0.effectivePhase() == .running }.count
-            let waiting = rows.filter { [.permission, .input].contains($0.effectivePhase()) }.count
-            self.menuBarAnimator?.update(
-                icon: icon, onlyWhileWorking: onlyWhileWorking, systemColor: systemColor, statusStyle: statusOptions.0,
-                thinkingPhrases: statusOptions.1, running: running, waiting: waiting)
-        }
+        observeSessionStatus()
         languageObserver = environment.language.$code.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
             self?.configureMainMenu()
             self?.window?.title = L("Лимиты и настройки — Lunavect")
@@ -199,6 +184,27 @@ import AwakeService
             }
         }
     }
+    func observeSessionStatus() {
+        // RunLoop.main schedules in default mode only. Event tracking must not
+        // strand an old waiting count after the store already reports work.
+        statusObserver = Publishers.CombineLatest4(
+            sessions.$sessions, menuBarAppearance.$icon, menuBarAppearance.$onlyWhileWorking, environment.language.$code
+        ).combineLatest(
+            menuBarAppearance.$systemColor, menuBarAppearance.$automaticIcon,
+            menuBarAppearance.$statusStyle.combineLatest(menuBarAppearance.$thinkingPhrases)
+        ).receive(on: DispatchQueue.main).sink { [weak self] state, systemColor, _, statusOptions in
+            guard let self else { return }
+            let (observedRows, _, onlyWhileWorking, _) = state
+            let rows = observedRows.filter { $0.isCurrent() }
+            let icon = self.menuBarAppearance.resolvedIcon(for: rows)
+            let running = rows.filter { $0.effectivePhase() == .running }.count
+            let waiting = rows.filter { [.permission, .input].contains($0.effectivePhase()) }.count
+            self.menuBarAnimator?.update(
+                icon: icon, onlyWhileWorking: onlyWhileWorking, systemColor: systemColor, statusStyle: statusOptions.0,
+                thinkingPhrases: statusOptions.1, running: running, waiting: waiting)
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         widgetRegistration?.stop()
         menuBarLimits?.stop()
