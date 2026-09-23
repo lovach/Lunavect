@@ -82,6 +82,10 @@ A Claude CLI started through a command inside a Claude or Codex task can appear 
 
 Direct runtime/supervisor chains are ambiguous. Explicitly declared Claude background tasks remain independent and override ancestry inferred by a hook. Missing or truncated ancestry does not invent an origin or erase a previously established internal launch. A later confirmed independent launch can restore the same Claude session. Unknown executable wrappers may remain unclassified; this is not comprehensive detection of every possible launcher.
 
+## Codex memory consolidation
+
+Codex consolidates its memories with an internal agent that works in `CODEX_HOME/memories` (by default `~/.codex/memories`). Its lifecycle events look like a task, but it has no rollout, no thread in the Codex catalog and no title, so the app-server cannot read it back. Lunavect treats Codex sessions in that folder as internal agents: they stay out of rows, counters, notifications, activity and the read-back of known active sessions, and they cannot mark the catalog as incomplete. A task you start yourself inside that folder is treated the same way; a folder with the same name elsewhere is not.
+
 ## If the list looks wrong
 
 1. Clear search and filters, then check **Hidden sessions**.

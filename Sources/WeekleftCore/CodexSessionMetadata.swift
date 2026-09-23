@@ -55,16 +55,33 @@ public enum CodexSessionMetadata {
     public static func markingSubagents(in rows: [AgentSession], at home: URL? = nil) -> [AgentSession] {
         let ids = Set(rows.filter { $0.provider == .codex }.map(\.sessionID))
         let children = subagentIDs(for: ids, at: home)
+        let memories = memoryDirectories(home)
         return rows.map { row in
             var row = row
-            if row.provider == .codex, children.contains(row.sessionID) { row.isCodexSubagent = true }
+            if row.provider == .codex, children.contains(row.sessionID) || isInside(row.cwd, memories) { row.isCodexSubagent = true }
             return row
         }
     }
+    /// Codex consolidates its memories with an internal agent that works in
+    /// `CODEX_HOME/memories`. The agent reports hook events like a task, but it
+    /// has no rollout, state row or title, so it is never a user session and
+    /// the app-server cannot read it back.
+    static func memoryDirectories(_ home: URL?) -> [String] {
+        let memories = codexHome(home).appendingPathComponent("memories", isDirectory: true)
+        return Array(Set([memories.standardizedFileURL.path, memories.resolvingSymlinksInPath().standardizedFileURL.path]))
+    }
+    static func isInside(_ cwd: String, _ directories: [String]) -> Bool {
+        guard !cwd.isEmpty else { return false }
+        let path = URL(fileURLWithPath: cwd).standardizedFileURL.path
+        return directories.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+    private static func codexHome(_ home: URL?) -> URL {
+        home ?? ProcessInfo.processInfo.environment["CODEX_HOME"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+    }
     private static func values(for ids: Set<String>, at home: URL?, queries: [String]) -> [String: String] {
         guard !ids.isEmpty else { return [:] }
-        let base = home ?? ProcessInfo.processInfo.environment["CODEX_HOME"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+        let base = codexHome(home)
         let files = (try? FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: [.isSymbolicLinkKey])) ?? []
         let databases = files.filter { $0.lastPathComponent.range(of: #"^state_[0-9]+\.sqlite$"#, options: .regularExpression) != nil }
             .sorted { $0.lastPathComponent.compare($1.lastPathComponent, options: .numeric) == .orderedDescending }

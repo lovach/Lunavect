@@ -4,6 +4,10 @@ The current public release is **Lunavect 0.1.8 (180)**. These records distinguis
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.8)
 
+## Codex memory agent — September 23, 2026
+
+After Codex began consolidating memories on the test Mac, Connections reported **Session catalog is incomplete** for Codex while its limits stayed fresh. The catalog itself was complete: `thread/list` returned 94 threads on one page in under 0.1 s. One hook-reported session working in `~/.codex/memories` with `apply_patch` had no rollout, no state-database row and no title, and `thread/read` answered `thread not loaded`. Lunavect kept it as an active session and asked the app-server for it on every poll, which marked the catalog incomplete. Codex sessions in `CODEX_HOME/memories` are now internal agents. The new classification test fails without the change (the agent appears as a current session) and passes with it; a store test confirms that internal agents are never read back as known active sessions.
+
 ## 0.1.8 release checks — September 23, 2026
 
 | Area | Result |

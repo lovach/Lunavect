@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9 — 2026-09-23
+
+- Codex's internal memory agent no longer shows up as a working session or makes Connections report an incomplete Codex session catalog. Codex consolidates its memories with an agent that works in `~/.codex/memories`; it reports events like a task, but it is not a thread you can open.
+
 ## 0.1.8 — 2026-09-23
 
 - Widget registration is re-confirmed again 2 and 10 minutes after launch. A confirmation that coincided with post-update cleanup could leave desktop widgets showing placeholders until the next launch; the later confirmations happen after the cleanup has settled.

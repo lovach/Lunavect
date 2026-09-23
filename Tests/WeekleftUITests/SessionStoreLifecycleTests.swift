@@ -75,6 +75,25 @@ import Combine
         XCTAssertEqual(store.hiddenIDs, [peer.id])
     }
 
+    func testInternalCodexAgentIsNeverReadBackAsAKnownActiveSession() async throws {
+        var clock = instant
+        var memory = session("memory"), task = session("task")
+        memory.evidence = .hook; memory.isCodexSubagent = true; task.evidence = .hook
+        var requested: [[String]] = []
+        let store = try fixture(.init(catalog: { provider, _, _, priority in
+            if provider == .codex { requested.append(priority) }
+            return ([], false)
+        }, events: { _, _, _ in [memory, task] }), now: { clock })
+        defer { store.stop() }
+        store.useProviders([.codex])
+        await store.refresh()
+        clock += 1
+        memory.observedAt = clock; memory.updatedAt = clock; task.observedAt = clock; task.updatedAt = clock
+        await store.refresh()
+        XCTAssertEqual(requested.last, ["task"], "An internal agent is never read back, so it cannot make the catalog incomplete")
+        XCTAssertEqual(store.currentSessions.map(\.sessionID), ["task"])
+    }
+
     func testWaitingPublicationExpiresDespiteFailedEventReadsAndRecovers() async throws {
         var clock = instant
         var fails = true
