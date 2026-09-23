@@ -16,18 +16,18 @@ class ProjectParityTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         shutil.copyfile(ROOT / 'project.yml', self.root / 'project.yml')
-        for name in ('Sources', 'Widget', 'Config', 'Weekleft.xcodeproj'):
+        for name in ('Sources', 'Config', 'Lunavect.xcodeproj'):
             shutil.copytree(ROOT / name, self.root / name, ignore=shutil.ignore_patterns('Local.xcconfig'))
 
     def test_current_project_matches_without_rewriting_source(self):
-        project = self.root / 'Weekleft.xcodeproj/project.pbxproj'
+        project = self.root / 'Lunavect.xcodeproj/project.pbxproj'
         before = project.read_bytes()
         PARITY.verify(self.root)
         self.assertEqual(project.read_bytes(), before)
 
     def test_manual_project_or_scheme_drift_is_detected_and_preserved(self):
         for relative in ('project.pbxproj', 'xcshareddata/xcschemes/Weekleft.xcscheme'):
-            path = self.root / 'Weekleft.xcodeproj' / relative
+            path = self.root / 'Lunavect.xcodeproj' / relative
             original = path.read_bytes()
             changed = original + b'\n<!-- deliberate fixture drift -->\n'
             path.write_bytes(changed)

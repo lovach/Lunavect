@@ -17,12 +17,12 @@ def verify(root, executable='xcodegen'):
     with tempfile.TemporaryDirectory(prefix='lunavect-project-parity-') as temporary:
         copied = Path(temporary)
         shutil.copyfile(root / 'project.yml', copied / 'project.yml')
-        for name in ('Sources', 'Widget', 'Config'):
+        for name in ('Sources', 'Config'):
             shutil.copytree(root / name, copied / name, ignore=shutil.ignore_patterns('Local.xcconfig'))
         subprocess.run([executable, 'generate', '--spec', str(copied / 'project.yml'), '--project', str(copied)],
                        check=True, capture_output=True, text=True)
-        generated = copied / 'Weekleft.xcodeproj'
-        expected = root / 'Weekleft.xcodeproj'
+        generated = copied / 'Lunavect.xcodeproj'
+        expected = root / 'Lunavect.xcodeproj'
         names = {Path('project.pbxproj')}
         for project in (expected, generated):
             names.update(path.relative_to(project) for path in (project / 'xcshareddata/xcschemes').glob('*.xcscheme'))

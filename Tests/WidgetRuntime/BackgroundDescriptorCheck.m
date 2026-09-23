@@ -1,5 +1,5 @@
 // macOS-only integration check for the experimental WidgetKit descriptor hook.
-// clang -fobjc-arc -framework Foundation -IWidget Tests/WidgetRuntime/BackgroundDescriptorCheck.m Widget/WidgetBackground.m -o /tmp/lunavect-background-check
+// clang -fobjc-arc -framework Foundation -ISources/LunavectWidget Tests/WidgetRuntime/BackgroundDescriptorCheck.m Sources/LunavectWidget/WidgetBackground.m -o /tmp/lunavect-background-check
 #import <Foundation/Foundation.h>
 #import <objc/message.h>
 #import <objc/runtime.h>

@@ -8,7 +8,7 @@ Use **Settings → Updates** to check for updates or change automatic checks and
 
 New profiles enable update checks and leave automatic downloads/installation off. Upgrades retain the previous Sparkle choices, including 0.1.0 profiles that enabled automatic installation at ordinary quit. This difference is intentional preference preservation; installing an update does not reset existing users to the new-profile defaults.
 
-Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](../PRIVACY.md#network-requests).
+Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](privacy.md#network-requests).
 
 The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.1.8) is 0.1.8 (180). It adds widget registration confirmations 2 and 10 minutes after launch to the 0.1.7 widget recovery, lower background CPU use, terminal tab focus for live CLI sessions and filtering of tool-launched Claude runtimes. Distribution and live-update check scopes are recorded in [verification](verification.md). The earlier Sparkle upgrade from development build 145 to 0.1.1 (147) preserved all 38 captured preferences and shared widget settings.
 

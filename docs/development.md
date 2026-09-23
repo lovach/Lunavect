@@ -2,7 +2,7 @@
 
 Lunavect is a native macOS app for Claude Code and Codex sessions, usage limits and activity, with a WidgetKit extension. It requires macOS 14 or later.
 
-See [Contributing](../CONTRIBUTING.md) for proposing changes and submitting a pull request.
+See [Contributing](https://github.com/lovach/Lunavect/blob/main/.github/CONTRIBUTING.md) for proposing changes and submitting a pull request.
 
 ## Requirements
 
@@ -19,13 +19,14 @@ See [Contributing](../CONTRIBUTING.md) for proposing changes and submitting a pu
 | `Sources/WeekleftCore/` | Local client integrations, session lifecycle, usage and activity data |
 | `Sources/LunavectHook/` | Lightweight local event helper |
 | `Sources/AwakeService/`, `Sources/LunavectAwakeHelper/` | Optional keep-awake service |
-| `Widget/` | WidgetKit extension |
+| `Sources/LunavectWidget/` | WidgetKit extension |
 | `Tests/` | Core, UI, helper, migration and widget compatibility checks |
 | `Config/` | Build, signing and update configuration |
 | `design/selected/` | Selected icon source, export and build metadata |
+| `design/providers/` | Claude and Codex provider icons with their license |
 | `scripts/` | Build, verification and distribution tools |
 
-Public branding is Lunavect. Compatibility-facing targets and identifiers retain Weekleft names. Keep `project.yml` and `Weekleft.xcodeproj` in sync when changing targets or build structure. Changing bundle IDs, App Groups or data paths requires a migration.
+Public branding is Lunavect. Compatibility-facing targets and identifiers retain Weekleft names. Keep `project.yml` and `Lunavect.xcodeproj` in sync when changing targets or build structure. Changing bundle IDs, App Groups or data paths requires a migration.
 
 `design/selected/selection.json` identifies the approved artwork. App and widget
 declare `LunavectTide.icns` through `CFBundleIconFile`; packaging reads that key
@@ -166,4 +167,4 @@ Publish the DMG, signed update ZIP, signed appcast and checksums together after 
 
 `scripts/build-manifest.py` records commit/dirty state, source content/index fingerprints, parsed toolchain versions, actual app version/build and SHA-256 artifact hashes. `check.sh` records it automatically before deleting its unsigned product. For a future distribution, use `begin --kind distribution --require-clean` before building and `finalize` on the exact app and packaged files; see the [manifest commands and limits](checks-and-release-gates.md#build-provenance). This does not change the signing workflow or establish byte-for-byte reproducibility.
 
-Original code is [MIT licensed](../LICENSE). Keep third-party attribution and permission status in [NOTICE](../NOTICE) and the resource provenance document.
+Original code is [MIT licensed](https://github.com/lovach/Lunavect/blob/main/LICENSE). Keep third-party attribution and permission status in [NOTICE](https://github.com/lovach/Lunavect/blob/main/NOTICE) and the resource provenance document.

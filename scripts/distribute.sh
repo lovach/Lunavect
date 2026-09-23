@@ -21,7 +21,7 @@ case "$ACTION" in
     if [ -e "$ARCHIVE" ]; then echo 'Archive already exists; use a new build number.' >&2; exit 1; fi
     MANIFEST="$OUTPUT/Lunavect-$VERSION-$BUILD-manifest.json"
     python3 "$ROOT/scripts/build-manifest.py" begin --source-root "$ROOT" --kind distribution --require-clean --output "$MANIFEST"
-    xcodebuild -project Weekleft.xcodeproj -scheme Weekleft -configuration Release \
+    xcodebuild -project Lunavect.xcodeproj -scheme Weekleft -configuration Release \
       -destination 'generic/platform=macOS' -archivePath "$ARCHIVE" \
       -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/Lunavect-Distribution.noindex" \
       -xcconfig Config/Distribution.xcconfig -allowProvisioningUpdates \

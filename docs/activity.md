@@ -62,4 +62,4 @@ The app normally saves measured activity once a minute, saves continuous idle co
 
 Desktop placement and refresh across supported Macs remain separate compatibility checks. See [verification](verification.md) and [Apple's WidgetKit refresh guide](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date).
 
-[Connections](connections.md) · [FAQ](faq.md) · [Privacy and storage locations](../PRIVACY.md)
+[Connections](connections.md) · [FAQ](faq.md) · [Privacy and storage locations](privacy.md)

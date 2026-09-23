@@ -69,8 +69,8 @@ The public app does not request Screen Recording or Accessibility permission to 
 
 Disconnect providers in **Settings → Connections** before removing Lunavect so it can remove its event handlers and restore the previous Claude status line. Disconnecting does not sign you out of the official clients, delete their conversations or erase Lunavect's existing history.
 
-Quit Lunavect and remove the app, or use the [Homebrew uninstall command](docs/installation.md#uninstall). Preferences and data remain for a later installation. To remove those as well, first disconnect and quit, then remove only the Lunavect data locations listed above and the `com.weekleft.app` preferences. Review any backups before deleting them. Do not delete `.claude` or `.codex` to uninstall Lunavect; those belong to the official clients.
+Quit Lunavect and remove the app, or use the [Homebrew uninstall command](installation.md#uninstall). Preferences and data remain for a later installation. To remove those as well, first disconnect and quit, then remove only the Lunavect data locations listed above and the `com.weekleft.app` preferences. Review any backups before deleting them. Do not delete `.claude` or `.codex` to uninstall Lunavect; those belong to the official clients.
 
-Public screenshots use sample data. Before reporting a problem, remove personal titles, paths and credentials from screenshots and logs. For sensitive findings, use the [private security reporting route](SECURITY.md).
+Public screenshots use sample data. Before reporting a problem, remove personal titles, paths and credentials from screenshots and logs. For sensitive findings, use the [private security reporting route](https://github.com/lovach/Lunavect/blob/main/.github/SECURITY.md).
 
-[Installation](docs/installation.md) · [Connections](docs/connections.md) · [Activity](docs/activity.md)
+[Installation](installation.md) · [Connections](connections.md) · [Activity](activity.md)

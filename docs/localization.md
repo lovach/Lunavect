@@ -6,7 +6,7 @@ Choose a language in **Settings → General**. The app updates without a restart
 
 ## Contributing a translation
 
-The app and widget share [Translations.json](../Sources/WeekleftCore/Resources/Translations.json). Russian source strings are stable lookup keys. Each translated entry has `en`, `de`, `es`, `fr` and `zh-Hans` values.
+The app and widget share [Translations.json](https://github.com/lovach/Lunavect/blob/main/Sources/WeekleftCore/Resources/Translations.json). Russian source strings are stable lookup keys. Each translated entry has `en`, `de`, `es`, `fr` and `zh-Hans` values.
 
 Preserve placeholders such as `{0}` and `{1}`. Keep Lunavect, Claude, Claude Code, Codex, tool names and commands such as `/hooks` unchanged. German and French use polite forms of address; Spanish uses a consistent tú form. Prefer short status labels that fit both compact session rows and widgets.
 
@@ -33,4 +33,4 @@ Inspect its gallery and result report. Use `--suite legacy-values` for the addit
 
 The updated `--render-native OUTPUT.png` entry point is Debug-only and renders synthetic unknown allowances. Preview arguments are parsed before live services or defaults are initialized; Release builds reject these preview flags. `--session-preview FIXTURE.json` similarly requires Debug and composes the session UI with the isolated preview environment. These source paths do not read the user's saved allowances. The CLI entry point and the sandboxed XCTest matrix remain separate verification scopes: passing the latter alone does not prove execution of the final app binary's CLI. Neither verifies a widget placed on the desktop. See [check boundaries](checks-and-release-gates.md).
 
-[Contributing](../CONTRIBUTING.md) · [Development](development.md)
+[Contributing](https://github.com/lovach/Lunavect/blob/main/.github/CONTRIBUTING.md) · [Development](development.md)

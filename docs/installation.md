@@ -73,4 +73,4 @@ For a direct installation, delete Lunavect from Applications. Settings and activ
 
 If the problem remains, [report a bug](https://github.com/lovach/Lunavect/issues/new?template=bug.yml) with the app version, macOS version, Mac architecture and steps to reproduce. Remove private titles, paths and credentials from attachments.
 
-[FAQ](faq.md) · [Privacy and data removal](../PRIVACY.md) · [Verified checks and open limitations](verification.md) · [Back to README](../README.md)
+[FAQ](faq.md) · [Privacy and data removal](privacy.md) · [Verified checks and open limitations](verification.md) · [Back to README](https://github.com/lovach/Lunavect#readme)

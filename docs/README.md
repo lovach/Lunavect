@@ -13,15 +13,15 @@
 | [Activity and widgets](activity.md) | Periods, overlap, recovered history, storage and refresh |
 | [Keep Awake](keep-awake.md) | Closed-lid mode, automatic task control and recovery |
 | [Notifications](notifications.md) | Independent banners, sounds and the completion cue |
-| [Privacy and permissions](../PRIVACY.md) | Local files, configuration changes, network requests and deletion |
+| [Privacy and permissions](privacy.md) | Local files, configuration changes, network requests and deletion |
 | [Compatibility](verification.md) | Recorded checks and current testing gaps |
 
 ## Helping with the project
 
-[Report a bug](https://github.com/lovach/Lunavect/issues/new?template=bug.yml) · [Suggest an improvement](https://github.com/lovach/Lunavect/issues/new?template=feature.yml) · [Report a vulnerability privately](../SECURITY.md)
+[Report a bug](https://github.com/lovach/Lunavect/issues/new?template=bug.yml) · [Suggest an improvement](https://github.com/lovach/Lunavect/issues/new?template=feature.yml) · [Report a vulnerability privately](https://github.com/lovach/Lunavect/blob/main/.github/SECURITY.md)
 
-[Contributing](../CONTRIBUTING.md) covers proposed changes and pull requests. The [development guide](development.md) covers the source layout and checks, and [architecture](architecture.md) explains data ownership and persistence. See [localization](localization.md) for translations, [public screenshots](public-screenshots.md) for the reproducible gallery, and [release packaging](updates.md) for signing and distribution.
+[Contributing](https://github.com/lovach/Lunavect/blob/main/.github/CONTRIBUTING.md) covers proposed changes and pull requests. The [development guide](development.md) covers the source layout and checks, and [architecture](architecture.md) explains data ownership and persistence. See [localization](localization.md) for translations, [public screenshots](public-screenshots.md) for the reproducible gallery, and [release packaging](updates.md) for signing and distribution.
 
 To try the release on another Mac, use the [first-install checklist](first-install-check.md). It is a checklist for new testing, not a statement that every item has passed.
 
-[Back to Lunavect](../README.md)
+[Back to Lunavect](https://github.com/lovach/Lunavect#readme)

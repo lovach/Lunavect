@@ -200,7 +200,7 @@ The deployment minimum is macOS 14. Release checks were performed on macOS 26.5.
 
 Missing or expired allowances are unavailable, never unlimited. Activity only counts observed or explicitly recovered intervals; gaps are not invented work.
 
-[Check scopes](checks-and-release-gates.md) explains what each automated check establishes. Third-party resource provenance and unresolved permission status remain documented in [NOTICE](../NOTICE) and [IconSources.md](../Sources/Weekleft/Resources/IconSources.md).
+[Check scopes](checks-and-release-gates.md) explains what each automated check establishes. Third-party resource provenance and unresolved permission status remain documented in [NOTICE](https://github.com/lovach/Lunavect/blob/main/NOTICE) and [IconSources.md](https://github.com/lovach/Lunavect/blob/main/Sources/Weekleft/Resources/IconSources.md).
 
 ## Reporting a problem
 

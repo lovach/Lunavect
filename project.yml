@@ -1,4 +1,4 @@
-name: Weekleft
+name: Lunavect
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
@@ -35,7 +35,7 @@ targets:
       - path: Sources/Weekleft/Resources
         excludes: [clawd-laptop.gif]
         buildPhase: resources
-      - path: Widget/Resources
+      - path: Sources/LunavectWidget/Resources
         buildPhase: resources
     settings:
       base:
@@ -104,7 +104,7 @@ targets:
     type: app-extension
     platform: macOS
     sources:
-      - path: Widget
+      - path: Sources/LunavectWidget
       - path: Sources/WeekleftCore/Localization.swift
       - path: Sources/WeekleftCore/Resources
         buildPhase: resources
@@ -129,7 +129,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.weekleft.app.widget
         PRODUCT_NAME: LunavectWidget
-        SWIFT_OBJC_BRIDGING_HEADER: Widget/WidgetBackground.h
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/LunavectWidget/WidgetBackground.h
         CLANG_ENABLE_OBJC_ARC: YES
         INFOPLIST_FILE: Config/Widget-Info.plist
         CODE_SIGN_ENTITLEMENTS: Config/Widget.entitlements

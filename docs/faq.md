@@ -48,7 +48,7 @@ Right-click the desktop, choose **Edit Widgets**, search for **Lunavect** and se
 
 ## What leaves my Mac?
 
-Lunavect does not upload session titles, project paths or activity history to its developer. Updates use GitHub; installation, sign-in and quota refreshes use the official clients and their services. See [Privacy and permissions](../PRIVACY.md) for local files, configuration changes, network requests and deletion.
+Lunavect does not upload session titles, project paths or activity history to its developer. Updates use GitHub; installation, sign-in and quota refreshes use the official clients and their services. See [Privacy and permissions](privacy.md) for local files, configuration changes, network requests and deletion.
 
 ## Does it work on Intel Macs?
 
@@ -56,10 +56,10 @@ The download includes Apple silicon and Intel code and requires macOS 14 or late
 
 ## How do I update or uninstall it?
 
-Use **Settings → Updates** or the [Homebrew update commands](installation.md#update). Before uninstalling, disconnect providers and quit Lunavect. Removing the app retains its preferences and history; [Privacy and permissions](../PRIVACY.md#disconnecting-and-deleting-data) explains how to remove those separately.
+Use **Settings → Updates** or the [Homebrew update commands](installation.md#update). Before uninstalling, disconnect providers and quit Lunavect. Removing the app retains its preferences and history; [Privacy and permissions](privacy.md#disconnecting-and-deleting-data) explains how to remove those separately.
 
 ## Where should I report a problem?
 
-Use the [bug report form](https://github.com/lovach/Lunavect/issues/new?template=bug.yml). Include the Lunavect and macOS versions, Mac architecture, client version and steps to reproduce. Remove private data from attachments. Send security findings through the [private reporting route](../SECURITY.md).
+Use the [bug report form](https://github.com/lovach/Lunavect/issues/new?template=bug.yml). Include the Lunavect and macOS versions, Mac architecture, client version and steps to reproduce. Remove private data from attachments. Send security findings through the [private reporting route](https://github.com/lovach/Lunavect/blob/main/.github/SECURITY.md).
 
-[Back to README](../README.md) · [Installation](installation.md)
+[Back to README](https://github.com/lovach/Lunavect#readme) · [Installation](installation.md)
