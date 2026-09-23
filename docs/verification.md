@@ -1,8 +1,21 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.1.6 (165)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.1.7 (179)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.6)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.7)
+
+## 0.1.7 release checks — September 23, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `e3e65df894822baf335f3177a92b0014272c173c`, tagged `v0.1.7` (PR #15); archive provenance passed. |
+| Automated checks | Full local check: 84 Python passed; 615 Swift passed, 55 conditional skips (670 total); built intent resources passed separately. Universal app/widget build, compatibility probes, resources, hooks and provenance passed. XcodeGen 2.46.0 parity and [source CI](https://github.com/lovach/Lunavect/actions/runs/35805439473) passed. |
+| Distribution | Developer ID signed and Apple notarized, build 179. Anonymous DMG, ZIP, appcast and checksum downloads matched the packaged bytes. The downloaded DMG app passed strict codesign, Gatekeeper and stapler checks. The ZIP signature verifies with the public key embedded in the app, and a modified copy is rejected; the latest feed points to 179. |
+| Compatibility | Signing identity, bundle IDs, App Group, update key and preference defaults are unchanged. Older public release assets retain their identities, digests and URLs. |
+| Installed build | The app from the downloaded DMG was installed over local build 178 with `install.sh` and launched. The first-launch repair produced about ten seconds of placeholders; the 5-second confirmation restored `LIVE`. The 30-second confirmation coincided with leftover registrations from the packaging tools and returned placeholders until the next registration change, which restored `LIVE`. Three later relaunches stayed `LIVE` through both confirmations. In repeated experiments, re-registration outside an install never broke rendering (21 of 21); failures clustered around bundle replacement and cleanup. |
+| Remaining scope | A confirmation can still coincide with post-update cleanup; relaunching Lunavect repairs it. A complete Sparkle installation cycle for this release and other macOS versions remain unverified. |
+
+The 0.1.7 DMG SHA-256 is `512b6644e2ce03f2d67aa2543deba82509d47c4dbf505b61222423cc33052237`.
 
 ## Widget registration, background CPU and terminal focus — September 23, 2026
 
