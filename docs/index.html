@@ -1,0 +1,190 @@
+---
+layout: null
+title: Lunavect — Claude Code and Codex in your Mac menu bar
+sitemap: true
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunavect — Claude Code and Codex sessions and usage limits in your Mac menu bar</title>
+<meta name="description" content="Free, open-source macOS menu bar app for Claude Code and Codex. See which AI coding agent is working or waiting for you, track weekly and five-hour usage limits, and add desktop widgets.">
+<link rel="canonical" href="https://lovach.github.io/Lunavect/">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0d13" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)">
+<link rel="icon" type="image/png" href="images/icon-256.png">
+<link rel="apple-touch-icon" href="images/icon-256.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Lunavect">
+<meta property="og:title" content="Lunavect — Claude Code and Codex in your Mac menu bar">
+<meta property="og:description" content="See which AI coding agent is working or waiting for you, and how much of your usage limits is left. Free and open source for macOS.">
+<meta property="og:url" content="https://lovach.github.io/Lunavect/">
+<meta property="og:image" content="https://lovach.github.io/Lunavect/images/social-card.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Lunavect: Claude Code and Codex sessions, usage limits and widgets in your Mac menu bar">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Lunavect — Claude Code and Codex in your Mac menu bar">
+<meta name="twitter:description" content="Live agent status, weekly and five-hour usage limits, desktop widgets and activity for Claude Code and Codex. Free for macOS.">
+<meta name="twitter:image" content="https://lovach.github.io/Lunavect/images/social-card.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Lunavect",
+  "url": "https://lovach.github.io/Lunavect/",
+  "description": "A free, open-source macOS menu bar app for Claude Code and Codex: live session status, weekly and five-hour usage limits, desktop widgets and activity statistics.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS 14 or later",
+  "softwareVersion": "0.1.8",
+  "downloadUrl": "https://github.com/lovach/Lunavect/releases/latest",
+  "image": "https://lovach.github.io/Lunavect/images/social-card.png",
+  "screenshot": "https://lovach.github.io/Lunavect/images/showcase/hero-dark.webp",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "lovach", "url": "https://github.com/lovach" },
+  "sameAs": ["https://github.com/lovach/Lunavect"]
+}
+</script>
+<style>
+:root {
+  --bg: #0b0d13; --bg-soft: #12151d; --text: #f2f3f6; --muted: #9aa1ad; --line: rgba(255,255,255,.08);
+  --accent: #0a84ff; --accent-text: #fff; --code: #171a23; --shadow: 0 30px 80px rgba(0,0,0,.45);
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f7f6f3; --bg-soft: #efeee9; --text: #16181d; --muted: #5d636e; --line: rgba(0,0,0,.08);
+          --accent: #0071e3; --code: #ecebe6; --shadow: 0 30px 70px rgba(20,24,35,.18); }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+img { max-width: 100%; height: auto; display: block; }
+.wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+header.top { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600; letter-spacing: -.01em; }
+.brand img { width: 28px; height: 28px; }
+nav a { text-decoration: none; color: var(--muted); margin-left: 22px; font-size: 15px; }
+nav a:hover { color: var(--text); }
+.hero { text-align: center; padding: 56px 0 24px; }
+.hero .icon { width: 112px; height: 112px; margin: 0 auto 22px; }
+h1 { font-size: clamp(44px, 7vw, 72px); line-height: 1.02; letter-spacing: -.035em; margin: 0; }
+.lede { font-size: clamp(19px, 2.4vw, 23px); line-height: 1.45; color: var(--muted); max-width: 720px; margin: 18px auto 0; }
+.lede strong { color: var(--text); font-weight: 600; }
+.cta { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; align-items: center; margin: 34px 0 14px; }
+.button { display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: var(--accent-text); text-decoration: none; font-weight: 600; font-size: 18px; padding: 15px 28px; border-radius: 14px; }
+.button svg { width: 20px; height: 20px; }
+.alt { color: var(--muted); font-size: 16px; text-decoration: none; border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+.alt:hover { color: var(--text); }
+.meta { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+.shot { margin: 48px auto 0; border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); max-width: 1120px; }
+.note { color: var(--muted); font-size: 13px; text-align: center; margin: 14px 0 0; }
+section.feature { display: grid; grid-template-columns: 5fr 7fr; gap: 56px; align-items: center; padding: 96px 0 0; }
+section.feature.flip { grid-template-columns: 7fr 5fr; }
+section.feature.flip .text { order: 2; }
+section.feature h2 { font-size: clamp(30px, 3.6vw, 42px); line-height: 1.08; letter-spacing: -.025em; margin: 0 0 16px; }
+section.feature p { color: var(--muted); margin: 0; font-size: 18px; }
+section.feature .shot { margin: 0; border-radius: 16px; }
+.also { text-align: center; color: var(--muted); padding: 96px 0 0; font-size: 17px; max-width: 760px; margin: 0 auto; }
+.also strong { color: var(--text); }
+section.install, section.faq { padding: 110px 0 0; max-width: 760px; margin: 0 auto; }
+section.install h2, section.faq h2 { font-size: 34px; letter-spacing: -.02em; margin: 0 0 18px; }
+pre { background: var(--code); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; overflow-x: auto; font: 14px/1.6 ui-monospace, "SF Mono", Menlo, monospace; margin: 0 0 18px; }
+section.install p { color: var(--muted); }
+details { border-top: 1px solid var(--line); padding: 18px 0; }
+details:last-of-type { border-bottom: 1px solid var(--line); }
+summary { cursor: pointer; font-weight: 600; font-size: 18px; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; float: right; color: var(--muted); font-weight: 400; }
+details[open] summary::after { content: "–"; }
+details p { color: var(--muted); margin: 12px 0 0; }
+footer { margin: 120px 0 0; padding: 36px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; }
+footer a { text-decoration: none; }
+footer a:hover { color: var(--text); }
+@media (max-width: 860px) {
+  nav a.opt { display: none; }
+  section.feature, section.feature.flip { grid-template-columns: 1fr; gap: 26px; padding-top: 72px; }
+  section.feature.flip .text { order: 0; }
+  .hero { padding-top: 28px; }
+}
+</style>
+</head>
+<body>
+<header class="top wrap">
+  <a class="brand" href="./"><img src="images/icon-256.png" alt="" width="28" height="28">Lunavect</a>
+  <nav><a class="opt" href="#features">Features</a><a class="opt" href="#install">Install</a><a class="opt" href="#faq">FAQ</a><a href="https://github.com/lovach/Lunavect">GitHub</a></nav>
+</header>
+
+<main>
+<div class="hero wrap">
+  <img class="icon" src="images/icon-256.png" alt="Lunavect app icon" width="112" height="112">
+  <h1>Lunavect</h1>
+  <p class="lede"><strong>Claude Code and Codex in your Mac menu bar.</strong> See which AI coding agent is working, which one is waiting for you and how much of your weekly and five-hour usage limits is left.</p>
+  <div class="cta">
+    <a class="button" href="https://github.com/lovach/Lunavect/releases/latest"><svg viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M10 2.5a.9.9 0 0 1 .9.9v8.4l2.8-2.8a.9.9 0 1 1 1.27 1.27l-4.33 4.33a.9.9 0 0 1-1.27 0L5.03 10.27A.9.9 0 1 1 6.3 9l2.8 2.8V3.4a.9.9 0 0 1 .9-.9ZM4 15.6h12a.9.9 0 1 1 0 1.8H4a.9.9 0 1 1 0-1.8Z"/></svg>Download for macOS</a>
+    <a class="alt" href="#install">or install with Homebrew</a>
+  </div>
+  <p class="meta">Free and open source · macOS 14 or later · Apple silicon and Intel · Signed and notarized</p>
+  <div class="shot">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset="images/showcase/hero-light.webp">
+      <img src="images/showcase/hero-dark.webp" width="2400" height="1350" alt="Lunavect in the macOS menu bar: the session panel lists nine Claude Code and Codex tasks, eight working and one waiting for permission, beside a desktop widget with weekly usage limits and a week of activity">
+    </picture>
+  </div>
+  <p class="note">The real app with fictional sessions and data.</p>
+</div>
+
+<div class="wrap" id="features">
+  <section class="feature">
+    <div class="text"><h2>Know which agent needs you</h2><p>Every Claude Code and Codex task on your Mac in one panel, with its live state: working, thinking, waiting for permission or input, or done. Search, filter, pin and hide sessions. Live Terminal and iTerm2 sessions open in their own tab.</p></div>
+    <div class="shot"><img src="images/showcase/sessions.webp" width="2200" height="1600" loading="lazy" alt="Three Lunavect session panels: all nine tasks, a search result and the waiting filter"></div>
+  </section>
+  <section class="feature flip">
+    <div class="text"><h2>Usage limits at a glance</h2><p>Weekly and five-hour allowances for Claude and Codex with their reset times, in the menu bar as bars, percentages or rings. Missing or expired values are marked as unavailable, never guessed.</p></div>
+    <div class="shot"><img src="images/showcase/limits.webp" width="2400" height="1100" loading="lazy" alt="Claude and Codex weekly usage limits in the menu bar, the Remaining popover and a desktop widget"></div>
+  </section>
+  <section class="feature">
+    <div class="text"><h2>Desktop widgets</h2><p>Limits, activity or both in small, medium and large sizes, on a solid background or adjustable glass. Widgets read saved data, so they keep working while the app is closed.</p></div>
+    <div class="shot"><img src="images/showcase/widgets.webp" width="2400" height="1200" loading="lazy" alt="Lunavect WidgetKit widgets on glass: overview, limits and activity"></div>
+  </section>
+  <section class="feature flip">
+    <div class="text"><h2>See where your time goes</h2><p>Working time by day, week and month for each provider, with project and session breakdowns. Recovered history is marked as approximate, and overlapping sessions are counted once.</p></div>
+    <div class="shot"><img src="images/showcase/activity.webp" width="2300" height="1500" loading="lazy" alt="Lunavect statistics window with a week of Claude and Codex working time"></div>
+  </section>
+  <section class="feature">
+    <div class="text"><h2>Make it yours</h2><p>Pick the Claude, Codex or Lunavect character, a one-line, two-line or activity-only status, and playful activity phrases while your agents work.</p></div>
+    <div class="shot"><img src="images/showcase/customize.webp" width="2300" height="1650" loading="lazy" alt="Menu bar status styles and the Menu Bar settings with character selection"></div>
+  </section>
+  <p class="also"><strong>Also included:</strong> notifications when a response is ready or an approval is needed, Keep Awake while agents work, light and dark appearance, and six languages: English, Russian, German, Spanish, French and Simplified Chinese.</p>
+</div>
+
+<section class="install wrap" id="install">
+  <h2>Install</h2>
+  <pre>brew tap lovach/lunavect https://github.com/lovach/Lunavect
+brew install --cask lovach/lunavect/lunavect</pre>
+  <p>Or <a href="https://github.com/lovach/Lunavect/releases/latest">download the latest DMG</a>, open it and drag Lunavect to Applications. Then choose <strong>Connect Claude</strong> or <strong>Connect Codex</strong>. Claude needs Claude Code CLI; Claude Desktop alone is not enough. Codex needs the official Codex app or CLI. Sign-in stays with the official clients, and no API key is needed.</p>
+  <p><a href="installation.html">Setup, updates and uninstall</a> · <a href="verification.html">Compatibility and known limitations</a> · <a href="README.html">All documentation</a></p>
+</section>
+
+<section class="faq wrap" id="faq">
+  <h2>Questions</h2>
+  <details><summary>Can I use only Claude Code or only Codex?</summary><p>Yes. Connect either provider or both. Claude needs Claude Code CLI; Claude Desktop alone is not enough.</p></details>
+  <details><summary>Do I need an account or an API key?</summary><p>No Lunavect account or pasted API key is required. Sign-in stays with the official clients, and the available allowances depend on your plan.</p></details>
+  <details><summary>Why is a limit unavailable or a widget behind the app?</summary><p>Limits need fresh data from the client, and missing or expired values are shown as unavailable. Widgets read saved data and refresh when macOS schedules them.</p></details>
+  <details><summary>Is activity the same as token usage?</summary><p>No. It measures working intervals. Recovered history is marked ≈, and overlapping sessions are counted once in the combined total.</p></details>
+  <details><summary>Does Lunavect send my sessions anywhere?</summary><p>No. Session titles, project paths and activity history stay on your Mac. There is no account system or analytics backend; update checks go to GitHub without session data. <a href="privacy.html">Privacy and permissions</a></p></details>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Lunavect is free and open source under the MIT license. It is independent of Anthropic and OpenAI.</span>
+    <span><a href="https://github.com/lovach/Lunavect">GitHub</a> · <a href="https://github.com/lovach/Lunavect/releases">Releases</a> · <a href="faq.html">FAQ</a> · <a href="privacy.html">Privacy</a></span>
+  </div>
+</footer>
+</body>
+</html>

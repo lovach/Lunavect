@@ -25,7 +25,7 @@ for path in sys.argv[2:]:
 print(max(versions) + 1)
 PYTHON
 )
-xcodebuild -project Weekleft.xcodeproj -scheme Weekleft -configuration "$BUILD_CONFIGURATION" -derivedDataPath "$DERIVED_DIR" -xcconfig "$SIGNING_CONFIG" -allowProvisioningUpdates CURRENT_PROJECT_VERSION="$BUILD_NUMBER" REGISTER_APP_WITH_LAUNCH_SERVICES=NO build
+xcodebuild -project Lunavect.xcodeproj -scheme Weekleft -configuration "$BUILD_CONFIGURATION" -derivedDataPath "$DERIVED_DIR" -xcconfig "$SIGNING_CONFIG" -allowProvisioningUpdates CURRENT_PROJECT_VERSION="$BUILD_NUMBER" REGISTER_APP_WITH_LAUNCH_SERVICES=NO build
 codesign --verify --deep --strict "$DERIVED_DIR/Build/Products/$BUILD_CONFIGURATION/Lunavect.app"
 python3 "$PROJECT_ROOT/scripts/verify-product-resources.py" "$DERIVED_DIR/Build/Products/$BUILD_CONFIGURATION/Lunavect.app" --source-root "$PROJECT_ROOT"
 python3 "$PROJECT_ROOT/scripts/verify-hook-helper.py" "$DERIVED_DIR/Build/Products/$BUILD_CONFIGURATION/Lunavect.app"

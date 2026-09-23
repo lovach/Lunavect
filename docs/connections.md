@@ -38,7 +38,7 @@ Default client configuration files are `~/.claude/settings.json` and `~/.codex/h
 
 Hooks invoke the bundled `LunavectHook` helper. It keeps session identity, project, client, state, tool name and timestamps, not the prompt or tool arguments. The Claude status-line handler stores quota values rather than the full input payload. Setup launchers contain commands and paths, not copied authentication tokens.
 
-For all storage paths, backups, permissions and network behavior, see [Privacy and permissions](../PRIVACY.md).
+For all storage paths, backups, permissions and network behavior, see [Privacy and permissions](privacy.md).
 
 ## Troubleshooting
 

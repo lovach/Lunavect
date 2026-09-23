@@ -2,6 +2,8 @@
 
 Click Lunavect in the macOS menu bar to open the session panel. It brings Claude Code and Codex tasks into one list, with a title, project and the latest available state. Settings open separately from the panel.
 
+<p align="center"><img src="images/readme-sessions-light.png" width="360" alt="Session panel in light appearance"> <img src="images/readme-sessions-dark.png" width="360" alt="Session panel in dark appearance"></p>
+
 ## Reading a session
 
 | State | Meaning |
@@ -89,6 +91,6 @@ Direct runtime/supervisor chains are ambiguous. Explicitly declared Claude backg
 
 Do not attach private conversations or unredacted session records. Full lifecycle and exact-session navigation coverage across clients remains incomplete; see [verification](verification.md).
 
-[Connections](connections.md) · [Activity](activity.md) · [Privacy](../PRIVACY.md)
+[Connections](connections.md) · [Activity](activity.md) · [Privacy](privacy.md)
 
 Codex rollout filenames may include a segment UUID after the thread UUID. Discovery uses the primary thread identity, and the activity reader accepts that form only with a matching bounded `session_meta` header. The extra filename identifier is not a new user task or evidence of a subagent; explicit source metadata still determines internal-agent filtering.

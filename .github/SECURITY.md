@@ -19,4 +19,4 @@ Check the [latest public release](https://github.com/lovach/Lunavect/releases/la
 
 Relevant areas include local event handlers, configuration changes, session and activity storage, client launchers, the optional keep-awake helper and update installation. For vulnerabilities in Claude Code, Codex or another dependency, identify the upstream component so the report can be directed appropriately.
 
-For installation problems, incorrect values and feature requests without a security impact, use [Issues](https://github.com/lovach/Lunavect/issues/new/choose). See [Privacy and permissions](PRIVACY.md) for the data Lunavect uses.
+For installation problems, incorrect values and feature requests without a security impact, use [Issues](https://github.com/lovach/Lunavect/issues/new/choose). See [Privacy and permissions](../docs/privacy.md) for the data Lunavect uses.

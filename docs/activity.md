@@ -2,6 +2,8 @@
 
 Activity shows available working time for Claude Code and Codex. It is a local estimate from session states and timing records, not token usage, CPU time or a billing meter.
 
+<p align="center"><img src="images/readme-activity.png" width="720" alt="Statistics with provider totals, a daily chart, recovered history and project navigation"></p>
+
 ## Choose a widget
 
 | Widget | Sizes | Contents |
@@ -13,6 +15,8 @@ Activity shows available working time for Claude Code and Codex. It is a local e
 Right-click the desktop, choose **Edit Widgets** and search for **Lunavect**. Add the size you want. For an activity or overview widget, right-click the placed widget and choose **Edit Widget** to set its period and source.
 
 The gallery inside Lunavect is a preview. Changing its content, size, period or source does not add a widget or change one already on the desktop. The add-widget guide explains the macOS steps; it does not place a widget automatically.
+
+<p align="center"><img src="images/widget-overview.png" width="300" alt="Overview widget with weekly limits and an activity chart"> <img src="images/widget-activity-large.png" width="300" alt="Large activity widget"><br><img src="images/widget-limits.png" width="300" alt="Limits widget with remaining allowances and reset countdowns"> <img src="images/widget-activity-small.png" width="143" alt="Small activity widget"></p>
 
 ## Periods and sources
 
@@ -62,4 +66,4 @@ The app normally saves measured activity once a minute, saves continuous idle co
 
 Desktop placement and refresh across supported Macs remain separate compatibility checks. See [verification](verification.md) and [Apple's WidgetKit refresh guide](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date).
 
-[Connections](connections.md) · [FAQ](faq.md) · [Privacy and storage locations](../PRIVACY.md)
+[Connections](connections.md) · [FAQ](faq.md) · [Privacy and storage locations](privacy.md)

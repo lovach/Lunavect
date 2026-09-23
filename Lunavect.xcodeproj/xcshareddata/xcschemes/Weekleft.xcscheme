@@ -15,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "6500BBB38BAAB820464A8773"
+               BlueprintIdentifier = "1B6AE806D730F02958A1B66F"
                BuildableName = "Weekleft.app"
                BlueprintName = "Weekleft"
-               ReferencedContainer = "container:Weekleft.xcodeproj">
+               ReferencedContainer = "container:Lunavect.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -32,10 +32,10 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "6500BBB38BAAB820464A8773"
+            BlueprintIdentifier = "1B6AE806D730F02958A1B66F"
             BuildableName = "Weekleft.app"
             BlueprintName = "Weekleft"
-            ReferencedContainer = "container:Weekleft.xcodeproj">
+            ReferencedContainer = "container:Lunavect.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -55,10 +55,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "6500BBB38BAAB820464A8773"
+            BlueprintIdentifier = "1B6AE806D730F02958A1B66F"
             BuildableName = "Weekleft.app"
             BlueprintName = "Weekleft"
-            ReferencedContainer = "container:Weekleft.xcodeproj">
+            ReferencedContainer = "container:Lunavect.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,10 +72,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "6500BBB38BAAB820464A8773"
+            BlueprintIdentifier = "1B6AE806D730F02958A1B66F"
             BuildableName = "Weekleft.app"
             BlueprintName = "Weekleft"
-            ReferencedContainer = "container:Weekleft.xcodeproj">
+            ReferencedContainer = "container:Lunavect.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

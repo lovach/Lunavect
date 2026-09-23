@@ -43,7 +43,7 @@ run_check swift_tests swift test --jobs 2
 
 # The compatibility check runs in its own process, never in the widget host.
 BACKGROUND_CHECK="$RUN_DIR/background-check"
-run_check widget_probe_build clang -fobjc-arc -framework Foundation -IWidget Tests/WidgetRuntime/BackgroundDescriptorCheck.m Widget/WidgetBackground.m -o "$BACKGROUND_CHECK"
+run_check widget_probe_build clang -fobjc-arc -framework Foundation -ISources/LunavectWidget Tests/WidgetRuntime/BackgroundDescriptorCheck.m Sources/LunavectWidget/WidgetBackground.m -o "$BACKGROUND_CHECK"
 run_check widget_fallback "$BACKGROUND_CHECK" --incompatible
 # The reporter accepts exit 77 only for this explicitly optional ABI probe.
 run_check widget_private_abi "$BACKGROUND_CHECK"
@@ -51,7 +51,7 @@ run_check widget_private_abi "$BACKGROUND_CHECK"
 # Compile both native targets without using a developer account or provisioning.
 # Use the checked-in Xcode project so CI also verifies it is buildable.
 run_check unsigned_build xcodebuild -quiet \
-  -project Weekleft.xcodeproj \
+  -project Lunavect.xcodeproj \
   -scheme Weekleft \
   -configuration Release \
   -destination 'generic/platform=macOS' \

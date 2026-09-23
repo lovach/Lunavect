@@ -1,0 +1,24 @@
+title: Lunavect
+description: Claude Code and Codex sessions, usage limits and widgets in your Mac menu bar.
+url: https://lovach.github.io
+baseurl: /Lunavect
+lang: en
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-relative-links
+  - jekyll-optional-front-matter
+  - jekyll-titles-from-headings
+relative_links:
+  enabled: true
+titles_from_headings:
+  enabled: true
+defaults:
+  - scope:
+      path: ""
+    values:
+      image: /images/social-card.png
+social:
+  name: Lunavect
+  links:
+    - https://github.com/lovach/Lunavect

@@ -34,7 +34,7 @@ final class ActivityWidgetIntentLocalizationTests: XCTestCase {
             .write(to: contents.appendingPathComponent("Info.plist"))
         let shippingResources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Widget/Resources")
+            .appendingPathComponent("Sources/LunavectWidget/Resources")
         for language in languages {
             try FileManager.default.copyItem(
                 at: shippingResources.appendingPathComponent("\(language).lproj"),

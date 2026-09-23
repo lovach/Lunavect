@@ -1,155 +1,132 @@
 <div align="center">
 
-<img src="design/selected/lunavect-appicon-1024.png" width="192" height="192" alt="Lunavect icon">
+<img src="design/selected/lunavect-appicon-1024.png" width="144" height="144" alt="Lunavect app icon">
 
 # Lunavect
 
-A macOS menu bar app and desktop widgets for **Claude Code** and **Codex**.
+**The menu bar companion for Claude Code and Codex on your Mac.**<br>
+See which AI coding agent is working, which one is waiting for you<br>
+and how much of your weekly and five-hour usage limits is left.
 
-<p>
-  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.8/Lunavect-0.1.8.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
-</p>
+<a href="https://github.com/lovach/Lunavect/releases/download/v0.1.8/Lunavect-0.1.8.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
 
-[Version 0.1.8](https://github.com/lovach/Lunavect/releases/tag/v0.1.8) · macOS 14+ · Apple silicon & Intel · Free and open source
+<sub>Version 0.1.8 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
 
-[Sessions](#sessions) · [Usage limits](#usage-limits) · [Widgets](#desktop-widgets) · [Install](#install) · [What's new](#whats-new)
+<br>
 
-<p>
-  <a href="docs/images/readme-overview-dark.png">
-    <picture>
-      <source media="(max-width: 600px) and (prefers-color-scheme: light)" srcset="docs/images/readme-sessions-light.png">
-      <source media="(max-width: 600px)" srcset="docs/images/readme-sessions-dark.png">
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme-overview-dark.png">
-      <source media="(prefers-color-scheme: light)" srcset="docs/images/readme-overview-light.png">
-      <img src="docs/images/readme-overview-dark.png" width="784" alt="Lunavect session panel beside weekly usage limits and daily activity for Claude Code and Codex">
-    </picture>
-  </a>
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/showcase/hero-dark.webp">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/showcase/hero-light.webp">
+  <img src="docs/images/showcase/hero-dark.webp" width="880" alt="Lunavect in the macOS menu bar: the session panel lists nine Claude Code and Codex tasks, eight working and one waiting for permission, beside a desktop widget with weekly usage limits and a week of activity">
+</picture>
 
-<sub>Current interface, captured on September 23, 2026 with fictional data. [About the screenshots](docs/verification.md#public-screenshots).</sub>
+<sub>The real app with fictional sessions and data.</sub>
 
-## What's new
+[Features](#features) · [Install](#install) · [FAQ](#faq) · [Website](https://lovach.github.io/Lunavect/) · [Release notes](CHANGELOG.md)
 
-**0.1.8** lets desktop widgets recover on their own after an update:<br>Lunavect re-confirms its widget registration once the installer has finished cleaning up.
+</div>
 
-**0.1.7** brings a terminal session's own Terminal or iTerm2 tab to the front<br>and uses noticeably less CPU in the background.
+## Features
 
-[All release notes](CHANGELOG.md)
+<div align="center">
+
+### Know which agent needs you
+
+Every Claude Code and Codex task on your Mac in one panel, with its live state:<br>
+working, thinking, waiting for permission or input, or done.<br>
+Search, filter, pin and hide sessions. Live Terminal and iTerm2 sessions open in their own tab.
+
+<img src="docs/images/showcase/sessions.webp" width="760" alt="Three Lunavect session panels: all nine tasks, a search for “bill” showing one Claude task, and the waiting filter showing the task that needs permission">
+
+### Usage limits at a glance
+
+Weekly and five-hour allowances for Claude and Codex, with reset times.<br>
+Show them in the menu bar as bars, percentages or rings. Unknown values stay unknown.
+
+<img src="docs/images/showcase/limits.webp" width="880" alt="Claude 68% and Codex 54% of weekly usage left, shown in the menu bar as bars, percentages and rings, in the Remaining popover with reset dates and in a small desktop widget">
+
+### Desktop widgets
+
+Limits, activity or both, in small, medium and large sizes.<br>
+Choose a solid background or adjustable glass.
+
+<img src="docs/images/showcase/widgets.webp" width="880" alt="Five Lunavect WidgetKit widgets on glass: overview with limits and activity chart, weekly limits, weekly activity chart, and small limits and activity widgets">
+
+### See where your time goes
+
+Working time by day, week and month for each provider,<br>
+with project and session breakdowns. Recovered history is marked as approximate.
+
+<img src="docs/images/showcase/activity.webp" width="820" alt="Lunavect statistics window: a week of Claude and Codex working time with a daily chart">
+
+### Make it yours
+
+Pick the Claude, Codex or Lunavect character, a one-line, two-line or activity-only status,<br>
+and playful activity phrases while your agents work.
+
+<img src="docs/images/showcase/customize.webp" width="820" alt="Menu bar status styles with the Claude, Lunavect and Codex characters above the Menu Bar settings, where the character and status style are chosen">
+
+**Also included:** notifications when a response is ready or an approval is needed ·<br>
+Keep Awake while agents work · light and dark appearance · English, Russian, German, Spanish, French and Simplified Chinese
+
+</div>
 
 ## Install
 
-### Install with Homebrew
-
-<div align="left">
+**With Homebrew**
 
 ```sh
 brew tap lovach/lunavect https://github.com/lovach/Lunavect
 brew install --cask lovach/lunavect/lunavect
-open -a Lunavect
 ```
 
-</div>
+**Or download** [Lunavect-0.1.8.dmg](https://github.com/lovach/Lunavect/releases/download/v0.1.8/Lunavect-0.1.8.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
 
-Or [download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.8/Lunavect-0.1.8.dmg) and drag **Lunavect** to **Applications**. The release is Developer ID signed and notarized by Apple.
-
-Open **Connect Claude** or **Connect Codex** in Lunavect. Claude requires **Claude Code CLI**; Claude Desktop alone is not enough. Connect either service or both. Sign-in stays with the official clients.
+Then choose **Connect Claude** or **Connect Codex**. Claude needs Claude Code CLI; Claude Desktop alone is not enough. Codex needs the official Codex app or CLI. Connect one provider or both. Sign-in stays with the official clients.
 
 [Setup, updates and uninstall](docs/installation.md) · [Compatibility and known limitations](docs/verification.md)
 
-## Screenshots
-
-### Sessions
-
-See which task is working, needs input or has finished.<br>
-Search by session or project. Filter, pin, reorder and hide sessions.
-
-<p>
-  <a href="docs/images/readme-sessions-light.png"><img src="docs/images/readme-sessions-light.png" width="392" alt="Claude Code and Codex session panel in light appearance"></a>
-  <a href="docs/images/readme-sessions-dark.png"><img src="docs/images/readme-sessions-dark.png" width="392" alt="Claude Code and Codex session panel in dark appearance"></a>
-</p>
-
-### Usage limits
-
-Weekly and five-hour allowances, with a reset time for each provider.<br>
-Missing or expired limits stay marked as unavailable.
-
-<p>
-  <a href="docs/images/limits.png"><img src="docs/images/limits.png" width="800" alt="Usage settings showing weekly and five-hour remaining allowances and reset times for Claude and Codex"></a>
-</p>
-
-### Desktop widgets
-
-Small, medium and large layouts for limits, activity or both.<br>
-Choose a solid background or adjustable glass in Settings → Widgets.<br>
-macOS manages placement and refresh; glass is experimental and off by default.
-
-<p>
-  <a href="docs/images/widget-overview.png"><img src="docs/images/widget-overview.png" width="344" alt="Compact weekly limits above an activity chart with detailed hour labels"></a>
-  <a href="docs/images/widget-activity-large.png"><img src="docs/images/widget-activity-large.png" width="344" alt="Activity widget with full duration values and daily history"></a>
-</p>
-<p>
-  <a href="docs/images/widget-limits.png"><img src="docs/images/widget-limits.png" width="344" alt="Weekly remaining allowances and reset countdowns"></a>
-  <a href="docs/images/widget-activity-small.png"><img src="docs/images/widget-activity-small.png" width="164" alt="Small activity widget with readable provider totals"></a>
-</p>
-
-### Activity
-
-Working time by day, week and month, with project and session breakdowns.<br>
-Recovered history is marked as approximate.
-
-<p>
-  <a href="docs/images/readme-activity.png"><img src="docs/images/readme-activity.png" width="800" alt="Activity statistics with provider totals, a daily chart, recovered history and project navigation"></a>
-</p>
-
-### Menu bar
-
-Choose bars and percentages, compact icons and percentages, or rings.<br>
-The compact mode removes the bars and reduces the height of the indicator.
-
-<p>
-  <a href="docs/images/menu-bar.png"><img src="docs/images/menu-bar.png" width="720" alt="Three native menu-bar limit styles: bars and percentages, icons and percentages, and rings"></a>
-</p>
-
-### Make it yours
-
-Choose a character and session-status style, or let Lunavect pick the character automatically.<br>
-Activity phrases switch after two dot cycles. Input and approval requests take priority.
-
-<p>
-  <a href="docs/images/settings-menu-bar.png"><img src="docs/images/settings-menu-bar.png" width="800" alt="Menu-bar settings with all character choices visible and configurable session status"></a>
-</p>
-
-All images open at full resolution when clicked. Session names, paths and usage values are samples.
-
 ## FAQ
 
-**Can I use only Claude or only Codex?**<br>
-Yes. Connect either provider or both. Claude requires Claude Code CLI; Claude Desktop alone is not enough.
+<details>
+<summary><b>Can I use only Claude Code or only Codex?</b></summary>
+<br>
+Yes. Connect either provider or both. Claude needs Claude Code CLI; Claude Desktop alone is not enough.
+</details>
 
-**Do I need another account or an API key?**<br>
-No Lunavect account or pasted API key is required. Sign-in stays with the official clients; available allowances depend on your account.
+<details>
+<summary><b>Do I need an account or an API key?</b></summary>
+<br>
+No Lunavect account or pasted API key is required. Sign-in stays with the official clients, and the available allowances depend on your plan.
+</details>
 
-**Why is a limit unavailable or a widget behind the app?**<br>
-Limits need fresh data from the client. Widgets read saved data and refresh when macOS schedules them. Check Connections and the value's timestamp.
+<details>
+<summary><b>Why is a limit unavailable or a widget behind the app?</b></summary>
+<br>
+Limits need fresh data from the client, and missing or expired values are shown as unavailable instead of guessed. Widgets read saved data and refresh when macOS schedules them. Check Connections and the timestamp of the value.
+</details>
 
-**Is activity the same as token usage?**<br>
-No. It measures working intervals. Recovered history is marked `≈`, and overlapping sessions are counted once in the combined total.
+<details>
+<summary><b>Is activity the same as token usage?</b></summary>
+<br>
+No. It measures working intervals. Recovered history is marked <code>≈</code>, and overlapping sessions are counted once in the combined total.
+</details>
+
+<details>
+<summary><b>Does Lunavect send my sessions anywhere?</b></summary>
+<br>
+No. Session titles, project paths and activity history stay on your Mac. There is no account system or analytics backend; update checks go to GitHub without session data.
+</details>
 
 [All questions and answers](docs/faq.md) · [Installation and troubleshooting](docs/installation.md)
 
-## Data and connections
+## Privacy
 
-Session titles, project paths and activity history stay on your Mac. Lunavect reads local client data and configures event handlers when you connect a service. It has no account system or analytics backend. Update checks go to GitHub without session data; the official clients make their own network requests.
-
-Activity measures working intervals. Recovered history is marked as approximate. Missing or expired usage limits remain unavailable.
-
-[Privacy and permissions](PRIVACY.md) · [Connection details](docs/connections.md) · [How activity is counted](docs/activity.md)
+Lunavect reads local client data and adds its event handlers when you connect a provider, keeping unrelated configuration intact. It extracts only session identity, state and timing, and never saves a copy of your conversations. [Privacy and permissions](docs/privacy.md) · [Connection details](docs/connections.md) · [How activity is counted](docs/activity.md)
 
 ## Development
 
 Requires full Xcode and a compatible Swift toolchain.
-
-<div align="left">
 
 ```sh
 git clone https://github.com/lovach/Lunavect.git
@@ -157,18 +134,10 @@ cd Lunavect
 ./scripts/check.sh
 ```
 
-</div>
+The check runs the tests and builds the universal Release app, helpers and WidgetKit extension without a signing account. [Contributing](.github/CONTRIBUTING.md) · [Development guide](docs/development.md) · [Documentation](docs/README.md) · [Security reports](.github/SECURITY.md)
 
-The check runs tests and builds the universal Release app, helpers and WidgetKit extension without a signing account.
-
-[Contributing](CONTRIBUTING.md) · [Development guide](docs/development.md) · [GitHub Actions](https://github.com/lovach/Lunavect/actions/workflows/ci.yml) · [Release checks](docs/verification.md)
-
-Bug reports should include the macOS version and steps to reproduce. Remove private session titles, paths and credentials from attachments. For testing on another Mac, use the [first-install checklist](docs/first-install-check.md). Feature requests are welcome in [Issues](https://github.com/lovach/Lunavect/issues/new?template=feature.yml).
-
-[Documentation](docs/README.md) · [FAQ](docs/faq.md) · [Security reports](SECURITY.md)
+Bug reports should include the macOS version and steps to reproduce; remove private session titles, paths and credentials from attachments. Ideas are welcome in [Issues](https://github.com/lovach/Lunavect/issues/new?template=feature.yml).
 
 ## License
 
-[MIT](LICENSE) for original Lunavect code. Third-party software and artwork are covered separately in [NOTICE](NOTICE). Lunavect is independent of Anthropic and OpenAI.
-
-</div>
+[MIT](LICENSE) for original Lunavect code. Third-party software and artwork are covered in [NOTICE](NOTICE). Lunavect is independent of Anthropic and OpenAI.

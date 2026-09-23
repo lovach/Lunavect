@@ -31,7 +31,7 @@ class ProductResourceTests(unittest.TestCase):
             for language in self.info['CFBundleLocalizations']:
                 localized = resources / (language + '.lproj')
                 localized.mkdir()
-                shutil.copyfile(ROOT / 'Widget/Resources' / (language + '.lproj') / 'Localizable.strings', localized / 'Localizable.strings')
+                shutil.copyfile(ROOT / 'Sources/LunavectWidget/Resources' / (language + '.lproj') / 'Localizable.strings', localized / 'Localizable.strings')
 
     def test_missing_any_consumed_asset_is_rejected(self):
         for bundle, resources in ((self.app, RESOURCES.SHARED | RESOURCES.APP_ONLY), (self.widget, RESOURCES.SHARED)):
