@@ -1,6 +1,14 @@
 # Public screenshots
 
-The README gallery shows the production interface from Lunavect 0.1.8, captured on September 23, 2026. All session titles, paths, quotas and activity are fictional. The twelve images were generated together and visually inspected at their native resolution.
+## Showcase scenes
+
+The README and the [project website](https://lovach.github.io/Lunavect/) use seven scenes in `images/showcase/`. Every Lunavect element in them (session panels, status items, the limits popover, settings windows and widgets) is a native render of the production SwiftUI/AppKit views at 4× with one fictional dataset, made on September 23, 2026 from the 0.1.8 source. A compositor places those renders on a generated desktop backdrop and draws only the surrounding system chrome: wallpaper, menu bar strip, clock and system icons, the popover material and the glass behind widgets rendered without a background. Lunavect's interface is never redrawn by hand. The terminal windows behind the hero are blurred decoration with fictional text.
+
+Scenes are 2.5 pixels per point, encoded as WebP (quality 92, sharp YUV); text was compared with the PNG masters at 1:1. The 1280 × 640 `images/social-card.png` is the link preview. The 4× render suite and the compositor live in the owner's production workspace, outside this repository.
+
+## Native gallery
+
+The documentation pages use twelve native 2× images of the production interface from Lunavect 0.1.8, captured on September 23, 2026. All session titles, paths, quotas and activity are fictional. The twelve images were generated together and visually inspected at their native resolution.
 
 ## Rebuild the gallery
 
@@ -29,6 +37,6 @@ One capture-time fixture keeps the sessions fresh and the displayed totals consi
 | Small activity widget | 164 × 164 |
 | Limits widget | 344 × 164 |
 
-Inspect every image for clipped text, missing controls, inconsistent totals and unintended private data before copying the twelve PNGs into `docs/images`. The README switches its hero between light/dark appearances and uses a single session panel on narrow screens.
+Inspect every image for clipped text, missing controls, inconsistent totals and unintended private data before copying the twelve PNGs into `docs/images`. They illustrate the sessions, activity, settings and menu-bar limit pages.
 
 The [installer image](images/installer.jpg) was captured directly from the mounted 0.1.3 DMG in Finder on September 14. Its branded layout is unchanged. Obsolete galleries, the retouched desktop image and the unused demo movie have been removed.

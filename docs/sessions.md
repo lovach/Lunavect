@@ -2,6 +2,8 @@
 
 Click Lunavect in the macOS menu bar to open the session panel. It brings Claude Code and Codex tasks into one list, with a title, project and the latest available state. Settings open separately from the panel.
 
+<p align="center"><img src="images/readme-sessions-light.png" width="360" alt="Session panel in light appearance"> <img src="images/readme-sessions-dark.png" width="360" alt="Session panel in dark appearance"></p>
+
 ## Reading a session
 
 | State | Meaning |

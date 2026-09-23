@@ -21,6 +21,8 @@ Settings are grouped into Overview (Limits and Statistics), Application (General
 
 These defaults apply once to a new installation. An update preserves existing choices and the earlier fallback behavior for unset preferences. Existing installations keep their previous manual Keep Awake duration behavior until a duration is saved. Connecting a provider or granting a macOS permission remains a separate user action.
 
+<p align="center"><img src="images/limits.png" width="720" alt="Limits settings with weekly and five-hour allowances and reset times for Claude and Codex"></p>
+
 ## Available controls
 
 - **Limits:** remaining weekly and optional five-hour allowances, reset times, model-specific quotas when supplied, and connection status. The five-hour switch is shared with widgets.
@@ -55,6 +57,8 @@ Connections, source configuration, activity history, hidden sessions, their arra
 The profile is defined in `AppDefaultSettings`; preference owners apply resets through their normal setters so visible UI, registered shortcuts and the helper agree with saved values. Tests use isolated preference domains and a fake helper for defaults, upgrades, reset behavior and configured stop conditions.
 
 ## Menu-bar appearance
+
+<p align="center"><img src="images/settings-menu-bar.png" width="720" alt="Menu Bar settings with the character choices and session status"></p>
 
 Session status, icon appearance and usage limits are separate visible groups. The character cards remain visible in automatic mode; selecting one switches to manual selection. Short choice rows align labels and controls on one line, and longer labels wrap at smaller window sizes.
 
