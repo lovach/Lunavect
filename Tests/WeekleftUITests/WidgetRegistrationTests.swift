@@ -24,8 +24,8 @@ import Darwin
         service.start(); await service.waitUntilFinished()
         let firstCalls = await calls.count, firstChecks = await checks.count
         XCTAssertEqual(firstCalls, 1, "A known build is repaired once")
-        XCTAssertEqual(firstChecks, 4, "Every launch reasserts registration twice")
-        XCTAssertEqual(reloads, 6)
+        XCTAssertEqual(firstChecks, 8, "Every launch reasserts registration on the full schedule")
+        XCTAssertEqual(reloads, 10)
         XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
         XCTAssertFalse(defaults.bool(forKey: "SUEnableAutomaticChecks"))
         let relocated = WidgetRegistrationTarget(app: URL(fileURLWithPath: "/Users/fixture/Applications/Lunavect.app"), version: "158")
@@ -45,7 +45,7 @@ import Darwin
         service.start(); await service.waitUntilFinished()
         let count = await calls.count
         XCTAssertEqual(count, 2)
-        XCTAssertEqual(reloads, 4)
+        XCTAssertEqual(reloads, 6)
         XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
     }
 
@@ -83,9 +83,10 @@ import Darwin
             settle: { delays.append($0) })
         service.start(); await service.waitUntilFinished()
         let count = await checks.count
-        XCTAssertEqual(delays, [.seconds(5), .seconds(25)], "A prompt check and a later one after asynchronous cleanup")
-        XCTAssertEqual(count, 2)
-        XCTAssertEqual(reloads, 2)
+        XCTAssertEqual(delays, [.seconds(5), .seconds(25), .seconds(90), .seconds(480)],
+                       "Early checks follow the restart; the last ones fall in a quiet period")
+        XCTAssertEqual(count, 4)
+        XCTAssertEqual(reloads, 4)
         let failures = Attempts()
         let failing = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build restarts no extension"); return false },

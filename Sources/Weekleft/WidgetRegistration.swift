@@ -28,14 +28,17 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
 
 /// A version/path change repairs registration once. Failures remain retryable
 /// on the next launch; a failed command is never recorded as successful.
-/// Every launch of the installed host also reasserts its registration twice.
+/// Every launch of the installed host also reasserts its registration.
 /// Restarting the extension (above) or an installer/updater removing the replaced
 /// copy can leave the widget host unable to resolve the extension: it then shows
 /// placeholders although timelines succeed, until the next registration change.
-/// The first check follows the restart closely; the second covers late cleanup.
+/// A registration change during that cleanup can itself cause the loss, while
+/// one made in a quiet period has always restored it. The early checks follow
+/// the restart; the checks after 2 and 10 minutes make the last change a quiet one.
 @MainActor final class WidgetRegistration {
     static let stampKey = "widgetRegistrationStamp"
-    static let checkDelays: [Duration] = [.seconds(5), .seconds(25)]
+    /// Waits before each check: at 5 s, 30 s, 2 min and 10 min after start.
+    static let checkDelays: [Duration] = [.seconds(5), .seconds(25), .seconds(90), .seconds(480)]
     private let defaults: UserDefaults
     private let target: WidgetRegistrationTarget?
     private let repair: @Sendable (WidgetRegistrationTarget) async -> Bool
