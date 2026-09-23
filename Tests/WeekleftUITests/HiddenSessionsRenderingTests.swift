@@ -29,15 +29,30 @@ final class HiddenSessionsRenderingTests: XCTestCase {
         window.contentView = host
         defer { window.contentView = nil }
 
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        // Measure the steady state, not a row transition that is still running on a
+        // slow machine: every row is mounted once and three passes agree.
+        func rowLayout() -> [String] {
+            descendants(host).compactMap { view -> String? in
+                guard let handle = view as? SessionRowInteraction.Handle, let id = handle.session?.id,
+                      let anchor = handle.anchor?.view else { return nil }
+                let frame = host.convert(anchor.bounds, from: anchor)
+                return "\(id)@\(Int(frame.minY.rounded()))"
+            }.sorted()
+        }
         func settle() {
-            for _ in 0..<6 {
+            let deadline = Date().addingTimeInterval(3)
+            var passes = 0, stable = 0, previous: [String] = []
+            repeat {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.05))
                 window.setContentSize(NSSize(width: 360, height: height))
                 host.frame.size = NSSize(width: 360, height: height)
                 host.layoutSubtreeIfNeeded()
-            }
+                let layout = rowLayout(), ids = layout.map { $0.split(separator: "@")[0] }
+                stable = Set(ids).count == ids.count && layout == previous ? stable + 1 : 0
+                previous = layout; passes += 1
+            } while (passes < 6 || stable < 3) && Date() < deadline
         }
-        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         func panelRect(of view: NSView) -> CGRect {
             let rect = host.convert(view.bounds, from: view)
             return host.isFlipped ? rect : CGRect(x: rect.minX, y: host.bounds.maxY - rect.maxY,

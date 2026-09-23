@@ -31,6 +31,28 @@ final class HiddenSessionManagementTests: XCTestCase {
         XCTAssertNil(try JSONDecoder().decode(AgentSession.self, from: JSONSerialization.data(withJSONObject: oldJSON)).isCodexSubagent)
     }
 
+    func testCodexMemoryAgentIsInternalOnlyInsideCodexHomeMemories() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let memories = home.appendingPathComponent("memories")
+        try FileManager.default.createDirectory(at: memories.appendingPathComponent("rollout_summaries"), withIntermediateDirectories: true)
+        let link = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: home)
+        defer { try? FileManager.default.removeItem(at: home); try? FileManager.default.removeItem(at: link) }
+        let now = Date()
+        func row(_ id: String, _ cwd: String, _ provider: ProviderID = .codex) -> AgentSession {
+            AgentSession(provider: provider, sessionID: id, title: "", cwd: cwd, phase: .input, updatedAt: now, observedAt: now, evidence: .hook)
+        }
+        let rows = [row("memory", memories.path), row("summaries", memories.appendingPathComponent("rollout_summaries").path + "/"),
+                    row("home", home.path), row("project", "/Users/demo/Developer/memories"),
+                    row("sibling", home.appendingPathComponent("memories-archive").path), row("claude", memories.path, .claude)]
+        let marked = CodexSessionMetadata.markingSubagents(in: rows, at: home)
+        XCTAssertEqual(Set(marked.filter { $0.isCodexSubagent == true }.map(\.sessionID)), ["memory", "summaries"])
+        XCTAssertEqual(Set(SessionList.merge(catalog: [], events: marked, now: now).filter { $0.provider == .codex && $0.isCurrent(now: now) }.map(\.sessionID)),
+                       ["home", "project", "sibling"], "Only the memory agent leaves the panel; other folders stay user sessions")
+        XCTAssertEqual(CodexSessionMetadata.markingSubagents(in: [row("resolved", memories.resolvingSymlinksInPath().path)], at: link).first?.isCodexSubagent, true,
+                       "A symlinked CODEX_HOME still recognizes the agent's real working directory")
+    }
+
     func testDesktopNameWinsOverRawAttachmentPromptAndRepairsSavedHiddenTitle() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
