@@ -1,6 +1,6 @@
 # Public screenshots
 
-The README gallery shows the production interface from Lunavect 0.1.3, captured on September 14, 2026. All session titles, paths, quotas and activity are fictional. The twelve images were generated together and visually inspected at their native resolution.
+The README gallery shows the production interface from Lunavect 0.1.8, captured on September 23, 2026. All session titles, paths, quotas and activity are fictional. The twelve images were generated together and visually inspected at their native resolution.
 
 ## Rebuild the gallery
 

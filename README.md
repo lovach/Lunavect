@@ -7,12 +7,12 @@
 A macOS menu bar app and desktop widgets for **Claude Code** and **Codex**.
 
 <p>
-  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.7/Lunavect-0.1.7.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
+  <a href="https://github.com/lovach/Lunavect/releases/download/v0.1.8/Lunavect-0.1.8.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS — DMG"></a>
 </p>
 
-macOS 14+ · Apple silicon & Intel · Free and open source
+[Version 0.1.8](https://github.com/lovach/Lunavect/releases/tag/v0.1.8) · macOS 14+ · Apple silicon & Intel · Free and open source
 
-[Sessions](#sessions) · [Usage limits](#usage-limits) · [Widgets](#desktop-widgets) · [Install](#install) · [Release notes](CHANGELOG.md)
+[Sessions](#sessions) · [Usage limits](#usage-limits) · [Widgets](#desktop-widgets) · [Install](#install) · [What's new](#whats-new)
 
 <p>
   <a href="docs/images/readme-overview-dark.png">
@@ -26,7 +26,15 @@ macOS 14+ · Apple silicon & Intel · Free and open source
   </a>
 </p>
 
-<sub>Current interface, captured on September 14, 2026 with fictional data. [About the screenshots](docs/verification.md#public-screenshots).</sub>
+<sub>Current interface, captured on September 23, 2026 with fictional data. [About the screenshots](docs/verification.md#public-screenshots).</sub>
+
+## What's new
+
+**0.1.8** lets desktop widgets recover on their own after an update:<br>Lunavect re-confirms its widget registration once the installer has finished cleaning up.
+
+**0.1.7** brings a terminal session's own Terminal or iTerm2 tab to the front<br>and uses noticeably less CPU in the background.
+
+[All release notes](CHANGELOG.md)
 
 ## Install
 
@@ -42,7 +50,7 @@ open -a Lunavect
 
 </div>
 
-Or [download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.7/Lunavect-0.1.7.dmg) and drag **Lunavect** to **Applications**. The release is Developer ID signed and notarized by Apple.
+Or [download the DMG](https://github.com/lovach/Lunavect/releases/download/v0.1.8/Lunavect-0.1.8.dmg) and drag **Lunavect** to **Applications**. The release is Developer ID signed and notarized by Apple.
 
 Open **Connect Claude** or **Connect Codex** in Lunavect. Claude requires **Claude Code CLI**; Claude Desktop alone is not enough. Connect either service or both. Sign-in stays with the official clients.
 

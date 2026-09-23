@@ -1,8 +1,21 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.1.7 (179)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.1.8 (180)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.7)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.8)
+
+## 0.1.8 release checks — September 23, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `87b969908aa3e1d298b9aaae1dc14d26a043bbde`, tagged `v0.1.8` (PR #17); archive provenance passed. |
+| Automated checks | The eight `WidgetRegistrationTests` passed locally, including the four-step schedule. The full check passed in [source CI](https://github.com/lovach/Lunavect/actions/runs/35808834786). |
+| Distribution | Developer ID signed and Apple notarized, build 180. Anonymous DMG, ZIP, appcast and checksum downloads matched the packaged bytes. The downloaded DMG app passed strict codesign, Gatekeeper and stapler checks. The ZIP signature verifies with the public key embedded in the app, and a modified copy is rejected; the latest feed points to 180. |
+| Compatibility | Signing identity, bundle IDs, App Group, update key and preference defaults are unchanged. All 20 assets of releases 0.1.3–0.1.7 still match their packaged SHA-256 digests at their original URLs. |
+| Installed build | The app from the release DMG was installed over 0.1.7 with `install.sh` and launched. The first-launch repair produced about eight seconds of placeholders; the 5-second confirmation restored `LIVE`. Two registration changes followed: unregistering a copy left registered by the archive step (33 seconds after launch) and removing an older 0.1.3 copy from `/Applications` (after 4.5 minutes). Both widgets stayed `LIVE` through these changes and the 30-second, 2-minute and 10-minute confirmations, with no further lookup failures. |
+| Remaining scope | A complete Sparkle installation cycle for this release and other macOS versions remain unverified. |
+
+The 0.1.8 DMG SHA-256 is `0a1e3c0a5813e0f800994b9c368d75b12e96b7fe18b8ead78827336e91434a24`.
 
 ## 0.1.7 release checks — September 23, 2026
 
@@ -166,7 +179,7 @@ The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstal
 
 ## Public screenshots
 
-The current gallery contains twelve native 2× images captured on September 14 from the production UI and a single fictional dataset: light/dark sessions, limits, statistics, menu-bar styles, appearance settings and four widget layouts. All twelve were visually inspected. The sandbox preflight, exact image set, dimensions and source-provenance checks passed.
+The current gallery contains twelve native 2× images captured on September 23 from the 0.1.8 production UI and a single fictional dataset: light/dark sessions, limits, statistics, menu-bar styles, appearance settings and four widget layouts. All twelve were visually inspected; compared with the September 14 set, only dates, times, the animated icon frame and period totals changed. The sandbox preflight, exact image set, dimensions and source-provenance checks passed.
 
 Settings and session controls were rendered in offscreen AppKit windows with private preview dependencies. The images demonstrate layout, not interactive settings flows, external-client navigation, desktop WidgetKit placement or system glass compositing. Older screenshots, the retouched desktop capture and the unused movie have been removed. [Source and reproduction instructions](public-screenshots.md).
 
