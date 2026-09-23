@@ -1,8 +1,20 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.1.8 (180)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.1.9 (181)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.8)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.9)
+
+## 0.1.9 release checks — September 23, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `1979255872af7fcc51a2060a8898a81f5f16b421`, tagged `v0.1.9` (PR #20); archive provenance passed. A later test-only commit in the same PR waits for the session panel's rows to settle before measuring. |
+| Automated checks | Full local check: 84 Python and 617 Swift tests passed (55 conditional skips), universal build, widget probes, resources and provenance. [Source CI](https://github.com/lovach/Lunavect/actions/runs/35838882201) passed. |
+| Distribution | Developer ID signed and Apple notarized, build 181. Anonymous DMG, ZIP, appcast and checksum downloads matched the packaged bytes. The downloaded DMG app passed strict codesign, Gatekeeper and stapler checks. The ZIP signature verifies with the public key embedded in the app, and a modified copy is rejected; the latest feed points to 181. |
+| Installed build | The app from the release DMG was installed over 0.1.8 with `install.sh` after stale copies left by the archive and check builds were unregistered. Both desktop widgets stayed `LIVE` from launch through the 10-minute confirmation and later timeline updates, with no placeholders or lookup failures. |
+| Remaining scope | A complete Sparkle installation cycle and other macOS versions remain unverified. |
+
+The 0.1.9 DMG SHA-256 is `b7082dc27c507f17422489c961c63aae18df945cb13c7eac15eac481a69244fc`.
 
 ## Codex memory agent — September 23, 2026
 
