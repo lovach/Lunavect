@@ -77,6 +77,7 @@ import AwakeService
     let settingsReturnTransition = SettingsToSessionsTransition()
     var statusObserver: AnyCancellable?
     var statusVisibilityObserver: AnyCancellable?
+    private var sessionOpenedObserver: NSObjectProtocol?
     var limitsObserver: AnyCancellable?
     var languageObserver: AnyCancellable?
     var noticeObserver: AnyCancellable?
@@ -110,6 +111,9 @@ import AwakeService
             self?.popover.behavior = dragging ? .applicationDefined : .transient
         }) }.defaultAppStorage(environment.defaults))
         menuBarAnimator = MenuBarAnimator(statusItem: statusItem, updates: environment.updates)
+        sessionOpenedObserver = NotificationCenter.default.addObserver(forName: .lunavectSessionOpened, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.popover.isShown == true { self?.popover.close() } }
+        }
         statusVisibilityObserver = menuBarAppearance.$showsSessionStatus.receive(on: RunLoop.main).sink { [weak self] visible in
             guard let self else { return }
             if !visible { self.popover.performClose(nil) }
@@ -317,7 +321,6 @@ import AwakeService
             settings.title = L("Лимиты и настройки — Lunavect"); settings.isReleasedWhenClosed = false
             settings.delegate = self
             settings.contentMinSize = NSSize(width: 800, height: 580)
-            if !environment.isPreview { settings.setFrameAutosaveName("LunavectOrganizedSettings") }
             settings.contentView = NSHostingView(rootView: LocalizedRoot(language: environment.language) { [store, menuBarAppearance, sessions, environment] in
                 SettingsView(store: store, menuBarAppearance: menuBarAppearance, sessions: sessions,
                              updates: environment.updates, awake: environment.awake, features: environment.features, language: environment.language,
@@ -325,7 +328,10 @@ import AwakeService
                              onShowWelcome: { [weak self] in self?.showWelcome() })
                     .disabled(environment.isPreview)
             }.defaultAppStorage(environment.defaults))
-            settings.center()
+            // The window is released on close; reopen it where the user left it.
+            let frameName = "LunavectOrganizedSettings"
+            if environment.isPreview || !settings.setFrameUsingName(frameName) { settings.center() }
+            if !environment.isPreview { settings.setFrameAutosaveName(frameName) }
             window = settings
         }
         menuBarAppearance.previewVisible = true
@@ -374,7 +380,12 @@ import AwakeService
         if environment.updates.configured { environment.updates.check() }
     }
     func windowWillClose(_ notification: Notification) {
-        if let closed = notification.object as? NSWindow, closed === window { menuBarAppearance.previewVisible = false }
+        if let closed = notification.object as? NSWindow, closed === window {
+            menuBarAppearance.previewVisible = false
+            // A closed window's SwiftUI content keeps observing the stores and
+            // recomputing statistics. Release it; showSettings builds a new one.
+            window = nil
+        }
         if let closed = notification.object as? NSWindow, closed === welcomeWindow {
             WelcomeProgress.complete(defaults: environment.defaults); welcomeWindow = nil
         }

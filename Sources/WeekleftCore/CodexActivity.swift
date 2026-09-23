@@ -24,8 +24,15 @@ struct CodexActivityState {
     var startedAt: Date?
 
     private static let lifecycleTypes: Set<String> = ["task_started", "task_complete", "turn_aborted", "item_started", "item_completed"]
+    private static let eventMarker = Data("event_msg".utf8)
+    // "task_" covers task_started/task_complete; "item_" and "turn_aborted" the rest.
+    private static let lifecycleMarkers = ["task_", "item_", "turn_aborted"].map { Data($0.utf8) }
     mutating func consume(_ data: Data, sessionID: String) {
-        guard let event = try? JSONDecoder().decode(CodexActivityEvent.self, from: data),
+        // Most lines are large transcript records. A lifecycle event must contain
+        // both markers, so skip JSON decoding for lines that cannot match.
+        guard data.range(of: Self.eventMarker) != nil,
+              Self.lifecycleMarkers.contains(where: { data.range(of: $0) != nil }),
+              let event = try? JSONDecoder().decode(CodexActivityEvent.self, from: data),
               event.type == "event_msg", let type = event.payload.type,
               // Most archive lines are transcript events. Reject them before
               // allocating date formatters; only lifecycle dates affect state.
@@ -50,10 +57,15 @@ struct CodexActivityState {
         }
         observedAt = time
     }
-    private static func date(_ value: String) -> Date? {
+    // ISO8601DateFormatter is safe to share for parsing once configured.
+    nonisolated(unsafe) private static let fractionalDates: ISO8601DateFormatter = {
         let format = ISO8601DateFormatter()
         format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return format.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        return format
+    }()
+    nonisolated(unsafe) private static let wholeSecondDates = ISO8601DateFormatter()
+    private static func date(_ value: String) -> Date? {
+        fractionalDates.date(from: value) ?? wholeSecondDates.date(from: value)
     }
     func session(from catalog: AgentSession) -> AgentSession? {
         guard phase != .unknown else { return nil }
@@ -167,6 +179,17 @@ public actor CodexActivityReader {
             // the actor finishes the entire batch. Cursor state remains retained.
             autoreleasepool { () -> AgentSession? in
                 guard !Task.isCancelled else { return nil }
+                // Most catalog rows are finished history. A journal unchanged since its
+                // last complete read yields the same state without reopening it.
+                if let path = row.activityPath, let cursor = cursors[row.sessionID], cursor.path == path,
+                   cursor.offset == cursor.file.count,
+                   !(cursor.state.phase == .running && cursor.state.startedAt == nil),
+                   let current = FileMetadata(path: path), current == cursor.file {
+                    observations[row.sessionID] = current
+                    var event = cursor.state.session(from: row)
+                    if cursor.client != .unknown { event?.client = cursor.client }
+                    return event
+                }
                 guard let path = row.activityPath,
                       let file = validFile(path, id: row.sessionID),
                       let handle = try? FileHandle(forReadingFrom: file) else {
@@ -423,10 +446,13 @@ enum CodexRuntimeReader {
     private static let runtimeIdentities = RuntimeIdentities()
     private static let interpreters: Set<String> = ["sh", "bash", "zsh", "dash", "fish", "env", "node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl"]
 
-    private static func executablePath(_ pid: Int32) -> String? {
+    private static func executablePath(_ pid: Int32, names: Set<String>? = nil) -> String? {
         var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
         let path = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+        // Resolving every component costs an lstat each. Skip unrelated processes
+        // by name first when scanning all of the user's processes.
+        if let names, !names.contains((path as NSString).lastPathComponent) { return nil }
         return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
@@ -458,23 +484,66 @@ enum CodexRuntimeReader {
 
     static func writablePaths(_ paths: Set<String>, executable: String? = nil) -> Set<String> {
         guard !Task.isCancelled, !paths.isEmpty else { return [] }
-        let bytes = proc_listpids(UInt32(PROC_UID_ONLY), getuid(), nil, 0)
-        guard bytes > 0, bytes < 1_000_000 else { return [] }
-        var pids = [Int32](repeating: 0, count: Int(bytes) / MemoryLayout<Int32>.stride + 128)
-        let count = proc_listpids(UInt32(PROC_UID_ONLY), getuid(), &pids, Int32(pids.count * MemoryLayout<Int32>.stride))
-        guard count > 0 else { return [] }
-        var accepted = Set([executable, CodexProvider.discoverCLI()].compactMap { $0 }.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path })
+        let launchers = [executable, CodexProvider.discoverCLI()].compactMap { $0 }
+        var accepted = Set(launchers.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path })
         accepted.formUnion(runtimeIdentities.paths(for: accepted))
+        let candidates: [Int32]
+        if let known = clientProcesses.reuse(accepted: accepted, now: ProcessInfo.processInfo.systemUptime) {
+            // Client processes are long-lived: between full scans only confirm that
+            // each known one still runs the same executable (a PID can be reused).
+            candidates = known.filter { executablePath($0.key) == $0.value }.keys.sorted()
+        } else {
+            guard let found = scanClientProcesses(accepted: accepted, launchers: launchers) else { return [] }
+            clientProcesses.store(found, accepted: accepted, now: ProcessInfo.processInfo.systemUptime)
+            candidates = found.keys.sorted()
+        }
+        // Open descriptors are read on every call, so a closed journal is seen at once.
         var result = Set<String>()
-        for pid in pids.prefix(Int(count) / MemoryLayout<Int32>.stride) where pid > 1 {
+        for pid in candidates {
             guard !Task.isCancelled else { return [] }
-            guard let executable = executablePath(pid) else { continue }
-            guard accepted.contains(executable) || ["/Codex.app/Contents/Resources/codex", "/ChatGPT.app/Contents/Resources/codex"].contains(where: executable.hasSuffix) else { continue }
             result.formUnion(writablePaths(paths.subtracting(result), processID: pid))
             if result == paths { break }
         }
         return result
     }
+
+    private static func scanClientProcesses(accepted: Set<String>, launchers: [String]) -> [Int32: String]? {
+        let bytes = proc_listpids(UInt32(PROC_UID_ONLY), getuid(), nil, 0)
+        guard bytes > 0, bytes < 1_000_000 else { return nil }
+        var pids = [Int32](repeating: 0, count: Int(bytes) / MemoryLayout<Int32>.stride + 128)
+        let count = proc_listpids(UInt32(PROC_UID_ONLY), getuid(), &pids, Int32(pids.count * MemoryLayout<Int32>.stride))
+        guard count > 0 else { return nil }
+        // Candidate names cover the accepted paths, their unresolved launchers and
+        // the bundled desktop client; the full resolved-path check below still applies.
+        let names = Set((Array(accepted) + launchers).map { ($0 as NSString).lastPathComponent } + ["codex"])
+        var found: [Int32: String] = [:]
+        for pid in pids.prefix(Int(count) / MemoryLayout<Int32>.stride) where pid > 1 {
+            guard !Task.isCancelled else { return nil }
+            guard let executable = executablePath(pid, names: names) else { continue }
+            guard accepted.contains(executable) || ["/Codex.app/Contents/Resources/codex", "/ChatGPT.app/Contents/Resources/codex"].contains(where: executable.hasSuffix) else { continue }
+            found[pid] = executable
+        }
+        return found
+    }
+
+    /// The last full process scan for one accepted executable set. A new client
+    /// process is found by the next scan; live writers still need a 90-second-old
+    /// lifecycle before they are probed, which leaves ample margin.
+    private final class ClientProcesses: @unchecked Sendable {
+        static let rescan: TimeInterval = 4
+        private let lock = NSLock()
+        private var scan: (at: TimeInterval, accepted: Set<String>, processes: [Int32: String])?
+        func reuse(accepted: Set<String>, now: TimeInterval) -> [Int32: String]? {
+            lock.lock(); defer { lock.unlock() }
+            guard let scan, scan.accepted == accepted, now >= scan.at, now - scan.at < Self.rescan else { return nil }
+            return scan.processes
+        }
+        func store(_ processes: [Int32: String], accepted: Set<String>, now: TimeInterval) {
+            lock.lock(); defer { lock.unlock() }
+            scan = (now, accepted, processes)
+        }
+    }
+    private static let clientProcesses = ClientProcesses()
 
     static func writablePaths(_ paths: Set<String>, processID: Int32) -> Set<String> {
         guard !Task.isCancelled, !paths.isEmpty else { return [] }

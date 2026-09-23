@@ -12,23 +12,25 @@ import Darwin
     private let target = WidgetRegistrationTarget(app: URL(fileURLWithPath: "/Applications/Lunavect.app"), version: "158")
 
     func testUpgradeAndRelocationRepairOnceWithoutResettingPreferences() async {
-        let defaults = defaults(), calls = Attempts()
+        let defaults = defaults(), calls = Attempts(), checks = Attempts()
         defaults.set(false, forKey: "SUEnableAutomaticChecks")
         defaults.set("old-build", forKey: WidgetRegistration.stampKey)
         var reloads = 0
         let service = WidgetRegistration(defaults: defaults, target: target,
-            repair: { _ in await calls.record(); return true }, reload: { reloads += 1 }, pause: {})
+            repair: { _ in await calls.record(); return true }, reassert: { _ in await checks.record(); return true },
+            reload: { reloads += 1 }, pause: {}, settle: { _ in })
         service.start(); service.start()
         await service.waitUntilFinished()
         service.start(); await service.waitUntilFinished()
-        let firstCalls = await calls.count
-        XCTAssertEqual(firstCalls, 1)
-        XCTAssertEqual(reloads, 2)
+        let firstCalls = await calls.count, firstChecks = await checks.count
+        XCTAssertEqual(firstCalls, 1, "A known build is repaired once")
+        XCTAssertEqual(firstChecks, 4, "Every launch reasserts registration twice")
+        XCTAssertEqual(reloads, 6)
         XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
         XCTAssertFalse(defaults.bool(forKey: "SUEnableAutomaticChecks"))
         let relocated = WidgetRegistrationTarget(app: URL(fileURLWithPath: "/Users/fixture/Applications/Lunavect.app"), version: "158")
         let moved = WidgetRegistration(defaults: defaults, target: relocated,
-            repair: { _ in await calls.record(); return true }, reload: {}, pause: {})
+            repair: { _ in await calls.record(); return true }, reassert: { _ in true }, reload: {}, pause: {}, settle: { _ in })
         moved.start(); await moved.waitUntilFinished()
         let totalCalls = await calls.count
         XCTAssertEqual(totalCalls, 2)
@@ -39,11 +41,11 @@ import Darwin
         let defaults = defaults(), calls = Attempts()
         var reloads = 0
         let service = WidgetRegistration(defaults: defaults, target: target,
-            repair: { _ in await calls.record() > 1 }, reload: { reloads += 1 }, pause: {})
+            repair: { _ in await calls.record() > 1 }, reassert: { _ in true }, reload: { reloads += 1 }, pause: {}, settle: { _ in })
         service.start(); await service.waitUntilFinished()
         let count = await calls.count
         XCTAssertEqual(count, 2)
-        XCTAssertEqual(reloads, 2)
+        XCTAssertEqual(reloads, 4)
         XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
     }
 
@@ -51,7 +53,8 @@ import Darwin
         let defaults = defaults(), calls = Attempts()
         for _ in 0..<2 {
             let service = WidgetRegistration(defaults: defaults, target: target,
-                repair: { _ in await calls.record(); return false }, reload: { XCTFail("Failed registration") }, pause: {})
+                repair: { _ in await calls.record(); return false }, reassert: { _ in XCTFail("Unrepaired build"); return false },
+                reload: { XCTFail("Failed registration") }, pause: {}, settle: { _ in })
             service.start(); await service.waitUntilFinished()
             XCTAssertNil(defaults.string(forKey: WidgetRegistration.stampKey))
         }
@@ -63,15 +66,52 @@ import Darwin
         let defaults = defaults()
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in try? await Task.sleep(for: .seconds(60)); return true },
-            reload: { XCTFail("Cancelled registration") }, pause: {})
+            reassert: { _ in XCTFail("Cancelled registration"); return false },
+            reload: { XCTFail("Cancelled registration") }, pause: {}, settle: { _ in })
         service.start(); await Task.yield(); service.stop()
         await service.waitUntilFinished()
         XCTAssertNil(defaults.string(forKey: WidgetRegistration.stampKey))
     }
 
+    func testEveryLaunchReassertsRegistrationAfterReplacedCopiesSettle() async {
+        let defaults = defaults(), checks = Attempts()
+        defaults.set(target.stamp, forKey: WidgetRegistration.stampKey)
+        var reloads = 0, delays: [Duration] = []
+        let service = WidgetRegistration(defaults: defaults, target: target,
+            repair: { _ in XCTFail("Current build restarts no extension"); return false },
+            reassert: { _ in await checks.record(); return true }, reload: { reloads += 1 }, pause: {},
+            settle: { delays.append($0) })
+        service.start(); await service.waitUntilFinished()
+        let count = await checks.count
+        XCTAssertEqual(delays, [.seconds(5), .seconds(25)], "A prompt check and a later one after asynchronous cleanup")
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(reloads, 2)
+        let failures = Attempts()
+        let failing = WidgetRegistration(defaults: defaults, target: target,
+            repair: { _ in XCTFail("Current build restarts no extension"); return false },
+            reassert: { _ in await failures.record(); return false }, reload: { XCTFail("Failed check") }, pause: {}, settle: { _ in })
+        failing.start(); await failing.waitUntilFinished()
+        let failed = await failures.count
+        XCTAssertEqual(failed, 1, "A failed check is retried on the next launch, not in a loop")
+        XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
+    }
+
+    func testStopDuringSettleSkipsReassert() async {
+        let defaults = defaults()
+        defaults.set(target.stamp, forKey: WidgetRegistration.stampKey)
+        let service = WidgetRegistration(defaults: defaults, target: target,
+            repair: { _ in XCTFail("Current build"); return false },
+            reassert: { _ in XCTFail("Stopped before the check"); return false },
+            reload: { XCTFail("Stopped before the check") }, pause: {},
+            settle: { _ in try await Task.sleep(for: .seconds(60)) })
+        service.start(); await Task.yield(); service.stop()
+        await service.waitUntilFinished()
+    }
+
     func testUninstalledBundleCannotStartRepair() async {
         let service = WidgetRegistration(defaults: defaults(), target: nil,
-            repair: { _ in XCTFail("Not installed"); return false }, reload: { XCTFail("Not installed") })
+            repair: { _ in XCTFail("Not installed"); return false }, reassert: { _ in XCTFail("Not installed"); return false },
+            reload: { XCTFail("Not installed") }, settle: { _ in })
         service.start(); await service.waitUntilFinished()
         XCTAssertNil(WidgetRegistrationTarget.installed(bundle: Bundle(for: Self.self)))
     }

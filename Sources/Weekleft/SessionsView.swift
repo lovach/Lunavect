@@ -525,7 +525,10 @@ struct SessionRow: View {
         guard !opening else { return }; opening = true
         Task { @MainActor in
             defer { opening = false }
-            do { try await SessionNavigation.open(session, resolver: clientResolver) }
+            do {
+                try await SessionNavigation.open(session, resolver: clientResolver)
+                NotificationCenter.default.post(name: .lunavectSessionOpened, object: nil)
+            }
             catch {
                 onError(
                     (error as? SessionOpeningError)?.errorDescription
@@ -701,4 +704,9 @@ private struct SessionOverflowControl: View {
             .accessibilityValue(position.label)
             .accessibilityIdentifier("session-overflow-control")
     }
+}
+
+extension Notification.Name {
+    /// A session was brought to its window; the panel steps aside.
+    static let lunavectSessionOpened = Notification.Name("LunavectSessionOpened")
 }

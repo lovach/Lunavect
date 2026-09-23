@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// One resolution policy for setup, quotas, catalogs and session destinations.
@@ -61,6 +62,11 @@ public extension AgentSession {
         client == .background && provider == .claude && resumeID.map(SessionParser.validID) == true ||
         client == .terminal && phase == .finished && evidence == .hook
     }
+    /// A live CLI session is brought forward in its own terminal tab. A device
+    /// recorded by a hook is evidence even when another source names the client.
+    var terminalFocusCandidate: Bool {
+        !canLaunchTerminalSession && (client == .terminal || terminalTTY.map(TerminalLocation.valid) == true)
+    }
     /// Background attach is safe; foreground resume requires recorded exit.
     func terminalScript(resolver: ClientExecutableResolver) throws -> String {
         let executable = try resolver.resolve(provider)
@@ -102,6 +108,113 @@ public enum SessionOpeningError: LocalizedError, Equatable {
         case .launchFailed(.vscode): return L("VS Code не принял переход. Откройте папку проекта в VS Code, проверьте расширение Claude Code и повторите попытку.")
         case .launchFailed(.terminal), .launchFailed(.background): return L("Не удалось запустить Terminal. Откройте терминал вручную и вставьте команду продолжения из меню «…».")
         case .launchFailed: return L("Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…».")
+        }
+    }
+}
+
+/// Brings an existing terminal tab to the front by its controlling device.
+/// The device path is validated before it is placed in the script.
+public enum TerminalLocation {
+    public struct Target: Equatable, Sendable {
+        public let tty: String
+        public let app: String
+        public init(tty: String, app: String) { self.tty = tty; self.app = app }
+    }
+    /// The recorded device of a live CLI session, or for a terminal session without
+    /// one, a running process of the same client in its project folder. Desktop and
+    /// editor sessions never search processes: a CLI in the same folder is another task.
+    public static func focusTarget(for session: AgentSession,
+                                   running: (ProviderID, String) -> Target? = { runningTarget(provider: $0, cwd: $1) }) -> Target? {
+        guard session.terminalFocusCandidate else { return nil }
+        if let tty = session.terminalTTY, valid(tty) { return Target(tty: tty, app: session.terminalApp ?? "Terminal") }
+        guard session.client == .terminal else { return nil }
+        return running(session.provider, session.cwd)
+    }
+    /// Fallback for sessions whose hook did not record a device: the controlling
+    /// terminal of a running claude/codex process in the same project folder.
+    /// Reads process metadata only (executable path, working directory, device).
+    public static func runningTarget(provider: ProviderID, cwd: String) -> Target? {
+        guard cwd.hasPrefix("/") else { return nil }
+        var pids = [pid_t](repeating: 0, count: 4096)
+        let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
+        for pid in pids.prefix(max(0, count)) where pid > 0 {
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout.size(ofValue: info))
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid(),
+                  info.e_tdev != UInt32.max, let process = SessionProcess.runtimeProcess(pid),
+                  SessionProcess.runtimeProvider(ofExecutable: process.executable) == provider else { continue }
+            var vnode = proc_vnodepathinfo()
+            let vsize = Int32(MemoryLayout.size(ofValue: vnode))
+            guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vnode, vsize) == vsize else { continue }
+            let dir = withUnsafeBytes(of: vnode.pvi_cdir.vip_path) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
+            guard dir == cwd, let dev = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { continue }
+            let tty = "/dev/" + String(cString: dev)
+            guard valid(tty) else { continue }
+            // The ancestry can stop at Terminal's root-owned login process.
+            let app = SessionProcess.terminalLocation(parentPID: pid, termProgram: "")?.app ?? "Terminal"
+            return Target(tty: tty, app: app)
+        }
+        return nil
+    }
+    public static func bundleIdentifier(forApp app: String) -> String? {
+        switch app {
+        case "Terminal": return "com.apple.Terminal"
+        case "iTerm2": return "com.googlecode.iterm2"
+        default: return nil
+        }
+    }
+    /// `\z` rather than `$`: a trailing newline must not reach the script.
+    public static func valid(_ tty: String) -> Bool {
+        tty.range(of: #"^/dev/ttys[0-9]{1,4}\z"#, options: .regularExpression) != nil
+    }
+    public static func focusScript(tty: String, app: String) -> String? {
+        guard valid(tty) else { return nil }
+        switch app {
+        case "Terminal":
+            return """
+            tell application "Terminal"
+                repeat with w in windows
+                    try
+                        repeat with t in tabs of w
+                            try
+                                if tty of t is "\(tty)" then
+                                    if miniaturized of w then set miniaturized of w to false
+                                    set selected of t to true
+                                    set index of w to 1
+                                    activate
+                                    return true
+                                end if
+                            end try
+                        end repeat
+                    end try
+                end repeat
+            end tell
+            return false
+            """
+        case "iTerm2":
+            return """
+            tell application "iTerm2"
+                repeat with w in windows
+                    try
+                        repeat with t in tabs of w
+                            repeat with s in sessions of t
+                                try
+                                    if tty of s is "\(tty)" then
+                                        select w
+                                        tell t to select
+                                        tell s to select
+                                        activate
+                                        return true
+                                    end if
+                                end try
+                            end repeat
+                        end repeat
+                    end try
+                end repeat
+            end tell
+            return false
+            """
+        default: return nil
         }
     }
 }
