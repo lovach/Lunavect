@@ -24,6 +24,7 @@
 		285AEB669C662094F7BFF15F /* ThirdParty-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 032FF566658747960E39FA49 /* ThirdParty-LICENSE.txt */; };
 		29E5C7DB6C2C00732A81F5C3 /* Translations.json in Resources */ = {isa = PBXBuildFile; fileRef = F936A43DFDF0B47A6C05CF48 /* Translations.json */; };
 		2C5B49DD50F06963A4C8CEAE /* ActivityWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39428F06AAD810E36BEA4E25 /* ActivityWidgetView.swift */; };
+		2FD83E0E2F2B455B9C4811CF /* LocalFileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AABD576D0E1C19A3671F82 /* LocalFileCache.swift */; };
 		30E26C9AF688173C088A28C3 /* ClawdAnimation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535DA38508A1173FBFF62DE2 /* ClawdAnimation.swift */; };
 		31CED72C089375CB06046B7F /* Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1FA5841D55DED57AE136F8E /* Providers.swift */; };
 		320D7F60F76C708B93D49808 /* SessionPolling.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDB5C1EC26D9A010F32A455A /* SessionPolling.swift */; };
@@ -79,6 +80,7 @@
 		9B39845339F1207EC02754F0 /* SessionNoticeTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C23DEA9C8F3104D870EC55 /* SessionNoticeTracker.swift */; };
 		9DA87C3E4A86A3B3EDF5B794 /* ActivityPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E208BB3CE5F15EF900CE6C04 /* ActivityPersistence.swift */; };
 		9DFFCD6BE0C648E3CCB43E3C /* ClientConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB7E9335999CFD915822CB5C /* ClientConnection.swift */; };
+		9FA6DB5C3276ED5A47C0BB22 /* LocalFileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AABD576D0E1C19A3671F82 /* LocalFileCache.swift */; };
 		A5A4C748207647666FFFC1A4 /* codex-companion.webp in Resources */ = {isa = PBXBuildFile; fileRef = 7CACFD669C1773520802390B /* codex-companion.webp */; };
 		A8E309A95C79F9EEF128CD5F /* ActivityBreakdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C835178D52C591B9E8112F /* ActivityBreakdownView.swift */; };
 		AB962FC8AC677F98C5207B65 /* ActivityHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E2C5142EBEF141F2AF118F1 /* ActivityHistory.swift */; };
@@ -220,6 +222,7 @@
 		5A9D75E40A438A74B867D596 /* WidgetGallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGallery.swift; sourceTree = "<group>"; };
 		60DD1BEF26973268693B8C8F /* ClaudeUsageProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsageProbe.swift; sourceTree = "<group>"; };
 		610EFD53BF3ED53F5C888827 /* SessionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsView.swift; sourceTree = "<group>"; };
+		61AABD576D0E1C19A3671F82 /* LocalFileCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileCache.swift; sourceTree = "<group>"; };
 		6290C96A3D13D1C0CCC8BC0D /* LanguageSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSettings.swift; sourceTree = "<group>"; };
 		668E02005ED9C3805B24ADE9 /* KeepAwake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeepAwake.swift; sourceTree = "<group>"; };
 		6B87AC65E3B409A5D37C1618 /* Sparkle-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Sparkle-LICENSE.txt"; sourceTree = "<group>"; };
@@ -459,6 +462,7 @@
 				CADF83CC57129611C1C804DE /* CodexActivity.swift */,
 				C6F347E746A7EECA338C458D /* CodexSessionMetadata.swift */,
 				2EF92305C06B3588082CEBBB /* ConnectionDiagnostics.swift */,
+				61AABD576D0E1C19A3671F82 /* LocalFileCache.swift */,
 				9CF6A94B42D74A5F7D2F3DA0 /* Localization.swift */,
 				D379FA5853BA206635A22F4A /* Models.swift */,
 				C1FA5841D55DED57AE136F8E /* Providers.swift */,
@@ -766,6 +770,7 @@
 				472A382AB543C7A19DCA000E /* InterfaceMetrics.swift in Sources */,
 				487CF54B8A87E89E7E6E2F32 /* KeepAwake.swift in Sources */,
 				BE50FE705BCF8CF03BFA78A6 /* LanguageSettings.swift in Sources */,
+				2FD83E0E2F2B455B9C4811CF /* LocalFileCache.swift in Sources */,
 				F84A74A34D7279A7873EC80D /* Localization.swift in Sources */,
 				D576573DD7E3143C44C9C57B /* Main.swift in Sources */,
 				0C89D112F83A0F9C899A07E7 /* MenuBarAppearance.swift in Sources */,
@@ -816,6 +821,7 @@
 				ED74BF67CAEA961153479E70 /* CodexActivity.swift in Sources */,
 				C1E545F3B0B2DEACA4C10AF9 /* CodexSessionMetadata.swift in Sources */,
 				D3A0F260F9CB627B2C80C482 /* ConnectionDiagnostics.swift in Sources */,
+				9FA6DB5C3276ED5A47C0BB22 /* LocalFileCache.swift in Sources */,
 				34F33477BFFB5F3C427271BD /* Localization.swift in Sources */,
 				7197DCE29EA9C1E69DA3CC10 /* Models.swift in Sources */,
 				31CED72C089375CB06046B7F /* Providers.swift in Sources */,

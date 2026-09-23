@@ -38,7 +38,7 @@ Optional automatic hiding is configured in Settings. It applies to inactive sess
 
 ## Return to a task
 
-Click a row or use its open action. Lunavect uses the originating client when it can identify one. Terminal sessions need the CLI and project folder to remain available; their resume command is opened through Terminal. Other clients depend on the navigation route that client supports.
+Click a row or use its open action. Lunavect uses the originating client when it can identify one. A live session in Terminal or iTerm2 is brought to the front in its own tab; macOS asks once for permission to control that terminal. The tab is found by the terminal device recorded by the session's hooks, or for a terminal session without one, by a running Claude or Codex process in the same project folder. A terminal app that is not running is not launched, and Desktop or editor sessions are never matched to a CLI in the same folder. A finished terminal session needs the CLI and project folder to remain available; its resume command is opened through Terminal. Other clients depend on the navigation route that client supports.
 
 Opening an application is not always the same as returning to the exact conversation. If the client is missing, the project was moved or the route is unsupported, use the row's project or resume action when available. Include the client and its version in reports about navigation problems.
 
@@ -73,6 +73,12 @@ An event normally becomes stale after 120 seconds without fresh evidence. For an
 For a selected CLI that starts through a script, a successful local app-server request can establish the native executable behind that launcher. This in-memory association expires when either executable changes. Interpreter wrappers must have one unambiguous child chain; an inaccessible or ambiguous chain cannot establish activity. The exact writable-log requirement still applies.
 
 Checks are batched as events approach the freshness limit. A result lasts ten seconds and stays separate from the event timestamp and response start time. Completion and cancellation take priority; inaccessible process information falls back to the ordinary freshness rule. Process arguments, environment and memory are not read. This can preserve a long-running response without new log entries, but cannot distinguish thinking from a stuck process or permission waiting without a separate event.
+
+## Tool-launched Claude runtimes
+
+A Claude CLI started through a command inside a Claude or Codex task can appear in the Claude catalog as an interactive session even though it has no separate Desktop conversation. Lunavect checks bounded native process ancestry: a Claude runtime, an intervening command process and another agent runtime establish an internal launch. These records stay out of rows, counters, notifications, activity observations and hidden-session history. The check reads executable paths and parent PIDs, not arguments, environment or conversation content.
+
+Direct runtime/supervisor chains are ambiguous. Explicitly declared Claude background tasks remain independent and override ancestry inferred by a hook. Missing or truncated ancestry does not invent an origin or erase a previously established internal launch. A later confirmed independent launch can restore the same Claude session. Unknown executable wrappers may remain unclassified; this is not comprehensive detection of every possible launcher.
 
 ## If the list looks wrong
 

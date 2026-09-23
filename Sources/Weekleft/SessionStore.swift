@@ -1,3 +1,4 @@
+import OSLog
 import AppKit
 import SwiftUI
 import Combine
@@ -137,9 +138,9 @@ import WeekleftCore
     private var arrangementLoadError: Error?
     private var visibility: SessionVisibility?
     private var allSessions: [AgentSession] = []
-    // Origin is immutable for a thread ID. A later incomplete catalog or locked
-    // metadata database cannot promote a previously confirmed child to a user task.
-    private var codexSubagentIDs: Set<String> = []
+    // Missing origin never promotes a known internal task. Claude may explicitly
+    // resume independently; Codex subagent origin is immutable for its thread ID.
+    private var internalSessionIDs: Set<String> = []
     private var undoDismissTask: Task<Void, Never>?
     private let undoDelay: Duration
     init(directory: URL? = nil, undoDelay: Duration = .seconds(4), defaults: UserDefaults? = nil,
@@ -173,8 +174,8 @@ import WeekleftCore
             // Include old events outside the merge freshness window when repairing history.
             let initial = self.dependencies.initialEvents(base)
             try visibility?.removeUnstartedClaudeLifecycles(initial)
-            codexSubagentIDs.formUnion(initial.filter { $0.isCodexSubagent == true }.map(\.id))
-            try removeHiddenCodexSubagents()
+            internalSessionIDs.formUnion(initial.filter { $0.isCodexSubagent == true || $0.isNestedClaudeSession == true }.map(\.id))
+            try removeHiddenInternalSessions()
             hiddenCount = visibility?.hidden.count ?? 0
             hiddenIDs = (visibility?.hidden ?? []).sorted()
             hiddenSessions = visibility?.summaries ?? []
@@ -565,15 +566,16 @@ import WeekleftCore
 
     func acceptSessions(_ rows: [AgentSession], now: Date? = nil) {
         let now = now ?? self.now()
-        codexSubagentIDs.formUnion(rows.filter { $0.isCodexSubagent == true }.map(\.id))
+        internalSessionIDs.formUnion(rows.filter { $0.isCodexSubagent == true || $0.isNestedClaudeSession == true }.map(\.id))
+        internalSessionIDs.subtract(rows.filter { $0.provider == .claude && $0.isNestedClaudeSession == false }.map(\.id))
         // Starting a CLI to inspect its UI is not a task. Include it only once
         // a prompt, tool, response or request establishes actual task activity.
-        let taskRows = rows.filter { providers.contains($0.provider) && !$0.isUnstartedClaudeLifecycle && !codexSubagentIDs.contains($0.id) }
+        let taskRows = rows.filter { providers.contains($0.provider) && !$0.isUnstartedClaudeLifecycle && !internalSessionIDs.contains($0.id) }
         // Keep history available to the panel without reporting retained state
         // as a current observation to activity tracking or Keep Awake.
         onObservation?(taskRows.filter { $0.catalogHistory != true }, now)
         do {
-            try removeHiddenCodexSubagents()
+            try removeHiddenInternalSessions()
             if organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
                 try visibility?.pruneRemoved(now: now)
                 var next = arrangement
@@ -590,8 +592,8 @@ import WeekleftCore
         allSessions = taskRows; publishVisible(now: now)
         observations.send((sessions, now))
     }
-    private func removeHiddenCodexSubagents() throws {
-        let hidden = codexSubagentIDs.intersection(visibility?.hidden ?? [])
+    private func removeHiddenInternalSessions() throws {
+        let hidden = internalSessionIDs.intersection(visibility?.hidden ?? [])
         if !hidden.isEmpty { try visibility?.removeHidden(hidden, now: now()) }
     }
     private func hideInactiveSessions(_ rows: [AgentSession], now: Date) throws {
@@ -680,7 +682,10 @@ import WeekleftCore
 }
 
 enum SessionNavigation {
-    @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver()) async throws {
+    /// `focus` is the only step that scripts another application; tests replace it.
+    @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver(),
+                                focus: @MainActor (AgentSession) -> Bool = { focusTerminal($0) }) async throws {
+        if session.terminalFocusCandidate, focus(session) { return }
         if session.client == .terminal || session.client == .background {
             let script = try session.terminalScript(resolver: resolver)
             var directoryExists: ObjCBool = false
@@ -706,6 +711,23 @@ enum SessionNavigation {
         let clientName = session.client == .vscode ? "VS Code" : session.provider.title
         guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { throw SessionOpeningError.missingClient(clientName) }
         guard NSWorkspace.shared.open(url) else { throw SessionOpeningError.launchFailed(session.client) }
+    }
+    /// A live CLI session stays where it runs: bring its own tab to the front.
+    @MainActor static func focusTerminal(_ session: AgentSession) -> Bool {
+        let log = Logger(subsystem: "com.weekleft.app", category: "navigation")
+        // Scripting a terminal that is not running would launch it with no tab to show.
+        guard let target = TerminalLocation.focusTarget(for: session),
+              let bundle = TerminalLocation.bundleIdentifier(forApp: target.app),
+              !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty,
+              let source = TerminalLocation.focusScript(tty: target.tty, app: target.app),
+              let script = NSAppleScript(source: source) else {
+            log.notice("terminal focus unavailable: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
+            return false
+        }
+        var error: NSDictionary?
+        let focused = script.executeAndReturnError(&error).booleanValue && error == nil
+        log.notice("terminal focus \(focused ? "succeeded" : "failed", privacy: .public) \(error?.description ?? "", privacy: .public)")
+        return focused
     }
     @MainActor static func copy(_ text: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)

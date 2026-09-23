@@ -28,51 +28,80 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
 
 /// A version/path change repairs registration once. Failures remain retryable
 /// on the next launch; a failed command is never recorded as successful.
+/// Every launch of the installed host also reasserts its registration twice.
+/// Restarting the extension (above) or an installer/updater removing the replaced
+/// copy can leave the widget host unable to resolve the extension: it then shows
+/// placeholders although timelines succeed, until the next registration change.
+/// The first check follows the restart closely; the second covers late cleanup.
 @MainActor final class WidgetRegistration {
     static let stampKey = "widgetRegistrationStamp"
+    static let checkDelays: [Duration] = [.seconds(5), .seconds(25)]
     private let defaults: UserDefaults
     private let target: WidgetRegistrationTarget?
     private let repair: @Sendable (WidgetRegistrationTarget) async -> Bool
+    private let reassert: @Sendable (WidgetRegistrationTarget) async -> Bool
     private let reload: () -> Void
     private let pause: () async throws -> Void
+    private let settle: (Duration) async throws -> Void
     private var task: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.weekleft.app", category: "widget-registration")
 
     init(defaults: UserDefaults, target: WidgetRegistrationTarget? = .installed(),
          repair: @escaping @Sendable (WidgetRegistrationTarget) async -> Bool = { await WidgetRegistrationSystem.repair($0) },
+         reassert: @escaping @Sendable (WidgetRegistrationTarget) async -> Bool = { await WidgetRegistrationSystem.reassert($0) },
          reload: @escaping () -> Void = {
              for kind in ["WeekleftWidget", "LunavectActivityWidget", "LunavectOverviewWidget"] {
                  WidgetCenter.shared.reloadTimelines(ofKind: kind)
              }
-         }, pause: @escaping () async throws -> Void = { try await Task.sleep(for: .seconds(3)) }) {
-        self.defaults = defaults; self.target = target; self.repair = repair; self.reload = reload; self.pause = pause
+         }, pause: @escaping () async throws -> Void = { try await Task.sleep(for: .seconds(3)) },
+         settle: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.defaults = defaults; self.target = target; self.repair = repair; self.reassert = reassert
+        self.reload = reload; self.pause = pause; self.settle = settle
     }
 
     func start() {
-        guard task == nil, let target, defaults.string(forKey: Self.stampKey) != target.stamp else { return }
+        guard task == nil, let target else { return }
+        let needsRepair = defaults.string(forKey: Self.stampKey) != target.stamp
         task = Task { [weak self] in
             guard let self else { return }
             defer { self.task = nil }
-            for attempt in 0..<2 {
-                if attempt > 0 {
-                    do { try await self.pause() } catch { return }
-                }
+            if needsRepair {
+                guard await self.repairOnce(target), !Task.isCancelled else { return }
+            }
+            for delay in Self.checkDelays {
+                do { try await self.settle(delay) } catch { return }
                 guard !Task.isCancelled else { return }
-                let repaired = await self.repair(target)
-                guard !Task.isCancelled else { return }
-                if repaired {
-                    self.defaults.set(target.stamp, forKey: Self.stampKey)
-                    self.logger.notice("Widget registration refreshed for build \(target.version, privacy: .public)")
-                    self.reload()
-                    // LaunchServices propagation is asynchronous. Request again
-                    // after it settles, without restarting the extension again.
-                    do { try await self.pause() } catch { return }
-                    if !Task.isCancelled { self.reload() }
+                // Registration only; the running extension keeps serving timelines.
+                guard await self.reassert(target), !Task.isCancelled else {
+                    if !Task.isCancelled { self.logger.error("Widget registration check failed; will retry on next launch") }
                     return
                 }
+                self.reload()
             }
-            self.logger.error("Widget registration failed; will retry on next launch")
         }
+    }
+
+    private func repairOnce(_ target: WidgetRegistrationTarget) async -> Bool {
+        for attempt in 0..<2 {
+            if attempt > 0 {
+                do { try await pause() } catch { return false }
+            }
+            guard !Task.isCancelled else { return false }
+            let repaired = await repair(target)
+            guard !Task.isCancelled else { return false }
+            if repaired {
+                defaults.set(target.stamp, forKey: Self.stampKey)
+                logger.notice("Widget registration refreshed for build \(target.version, privacy: .public)")
+                reload()
+                // LaunchServices propagation is asynchronous. Request again
+                // after it settles, without restarting the extension again.
+                do { try await pause() } catch { return false }
+                if !Task.isCancelled { reload() }
+                return true
+            }
+        }
+        logger.error("Widget registration failed; will retry on next launch")
+        return false
     }
 
     func stop() { task?.cancel() }
@@ -81,12 +110,17 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
 
 enum WidgetRegistrationSystem {
     static func repair(_ target: WidgetRegistrationTarget) async -> Bool {
-        let worker = Task.detached(priority: .utility) { repairSynchronously(target) }
+        let worker = Task.detached(priority: .utility) { !Task.isCancelled && stopExtension(target) && register(target) }
         return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
     }
 
-    private static func repairSynchronously(_ target: WidgetRegistrationTarget) -> Bool {
-        guard !Task.isCancelled, stopExtension(target) else { return false }
+    /// Re-register the host and its extension without restarting the extension.
+    static func reassert(_ target: WidgetRegistrationTarget) async -> Bool {
+        let worker = Task.detached(priority: .utility) { register(target) }
+        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+    }
+
+    private static func register(_ target: WidgetRegistrationTarget) -> Bool {
         guard !Task.isCancelled, LSRegisterURL(target.app as CFURL, true) == noErr else { return false }
         // Use argv, never a shell; register just the current embedded appex.
         let process = Process(), finished = DispatchSemaphore(value: 0)

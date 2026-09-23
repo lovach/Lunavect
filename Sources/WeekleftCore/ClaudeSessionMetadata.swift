@@ -2,17 +2,23 @@ import Foundation
 
 /// Desktop's local session metadata, read only. No messages, settings or credentials decoded.
 public enum ClaudeSessionMetadata {
-    private struct Entry: Decodable {
+    private struct Entry: Decodable, Sendable {
         var cliSessionId: String?
         var title: String?
         var isArchived: Bool?
     }
     public static func title(from data: Data, sessionID: String) -> String? {
-        guard data.count < 2_000_000, let entry = try? JSONDecoder().decode(Entry.self, from: data),
-              entry.cliSessionId == sessionID, entry.isArchived != true else { return nil }
+        guard data.count < 2_000_000, let entry = try? JSONDecoder().decode(Entry.self, from: data) else { return nil }
+        return title(from: entry, sessionID: sessionID)
+    }
+    private static func title(from entry: Entry, sessionID: String) -> String? {
+        guard entry.cliSessionId == sessionID, entry.isArchived != true else { return nil }
         let title = SessionParser.text(entry.title)
         return title.isEmpty ? nil : title
     }
+    // Desktop files can reach hundreds of kilobytes and are re-read on every
+    // title poll. Decode each file once per identity instead.
+    private static let decodedEntries = LocalFileCache<Entry>()
     public static func titles(for ids: Set<String>, at root: URL? = nil) -> [String: String] {
         records(for: ids, at: root).compactMapValues { $0.title.isEmpty ? nil : $0.title }
     }
@@ -30,15 +36,20 @@ public enum ClaudeSessionMetadata {
             return values.isDirectory == true && values.isSymbolicLink != true
         }
         var result: [String: (Record, Date)] = [:]
+        var visited: [String] = []
+        defer { decodedEntries.retain(visited) }
         // Exactly account/workspace/local_*.json; never recurse into transcripts or browser storage.
         for account in children(base).filter(directory) {
             for workspace in children(account).filter(directory) {
                 for file in children(workspace) where file.lastPathComponent.hasPrefix("local_") && file.pathExtension == "json" {
+                    visited.append(file.path)
                     guard let info = try? file.resourceValues(forKeys: keys), info.isSymbolicLink != true,
-                          (info.fileSize ?? Int.max) < 2_000_000, let data = try? Data(contentsOf: file),
-                          let entry = try? JSONDecoder().decode(Entry.self, from: data),
+                          (info.fileSize ?? Int.max) < 2_000_000, let identity = LocalFileIdentity(path: file.path),
+                          let entry = decodedEntries.value(for: file.path, identity: identity, decode: {
+                              (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Entry.self, from: $0) }
+                          }),
                           let id = entry.cliSessionId, ids.contains(id), entry.isArchived != true else { continue }
-                    let title = self.title(from: data, sessionID: id) ?? ""
+                    let title = self.title(from: entry, sessionID: id) ?? ""
                     let modified = info.contentModificationDate ?? .distantPast
                     let desktopID = file.deletingPathExtension().lastPathComponent
                     // The newest file owns the route; a name from another copy is kept until a new one arrives.

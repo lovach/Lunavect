@@ -76,7 +76,7 @@ public enum SessionSources {
     public static func claude(path: String) async throws -> [AgentSession] {
         try await SessionProcess.detached {
             let data = try SessionProcess.run(path: path, arguments: ["agents", "--json", "--all"])
-            return try SessionParser.claude(data)
+            return try SessionParser.claude(data, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) })
         }
     }
     public static func codex(path: String) async throws -> [AgentSession] {
@@ -488,6 +488,58 @@ enum SessionProcess {
             }
         }
     }
+    struct RuntimeProcess {
+        let parentPID: Int32
+        let executable: String
+    }
+    static func runtimeProcess(_ pid: Int32) -> RuntimeProcess? {
+        guard pid > 1 else { return nil }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout.size(ofValue: info))
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return RuntimeProcess(parentPID: Int32(info.pbi_ppid),
+                              executable: String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self))
+    }
+    /// The agent runtime an executable path belongs to. The native Claude installer
+    /// runs versioned binaries; an interpreter such as node identifies nothing.
+    static func runtimeProvider(ofExecutable path: String) -> ProviderID? {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        if name == "claude" { return .claude }
+        if path.contains("/claude/versions/"),
+           name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"#, options: .regularExpression) != nil { return .claude }
+        if name == "codex" { return .codex }
+        return nil
+    }
+    /// Only executable paths and parent PIDs: no commands, prompts or foreign environment.
+    /// Missing/cyclic/truncated ancestry is unknown, not evidence of an independent task.
+    static func nestedClaudeRuntime(startPID: Int32,
+                                    read: (Int32) -> RuntimeProcess? = runtimeProcess) -> Bool? {
+        let runtime = runtimeProvider(ofExecutable:)
+        var pid = startPID, seen = Set<Int32>(), foundClaude = false, foundLaunchHost = false, crossedCommand = false
+        for _ in 0..<16 {
+            guard pid > 1, seen.insert(pid).inserted, let process = read(pid) else { return nil }
+            if let provider = runtime(process.executable) {
+                // Native background jobs have direct runtime/supervisor chains.
+                // A command process between runtimes distinguishes tool-launched CLIs.
+                if foundClaude { return crossedCommand ? true : nil }
+                guard provider == .claude else { return nil }
+                foundClaude = true
+            } else if foundClaude {
+                crossedCommand = true
+            }
+            if foundClaude, ["/Claude.app/", "/Codex.app/", "/ChatGPT.app/", "/Terminal.app/", "/iTerm.app/", "/Visual Studio Code.app/"].contains(where: process.executable.contains) {
+                foundLaunchHost = true
+            }
+            // An orphaned child can be reparented to launchd when its owner exits.
+            // That is not evidence of a new independent launch.
+            if process.parentPID <= 1 { return foundClaude && foundLaunchHost ? false : nil }
+            pid = process.parentPID
+        }
+        return nil
+    }
+
     static func client(parentPID: Int32, entrypoint: String, terminal: String) -> SessionClient {
         // Query executable paths and parent PIDs directly. Never spawn ps, read
         // arguments, or inspect environment variables of another process.
@@ -498,7 +550,10 @@ enum SessionProcess {
             var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
             guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
             let name = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
-            if ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
+            // A CLI binary bundled in an app's Resources (for example ChatGPT.app's
+            // codex) says nothing about the host; its parent decides.
+            let bundledCLI = name.contains("/Contents/Resources/")
+            if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
             if name.contains("/Visual Studio Code.app/") { return .vscode }
             if name.contains("/Terminal.app/") || name.contains("/iTerm.app/") { return .terminal }
             var info = proc_bsdinfo()
@@ -511,6 +566,32 @@ enum SessionProcess {
         if terminal.lowercased().contains("vscode") { return .vscode }
         if !terminal.isEmpty || entrypoint == "cli" { return .terminal }
         return .unknown
+    }
+    /// The controlling terminal device of the client process and the terminal
+    /// application that owns it. Reads only process metadata, never arguments or environment.
+    static func terminalLocation(parentPID: Int32, termProgram: String) -> (tty: String, app: String)? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout.size(ofValue: info))
+        guard proc_pidinfo(parentPID, PROC_PIDTBSDINFO, 0, &info, size) == size, info.e_tdev != UInt32.max,
+              let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { return nil }
+        let tty = "/dev/" + String(cString: name)
+        guard TerminalLocation.valid(tty) else { return nil }
+        // Terminal starts shells through a root-owned login process, so the
+        // ancestor walk may stop early; the terminal's own marker comes first.
+        if termProgram == "Apple_Terminal" { return (tty, "Terminal") }
+        if termProgram == "iTerm.app" { return (tty, "iTerm2") }
+        var pid = parentPID
+        for _ in 0..<16 {
+            var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
+            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
+            let path = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+            if path.contains("/Terminal.app/") { return (tty, "Terminal") }
+            if path.contains("/iTerm.app/") { return (tty, "iTerm2") }
+            var parent = proc_bsdinfo()
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &parent, size) == size, parent.pbi_ppid > 1, parent.pbi_ppid != UInt32(pid) else { break }
+            pid = Int32(parent.pbi_ppid)
+        }
+        return nil
     }
 }
 
@@ -525,7 +606,9 @@ public extension SessionHooks {
         }
         let env = ProcessInfo.processInfo.environment
         let client = SessionProcess.client(parentPID: getppid(), entrypoint: env["CLAUDE_CODE_ENTRYPOINT"] ?? "", terminal: env["TERM_PROGRAM"] ?? "")
-        try? capture(data, provider: provider, client: client)
+        let nested = provider == .claude ? SessionProcess.nestedClaudeRuntime(startPID: getppid()) : nil
+        let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
+        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal)
         print("{}")
     }
 }

@@ -183,7 +183,7 @@ public enum SessionHooks {
     public static func secureWrite(_ data: Data, to url: URL) throws {
         try LocalStateRecovery.write(data, to: url)
     }
-    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown) throws {
+    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil) throws {
         let now = Date()
         let initial = try SessionRecord.event(data, provider: provider, previous: nil, now: now, client: client)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -193,18 +193,28 @@ public enum SessionHooks {
         defer { flock(lock, LOCK_UN); close(lock) }
         guard flock(lock, LOCK_EX) == 0 else { throw SessionError.unavailable }
         let previous = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(SessionRecord.self, from: $0) }
-        let record = try SessionRecord.event(data, provider: provider, previous: previous, now: now, client: client)
+        var record = try SessionRecord.event(data, provider: provider, previous: previous, now: now, client: client)
+        if provider == .claude, let nestedClaudeRuntime { record.session.isNestedClaudeSession = nestedClaudeRuntime }
+        if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
         try secureWrite(JSONEncoder().encode(record), to: file)
     }
     public static func load(at directory: URL = directory) -> [AgentSession] {
         _ = try? prune(at: directory)
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey, .isSymbolicLinkKey])) ?? []
-        return files.filter { $0.pathExtension == "json" }.compactMap { url in
-            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey]), values.isSymbolicLink != true, (values.fileSize ?? 0) < 65536,
-                  let data = try? Data(contentsOf: url), let record = try? JSONDecoder().decode(SessionRecord.self, from: data), SessionParser.validID(record.session.sessionID) else { return nil }
-            return record.session
+        let records = files.filter { $0.pathExtension == "json" }
+        // Polled every one to five seconds. Captures replace a record by rename,
+        // so an unchanged identity/size/time means the decoded record is unchanged.
+        loadedRecords.retain(records.map(\.path))
+        return records.compactMap { url in
+            guard let identity = LocalFileIdentity(path: url.path), identity.size < 65536 else { return nil }
+            return loadedRecords.value(for: url.path, identity: identity) {
+                guard let data = try? Data(contentsOf: url), let record = try? JSONDecoder().decode(SessionRecord.self, from: data),
+                      SessionParser.validID(record.session.sessionID) else { return nil }
+                return record.session
+            }
         }
     }
+    private static let loadedRecords = LocalFileCache<AgentSession>()
     /// Lifecycle observations expire after a day. Clean only this monitor's
     /// records, under the same lock as capture; never touch provider transcripts.
     @discardableResult public static func prune(at directory: URL = directory, now: Date = Date()) throws -> Int {

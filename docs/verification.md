@@ -4,6 +4,28 @@ The current public release is **Lunavect 0.1.6 (165)**. These records distinguis
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.6)
 
+## Widget registration, background CPU and terminal focus — September 23, 2026
+
+Both existing desktop widgets showed placeholders for about four hours after local build 176 was installed, while the extension reported successful timelines and shared data stayed fresh. NotificationCenter rejected each archive with `WidgetArchiver.ValidationError.bundleStubNotSupported` / `Bundle could not be looked up`. The app's one-time launch repair had already run; no later registration change occurred. Re-registering the installed host and its extension restored both widgets to `LIVE` within a second. On a later local launch the same failure followed the launch repair's extension restart and cleared at the next registration change. Each launch now re-confirms registration after 5 and 30 seconds without restarting the extension, and `install.sh` retires the previous copy before its final registration. After installing build 178, both widgets stayed `LIVE` through installation, launch repair and both checks, with every archive load successful. An actual Sparkle update cycle was not exercised.
+
+Build 176 used 17 min 50 s of CPU in 4 h (7.5% average, including startup). Samples attributed most of it to per-character `CharacterSet` construction in session ID validation, re-decoding hook records and Claude Desktop metadata on every poll, opening the Codex state database on every poll and resolving every process path. Build 178 averaged 2.9% over 5 min of steady state with an active session and the animated menu-bar character; the earlier hot frames no longer appear and the remainder is mainly menu-bar animation and polling. The two measurements differ in duration and conditions; this is not a battery claim.
+
+The unreleased terminal-focus path no longer searches running processes for Desktop, editor or background sessions, no longer treats a `node` process in the project folder as Claude, never launches a terminal that is not running and rejects device names with a trailing newline. Navigation tests inject focus instead of scanning the test machine's processes.
+
+The Swift suite passed 670 tests with 55 optional skips and no failures; 84 Python tests passed. New regressions cover cached-file invalidation, late Codex thread records, installer registration order (fails against the previous script), repeated registration checks and terminal-focus inputs. Builds 177 and 178 are local signed updates, not notarized or published. Public 0.1.6 remains build 165.
+
+## Local tool-launched Claude session filtering — September 22, 2026
+
+A live extra catalog row was traced to a print-mode Claude CLI launched by a shell inside an existing Claude Desktop task. The catalog labelled it interactive; its ancestry still reached Desktop, so the previous adapter presented it as an independent conversation. The exact identity of the earlier row in the owner's screenshot was not recovered. The observed equivalent establishes this mechanism, not every earlier transient report.
+
+The development filter requires a command process between agent runtimes. Direct runtime/supervisor chains stay unknown, and explicitly declared background tasks remain independent even when a hook reports nested ancestry. This distinction was added after an intermediate live probe incorrectly classified supervised background jobs. The final build preserved all 13 background records in the sampled catalog, including retained history; this is not a count of active tasks. Known internal origins survive missing catalog/hook evidence; an explicit independent resume is allowed.
+
+The focused session, hook, visibility, lifecycle and efficiency suite passed 52 tests with no failures. After adding a background-merge assertion, that test passed again. Coverage includes an actual native parent/command/child process fixture, independent Desktop/Terminal launches, missing/orphan/cyclic ancestry, catalog gaps, counters, observations and independent resume. The universal Release archive and Developer ID export passed strict signatures, product resources, App Group, headless hook and helper-policy checks.
+
+Local 0.1.6 build 167 was installed. Its loaded native accessibility tree showed one working task and zero waiting; the finished Claude task subsequently followed the existing automatic-hide preference. A screenshot attempt lost the transient popover, so visual inspection was not completed. Widget preferences were identical; defaults changed only helper-build registration, widget-registration stamp and cached automatic menu icon. NotificationCenter rendered both existing widgets as LIVE at 18:22 without resetting system services or placements.
+
+Build 167 is a local signed update, not notarized or published. Public 0.1.6 remains build 165. The full release check was not run for this local change, and long-term absence of all possible phantom sessions is not established. Private diagnostic evidence is retained outside Git.
+
 ## 0.1.6 release checks — September 22, 2026
 
 | Area | Result |

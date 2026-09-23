@@ -6,6 +6,43 @@ import Combine
 @MainActor final class SessionStoreLifecycleTests: XCTestCase {
     private let instant = Date(timeIntervalSince1970: 1_800_000_000)
 
+    func testNestedClaudeWaitStaysExcludedAcrossCatalogGapsAndAllowsIndependentResume() async throws {
+        var clock = instant
+        var child = session("child"); child.phase = .input; child.provider = .claude; child.isNestedClaudeSession = true
+        var parent = session("parent"), peer = session("peer"); parent.provider = .claude; peer.provider = .claude
+        var catalog = [parent, peer, child]
+        var hook = child; hook.isNestedClaudeSession = nil; hook.evidence = .hook
+        let root = try directory()
+        var visibility = try SessionVisibility(url: root.appendingPathComponent("hidden-sessions.json"), now: clock)
+        try visibility.hide(child, now: clock.addingTimeInterval(-1))
+        try visibility.hide(peer, now: clock)
+        var observed: [[String]] = [], published: [[String]] = []
+        let store = try fixture(.init(catalog: { _, _, _, _ in (catalog, false) }, events: { _, _, _ in [hook] }), directory: root, now: { clock })
+        defer { store.stop() }
+        store.useProviders([.claude])
+        store.autoHideMinutes = 5
+        store.onObservation = { rows, _ in observed.append(rows.map(\.sessionID)) }
+        let subscriber = store.observations.sink { published.append($0.rows.map(\.sessionID)) }
+        defer { subscriber.cancel() }
+        await store.refresh()
+        XCTAssertEqual(store.currentSessions.map(\.sessionID), ["parent"])
+        XCTAssertEqual(store.activeCount, 1)
+        XCTAssertEqual(store.hiddenIDs, [peer.id], "Repair only internal-agent history, preserving a deliberately hidden peer")
+        clock += 1
+        catalog = [parent, peer]
+        hook.observedAt = clock; hook.updatedAt = clock
+        await store.refresh()
+        XCTAssertEqual(store.currentSessions.map(\.sessionID), ["parent"], "A temporarily absent catalog cannot reintroduce a known child's hook")
+        XCTAssertTrue(observed.allSatisfy { !$0.contains("child") }, "Internal waits cannot reach activity tracking or Keep Awake")
+        XCTAssertTrue(published.allSatisfy { !$0.contains("child") }, "Internal waits cannot trigger user notifications")
+        XCTAssertEqual(store.hiddenIDs, [peer.id])
+        child.isNestedClaudeSession = false; child.phase = .running
+        clock += 1; child.observedAt = clock; child.updatedAt = clock
+        child.evidence = .hook; child.turnStartedAt = clock; child.hasTaskActivity = true
+        store.acceptSessions([parent, child], now: clock)
+        XCTAssertTrue(store.currentSessions.contains { $0.sessionID == "child" }, "An explicitly independent resume becomes visible")
+    }
+
     func testSubagentWaitDoesNotReachPanelCountsObservationsOrHiddenHistory() async throws {
         var clock = instant
         var child = session("child"); child.phase = .input; child.isCodexSubagent = true

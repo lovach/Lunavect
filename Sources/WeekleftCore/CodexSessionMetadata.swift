@@ -10,14 +10,48 @@ public enum CodexSessionMetadata {
             "SELECT title FROM threads WHERE id = ? LIMIT 1"
         ]).mapValues { SessionParser.codexTitle($0) }.filter { !$0.value.isEmpty }
     }
-    public static func subagentIDs(for ids: Set<String>, at home: URL? = nil) -> Set<String> {
-        let sources = values(for: ids, at: home, queries: ["SELECT source FROM threads WHERE id = ? LIMIT 1"])
-        return Set(sources.compactMap { id, source in
-            guard let decoded = try? JSONSerialization.jsonObject(with: Data(source.utf8)),
-                  SessionParser.codexSubagent(source: decoded) else { return nil }
-            return id
-        })
+    public static func subagentIDs(for ids: Set<String>, at home: URL? = nil, now: Date = Date()) -> Set<String> {
+        // A thread's recorded source never changes, so a classification read once
+        // is reused. Missing IDs are queried again after a short pause: the
+        // thread may be recorded later, and polls run every one to five seconds.
+        let (known, recentlyMissing) = classifications.lookup(ids, home: home, now: now)
+        let unknown = ids.subtracting(known.keys).subtracting(recentlyMissing)
+        var result = Set(known.filter(\.value).keys)
+        guard !unknown.isEmpty else { return result }
+        let sources = values(for: unknown, at: home, queries: ["SELECT source FROM threads WHERE id = ? LIMIT 1"])
+        var found: [String: Bool] = [:]
+        for (id, source) in sources {
+            let decoded = try? JSONSerialization.jsonObject(with: Data(source.utf8))
+            let subagent = decoded.map { SessionParser.codexSubagent(source: $0) } ?? false
+            found[id] = subagent
+            if subagent { result.insert(id) }
+        }
+        classifications.store(found, missing: unknown.subtracting(found.keys), home: home, now: now)
+        return result
     }
+    private final class Classifications: @unchecked Sendable {
+        static let missRetry: TimeInterval = 30
+        private let lock = NSLock()
+        private var home: URL??
+        private var values: [String: Bool] = [:]
+        private var misses: [String: Date] = [:]
+        func lookup(_ ids: Set<String>, home: URL?, now: Date) -> ([String: Bool], Set<String>) {
+            lock.lock(); defer { lock.unlock() }
+            guard self.home == .some(home) else { return ([:], []) }
+            let missing = misses.filter { ids.contains($0.key) && now.timeIntervalSince($0.value) >= 0 && now.timeIntervalSince($0.value) < Self.missRetry }
+            return (values.filter { ids.contains($0.key) }, Set(missing.keys))
+        }
+        func store(_ found: [String: Bool], missing: Set<String>, home: URL?, now: Date) {
+            lock.lock(); defer { lock.unlock() }
+            if self.home != .some(home) { self.home = .some(home); values = [:]; misses = [:] }
+            if values.count + found.count > 4096 { values = [:] }
+            values.merge(found) { _, new in new }
+            for id in found.keys { misses.removeValue(forKey: id) }
+            if misses.count + missing.count > 4096 { misses = [:] }
+            for id in missing { misses[id] = now }
+        }
+    }
+    private static let classifications = Classifications()
     public static func markingSubagents(in rows: [AgentSession], at home: URL? = nil) -> [AgentSession] {
         let ids = Set(rows.filter { $0.provider == .codex }.map(\.sessionID))
         let children = subagentIDs(for: ids, at: home)

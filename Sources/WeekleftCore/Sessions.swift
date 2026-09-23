@@ -70,6 +70,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// Codex's internal child/review/compaction agents are part of their parent
     /// task, not independently openable user conversations. Nil supports old records.
     public var isCodexSubagent: Bool?
+    /// A Claude runtime launched inside another agent runtime, rather than an independent task.
+    /// Explicit false permits a later independent resume; nil retains known origin.
+    public var isNestedClaudeSession: Bool?
     public var turnStartedAt: Date?
     /// A live Codex process still owns this unfinished turn's writable log.
     /// Kept separate from event time: polling must not rewrite task history.
@@ -81,6 +84,10 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     public var responseRequestsInput: Bool?
     /// Only the lifecycle trigger is retained, never compaction instructions or summary.
     public var compactionTrigger: String?
+    /// Controlling terminal of a CLI session (for example /dev/ttys003) and its
+    /// terminal application, used only to bring the existing tab to the front.
+    public var terminalTTY: String?
+    public var terminalApp: String?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -132,7 +139,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     }
     public func isCurrent(now: Date = Date()) -> Bool {
         let phase = effectivePhase(now: now)
-        return isCodexSubagent != true && !isUnstartedClaudeLifecycle && catalogHistory != true && phase != .unknown && phase != .finished
+        return isCodexSubagent != true && isNestedClaudeSession != true && !isUnstartedClaudeLifecycle && catalogHistory != true && phase != .unknown && phase != .finished
     }
 }
 public enum SessionError: LocalizedError {
@@ -157,8 +164,14 @@ public enum SessionParser {
             source[key].map { !($0 is NSNull) } ?? false
         }
     }
+    /// ASCII letters, digits, `_` and `-`. Called for every record on each poll,
+    /// so compare bytes instead of building a CharacterSet per character.
     public static func validID(_ id: String) -> Bool {
-        !id.isEmpty && id.count <= 128 && id.unicodeScalars.allSatisfy { CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-").contains($0) }
+        let bytes = id.utf8
+        guard !bytes.isEmpty, bytes.count <= 128 else { return false }
+        return bytes.allSatisfy { byte in
+            (0x61...0x7A).contains(byte) || (0x41...0x5A).contains(byte) || (0x30...0x39).contains(byte) || byte == 0x5F || byte == 0x2D
+        }
     }
     static func text(_ value: Any?, fallback: String = "") -> String {
         guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return fallback }
@@ -199,7 +212,7 @@ public enum SessionParser {
             return session
         }
     }
-    public static func claude(_ data: Data, now: Date = Date()) throws -> [AgentSession] {
+    public static func claude(_ data: Data, now: Date = Date(), nestedRuntime: (Int32) -> Bool? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
         return rows.compactMap { row in
             guard let id = (row["sessionId"] ?? row["id"]) as? String, validID(id) else { return nil }
@@ -233,6 +246,12 @@ public enum SessionParser {
                 provider: .claude, sessionID: id, title: text(row["name"]), cwd: cwd,
                 client: background ? .background : .unknown, phase: phase, updatedAt: activity, observedAt: now,
                 resumeID: row["id"] as? String, runtimeConfirmed: phase == .unknown ? false : nil)
+            if background {
+                // Official detached tasks have attach routes and supervisor processes.
+                session.isNestedClaudeSession = false
+            } else if let pid = row["pid"] as? Int, pid > 1, let safePID = Int32(exactly: pid) {
+                session.isNestedClaudeSession = nestedRuntime(safePID)
+            }
             let livePresence = ["busy", "waiting", "idle"].contains(status) || (row["pid"] as? Int ?? 0) > 0
             session.catalogHistory = background && ["blocked", "done", "failed", "stopped"].contains(row["state"] as? String) && !livePresence
             return session
@@ -245,6 +264,14 @@ public enum SessionList {
         for event in events.sorted(by: { $0.observedAt < $1.observedAt }) where now.timeIntervalSince(event.observedAt) < 86400 {
             if var row = result[event.id] {
                 if event.isCodexSubagent == true { row.isCodexSubagent = true }
+                // Only hooks know the terminal a CLI session runs in; catalog rows never carry it.
+                if let tty = event.terminalTTY { row.terminalTTY = tty; row.terminalApp = event.terminalApp }
+                if row.client == .unknown, event.client != .unknown { row.client = event.client }
+                if row.provider == .claude, row.client == .background {
+                    row.isNestedClaudeSession = false
+                } else if row.isNestedClaudeSession == nil || (event.isNestedClaudeSession != nil && event.observedAt > row.observedAt) {
+                    row.isNestedClaudeSession = event.isNestedClaudeSession
+                }
                 let fresh = event.effectivePhase(now: now) != .unknown
                 // Reading a persisted blocked task again does not refresh its
                 // runtime presence or supersede an independently fresh hook.

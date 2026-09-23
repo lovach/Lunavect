@@ -109,6 +109,24 @@ class InstallTransactionTests(unittest.TestCase):
         self.assertEqual(subprocess.check_output(['unzip', '-p', str(archives[0]), 'Weekleft.app/marker'], text=True), 'legacy')
         self.assertEqual(list(self.dest.parent.glob('.Lunavect-install.*')), [])
 
+    def test_previous_copy_is_retired_before_final_registration(self):
+        # Observed on macOS 26: deleting the moved previous bundle after the last
+        # registration left the widget host unable to resolve the extension.
+        result = self.run_install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        trace = [tuple(json.loads(line)) for line in (self.root / 'trace').read_text().splitlines()]
+        registration = [(name, args) for name, args in trace if name in ('lsregister', 'pluginkit')]
+        appex = str(self.dest / 'Contents/PlugIns/LunavectWidget.appex')
+        self.assertEqual(registration[-2:], [('lsregister', ['-f', str(self.dest)]), ('pluginkit', ['-a', appex])])
+        retired = [index for index, (name, args) in enumerate(registration)
+                   if name == 'lsregister' and args[0] == '-u' and args[1].endswith('/Previous.app')]
+        self.assertTrue(retired, registration)
+        self.assertLess(retired[-1], len(registration) - 2)
+        self.assertIn(('pluginkit', ['-r', registration[retired[-1]][1][1] + '/Contents/PlugIns/LunavectWidget.appex']), registration)
+        self.assertTrue((self.root / 'host-registered').exists())
+        self.assertEqual((self.dest / 'marker').read_text(), 'new')
+        self.assertEqual(list(self.dest.parent.glob('.Lunavect-install.*')), [])
+
     def test_failed_first_install_removes_new_bundle_and_link(self):
         import shutil
         shutil.rmtree(self.dest)

@@ -2,6 +2,96 @@ import XCTest
 @testable import WeekleftCore
 
 final class SessionTests: XCTestCase {
+    func testNestedClaudeAncestryDistinguishesIndependentTasksAndMissingEvidence() throws {
+        typealias Node = SessionProcess.RuntimeProcess
+        let paths: [Int32: Node] = [
+            90: Node(parentPID: 80, executable: "/bin/sh"),
+            80: Node(parentPID: 70, executable: "/Users/test/.local/share/claude/versions/2.1.278"),
+            70: Node(parentPID: 60, executable: "/bin/zsh"),
+            60: Node(parentPID: 50, executable: "/Users/test/Library/Application Support/Claude/claude-code/2.1.275/claude.app/Contents/MacOS/claude"),
+            50: Node(parentPID: 40, executable: "/Applications/Claude.app/Contents/Helpers/disclaimer"),
+            40: Node(parentPID: 1, executable: "/Applications/Claude.app/Contents/MacOS/Claude")]
+        XCTAssertEqual(SessionProcess.nestedClaudeRuntime(startPID: 90, read: { paths[$0] }), true)
+        XCTAssertEqual(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { paths[$0] }), true)
+        XCTAssertEqual(SessionProcess.nestedClaudeRuntime(startPID: 60, read: { paths[$0] }), false)
+        var standalone = paths
+        standalone[70] = Node(parentPID: 1, executable: "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal")
+        XCTAssertEqual(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { standalone[$0] }), false)
+        var codex = paths; codex[60] = Node(parentPID: 1, executable: "/Applications/Codex.app/Contents/Resources/codex")
+        XCTAssertEqual(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { codex[$0] }), true)
+        var supervised = paths; supervised[80] = Node(parentPID: 60, executable: "/usr/local/bin/claude")
+        XCTAssertNil(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { supervised[$0] }), "Direct daemon/runtime chains are ambiguous, not command probes")
+        XCTAssertNil(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { _ in Node(parentPID: 1, executable: "/usr/local/bin/claude") }), "An orphan cannot erase known internal origin")
+        XCTAssertNil(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { $0 == 70 ? nil : paths[$0] }))
+        XCTAssertNil(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { _ in Node(parentPID: 80, executable: "/bin/sh") }))
+        XCTAssertNil(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { Node(parentPID: $0 + 1, executable: "/bin/sh") }))
+    }
+
+    func testNestedClaudeRuntimeUsesActualParentProcesses() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("fixture.c"), executable = root.appendingPathComponent("claude")
+        let driver = root.appendingPathComponent("command-driver")
+        let code = #"""
+        #include <unistd.h>
+        #include <stdio.h>
+        #include <stdlib.h>
+        int main(int argc,char **argv) {
+            int level=argc>1?atoi(argv[1]):0;
+            if(level==2){printf("%d\n",getpid());fflush(stdout);}
+            else if(fork()==0){if(level==0)execl(argv[2],argv[2],"1",argv[3],NULL);else execl(argv[2],argv[2],"2",NULL);return 1;}
+            for(;;)pause();
+        }
+        """#
+        try code.write(to: source, atomically: true, encoding: .utf8)
+        let compiler = Process(); compiler.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        compiler.arguments = [source.path, "-o", executable.path]; try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        try FileManager.default.copyItem(at: executable, to: driver)
+        let output = Pipe(), parent = Process(); parent.executableURL = executable
+        parent.arguments = ["0", driver.path, executable.path]; parent.standardOutput = output
+        try parent.run()
+        defer { parent.terminate(); parent.waitUntilExit() }
+        let bytes = output.fileHandleForReading.availableData
+        let child = try XCTUnwrap(Int32(String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { _ = kill(child, SIGTERM) }
+        let command = try XCTUnwrap(SessionProcess.runtimeProcess(child)).parentPID
+        defer { _ = kill(command, SIGTERM) }
+        XCTAssertEqual(SessionProcess.nestedClaudeRuntime(startPID: child), true)
+    }
+
+    func testNestedClaudeCatalogAndHookCannotCreateIndependentRows() throws {
+        let rows: [[String: Any]] = [
+            ["sessionId": "child", "pid": 80, "kind": "interactive", "status": "busy", "name": "command-probe"],
+            ["sessionId": "parent", "pid": 60, "kind": "interactive", "status": "busy"],
+            ["sessionId": "terminal", "pid": 70, "kind": "interactive", "status": "waiting"],
+            ["sessionId": "background", "pid": 50, "kind": "background", "state": "working", "status": "busy"],
+            ["sessionId": "unknown", "pid": 999, "status": "busy"]]
+        let data = try JSONSerialization.data(withJSONObject: rows)
+        let catalog = try SessionParser.claude(data, now: now, nestedRuntime: { $0 == 999 ? nil : ($0 == 80 || $0 == 50) })
+        XCTAssertEqual(Set(catalog.filter { $0.isCurrent(now: now) }.map(\.sessionID)), ["parent", "terminal", "background", "unknown"])
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hook = Data(#"{"session_id":"child","hook_event_name":"PermissionRequest","cwd":"/same-project"}"#.utf8)
+        try SessionHooks.capture(hook, provider: .claude, at: root, client: .desktop, nestedClaudeRuntime: true)
+        try SessionHooks.capture(hook, provider: .claude, at: root, client: .desktop)
+        let events = SessionHooks.load(at: root)
+        XCTAssertEqual(events.first?.isNestedClaudeSession, true, "Later missing ancestry cannot promote a known child")
+        XCTAssertFalse(try XCTUnwrap(events.first).isCurrent())
+        let merged = SessionList.merge(catalog: try SessionParser.claude(data), events: events)
+        XCTAssertFalse(try XCTUnwrap(merged.first { $0.sessionID == "child" }).isCurrent())
+        try SessionHooks.capture(hook, provider: .claude, at: root, client: .terminal, nestedClaudeRuntime: false)
+        XCTAssertEqual(SessionHooks.load(at: root).first?.isNestedClaudeSession, false, "Independent resume is allowed")
+        var backgroundEvent = try XCTUnwrap(events.first)
+        backgroundEvent.sessionID = "background"; backgroundEvent.observedAt = now.addingTimeInterval(1)
+        let background = try XCTUnwrap(SessionList.merge(catalog: catalog, events: [backgroundEvent], now: now.addingTimeInterval(1)).first { $0.sessionID == "background" })
+        XCTAssertEqual(background.isNestedClaudeSession, false, "Explicit detached task identity overrides hook ancestry")
+        XCTAssertTrue(background.isCurrent(now: now.addingTimeInterval(1)))
+        let resumed = try SessionParser.claude(data, nestedRuntime: { _ in false })
+        XCTAssertEqual(SessionList.merge(catalog: resumed, events: events).first { $0.sessionID == "child" }?.isNestedClaudeSession, false)
+    }
+
     func testCodexInternalAgentsNeverBecomeIndependentCurrentSessions() throws {
         let now = Date()
         let sources: [Any] = [

@@ -115,6 +115,18 @@ pluginkit -r "$APP_SOURCE/Contents/PlugIns/LunavectWidget.appex" || true
 "$LSREGISTER" -f "$APP_DEST"
 pluginkit -a "$APP_DEST/Contents/PlugIns/LunavectWidget.appex"
 INSTALL_COMPLETE=true
+# LaunchServices follows the moved previous bundle. Deleting it after the final
+# registration left the widget host unable to resolve the extension, so
+# placeholders stayed until the next registration change. Retire the previous
+# copy explicitly, then register the installed host as the very last change.
+if [ -d "$STAGING_DIR/Previous.app" ]; then
+  pluginkit -r "$STAGING_DIR/Previous.app/Contents/PlugIns/LunavectWidget.appex" || true
+  "$LSREGISTER" -u "$STAGING_DIR/Previous.app" || true
+  rm -rf "$STAGING_DIR/Previous.app"
+fi
+# The same registration already succeeded above; Lunavect repeats it at launch.
+"$LSREGISTER" -f "$APP_DEST" && pluginkit -a "$APP_DEST/Contents/PlugIns/LunavectWidget.appex" ||
+  echo 'Installed; widget registration will be retried when Lunavect starts.' >&2
 if [ "$MIGRATED_LEGACY_APP" = true ]; then
   # chronod retains an XPC service template pointing at the old executable even
   # after LaunchServices/PlugInKit registration changes. Refresh it only for the
