@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-09-24
+
+### Fixed
+
+- A Claude session waiting for its background tasks no longer disappears from the panel, and a finished session stays visible for the whole automatic hiding interval instead of a few seconds. Both happened when a status-bar script also recorded the session or when Claude's session list was polled after the reply.
+
 ## 0.2.0 — 2026-09-24
 
 ### New

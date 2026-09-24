@@ -58,7 +58,7 @@ Opening an application is not always the same as returning to the exact conversa
 
 ## How state is determined
 
-Lunavect combines local lifecycle hooks, available client runtime information and session metadata. Claude Desktop metadata can supply a title for an existing Claude Code session. Codex can use a local log-based fallback when shared runtime information is unavailable. Compatibility with other local status-bar records is optional and does not modify their event handlers.
+Lunavect combines local lifecycle hooks, available client runtime information and session metadata. Claude Desktop metadata can supply a title for an existing Claude Code session. Codex can use a local log-based fallback when shared runtime information is unavailable. Compatibility with other local status-bar records is optional and does not modify their event handlers. When Lunavect's own hook reports a session, such a record is ignored for it: the hook sees the same events with exact times and background work.
 
 Titles and project metadata are kept separate from activity evidence. Re-reading an event does not change its timestamp. Old events eventually lose authority, and late events from a completed turn should not restart its working indicator. A Claude lifecycle-only launch stays out of both current and hidden sessions until a prompt, tool, response or request establishes actual task activity. This prevents temporary CLI launches used by another agent from appearing as empty user tasks; existing conversations remain untouched.
 

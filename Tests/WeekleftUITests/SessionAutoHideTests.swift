@@ -57,6 +57,81 @@ final class SessionAutoHideTests: XCTestCase {
             }
         }
     }
+    /// Replays a Desktop pause observed on 2026-09-24: a Stop with a running
+    /// background command, the status-bar hook's "done" written in the same
+    /// second, and a newer idle catalog poll whose only timestamp is the start.
+    @MainActor func testBackgroundPauseStaysVisibleBesideLegacyDoneAndNewerIdleCatalog() throws {
+        // Both hooks run in parallel; the whole-second "done" may land on either side.
+        for legacyOffset in [0.0, 0.9] { try withStore { store, _, _ in
+            store.autoHideMinutes = 20
+            let id = "df9bebea-ac1b-4ad2-b235-b6d2f34ccde5"
+            let started = start.addingTimeInterval(-86400)
+            func catalog(_ status: String, at time: Date) throws -> [AgentSession] {
+                try SessionParser.claude(JSONSerialization.data(withJSONObject: [[
+                    "pid": 2198, "cwd": "/example/project", "kind": "interactive", "sessionId": id,
+                    "name": "Luna - updates", "status": status, "startedAt": started.timeIntervalSince1970 * 1000
+                ]]), now: time)
+            }
+            func hook(_ name: String, previous: SessionRecord?, at time: Date, _ extra: [String: Any] = [:]) throws -> SessionRecord {
+                try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+                    "session_id": id, "hook_event_name": name, "cwd": "/example/project"
+                ].merging(extra) { $1 }), provider: .claude, previous: previous, now: time, client: .desktop)
+            }
+            let prompt = try hook("UserPromptSubmit", previous: nil, at: start.addingTimeInterval(-300))
+            let launched = try hook("PostToolUse", previous: prompt, at: start.addingTimeInterval(-5), [
+                "tool_name": "Bash", "tool_input": ["command": "sleep 120", "run_in_background": true],
+                "tool_response": ["backgroundTaskId": "b1"]])
+            let busy = SessionList.merge(catalog: try catalog("busy", at: start.addingTimeInterval(-4)),
+                                         events: [launched.session], now: start.addingTimeInterval(-4))
+            store.acceptSessions(busy, now: start.addingTimeInterval(-4))
+            XCTAssertEqual(store.sessions.first?.phase, .running)
+            let stopAt = start.addingTimeInterval(0.6)
+            let paused = try hook("Stop", previous: launched, at: stopAt, [
+                "last_assistant_message": "Reproducing the pause.",
+                "background_tasks": [["id": "b1", "type": "shell", "status": "running", "command": "sleep 120"]]])
+            let legacyAt = start.addingTimeInterval(legacyOffset)
+            let legacyDone = AgentSession(provider: .claude, sessionID: id, title: "Lunavect", cwd: "/example/project",
+                client: .desktop, phase: .ready, updatedAt: legacyAt, observedAt: legacyAt, evidence: .legacy)
+            let now = start.addingTimeInterval(3)
+            let rows = SessionList.merge(catalog: try catalog("idle", at: now), events: [legacyDone, paused.session], now: now)
+            store.acceptSessions(rows, now: now)
+            XCTAssertEqual(store.hiddenCount, 0, "A paused session must not be auto-hidden")
+            let row = try XCTUnwrap(store.sessions.first { $0.sessionID == id })
+            XCTAssertEqual(row.effectivePhase(now: now), .running)
+            XCTAssertEqual(row.awaitingBackground, true)
+            XCTAssertEqual(row.backgroundWork, BackgroundWork(commands: 1))
+        } }
+    }
+    /// A finished response stays for the chosen auto-hide interval even when a
+    /// newer catalog poll, which only knows the session start, won the phase.
+    @MainActor func testFinishedResponseIsNotHiddenBeforeIntervalAfterNewerIdleCatalog() throws {
+        try withStore { store, _, _ in
+            store.autoHideMinutes = 20
+            let id = "0f9bebea-ac1b-4ad2-b235-b6d2f34ccde5"
+            let started = start.addingTimeInterval(-86400)
+            func catalog(at time: Date) throws -> [AgentSession] {
+                try SessionParser.claude(JSONSerialization.data(withJSONObject: [[
+                    "pid": 2199, "cwd": "/example/project", "kind": "interactive", "sessionId": id,
+                    "name": "Finished", "status": "idle", "startedAt": started.timeIntervalSince1970 * 1000
+                ]]), now: time)
+            }
+            let prompt = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+                "session_id": id, "hook_event_name": "UserPromptSubmit", "cwd": "/example/project"
+            ]), provider: .claude, previous: nil, now: start.addingTimeInterval(-60), client: .desktop)
+            let stop = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+                "session_id": id, "hook_event_name": "Stop", "cwd": "/example/project", "last_assistant_message": "Done."
+            ]), provider: .claude, previous: prompt, now: start, client: .desktop)
+            for seconds in [3.0, 1199] {
+                let now = start.addingTimeInterval(seconds)
+                store.acceptSessions(SessionList.merge(catalog: try catalog(at: now), events: [stop.session], now: now), now: now)
+                XCTAssertEqual(store.hiddenCount, 0, "hidden \(seconds) s after the response")
+                XCTAssertEqual(store.sessions.first?.phase, .ready)
+            }
+            let late = start.addingTimeInterval(1200)
+            store.acceptSessions(SessionList.merge(catalog: try catalog(at: late), events: [stop.session], now: late), now: late)
+            XCTAssertEqual(store.hiddenCount, 1, "The chosen interval still applies")
+        }
+    }
     @MainActor func testCatalogOnlyIdleSessionIsNotAssumedToBeEmpty() throws {
         try withStore { store, _, _ in
             let session = AgentSession(provider: .claude, sessionID: "existing", title: "Existing task",
