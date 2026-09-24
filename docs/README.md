@@ -16,6 +16,13 @@
 | [Privacy and permissions](privacy.md) | Local files, configuration changes, network requests and deletion |
 | [Compatibility](verification.md) | Recorded checks and current testing gaps |
 
+## How-to guides
+
+- [How to check Claude Code usage limits on a Mac](guides/claude-code-usage-limits-mac.md)
+- [How to check Codex usage limits on a Mac](guides/codex-usage-limits-mac.md)
+- [Get notified when Claude Code or Codex finishes on a Mac](guides/claude-code-codex-notifications-mac.md)
+- [Monitor multiple Claude Code and Codex sessions on a Mac](guides/monitor-claude-code-codex-sessions-mac.md)
+
 ## Helping with the project
 
 [Report a bug](https://github.com/lovach/Lunavect/issues/new?template=bug.yml) · [Suggest an improvement](https://github.com/lovach/Lunavect/issues/new?template=feature.yml) · [Report a vulnerability privately](https://github.com/lovach/Lunavect/blob/main/.github/SECURITY.md)
