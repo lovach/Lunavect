@@ -1,6 +1,6 @@
 cask "lunavect" do
-  version "0.2.0"
-  sha256 "3748dc7d0099aba234e273beb5ed2a02154f2a49283cd7da6467eb3b0ac4ff73"
+  version "0.2.1"
+  sha256 "7313133bce9f21b811c841f09b664b6535582bd4eb4ce4e864bd3c28be2aaadd"
 
   url "https://github.com/lovach/Lunavect/releases/download/v#{version}/Lunavect-#{version}.dmg"
   name "Lunavect"

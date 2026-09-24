@@ -1,8 +1,21 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.1.9 (181)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.2.1 (186)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.9)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.1)
+
+## 0.2.1 release checks — September 24, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean merge commit `6afaf480b6af5b2b37641bd87b7d00ab9434dfd7`, tagged `v0.2.1` (PR #27); archive provenance passed, and submit and export verified the archive's build manifest. |
+| Fix | A Claude Desktop session paused on background commands was hidden two seconds after its reply with automatic hiding at 20 minutes. Cause: a status-bar script's whole-second "done" cancelled the background-pause exception, and a newer catalog poll left the row with the session start as its activity time. Two tests replay the observed inputs and failed before the fix. With the fixed build the same two-minute pause stayed visible and running throughout. |
+| Automated checks | Full local check on the release content: 97 Python and 692 Swift tests passed (57 conditional skips), universal build, widget probes, resources and provenance. [Source CI](https://github.com/lovach/Lunavect/actions/runs/36032023716) passed. |
+| Distribution | Developer ID signed and Apple notarized, build 186, universal. The DMG app passed strict codesign, Gatekeeper and stapler checks inside the mounted image. The ZIP signature verifies with the public key embedded in the app, and a modified copy is rejected; the feed points to 186. Anonymous DMG, ZIP, appcast and checksum downloads matched the packaged bytes; the downloaded DMG app passed the same checks and the latest feed points to 186. |
+| Installed build | The app from the release DMG was installed over local build 185 with `install.sh`. The widget extension was the only active registration; hook events kept arriving after launch and the `SubagentStop` handler stayed in Claude Code's settings. No desktop widget was placed on this Mac, so live widget rendering was not observed. |
+| Remaining scope | A complete Sparkle installation cycle, placed desktop widgets and other macOS versions remain unverified. Inside a running turn the background count can include commands that already finished: Claude Code reports exact background work only when a turn ends. |
+
+The 0.2.1 DMG SHA-256 is `7313133bce9f21b811c841f09b664b6535582bd4eb4ce4e864bd3c28be2aaadd`.
 
 ## 0.2.0 release checks — September 24, 2026
 
