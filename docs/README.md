@@ -1,5 +1,11 @@
 # Lunavect documentation
 
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/readme-overview-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="images/readme-overview-light.png">
+  <img src="images/readme-overview-dark.png" width="780" alt="Lunavect session panel with a Claude task thinking beside three background tasks, a Codex task waiting for permission and a ready response, next to weekly limits for Claude and Codex and a week of activity">
+</picture></p>
+
 ## Using the app
 
 | Guide | Contents |
