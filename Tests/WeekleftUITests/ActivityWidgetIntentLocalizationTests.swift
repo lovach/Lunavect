@@ -18,6 +18,19 @@ final class ActivityWidgetIntentLocalizationTests: XCTestCase {
         "zh-Hans": ["时段", "日", "周", "月", "来源", "选择活动数据点", "日期", "时段", "来源", "小组件"]
     ]
 
+    /// The app follows the first supported system language; for any other
+    /// language macOS, Sparkle and the widget fall back to English, like the app.
+    func testUnsupportedSystemLanguagesFallBackToEnglishEverywhere() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        for name in ["Config/App-Info.plist", "Config/Widget-Info.plist"] {
+            let info = try XCTUnwrap(NSDictionary(contentsOf: root.appendingPathComponent(name)), name)
+            XCTAssertEqual(info["CFBundleDevelopmentRegion"] as? String, "en", name)
+        }
+        XCTAssertEqual(AppLanguage.resolve("system", preferred: ["ja-JP"]), "en")
+        XCTAssertEqual(AppLanguage.resolve("system", preferred: ["ja-JP", "de-AT"]), "de")
+        XCTAssertEqual(Bundle.preferredLocalizations(from: ["en"] + languages, forPreferences: ["ja"]).first, "en")
+    }
+
     func testMetadataResolvesInEverySupportedSystemLanguage() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LunavectIntentLocalization-\(UUID().uuidString).bundle")
@@ -35,11 +48,16 @@ final class ActivityWidgetIntentLocalizationTests: XCTestCase {
         let shippingResources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/LunavectWidget/Resources")
+        let usedKeys = Set(try intentLabels().map(\.key)).union(widgetOnlyKeys)
         for language in languages {
             try FileManager.default.copyItem(
                 at: shippingResources.appendingPathComponent("\(language).lproj"),
                 to: resources.appendingPathComponent("\(language).lproj")
             )
+            // Every shipped key must be a label the intents use: no dead or missing entries.
+            let table = try XCTUnwrap(NSDictionary(contentsOf: shippingResources
+                .appendingPathComponent("\(language).lproj/Localizable.strings")) as? [String: String], language)
+            XCTAssertEqual(Set(table.keys), usedKeys, language)
         }
         try assertMetadataResolves(in: XCTUnwrap(Bundle(url: directory)))
     }
@@ -55,12 +73,45 @@ final class ActivityWidgetIntentLocalizationTests: XCTestCase {
         for path in bundlePaths {
             let bundle = try XCTUnwrap(Bundle(url: URL(fileURLWithPath: path)), path)
             try assertMetadataResolves(in: bundle)
+            try assertPackagedMetadata(in: bundle)
         }
     }
 
-    private func assertMetadataResolves(in bundle: Bundle, file: StaticString = #filePath, line: UInt = #line) throws {
+    /// The system reads the extracted Metadata.appintents, not the Swift values.
+    /// Require it, its intents, and a translation for every label it shows.
+    private func assertPackagedMetadata(in bundle: Bundle) throws {
+        let resources = bundle.bundleURL.appendingPathComponent("Contents/Resources")
+        let url = resources.appendingPathComponent("Metadata.appintents/extract.actionsdata")
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any], url.path)
+        let actions = try XCTUnwrap(root["actions"] as? [String: Any], url.path)
+        let widget = bundle.bundleURL.pathExtension == "appex"
+        XCTAssertNotNil(actions["SelectActivityPointIntent"], url.path)
+        XCTAssertEqual(actions["ActivityConfiguration"] != nil, widget, url.path)
+        let enums = (root["enums"] as? [[String: Any]] ?? []).compactMap { $0["identifier"] as? String }
+        XCTAssertEqual(Set(enums), ["ActivityPeriod", "ActivitySource"], url.path)
+        var keys = Set<String>()
+        func collect(_ value: Any) {
+            if let object = value as? [String: Any] {
+                if object["alternatives"] != nil, let key = object["key"] as? String { keys.insert(key) }
+                object.values.forEach(collect)
+            } else if let array = value as? [Any] { array.forEach(collect) }
+        }
+        collect(root)
+        let brands: Set<String> = ["Claude + Codex", "Claude", "Codex"]
+        XCTAssertTrue(keys.isSuperset(of: brands.union(["Period", "Source", "Select activity point"])), url.path)
+        for language in languages {
+            let table = NSDictionary(contentsOf: resources.appendingPathComponent("\(language).lproj/Localizable.strings")) as? [String: String] ?? [:]
+            XCTAssertTrue(keys.subtracting(brands).isSubset(of: Set(table.keys)),
+                          "\(bundle.bundleURL.lastPathComponent) \(language): untranslated \(keys.subtracting(brands).subtracting(table.keys).sorted())")
+        }
+    }
+
+    // ActivityConfiguration.title: that intent is compiled only into the widget target.
+    private let widgetOnlyKeys: Set<String> = ["Activity statistics"]
+
+    private func intentLabels() throws -> [LocalizedStringResource] {
         let intent = SelectActivityPointIntent()
-        let metadata: [LocalizedStringResource] = [
+        return [
             ActivityPeriod.typeDisplayRepresentation.name,
             try XCTUnwrap(ActivityPeriod.caseDisplayRepresentations[.day]).title,
             try XCTUnwrap(ActivityPeriod.caseDisplayRepresentations[.week]).title,
@@ -69,6 +120,10 @@ final class ActivityWidgetIntentLocalizationTests: XCTestCase {
             SelectActivityPointIntent.title,
             intent.$date.title, intent.$period.title, intent.$source.title, intent.$kind.title
         ]
+    }
+
+    private func assertMetadataResolves(in bundle: Bundle, file: StaticString = #filePath, line: UInt = #line) throws {
+        let metadata = try intentLabels()
         let sources = try [ActivitySource.all, .claude, .codex, .comparison].map {
             try XCTUnwrap(ActivitySource.caseDisplayRepresentations[$0]).title
         }

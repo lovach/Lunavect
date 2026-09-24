@@ -13,6 +13,31 @@ final class SessionContractTests: XCTestCase {
         row.merge(extra) { _, new in new }
         return try XCTUnwrap(SessionParser.claude(JSONSerialization.data(withJSONObject: [row]), now: at ?? now).first)
     }
+    /// Large tool results and long final messages are parsed for lifecycle
+    /// fields only and never stored; their size must not drop the transition.
+    func testLargeHookPayloadsKeepTheirLifecycleTransition() throws {
+        let large = String(repeating: "x", count: 1_500_000)
+        let approval = try event("PermissionRequest", extra: ["tool_use_id": "big"])
+        let approved = try event("PostToolUse", previous: approval, at: now.addingTimeInterval(1),
+                                 extra: ["tool_use_id": "big", "tool_name": "Read", "tool_response": ["content": large]])
+        XCTAssertEqual(approved.session.phase, .running)
+        let stop = try event("Stop", previous: approved, at: now.addingTimeInterval(2), extra: ["last_assistant_message": large])
+        XCTAssertEqual(stop.session.phase, .ready)
+        XCTAssertLessThan(try JSONEncoder().encode(stop).count, 65536, "The payload is not stored in the record")
+        XCTAssertThrowsError(try SessionRecord.event(Data(count: SessionRecord.maximumPayloadBytes + 1), provider: .claude, previous: nil, now: now))
+    }
+    func testHookInputReaderAcceptsLargePayloadsAndStopsAtItsBound() throws {
+        func read(_ count: Int, limit: Int) throws -> Data? {
+            let pipe = Pipe(), bytes = Data(repeating: 0x61, count: count)
+            let writer = Thread { pipe.fileHandleForWriting.write(bytes); try? pipe.fileHandleForWriting.close() }
+            writer.start()
+            defer { try? pipe.fileHandleForReading.close() }
+            return SessionHooks.readHookPayload(from: pipe.fileHandleForReading, limit: limit)
+        }
+        XCTAssertEqual(try read(1_500_000, limit: SessionRecord.maximumPayloadBytes)?.count, 1_500_000)
+        XCTAssertNil(try read(200_000, limit: 100_000))
+        XCTAssertGreaterThanOrEqual(SessionRecord.maximumPayloadBytes, 16_000_000)
+    }
     func testDocumentedClaudeStatesAndLiveStatus() throws {
         for (state, phase) in [("working", SessionPhase.running), ("blocked", .input), ("done", .ready), ("failed", .failed), ("stopped", .interrupted)] {
             let row = try catalog(["kind": "background", "id": "short-id", "state": state])
@@ -179,6 +204,7 @@ final class SessionContractTests: XCTestCase {
         let reminder = try event("Notification", previous: ready, at: now.addingTimeInterval(70), extra: ["notification_type": "idle_prompt"])
         XCTAssertEqual(reminder.session, ready.session)
         XCTAssertEqual(try event("Notification", previous: ready, at: now.addingTimeInterval(71), extra: ["notification_type": "elicitation_dialog"]).session.phase, .input)
+        XCTAssertEqual(try event("Notification", previous: ready, at: now.addingTimeInterval(72), extra: ["notification_type": "elicitation_url_dialog"]).session.phase, .input)
     }
     func testClosingDecisionQuestionsNeedInputInsteadOfClaimingCompletion() throws {
         let running = try event("UserPromptSubmit")

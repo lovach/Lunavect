@@ -49,6 +49,20 @@ final class ActivityPresentationTests: XCTestCase {
         XCTAssertEqual(ActivityChartScale.ceiling(0), 60)
         XCTAssertEqual(ActivityChartScale.ceiling(25 * 3600), 30 * 3600)
     }
+    /// The widget reloads its history only every 15 minutes, so its stale badge
+    /// uses that horizon; the app, which observes live, keeps five minutes.
+    func testWidgetStalenessFollowsItsReloadCadence() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let row = AgentSession(provider: .claude, sessionID: "c", title: "Fixture", cwd: "", phase: .running,
+                               updatedAt: now, observedAt: now, evidence: .localEvent, runtimeConfirmed: true)
+        var tracker = ActivityTracker()
+        tracker.observe([row], now: now); tracker.observe([row], now: now.addingTimeInterval(5))
+        let later = now.addingTimeInterval(5 + 600)
+        XCTAssertTrue(ActivityChartData(history: tracker.history, now: later, period: .day).stale)
+        XCTAssertFalse(ActivityChartData(history: tracker.history, now: later, period: .day, staleAfter: ActivityChartData.widgetStaleness).stale)
+        XCTAssertTrue(ActivityChartData(history: tracker.history, now: now.addingTimeInterval(5 + 1300), period: .day,
+                                        staleAfter: ActivityChartData.widgetStaleness).stale)
+    }
     func testKnownIdleProviderStaysFreshWhileOtherWorks() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         func row(_ id: ProviderID, phase: SessionPhase) -> AgentSession {

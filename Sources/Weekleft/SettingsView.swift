@@ -85,7 +85,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                         Button {
                             Task { await store.refresh(); await sessions.refresh() }
                         } label: { InterfaceLabel(L("Обновить"), .refresh) }
-                            .disabled(store.refreshing || sessions.refreshing)
+                            .disabled(store.refreshing)
                     }
                 }.padding(.horizontal, 20).padding(.vertical, 16)
                 Divider()
@@ -196,8 +196,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             Text(L("Изменения сохраняются автоматически."))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             BaseSettingsView(canRestore: !awake.isBusy && !features.busy) {
-                await awake.restoreDefaults()
-                await features.restoreDefaults()
+                // Keep Awake or a macOS request may have started after the
+                // confirmation appeared. Reset nothing then and say so.
+                guard !awake.isBusy, !features.busy else { return false }
+                let awakeRestored = await awake.restoreDefaults()
+                let featuresRestored = await features.restoreDefaults()
                 menuBarAppearance.restoreDefaults()
                 sessions.autoHideMinutes = 0
                 store.preferences.restoreAppearanceDefaults()
@@ -205,6 +208,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 updates.setCheckingAutomatically(true)
                 appearance = AppDefaultSettings.appearance
                 language.code = "system"
+                return awakeRestored && featuresRestored
             }
             GroupBox(L("Начало работы")) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -254,9 +258,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                         HStack(spacing: 8) {
                             Slider(value: $store.preferences.transparency, in: 0...1, step: 0.05)
                                 .accessibilityLabel(L("Прозрачность подложки"))
-                                .accessibilityValue(L("{0} процентов", String(Int((store.preferences.transparency * 100).rounded()))))
+                                .accessibilityValue(PercentText.format(Int((store.preferences.transparency * 100).rounded())))
                                 .accessibilityIdentifier("widget-backdrop-transparency")
-                            Text(store.preferences.transparency.formatted(.percent.precision(.fractionLength(0))))
+                            Text(PercentText.format(Int((store.preferences.transparency * 100).rounded())))
                                 .monospacedDigit().frame(width: 42, alignment: .trailing).accessibilityHidden(true)
                         }
                         .disabled(!store.preferences.transparentBackground)
@@ -553,7 +557,8 @@ struct LimitsProviderSummary: View {
                     Text(snapshot.provider.title).font(.system(size: 15, weight: .semibold))
                     Spacer(minLength: 8)
                     if let fetched = snapshot.fetchedAt {
-                        Text(fetched.formatted(.dateTime.hour().minute().locale(L10n.locale)))
+                        // Older data carries its date, as in the widgets; today's shows only the time.
+                        Text(widgetQuotaDate(fetched, now: now))
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                             .help(L("Последние данные: {0}", fetched.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
                     }
@@ -600,7 +605,7 @@ struct DetailedQuotaMeter: View {
                     Text(L("Сброс через {0}", window.countdown(now: now)))
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-                Text(window.flatMap { $0.isExpired(at: now) ? nil : "\(Int($0.remaining.rounded()))%" } ?? "—")
+                Text(window.flatMap { $0.isExpired(at: now) ? nil : PercentText.format(Int($0.remaining.rounded())) } ?? "—")
                     .monospacedDigit().fontWeight(.semibold)
             }.font(.system(size: 13))
             if let window, !window.isExpired(at: now) {

@@ -14,6 +14,11 @@ APP_ONLY = {'LunavectMark.png', 'LunavectMarkLeft.png', 'LunavectMarkRight.png',
             'clawd-laptop.json', 'clawd-walking.gif', 'clawd-waving.gif',
             'codex-companion.webp', 'lunavect-complete.wav', 'Lunavect-NOTICE.txt',
             'IconSources.md', 'Sparkle-LICENSE.txt'}
+# App Intents metadata read by Edit Widget and the chart buttons. A silent
+# extraction failure still builds, so require the packaged artifact itself.
+APP_INTENTS = {'SelectActivityPointIntent'}
+WIDGET_INTENTS = APP_INTENTS | {'ActivityConfiguration'}
+INTENT_ENUMS = {'ActivityPeriod', 'ActivitySource'}
 
 
 def resource_source(root, name):
@@ -34,6 +39,18 @@ def verify_resource(path):
         kind = b'WEBP' if path.suffix == '.webp' else b'WAVE'
         if data[:4] != b'RIFF' or data[8:12] != kind:
             raise ValueError(f'{path.name}: invalid RIFF resource')
+
+
+def verify_intent_metadata(bundle, actions):
+    path = bundle / 'Contents/Resources/Metadata.appintents/extract.actionsdata'
+    if not path.is_file():
+        raise ValueError(f'{bundle.name}: missing App Intents metadata')
+    value = json.loads(path.read_bytes())
+    declared = value.get('actions') if isinstance(value, dict) else None
+    enums = value.get('enums') if isinstance(value, dict) else None
+    identifiers = {item.get('identifier') for item in enums if isinstance(item, dict)} if isinstance(enums, list) else set()
+    if not isinstance(declared, dict) or not actions <= set(declared) or not INTENT_ENUMS <= identifiers:
+        raise ValueError(f'{bundle.name}: App Intents metadata lacks the activity intents')
 
 
 def digest(path):
@@ -75,6 +92,8 @@ def verify(app, source_root=None):
             path = directory / (language + '.lproj') / 'Localizable.strings'
             if not path.is_file() or not path.stat().st_size:
                 raise ValueError(f'{bundle.name}: missing {language} intent localization')
+    verify_intent_metadata(app, APP_INTENTS)
+    verify_intent_metadata(widget, WIDGET_INTENTS)
     for name in SHARED:
         if digest(app / 'Contents/Resources' / name) != digest(widget / 'Contents/Resources' / name):
             raise ValueError(f'App/widget {name} differs')
@@ -101,4 +120,4 @@ if __name__ == '__main__':
         build = verify(args.app, args.source_root)
     except (OSError, ValueError, KeyError) as error:
         parser.exit(1, f'Product resource verification failed: {error}\n')
-    print(f'Product resources verified: app/widget build {build}, matching icons and translations')
+    print(f'Product resources verified: app/widget build {build}, matching icons, translations and intent metadata')

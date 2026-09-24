@@ -91,9 +91,16 @@ struct SessionOverflowPosition {
 
 @MainActor final class SessionPanelState: ObservableObject {
     @Published var isVisible: Bool {
-        didSet { if !isVisible { orderedIDs = []; viewportRequest = nil; scrollPosition.offset = 0 } }
+        didSet {
+            guard !isVisible else { return }
+            orderedIDs = []; viewportRequest = nil; scrollPosition.offset = 0
+            // A message and the hidden-sessions page belong to one presentation;
+            // filters are kept. The menu-bar item reopens the current sessions.
+            issue = nil; showsHiddenSessions = false
+        }
     }
     @Published var issue: String?
+    @Published var showsHiddenSessions = false
     @Published private(set) var orderedIDs: [String] = []
     @Published private(set) var viewportRequest: SessionViewportRequest?
     let scrollPosition = SessionScrollPosition()
@@ -144,21 +151,52 @@ struct SessionOverflowPosition {
         }.map(\.element)
     }
 
-    /// Notification navigation reports failures on the panel that is brought
-    /// forward, including a task that disappeared since the notice was sent.
-    func openSession(id: String, rows: [AgentSession], open: (AgentSession) async throws -> Void) async -> Bool {
-        guard let row = rows.first(where: { $0.id == id }) else {
-            issue = L("Сессия больше не активна или скрыта. Проверьте скрытые сессии внизу панели.")
-            return false
-        }
+    /// Sessions being opened; a second request for the same one is ignored.
+    @Published private(set) var openingIDs: Set<String> = []
+    /// A failure that arrives after the panel closed brings it back with the message.
+    var onHiddenIssue: (() -> Void)?
+
+    /// Every route (click, menu, Return, swipe, notification) opens through here:
+    /// one attempt per session at a time, the panel steps aside after success and
+    /// a failure is shown on the panel, never on a popover that already closed.
+    @discardableResult
+    func open(_ row: AgentSession, using open: (AgentSession) async throws -> Void) async -> Bool {
+        guard !openingIDs.contains(row.id) else { return false }
+        openingIDs.insert(row.id)
+        defer { openingIDs.remove(row.id) }
         do {
             try await open(row)
             issue = nil
+            NotificationCenter.default.post(name: .lunavectSessionOpened, object: nil)
             return true
         } catch {
-            issue = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            report((error as? LocalizedError)?.errorDescription ?? L(
+                "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."))
             return false
         }
+    }
+
+    /// Notification navigation opens a row the panel already knows at once;
+    /// only an unknown session waits for a refresh. A task that disappeared
+    /// since the notice was sent is reported on the panel.
+    @discardableResult
+    func openSession(id: String, rows: @autoclosure () -> [AgentSession], refresh: () async -> Void = {},
+                     open: (AgentSession) async throws -> Void) async -> Bool {
+        var row = rows().first { $0.id == id }
+        if row == nil {
+            await refresh()
+            row = rows().first { $0.id == id }
+        }
+        guard let row else {
+            report(L("Сессия больше не активна или скрыта. Проверьте скрытые сессии внизу панели."))
+            return false
+        }
+        return await self.open(row, using: open)
+    }
+
+    private func report(_ message: String) {
+        issue = message
+        if !isVisible { onHiddenIssue?() }
     }
 }
 

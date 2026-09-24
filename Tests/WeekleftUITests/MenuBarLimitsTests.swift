@@ -6,6 +6,17 @@ import WeekleftCore
 
 final class MenuBarLimitsTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_900_000_000)
+    // Percentages follow the interface language; keep expectations independent of the host.
+    private var savedLanguage: Any?
+    override func setUp() {
+        super.setUp()
+        savedLanguage = L10n.defaults.object(forKey: "languageCode")
+        L10n.defaults.set("en", forKey: "languageCode")
+    }
+    override func tearDown() {
+        L10n.defaults.set(savedLanguage, forKey: "languageCode")
+        super.tearDown()
+    }
     private func snapshot(_ provider: ProviderID = .codex, used: Double = 28, fetchedAgo: TimeInterval = 0, resetAfter: TimeInterval = 3600, at date: Date? = nil) throws -> UsageSnapshot {
         let reference = date ?? now
         return try UsageSnapshot(provider: provider,
@@ -34,6 +45,20 @@ final class MenuBarLimitsTests: XCTestCase {
         var expiredOtherWindow = try snapshot()
         expiredOtherWindow.fiveHour = try QuotaWindow(usedPercent: 30, durationMinutes: 300, resetsAt: now)
         XCTAssertEqual(MenuBarLimitEntry.make(snapshots: [expiredOtherWindow], providers: [.codex], preferences: preferences, now: now).first?.value, "72%")
+    }
+    @MainActor func testPercentagesFollowTheInterfaceLanguageWithoutTruncation() throws {
+        L10n.defaults.set("de", forKey: "languageCode")
+        let entries = MenuBarLimitEntry.make(snapshots: try [snapshot(.claude, used: 0), snapshot(.codex, fetchedAgo: 901)],
+                                             providers: ProviderID.allCases, preferences: .init(enabled: true), now: now)
+        XCTAssertEqual(entries.map(\.value), ["100\u{a0}%", "72\u{a0}%*"])
+        _ = NSApplication.shared
+        for style in [MenuBarLimitsStyle.bars, .percentages] {
+            let view = MenuBarLimitsContent(frame: NSRect(x: 0, y: 0, width: 200, height: 22))
+            view.entries = entries; view.style = style
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold)
+            let needed = ("100\u{a0}%*" as NSString).size(withAttributes: [.font: font]).width
+            XCTAssertGreaterThanOrEqual(view.textColumnWidth, ceil(needed), "The reserved column must hold the widest localized value (\(style))")
+        }
     }
     func testDisabledProvidersAreNeverShownFromSavedSnapshots() throws {
         let data = try [snapshot(.claude), snapshot(.codex)]
@@ -99,11 +124,17 @@ final class MenuBarLimitsTests: XCTestCase {
         let item = try XCTUnwrap(controller.statusItem), button = try XCTUnwrap(item.button)
         let width = item.length
         XCTAssertEqual(controller.content.entries.first?.value, "72%")
-        try await Task.sleep(for: .milliseconds(100))
-        button.performClick(nil)
-        XCTAssertTrue(controller.popover.isShown)
-        button.performClick(nil)
-        XCTAssertFalse(controller.popover.isShown)
+        // Opening the popover needs the item placed in a visible menu bar; a sleeping
+        // display, a locked screen or a full menu bar is a host condition, not a defect.
+        let placement = Date().addingTimeInterval(2)
+        while button.window?.isVisible != true, Date() < placement { try await Task.sleep(for: .milliseconds(50)) }
+        let placed = button.window?.isVisible == true && button.window?.occlusionState.contains(.visible) == true
+        if placed {
+            button.performClick(nil)
+            XCTAssertTrue(controller.popover.isShown)
+            button.performClick(nil)
+            XCTAssertFalse(controller.popover.isShown)
+        }
         controller.refresh(now: now.addingTimeInterval(901))
         XCTAssertEqual(controller.content.entries.first?.value, "72%*")
         XCTAssertEqual(item.length, width)
@@ -130,6 +161,7 @@ final class MenuBarLimitsTests: XCTestCase {
         XCTAssertNotNil(controller.statusItem)
         controller.update(snapshots: data, providers: [.codex], preferences: .init(), now: now)
         XCTAssertNil(controller.statusItem)
+        if !placed { throw XCTSkip("The status item was not visible, so opening the popover was not checked") }
     }
     @MainActor func testStyleAndPeriodChangesReachNativeIndicatorAndPersistSelection() throws {
         _ = NSApplication.shared
@@ -329,6 +361,77 @@ final class MenuBarLimitsTests: XCTestCase {
         }
     }
 
+    @MainActor func testLimitsPopoverFollowsAppThemeLikeSessionsPanel() throws {
+        _ = NSApplication.shared
+        let suite = "Lunavect.LimitsTheme." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_LIMITS_STATUS"].map { URL(fileURLWithPath: $0) }
+        for (stored, expected) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {
+            defaults.set(stored, forKey: "interfaceAppearance")
+            let controller = MenuBarLimitsController(language: LanguageSettings(defaults: defaults, reloadWidgets: {}),
+                                                     defaults: defaults, autosaveName: nil) {}
+            defer { controller.stop() }
+            controller.panel.entries = MenuBarLimitEntry.make(snapshots: try [snapshot(.claude), snapshot(.codex, used: 63)],
+                                                              providers: ProviderID.allCases, preferences: .init(enabled: true), now: now)
+            let view = try XCTUnwrap(controller.popover.contentViewController?.view)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 420), styleMask: .borderless, backing: .buffered, defer: false)
+            window.contentView = view; view.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            XCTAssertEqual(window.appearance?.name, expected, "The limits popover must follow the theme chosen in Settings")
+            if let output {
+                // NSPopover draws its material behind the content; approximate it with the window background.
+                try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+                view.wantsLayer = true
+                window.effectiveAppearance.performAsCurrentDrawingAppearance { view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor }
+                let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("panel-theme-\(stored).png"))
+            }
+            window.contentView = nil
+        }
+    }
+    @MainActor func testOfflinePopoverBlocksRefreshAndSaysItWaits() throws {
+        _ = NSApplication.shared
+        let network = NetworkConnection(settle: {}, makeMonitor: { nil })
+        let controller = MenuBarLimitsController(network: network, autosaveName: nil) {}
+        defer { controller.stop() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        settle()
+        XCTAssertFalse(controller.panel.offline)
+        network.update(available: false); settle()
+        XCTAssertTrue(controller.panel.offline, "Without a network the refresh button must not look actionable")
+        let model = MenuBarLimitsPanelModel()
+        model.entries = MenuBarLimitEntry.make(snapshots: try [snapshot(.claude), snapshot(.codex, used: 63)],
+                                               providers: ProviderID.allCases, preferences: .init(enabled: true), now: now)
+        let online = NSHostingView(rootView: MenuBarLimitsPopover(model: model, onPeriod: { _ in }, onRefresh: {}, onMenu: {}, onSettings: {}))
+        let onlineHeight = online.fittingSize.height
+        model.offline = true
+        let offline = NSHostingView(rootView: MenuBarLimitsPopover(model: model, onPeriod: { _ in }, onRefresh: {}, onMenu: {}, onSettings: {}))
+        XCTAssertGreaterThan(offline.fittingSize.height, onlineHeight, "The offline explanation must be part of the measured popover")
+        network.update(available: true); settle()
+        XCTAssertFalse(controller.panel.offline)
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_LIMITS_STATUS"] {
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let old = L10n.defaults.object(forKey: "languageCode")
+            defer { L10n.defaults.set(old, forKey: "languageCode") }
+            for language in ["ru", "en", "de"] {
+                L10n.defaults.set(language, forKey: "languageCode")
+                let host = NSHostingView(rootView: MenuBarLimitsPopover(model: model, onPeriod: { _ in }, onRefresh: {}, onMenu: {}, onSettings: {})
+                    .background(Color(nsColor: .windowBackgroundColor)))
+                host.appearance = NSAppearance(named: .darkAqua)
+                host.frame = NSRect(origin: .zero, size: host.fittingSize)
+                let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                window.contentView = host; host.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("panel-offline-\(language).png"))
+                window.contentView = nil
+            }
+        }
+    }
     @MainActor func testRenderLimitsPopover() throws {
         guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_LIMITS_STATUS"] else { throw XCTSkip("Opt-in native limits popover rendering") }
         _ = NSApplication.shared

@@ -43,9 +43,11 @@ enum AppDefaultSettings {
 
 struct BaseSettingsView: View {
     var canRestore = true
-    var restore: () async -> Void
+    /// Returns false when part of the reset could not apply yet.
+    var restore: () async -> Bool
     @State private var confirming = false
     @State private var restoring = false
+    @State private var incomplete = false
     var body: some View {
         GroupBox(L("Базовые настройки")) {
             VStack(alignment: .leading, spacing: 12) {
@@ -53,12 +55,16 @@ struct BaseSettingsView: View {
                     .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button(L("Восстановить базовые настройки")) { confirming = true }
                     .disabled(restoring || !canRestore).accessibilityIdentifier("restore-base-settings")
+                if incomplete {
+                    Text(L("Не всё восстановлено: Keep Awake или запрос macOS ещё выполняется. Повторите через несколько секунд."))
+                        .font(.system(size: 12)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
             }.padding(InterfaceMetrics.settingsContentInset).frame(maxWidth: .infinity, alignment: .leading)
         }
         .confirmationDialog(L("Восстановить базовые настройки?"), isPresented: $confirming) {
             Button(L("Восстановить")) {
                 restoring = true
-                Task { await restore(); restoring = false }
+                Task { incomplete = !(await restore()); restoring = false }
             }
             Button(L("Отмена"), role: .cancel) {}
         } message: {
@@ -121,7 +127,7 @@ struct KeepAwakeSettingsView: View {
                         .accessibilityIdentifier("awake-battery-protection")
                     SettingsRow(L("Порог заряда")) {
                     Picker(L("Порог заряда"), selection: policyBinding(\.minimumBatteryPercent)) {
-                        ForEach([5, 10, 15, 20, 25, 30, 40, 50], id: \.self) { Text("\($0)%").tag($0) }
+                        ForEach([5, 10, 15, 20, 25, 30, 40, 50], id: \.self) { Text(PercentText.format($0)).tag($0) }
                     }.labelsHidden().disabled(!awake.safetyPolicy.batteryProtection)
                         .accessibilityIdentifier("awake-battery-threshold")
                     }

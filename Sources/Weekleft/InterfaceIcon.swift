@@ -6,6 +6,7 @@ enum InterfaceGlyph: CaseIterable {
     case power, refresh, settings, search, history, back, forward, down, close
     case eye, hidden, restore, trash, more, pin, calendar, bell, link, menuBar, widget
     case limits, sessions, check, checkCircle, circle, warning, info, activity, globe, shield, external, open
+    case layers
 }
 
 struct InterfaceIcon: View {
@@ -128,6 +129,8 @@ struct InterfaceIconShape: Shape {
             line([(13,3),(21,3),(21,11)]); line([(21,3),(10,14)]); line([(8,4),(3,4),(3,21),(20,21),(20,16)])
         case .open:
             line([(14,3),(4,3),(4,21),(14,21)]); line([(10,12),(22,12)]); line([(17,7),(22,12),(17,17)])
+        case .layers:
+            line([(12,3.5),(21,8),(12,12.5),(3,8),(12,3.5)]); line([(3,12),(12,16.5),(21,12)]); line([(3,16),(12,20.5),(21,16)])
         }
         return p.applying(CGAffineTransform(scaleX: rect.width / 24, y: rect.height / 24)
             .concatenating(CGAffineTransform(translationX: rect.minX, y: rect.minY)))
@@ -139,12 +142,17 @@ struct InterfaceToolbarStyle: ButtonStyle {
     var active = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        // Increase Contrast draws full-strength glyphs and a visible outline, as session rows do.
+        let increased = contrast == .increased
+        return configuration.label
             .frame(width: InterfaceMetrics.compactControlSize, height: InterfaceMetrics.compactControlSize)
-            .foregroundStyle(active ? Color.orange : Color.primary.opacity(0.8))
+            .foregroundStyle(active ? Color.orange : Color.primary.opacity(increased ? 1 : 0.8))
             .background(active ? Color.orange.opacity(0.12) : selected || configuration.isPressed ? Color.primary.opacity(0.09) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(active ? 0 : 0.055), lineWidth: 0.6))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(
+                active ? Color.orange.opacity(increased ? 0.7 : 0) : Color.primary.opacity(increased ? 0.45 : 0.055),
+                lineWidth: increased ? 1 : 0.6))
             .contentShape(RoundedRectangle(cornerRadius: 9))
             .opacity(!isEnabled ? 0.35 : configuration.isPressed ? 0.7 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)

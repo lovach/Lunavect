@@ -1,4 +1,5 @@
 import XCTest
+import os
 @testable import Weekleft
 @testable import WeekleftCore
 
@@ -78,5 +79,46 @@ import XCTest
         XCTAssertEqual(final.weekly?.usedPercent, 20)
         XCTAssertEqual(final.fetchedAt, now)
         store.stop()
+    }
+
+    // 2026-09-24 A-08: building resolvers for rows does not probe the environment.
+    func testResolverDiscoversCodexOnlyWhenResolvedAndKeepsTheChosenPath() throws {
+        let discoveries = OSAllocatedUnfairLock(initialState: 0)
+        let suite = "AuditFix." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let services = AppDataServices(snapshots: SnapshotPersistence(url: URL(fileURLWithPath: "/unused/audit.json"), write: { _, _ in }, reload: {}),
+                                       activity: ActivityService(isolated: true), scheduling: AppRefreshScheduling(repeating: { _, _ in {} }, wake: { _ in {} }),
+                                       discoverCodex: { discoveries.withLock { $0 += 1 }; return "/bin/echo" })
+        // Explicit preferences: no connection migration reads client configuration.
+        var preferences = WidgetPreferences(); preferences.enabledProviders = [.codex]
+        let store = AppStore(state: .init(snapshots: [], preferences: preferences), savesChanges: false,
+                             network: NetworkConnection(makeMonitor: { nil }), defaults: defaults, dataServices: services)
+        for _ in 0..<50 { _ = store.clientResolver }
+        XCTAssertEqual(discoveries.withLock { $0 }, 0, "Rendering rows must not run discovery")
+        XCTAssertEqual(try store.clientResolver.resolve(.codex), "/bin/echo")
+        XCTAssertEqual(discoveries.withLock { $0 }, 1)
+        store.codexPath = "/bin/cat"
+        XCTAssertEqual(try store.clientResolver.resolve(.codex), "/bin/cat", "A selected client still wins")
+        XCTAssertEqual(discoveries.withLock { $0 }, 1)
+    }
+
+    // 2026-09-24 A-08: an unchanged hook state does not invalidate views on every poll.
+    func testUnchangedHookStateIsNotRepublishedOnEachPoll() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("AuditStore-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let installed = OSAllocatedUnfairLock(initialState: true)
+        let store = SessionStore(directory: directory, isolated: true, now: { self.instant },
+                                 dependencies: .init(hooksState: { [.claude: installed.withLock { $0 }] }))
+        defer { store.stop() }
+        store.useProviders([.claude])
+        var published: [[ProviderID: Bool]] = []
+        let observer = store.$hooksInstalled.dropFirst().sink { published.append($0) }
+        defer { observer.cancel() }
+        for _ in 0..<3 { await store.refresh() }
+        XCTAssertEqual(published, [[.claude: true]])
+        installed.withLock { $0 = false }
+        await store.refresh()
+        XCTAssertEqual(published, [[.claude: true], [.claude: false]], "A real change is still published")
     }
 }

@@ -173,7 +173,7 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
         try await render(
             ConnectionDiagnosticsView(
                 store: store, sessions: sessions, diagnostics: diagnostics, onConnect: { _, _ in }), width: 620,
-            height: 640, to: directory.appendingPathComponent("diagnostics.png"))
+            height: 580, to: directory.appendingPathComponent("diagnostics.png"))
         let updates = preview.environment.updates
         try await render(UpdateSettingsView(updates: updates).padding(24), width: 590, height: 400, to: directory.appendingPathComponent("updates-unconfigured.png"))
         updates.phase = .ready("0.2.0"); updates.canCheck = true

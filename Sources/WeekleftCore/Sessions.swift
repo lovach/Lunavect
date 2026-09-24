@@ -88,6 +88,15 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// terminal application, used only to bring the existing tab to the front.
     public var terminalTTY: String?
     public var terminalApp: String?
+    /// Claude's own background tasks known to be in flight: set exactly at Stop
+    /// and SubagentStop, raised when a background launch is observed. Only
+    /// counts by kind are kept.
+    public var backgroundWork: BackgroundWork?
+    /// Claude finished its reply while those tasks run; they will wake it. Set
+    /// only by Stop and cleared by any later event of the session.
+    public var awaitingBackground: Bool?
+    /// Why Claude's last turn ended with an API error. The error text is not kept.
+    public var failure: SessionFailure?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -110,7 +119,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         case "bash", "shell", "exec_command": return L("Выполняет команду")
         case "read", "readfile": return L("Читает файл")
         case "edit", "write", "apply_patch": return L("Изменяет файлы")
-        case nil, "": return L("Думает")
+        case nil, "": return awaitingBackground == true ? L("В фоне") : L("Думает")
         default: return L("Выполняет {0}", tool!)
         }
     }
@@ -133,7 +142,10 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
             if runtimeAge >= 0 && runtimeAge < 10 { return phase }
         }
         // This is an observation, not a heartbeat or proof a process still exists.
-        let lifetime: TimeInterval = evidence == .catalog ? 60 : evidence == .localEvent && phase.isActive ? 120 : 600
+        // A background pause has no events until a task finishes; allow long
+        // renders, but still expire it if Claude never wakes (crash, lost hook).
+        let lifetime: TimeInterval = evidence == .catalog ? 60 : evidence == .localEvent && phase.isActive ? 120
+            : phase == .running && awaitingBackground == true ? 3600 : 600
         guard age >= -60, age < lifetime else { return .unknown }
         return phase
     }
@@ -281,9 +293,11 @@ public enum SessionList {
                 // terminal catalog states still supersede the earlier response.
                 let idleAfterQuestion = fresh && row.phase == .idle && event.phase == .input && event.responseRequestsInput == true
                 let idleDuringCompaction = fresh && row.phase == .idle && event.compactionTrigger != nil
-                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && !idleDuringCompaction && row.phase != .unknown && row.observedAt > event.observedAt
+                // Between task events Claude is idle, but its background tasks will wake it.
+                let backgroundPause = fresh && row.phase == .idle && event.phase == .running && event.awaitingBackground == true
+                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && !idleDuringCompaction && !backgroundPause && row.phase != .unknown && row.observedAt > event.observedAt
                 let moreSpecificApproval = !newerClaudeCatalog && row.effectivePhase(now: now) == .input && event.phase == .permission
-                if fresh && !newerClaudeCatalog && (idleAfterQuestion || idleDuringCompaction || dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
+                if fresh && !newerClaudeCatalog && (idleAfterQuestion || idleDuringCompaction || backgroundPause || dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
                     row.phase = event.phase; row.observedAt = event.observedAt; row.evidence = event.evidence; row.tool = event.tool
                     row.runtimeConfirmed = event.runtimeConfirmed
                     row.catalogHistory = nil
@@ -292,20 +306,26 @@ public enum SessionList {
                     row.hasTaskActivity = event.isUnstartedClaudeLifecycle ? false : event.hasTaskActivity
                     row.responseRequestsInput = event.responseRequestsInput
                     row.compactionTrigger = event.compactionTrigger
+                    row.backgroundWork = event.backgroundWork
+                    row.awaitingBackground = event.awaitingBackground
+                    row.failure = event.failure
                     row.updatedAt = max(row.updatedAt, event.updatedAt)
                 } else if newerClaudeCatalog && row.effectivePhase(now: now) != .unknown {
                     // A fresh idle interactive process ends the unfinished hook
                     // turn, but cannot prove successful completion (Esc has no Stop).
                     if row.phase == .idle {
                         if event.phase.isActive { row.phase = .interrupted }
-                        else if [.ready, .interrupted, .failed].contains(event.phase) { row.phase = event.phase }
+                        else if [.ready, .interrupted, .failed].contains(event.phase) { row.phase = event.phase; row.failure = event.failure }
                     }
                     // A newer catalog poll must not turn a startup-only hook
                     // into a user task. This also handles pre-marker hook files.
                     row.hasTaskActivity = event.isUnstartedClaudeLifecycle ? false : event.hasTaskActivity
                     if row.phase == .running && event.phase == .running {
                         row.turnStartedAt = event.turnStartedAt
-                        if fresh { row.compactionTrigger = event.compactionTrigger }
+                        if fresh {
+                            row.compactionTrigger = event.compactionTrigger
+                            row.backgroundWork = event.backgroundWork; row.awaitingBackground = event.awaitingBackground
+                        }
                     }
                 }
                 if fresh && event.client != .unknown && row.client != .background { row.client = event.client }
@@ -337,8 +357,12 @@ public struct SessionRecord: Codable, Sendable {
     public var pendingApprovals: Set<String> = []
     public var unidentifiedApproval: Bool?
     public var approvalVersion: Int?
+    /// Hook input is parsed for lifecycle fields and never stored. Tool results
+    /// (a large Read, Edit or Bash output) and long final messages must not drop
+    /// the transition; the bound only keeps the short-lived helper's memory finite.
+    public static let maximumPayloadBytes = 16_000_000
     public static func event(_ data: Data, provider: ProviderID, previous: SessionRecord?, now: Date = Date(), client: SessionClient = .unknown) throws -> SessionRecord {
-        guard data.count <= 1_000_000, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard data.count <= maximumPayloadBytes, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let id = payload["session_id"] as? String, SessionParser.validID(id),
             let name = payload["hook_event_name"] as? String
         else { throw SessionError.invalidResponse }
@@ -390,7 +414,7 @@ public struct SessionRecord: Codable, Sendable {
             else { record.pendingApprovals.insert(toolID) }
             record.session.phase = .permission
         case "Notification":
-            guard let type = payload["notification_type"] as? String, ["permission_prompt", "idle_prompt", "elicitation_dialog"].contains(type) else { throw SessionError.invalidResponse }
+            guard let type = payload["notification_type"] as? String, ["permission_prompt", "idle_prompt", "elicitation_dialog", "elicitation_url_dialog"].contains(type) else { throw SessionError.invalidResponse }
             if type == "permission_prompt" {
                 if record.pendingApprovals.isEmpty { record.unidentifiedApproval = true }
                 record.session.phase = .permission
@@ -409,17 +433,46 @@ public struct SessionRecord: Codable, Sendable {
                 record.unidentifiedApproval = nil
             }
             record.session.phase = record.pendingApprovals.isEmpty && record.unidentifiedApproval != true ? .running : .permission
+            if provider == .claude, name == "PostToolUse", let launched = ClaudeBackgroundWork.launched(tool: tool, payload: payload) {
+                var work = record.session.backgroundWork ?? BackgroundWork()
+                work.add(launched)
+                record.session.backgroundWork = work
+            }
+        case "SubagentStop":
+            // Reports the parent session's in-flight tasks while it keeps working;
+            // it is not a turn boundary, so phase, tool and freshness stay as they are.
+            guard provider == .claude, previous != nil, payload["background_tasks"] != nil else { throw SessionError.invalidResponse }
+            record.session.backgroundWork = ClaudeBackgroundWork.awaited(payload["background_tasks"])
+            return record
         case "Stop":
             record.pendingApprovals = []; record.unidentifiedApproval = nil
             let asksForReply = provider == .claude && ClaudeResponseQuestion.requiresReply(payload["last_assistant_message"] as? String)
+            // Work that will wake Claude again keeps the task running: no
+            // "response ready" for every interim reply to a task event.
+            let work = provider == .claude ? ClaudeBackgroundWork.awaited(payload["background_tasks"]) : nil
+            let waiting = !asksForReply && work != nil
             record.session.responseRequestsInput = asksForReply ? true : nil
-            record.session.phase = asksForReply ? .input : .ready
+            record.session.backgroundWork = work
+            record.session.awaitingBackground = waiting ? true : nil
+            record.session.phase = asksForReply ? .input : waiting ? .running : .ready
         case "SessionEnd": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
         case "Interrupt": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .interrupted
-        case "StopFailure": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .failed
+        case "StopFailure":
+            record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .failed
+            if provider == .claude {
+                let texts = [payload["last_assistant_message"], payload["error_details"]].compactMap { $0 as? String }
+                record.session.failure = SessionFailure.classify(error: payload["error"] as? String, message: texts.joined(separator: " "))
+            }
         default: throw SessionError.invalidResponse
         }
         if name != "Stop" { record.session.responseRequestsInput = nil }
+        if name != "StopFailure" { record.session.failure = nil }
+        // Background tasks outlive prompts and tool calls; only a new or ended
+        // session starts without them (compaction keeps them running).
+        if name == "SessionEnd" || name == "Interrupt" || (name == "SessionStart" && payload["source"] as? String != "compact") {
+            record.session.backgroundWork = nil
+        }
+        if name != "Stop" { record.session.awaitingBackground = nil }
         if name != "PreCompact" { record.session.compactionTrigger = nil }
         if name != "SessionStart" && name != "SessionEnd" {
             record.session.hasTaskActivity = true
@@ -432,6 +485,111 @@ public struct SessionRecord: Codable, Sendable {
         record.session.tool = name == "PreToolUse" && !tool.isEmpty ? tool : nil
         if client != .unknown { record.session.client = client }
         return record
+    }
+}
+
+/// Claude Code's documented `StopFailure.error`, reduced to what the user can do
+/// about it. A server error is a lost connection when its rendered message says so.
+public enum SessionFailure: String, Codable, Sendable {
+    case limit, network, service, signIn, account, other
+    private static let connection = ["enotfound", "econnreset", "econnrefused", "etimedout", "unable to connect",
+                                     "can't reach the api server", "connection lost", "connection error", "network"]
+    public static func classify(error: String?, message: String?) -> SessionFailure {
+        switch error {
+        case "rate_limit": return .limit
+        case "authentication_failed", "oauth_org_not_allowed", "cloud_credential_error": return .signIn
+        case "billing_error", "account_on_hold": return .account
+        case "server_error", "overloaded":
+            return isConnection(message) ? .network : .service
+        default: return isConnection(message) ? .network : .other
+        }
+    }
+    private static func isConnection(_ message: String?) -> Bool {
+        let text = (message ?? "").lowercased()
+        return connection.contains { text.contains($0) }
+    }
+    public var title: String {
+        switch self {
+        case .limit: return L("Лимит исчерпан")
+        case .network: return L("Нет связи с Claude")
+        case .service: return L("Сбой на стороне Claude")
+        case .signIn: return L("Нужно войти заново")
+        case .account: return L("Проблема с аккаунтом")
+        case .other: return L("Ошибка")
+        }
+    }
+}
+
+/// Claude's in-flight background tasks by kind. Commands and descriptions are
+/// never kept: a count is enough to show that the task is paused, not done.
+public struct BackgroundWork: Codable, Equatable, Sendable {
+    public var commands = 0, agents = 0, monitors = 0, other = 0
+    public init(commands: Int = 0, agents: Int = 0, monitors: Int = 0, other: Int = 0) {
+        self.commands = commands; self.agents = agents; self.monitors = monitors; self.other = other
+    }
+    public var total: Int { commands + agents + monitors + other }
+    public mutating func add(_ other: BackgroundWork) {
+        commands += other.commands; agents += other.agents; monitors += other.monitors; self.other += other.other
+    }
+}
+
+/// Claude Code reports in-flight background work in Stop input (`background_tasks`,
+/// 2.1.2xx). A finished task wakes the session again, so a Stop with such work
+/// is a pause. Services and followers never finish or wake it; they don't delay
+/// the response. Commands and descriptions are inspected here, never stored.
+enum ClaudeBackgroundWork {
+    private static let finished: Set<String> = ["completed", "failed", "killed", "stopped", "cancelled", "canceled", "error", "done"]
+    private static let services = [
+        #"\btail\b[^|;&\n]*\s(?:-[a-z0-9]*f\b|--follow\b)"#,
+        #"\blog\s+stream\b"#,
+        #"(?:^|[;&|(]\s*)watch\s"#,
+        #"--watch\b|\bnodemon\b|\bcargo\s+watch\b"#,
+        #"\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|preview|watch)\b"#,
+        #"(?:^|[;&|(]\s*)(?:npx\s+)?(?:serve|http-server|live-server)\b"#,
+        #"\bvite\s+(?:dev|serve|preview)\b|(?:^|[;&|(]\s*)(?:npx\s+)?vite\s*(?:$|[;&|)]|--(?:port|host|open)\b)"#,
+        #"\bnext\s+(?:dev|start)\b|\bremotion\s+(?:studio|preview)\b|\bstorybook\s+dev\b|\bwebpack(?:\s+serve\b|-dev-server\b)"#,
+        #"\bhttp\.server\b|\b(?:uvicorn|gunicorn|hypercorn|daphne)\b|\bflask\s+run\b|\bmanage\.py\s+runserver\b|\bstreamlit\s+run\b|\bjupyter\s+(?:lab|notebook)\b"#,
+        #"\brails\s+s(?:erver)?\b|\bjekyll\s+serve\b|\bhugo\s+server\b|\bphp\s+-S\b|\bcaddy\s+run\b"#,
+        #"\bngrok\b|\bcloudflared\s+tunnel\b|\bkubectl\s+port-forward\b|\bssh\b[^|;&\n]*\s-[a-z]*N"#,
+        #"\bdocker(?:-|\s+)compose\s+up\b(?![^|;&\n]*\s(?:-d|--detach)\b)"#,
+        #"\bsleep\s+infinity\b|\bcaffeinate\b(?![^|;&\n]*\s-t\b)"#,
+    ].compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive, .anchorsMatchLines]) }
+
+    static func awaited(_ value: Any?) -> BackgroundWork? {
+        guard let tasks = value as? [[String: Any]] else { return nil }
+        var work = BackgroundWork()
+        for task in tasks.prefix(500) where !finished.contains((task["status"] as? String ?? "").lowercased()) {
+            switch (task["type"] as? String ?? "").lowercased() {
+            case "shell":
+                if let command = task["command"] as? String, isService(command) { continue }
+                work.commands += 1
+            case "subagent", "teammate", "workflow", "cloud session": work.agents += 1
+            case "monitor": work.monitors += 1
+            default: work.other += 1
+            }
+        }
+        return work.total > 0 ? work : nil
+    }
+    /// A task that PostToolUse shows was just moved to the background.
+    static func launched(tool: String, payload: [String: Any]) -> BackgroundWork? {
+        let input = payload["tool_input"] as? [String: Any] ?? [:]
+        let response = payload["tool_response"] as? [String: Any] ?? [:]
+        let background = input["run_in_background"] as? Bool == true
+        switch tool {
+        case "Bash":
+            guard background else { return nil }
+            if let command = input["command"] as? String, isService(command) { return nil }
+            return BackgroundWork(commands: 1)
+        case "Agent", "Task":
+            return background || response["status"] as? String == "async_launched" ? BackgroundWork(agents: 1) : nil
+        case "Monitor": return BackgroundWork(monitors: 1)
+        case "Workflow": return BackgroundWork(agents: 1)
+        default: return nil
+        }
+    }
+    static func isService(_ command: String) -> Bool {
+        let range = NSRange(command.startIndex..., in: command)
+        return services.contains { $0.firstMatch(in: command, range: range) != nil }
     }
 }
 

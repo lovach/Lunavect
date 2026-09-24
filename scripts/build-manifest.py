@@ -238,6 +238,23 @@ def finalize(args, root):
         raise ValueError('Source changed after begin; manifest records both checkpoints and cannot identify a fixed build source')
 
 
+def verify(args):
+    """Accept only a finalized, unchanged-source manifest whose app still hashes the same."""
+    value = json.loads(args.manifest.read_text())
+    if (value.get('schema_version') != 1 or value.get('status') != 'complete'
+            or value.get('source_integrity') != 'observed-unchanged'):
+        raise ValueError('Manifest is not complete; the build did not pass every recorded check')
+    if args.kind and value.get('kind') != args.kind:
+        raise ValueError('Manifest kind differs from ' + args.kind)
+    product = value.get('product_version') or {}
+    if ((args.version and product.get('version') != args.version)
+            or (args.build and product.get('build') != args.build)):
+        raise ValueError('Manifest records a different app version or build')
+    recorded = [item for item in value.get('artifacts', []) if item.get('name') == 'app']
+    if len(recorded) != 1 or artifact('app', args.app)['sha256'] != recorded[0].get('sha256'):
+        raise ValueError('App differs from the one the manifest recorded')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -253,11 +270,20 @@ def main():
     finish.add_argument('--manifest', required=True, type=Path)
     finish.add_argument('--app', type=Path)
     finish.add_argument('--artifact', action='append', default=[], metavar='LABEL=PATH')
+    check = commands.add_parser('verify', help='Require a complete manifest that still matches the app')
+    check.add_argument('--manifest', required=True, type=Path)
+    check.add_argument('--app', required=True, type=Path)
+    check.add_argument('--kind', choices=('unsigned-check', 'native-render', 'synthetic-performance', 'distribution', 'unspecified'))
+    check.add_argument('--version')
+    check.add_argument('--build')
     args = parser.parse_args()
     try:
-        root = source_root(args.source_root)
-        (begin if args.command == 'begin' else finalize)(args, root)
-    except (OSError, ValueError, KeyError, plistlib.InvalidFileException) as error:
+        if args.command == 'verify':
+            verify(args)
+        else:
+            root = source_root(args.source_root)
+            (begin if args.command == 'begin' else finalize)(args, root)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, plistlib.InvalidFileException) as error:
         # Do not copy OS exception filenames (possibly personal paths) into diagnostics.
         message = str(error) if isinstance(error, ValueError) else type(error).__name__
         parser.exit(1, f'Build manifest failed: {message}\n')

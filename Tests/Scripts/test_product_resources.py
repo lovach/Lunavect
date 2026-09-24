@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import plistlib
 import shutil
@@ -32,6 +33,27 @@ class ProductResourceTests(unittest.TestCase):
                 localized = resources / (language + '.lproj')
                 localized.mkdir()
                 shutil.copyfile(ROOT / 'Sources/LunavectWidget/Resources' / (language + '.lproj') / 'Localizable.strings', localized / 'Localizable.strings')
+            self.metadata(bundle, RESOURCES.WIDGET_INTENTS if bundle == self.widget else RESOURCES.APP_INTENTS)
+
+    def metadata(self, bundle, actions, enums=('ActivityPeriod', 'ActivitySource')):
+        path = bundle / 'Contents/Resources/Metadata.appintents/extract.actionsdata'
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps({'actions': {name: {} for name in actions},
+                                    'enums': [{'identifier': name} for name in enums]}))
+
+    def test_missing_or_incomplete_intent_metadata_is_rejected(self):
+        # Edit Widget and the interactive chart need the extracted metadata in both bundles.
+        for bundle in (self.app, self.widget):
+            path = bundle / 'Contents/Resources/Metadata.appintents/extract.actionsdata'
+            content = path.read_bytes(); path.unlink()
+            with self.subTest(bundle=bundle.name), self.assertRaisesRegex(ValueError, 'missing App Intents metadata'):
+                RESOURCES.verify(self.app)
+            path.write_bytes(content)
+        for actions, enums in (({'SelectActivityPointIntent'}, ('ActivityPeriod', 'ActivitySource')),
+                               (RESOURCES.WIDGET_INTENTS, ('ActivityPeriod',))):
+            self.metadata(self.widget, actions, enums)
+            with self.assertRaisesRegex(ValueError, 'lacks the activity intents'):
+                RESOURCES.verify(self.app)
 
     def test_missing_any_consumed_asset_is_rejected(self):
         for bundle, resources in ((self.app, RESOURCES.SHARED | RESOURCES.APP_ONLY), (self.widget, RESOURCES.SHARED)):

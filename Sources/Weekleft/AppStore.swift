@@ -17,7 +17,7 @@ import WeekleftCore
     }
     var refreshQuota: ((ProviderID, String, Bool) async throws -> UsageSnapshot)? = nil
     var scheduling = AppRefreshScheduling()
-    var discoverCodex: () -> String? = AppStore.discoverCodex
+    var discoverCodex: @Sendable () -> String? = AppStore.discoverCodex
 }
 
 /// Cancel handles keep timers and system notifications replaceable in lifecycle
@@ -69,7 +69,7 @@ import WeekleftCore
     private let localQuota: @Sendable (Date) async -> UsageSnapshot?
     private let refreshQuota: ((ProviderID, String, Bool) async throws -> UsageSnapshot)?
     private let scheduling: AppRefreshScheduling
-    private let codexDiscovery: () -> String?
+    private let codexDiscovery: @Sendable () -> String?
     private var cancelTriggers: [() -> Void] = []
     private var backgroundRefresh: Task<Void, Never>?
     private var localRefresh: Task<Void, Never>?
@@ -85,9 +85,12 @@ import WeekleftCore
     private var activityObserver: AnyCancellable?
     var onNetworkRestored: (() async -> Void)?
     var providers: [ProviderID] { preferences.providers }
+    /// Views build resolvers for every row on each render. Discovery (file checks
+    /// and a Launch Services lookup) runs only when a caller actually resolves
+    /// Codex, and an explicitly selected path still bypasses it.
     var clientResolver: ClientExecutableResolver {
-        let automaticPath = !isolated && codexPath.isEmpty ? codexDiscovery() : nil
-        return ClientExecutableResolver(codexPath: codexPath, discoverCodex: { automaticPath })
+        guard !isolated else { return ClientExecutableResolver(codexPath: codexPath, discoverCodex: { nil }) }
+        return ClientExecutableResolver(codexPath: codexPath, discoverCodex: codexDiscovery)
     }
     init(state: SharedState? = nil, savesChanges: Bool = true,
          quotaFetcher: ((ProviderID, String) async throws -> UsageSnapshot)? = nil,
@@ -331,6 +334,8 @@ import WeekleftCore
     enum State { case unknown, online, offline }
     @Published private(set) var state: State = .unknown
     @Published private(set) var restoring = false
+    /// When the Mac lost its network path; rows wait a moment before saying so.
+    @Published private(set) var offlineSince: Date?
     var isOffline: Bool { state == .offline }
     var onRestored: (() async -> Void)?
     private var monitor: NWPathMonitor?
@@ -366,6 +371,7 @@ import WeekleftCore
         guard state != next else { return }
         let wasOffline = isOffline
         state = next; recovery?.cancel(); restoring = false
+        offlineSince = available ? nil : Date()
         guard wasOffline, available else { return }
         recovery = Task { [weak self] in
             guard let self else { return }

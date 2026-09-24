@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.2.0 — 2026-09-24
+
+### New
+
+- **Background tasks.** A small capsule on a Claude session shows how many background commands, subagents, monitors and workflows it is running, while Claude is still thinking and after it replies. A reply that leaves such work running stays **In background** instead of **Response ready**, replies to task events stay silent, and one notification arrives after the last task finishes. Dev servers and log followers do not hold the notification. Lunavect adds a `SubagentStop` handler to Claude Code automatically on launch.
+- **Why a turn failed.** When a Claude Code turn ends with an API error, the session and a new **Errors** notification name the reason: limit reached (with the time it is available again), can't reach Claude, service error, sign in again or account issue.
+- **Limit alerts.** **Limits** notifications warn once when a five-hour or weekly allowance of Claude or Codex drops below 5, 10, 20 or 25% (10% by default) and announce its return at the reset. Only fresh values count.
+- **No network.** Working sessions show **No network** instead of **Thinking** while the Mac has been offline for more than 10 seconds.
+
+### Improved
+
+- Times, weekdays and percentages follow the Mac's region and 12- or 24-hour clock in every language, and look the same in the menu bar, popover, widgets and Settings. Languages Lunavect does not support fall back to English everywhere.
+- The session panel: Return and swipe cannot open a session twice; a notification click opens a known session at once; an opening error appears in the panel; reopening the panel returns to current sessions; refresh buttons no longer dim with every background poll; the row tooltip shows the status as displayed and the full folder; **Command-Delete** hides the focused row; Control-click on a menu bar item opens its menu; VoiceOver announces pinned rows.
+- Automatic Keep Awake shows **Paused** after a battery, heat or helper stop and resumes by itself after five minutes, or at once when the stop conditions change. A slow helper reply no longer re-registers the helper, and restoring base settings never applies only part of them.
+- Recording the panel shortcut listens only in Settings and refuses standard commands such as Command-C and Command-W.
+- The limits popover follows the app theme and says when it waits for the network; Settings → Limits shows the date of older data; widget labels and meters are stronger with Increase Contrast.
+- Launch no longer reads old Codex session journals; hidden-session records, resume launchers and temporary files no longer grow without bound.
+
+### Fixed
+
+- Activity widgets no longer show the outdated badge while Lunavect observes normally.
+- Disconnecting a client after Lunavect reinstalled its handlers over edited settings now removes every Lunavect handler; client settings are written without escaped slashes.
+- A Claude usage reset that has just passed no longer fails the `/usage` probe, and an idle session's older quota can no longer replace a newer one.
+- Hook events larger than 1 MB keep their lifecycle transition; an MCP request to open a link counts as waiting for input.
+- The German translation consistently uses the formal form.
+
 ## 0.1.9 — 2026-09-23
 
 - Codex's internal memory agent no longer shows up as a working session or makes Connections report an incomplete Codex session catalog. Codex consolidates its memories with an agent that works in `~/.codex/memories`; it reports events like a task, but it is not a thread you can open.

@@ -13,6 +13,8 @@ public struct SessionVisibility {
         var project: String?
         var removed: Bool?
         var removedAt: Date?
+        /// Last coarse observation in which a source still listed the session.
+        var seenAt: Date?
     }
     private struct Saved: Codable { var sessions: [String: HiddenSession] }
     private var records: [String: HiddenSession]
@@ -80,6 +82,25 @@ public struct SessionVisibility {
         let removed = records.count - kept.count
         if removed > 0 { try save(kept) }
         return removed
+    }
+    /// Call on a coarse cadence with every row the sources still report. A hidden
+    /// session stays hidden while it is listed. Only a record of a completely
+    /// observed provider that has not been listed, hidden or active for
+    /// `retention` expires, so auto-hide cannot grow the list without bound and a
+    /// partial or disabled source never releases a session that may still exist.
+    @discardableResult public mutating func observe(_ ids: Set<String>, completeProviders: Set<ProviderID>, now: Date = Date()) throws -> Int {
+        var next = records, expired = 0, changed = false
+        for (id, record) in records where record.removed != true {
+            if ids.contains(id) {
+                if record.seenAt != now { next[id]?.seenAt = now; changed = true }
+            } else if let provider = ProviderID(rawValue: String(id.split(separator: ":").first ?? "")),
+                      completeProviders.contains(provider) {
+                let last = max(record.hiddenAt, record.eventAt ?? .distantPast, record.seenAt ?? .distantPast)
+                if now.timeIntervalSince(last) > Self.retention { next.removeValue(forKey: id); expired += 1; changed = true }
+            }
+        }
+        if changed { try save(next) }
+        return expired
     }
     public mutating func hide(_ session: AgentSession, now: Date = Date()) throws {
         var next = records

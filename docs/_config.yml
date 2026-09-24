@@ -18,6 +18,86 @@ defaults:
       path: ""
     values:
       image: /images/social-card.png
+  - scope:
+      path: "README.md"
+    values:
+      description: "Lunavect documentation: install, connect Claude Code and Codex, sessions, usage limits, widgets, notifications, Keep Awake, privacy and development."
+  - scope:
+      path: "activity.md"
+    values:
+      description: "How Lunavect measures Claude Code and Codex working time by day, week and month, recovers earlier history and avoids double counting."
+  - scope:
+      path: "architecture.md"
+    values:
+      description: "How Lunavect keeps UI state, quota snapshots and activity history, and how its persistence services write and recover data."
+  - scope:
+      path: "checks-and-release-gates.md"
+    values:
+      description: "The checks behind every Lunavect release: tests, unsigned universal build, native renders, signing, notarization and update gates."
+  - scope:
+      path: "connections.md"
+    values:
+      description: "Connect Claude Code and Codex to Lunavect: local event handlers, the Claude status line for usage limits, diagnostics and clean removal."
+  - scope:
+      path: "development.md"
+    values:
+      description: "Build, test and contribute to Lunavect, the native macOS menu bar app for Claude Code and Codex, with Xcode and Swift."
+  - scope:
+      path: "faq.md"
+    values:
+      description: "Answers about Lunavect: Claude Code and Codex support, accounts and API keys, usage limits, widgets, activity, privacy and updates."
+  - scope:
+      path: "first-install-check.md"
+    values:
+      description: "A short checklist for the first Lunavect launch: connect a provider, confirm live sessions, limits and widgets."
+  - scope:
+      path: "installation.md"
+    values:
+      description: "Install Lunavect with Homebrew or the signed DMG, update it, troubleshoot connections and uninstall it completely."
+  - scope:
+      path: "keep-awake.md"
+    values:
+      description: "Keep your Mac awake while Claude Code and Codex agents work, including closed-lid operation, battery and heat stop conditions."
+  - scope:
+      path: "localization.md"
+    values:
+      description: "Lunavect in English, Russian, German, Spanish, French and Simplified Chinese, with dates and times following your Mac's region."
+  - scope:
+      path: "menu-bar-limits.md"
+    values:
+      description: "Show Claude and Codex weekly and five-hour usage limits in the macOS menu bar as bars, percentages or rings, with reset times."
+  - scope:
+      path: "notifications.md"
+    values:
+      description: "Lunavect notifications for Claude Code and Codex: response ready, approval or reply needed, failed turns, low usage limits and sounds."
+  - scope:
+      path: "privacy.md"
+    values:
+      description: "What Lunavect reads on your Mac, what it stores, which permissions it asks for, and why no session data leaves your computer."
+  - scope:
+      path: "public-screenshots.md"
+    values:
+      description: "How the Lunavect README and website images are rendered from the real app with fictional sessions and data."
+  - scope:
+      path: "sessions.md"
+    values:
+      description: "Live Claude Code and Codex session states in the Lunavect panel: working, background tasks, waiting for permission or input, failures and actions."
+  - scope:
+      path: "settings.md"
+    values:
+      description: "Lunavect settings: language, launch at login, panel shortcut, notifications, limits, menu bar, widgets, Keep Awake and defaults."
+  - scope:
+      path: "thinking-phrases.md"
+    values:
+      description: "The playful activity phrases Lunavect can show in the menu bar while Claude Code and Codex work."
+  - scope:
+      path: "updates.md"
+    values:
+      description: "How Lunavect updates are signed, packaged and delivered with Sparkle, and how each release is verified."
+  - scope:
+      path: "verification.md"
+    values:
+      description: "What has been verified for each Lunavect release on real Macs, and the compatibility limits that remain open."
 social:
   name: Lunavect
   links:

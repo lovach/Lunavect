@@ -25,6 +25,22 @@ final class TerminalLocationTests: XCTestCase {
         }
     }
 
+    /// Focus runs on the main thread: a busy or hung terminal must not hold it for
+    /// AppleScript's default two minutes per event, or for one timeout per tab.
+    func testFocusScriptsBoundEveryAppleEventAndStopAtTheFirstTimeout() throws {
+        XCTAssertLessThanOrEqual(TerminalLocation.focusTimeout, 10, "Stays well inside Keep Awake's 30 s lease")
+        for app in ["Terminal", "iTerm2"] {
+            let script = try XCTUnwrap(TerminalLocation.focusScript(tty: "/dev/ttys003", app: app))
+            let lines = script.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+            XCTAssertEqual(lines.first, "with timeout of \(TerminalLocation.focusTimeout) seconds", app)
+            XCTAssertEqual(lines.suffix(2), ["end timeout", "return false"], app)
+            let guarded = lines.filter { $0 == "try" }.count
+            XCTAssertGreaterThan(guarded, 0, app)
+            XCTAssertEqual(lines.filter { $0 == "if errorNumber is -1712 then error errorMessage number errorNumber" }.count, guarded,
+                           "\(app): a per-tab error handler must not swallow a timeout")
+        }
+    }
+
     func testRecordedDeviceWinsAndOnlyTerminalSessionsSearchProcesses() {
         var searches: [(ProviderID, String)] = []
         let running: (ProviderID, String) -> TerminalLocation.Target? = { provider, cwd in

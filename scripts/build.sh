@@ -8,7 +8,17 @@ if [ ! -f "$SIGNING_CONFIG" ]; then echo 'Signing configuration does not exist.'
 case "$BUILD_CONFIGURATION" in Debug|Release) ;; *) echo "Expected Debug or Release configuration" >&2; exit 2 ;; esac
 cd "$PROJECT_ROOT"
 # Keep generated bundles outside iCloud Documents: File Provider FinderInfo can break codesigning.
-if command -v xcodegen >/dev/null 2>&1; then xcodegen generate; fi
+# Regenerate only with the XcodeGen version that CI's parity check pins: another
+# version rewrites the tracked project and schemes with unrelated drift.
+PINNED_XCODEGEN=$(sed -n "s/^VERSION = '\([0-9.]*\)'\$/\1/p" "$PROJECT_ROOT/scripts/check-project-parity.py" || true)
+if command -v xcodegen >/dev/null 2>&1; then
+  FOUND_XCODEGEN=$(xcodegen --version 2>/dev/null || true)
+  if [ -n "$PINNED_XCODEGEN" ] && [ "$FOUND_XCODEGEN" = "Version: $PINNED_XCODEGEN" ]; then
+    xcodegen generate
+  else
+    echo "Skipping project generation: XcodeGen ${PINNED_XCODEGEN:-(unknown pin)} is required, found '${FOUND_XCODEGEN:-no version}'. Building the committed Lunavect.xcodeproj." >&2
+  fi
+fi
 # WidgetKit caches descriptors by bundle identity/version. Reusing the same
 # build number can retain the old opaque background after a local update.
 BUILD_NUMBER=$(python3 - "$PROJECT_ROOT/project.yml" "$HOME/Applications/Lunavect.app/Contents/Info.plist" "/Applications/Lunavect.app/Contents/Info.plist" "$DERIVED_DIR/Build/Products/Debug/Lunavect.app/Contents/Info.plist" "$DERIVED_DIR/Build/Products/Release/Lunavect.app/Contents/Info.plist" <<'PYTHON'
@@ -34,4 +44,6 @@ python3 "$PROJECT_ROOT/scripts/verify-app-groups.py" "$DERIVED_DIR/Build/Product
 # Xcode/LaunchServices can still discover the nested appex while signing.
 pluginkit -r "$DERIVED_DIR/Build/Products/$BUILD_CONFIGURATION/Lunavect.app/Contents/PlugIns/LunavectWidget.appex" || true
 /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister -u "$DERIVED_DIR/Build/Products/$BUILD_CONFIGURATION/Lunavect.app" || true
+# Removing that registration can break the installed widget's lookup; reassert it last.
+python3 "$PROJECT_ROOT/scripts/reassert-installed-widget.py" || echo 'Installed widget registration could not be reasserted; run scripts/install.sh.' >&2
 printf '\nBuilt app: %s\n' "$DERIVED_DIR/Build/Products/$BUILD_CONFIGURATION/Lunavect.app"

@@ -55,7 +55,7 @@ struct LunavectWidgetCard: View {
     private var dimensions: CGSize { size ?? family.dimensions }
     private var providers: [ProviderID] { source.providers(from: preferences.providers) }
     private func activity(_ family: LunavectWidgetSize, overview: Bool = false) -> some View {
-        ActivityCard(data: ActivityChartData(history: history, now: now, period: period, providers: providers),
+        ActivityCard(data: ActivityChartData(history: history, now: now, period: period, providers: providers, staleAfter: ActivityChartData.widgetStaleness),
                      family: family, unavailable: activityUnavailable, source: source, overview: overview,
                      selectedDate: selectedDate, pointButtons: pointButtons, resetButton: resetButton, pointNavigation: pointNavigation)
     }
@@ -74,7 +74,7 @@ struct LunavectWidgetCard: View {
                 VStack(spacing: 0) {
                     OverviewLimitsCard(snapshots: snapshots, preferences: preferences, now: now)
                         .fixedSize(horizontal: false, vertical: true)
-                    Rectangle().fill(.white.opacity(0.14)).frame(height: 1).padding(.horizontal, 18)
+                    Rectangle().fill(WidgetInk(0.14, increased: 0.35)).frame(height: 1).padding(.horizontal, 18)
                     activity(.medium, overview: true)
                         .frame(maxHeight: .infinity)
                 }
@@ -108,7 +108,7 @@ private struct SmallLimitsCard: View {
                     .lineLimit(1).minimumScaleFactor(0.9)
                 Spacer(minLength: 0)
                 if stale { Image(systemName: "exclamationmark.circle").font(.system(size: 10)) }
-            }.foregroundStyle(.white.opacity(0.8))
+            }.foregroundStyle(WidgetInk(0.8))
             ForEach(preferences.providers) { id in
                 let snapshot = snapshots.first { $0.provider == id } ?? UsageSnapshot(provider: id)
                 let weekly = snapshot.weekly.flatMap { $0.isExpired(at: now) ? nil : $0 }
@@ -117,36 +117,36 @@ private struct SmallLimitsCard: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text(id.title).font(.system(size: 11, weight: .medium))
                         Spacer(minLength: 2)
-                        Text(weekly.map { "\(Int($0.remaining.rounded()))%" } ?? "—")
+                        Text(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—")
                             .font(.system(size: 22, weight: .semibold)).monospacedDigit()
                             .opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.6 : 1)
                     }
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.12))
+                            Capsule().fill(WidgetInk(0.12, increased: 0.3))
                             if let weekly { Capsule().fill(activityAccent(id)).frame(width: geometry.size.width * weekly.remaining / 100) }
                         }
                     }.frame(height: 4).opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.5 : 1)
-                        .accessibilityLabel(L("Осталось")).accessibilityValue(weekly.map { L("{0} процентов", String(Int($0.remaining.rounded()))) } ?? L("Нет данных"))
+                        .accessibilityLabel(L("Осталось")).accessibilityValue(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? L("Нет данных"))
                     if weekly == nil || snapshot.isStale(window: snapshot.weekly, now: now) {
                         HStack(spacing: 3) {
                             Text(widgetQuotaStatus(snapshot, now: now)).lineLimit(1).minimumScaleFactor(0.75)
                             Spacer(minLength: 0)
                             if preferences.showFiveHour {
-                                Text(L("5 ч") + " · " + (five.map { "\(Int($0.remaining.rounded()))%" } ?? "—")).fixedSize()
+                                Text(L("5 ч") + " · " + (five.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—")).fixedSize()
                             }
-                        }.font(.system(size: 8)).foregroundStyle(.white.opacity(0.75))
+                        }.font(.system(size: 8)).foregroundStyle(WidgetInk(0.75))
                     } else if preferences.showFiveHour {
                         HStack {
                             Text(L("5 ч")); Spacer()
-                            Text(five.map { "\(Int($0.remaining.rounded()))%" } ?? "—").monospacedDigit()
-                        }.font(.system(size: 9)).foregroundStyle(.white.opacity(0.75))
+                            Text(five.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—").monospacedDigit()
+                        }.font(.system(size: 9)).foregroundStyle(WidgetInk(0.75))
                     }
                 }
             }
             Spacer(minLength: 0)
             Text(lastDate.map { L("Данные: {0}", $0.formatted(.dateTime.day().month(.twoDigits).hour().minute().locale(L10n.locale))) } ?? L("Подключите в настройках"))
-                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.65)).lineLimit(1).minimumScaleFactor(0.8)
+                .font(.system(size: 11)).foregroundStyle(WidgetInk(0.65)).lineLimit(1).minimumScaleFactor(0.8)
         }.padding(14)
         }
     }
@@ -163,8 +163,23 @@ struct ActivitySelectionResetLabel: View {
     var body: some View {
         Text(L("Весь период")).font(.system(size: 10, weight: .medium))
             .padding(.horizontal, 8).frame(height: 24)
-            .background(.white.opacity(0.08), in: Capsule())
+            .background(WidgetInk(0.08, increased: 0.22), in: Capsule())
             .accessibilityLabel(L("Весь период"))
+    }
+}
+
+/// White ink for labels, tracks and rules on the widget backdrop and system glass.
+/// With Increase Contrast, dim values move close to full strength, like the
+/// chart grid, session row borders and the opaque backdrop already do.
+struct WidgetInk: ShapeStyle {
+    var opacity: Double
+    var increased: Double
+    init(_ opacity: Double, increased: Double = 0.95) { self.opacity = opacity; self.increased = increased }
+    static func level(_ opacity: Double, increased: Double = 0.95, contrast: ColorSchemeContrast) -> Double {
+        contrast == .increased ? max(opacity, increased) : opacity
+    }
+    func resolve(in environment: EnvironmentValues) -> Color {
+        Color.white.opacity(Self.level(opacity, increased: increased, contrast: environment.colorSchemeContrast))
     }
 }
 
@@ -186,7 +201,7 @@ struct OverviewLimitsCard: View {
     let now: Date
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(L("Недельный остаток")).font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.78))
+            Text(L("Недельный остаток")).font(.system(size: 10, weight: .medium)).foregroundStyle(WidgetInk(0.78))
             HStack(alignment: .top, spacing: 16) {
                 ForEach(preferences.providers) { id in
                     let snapshot = snapshots.first { $0.provider == id } ?? UsageSnapshot(provider: id)
@@ -197,22 +212,22 @@ struct OverviewLimitsCard: View {
                             Circle().fill(activityAccent(id)).frame(width: 5, height: 5)
                             Text(id.title).font(.system(size: 10, weight: .medium))
                             Spacer(minLength: 4)
-                            Text(weekly.map { "\(Int($0.remaining.rounded()))%" } ?? "—")
+                            Text(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—")
                                 .font(.system(size: 20, weight: .semibold, design: .rounded)).monospacedDigit()
                                 .opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.6 : 1)
                         }
                         GeometryReader { proxy in
-                            Capsule().fill(.white.opacity(0.13))
+                            Capsule().fill(WidgetInk(0.13, increased: 0.3))
                             if let weekly { Capsule().fill(activityAccent(id)).frame(width: proxy.size.width * weekly.remaining / 100) }
                         }.frame(height: 3)
                         Text(snapshot.isStale(window: snapshot.weekly, now: now)
                              ? widgetQuotaStatus(snapshot, now: now)
                              : weekly.map { L("Сброс через {0}", $0.countdown(now: now)) } ?? L("Нет данных"))
-                            .font(.system(size: 9)).foregroundStyle(.white.opacity(0.72))
+                            .font(.system(size: 9)).foregroundStyle(WidgetInk(0.72))
                             .lineLimit(1).minimumScaleFactor(0.75)
                         if preferences.showFiveHour {
-                            Text(L("5 ч") + " · " + (five.map { "\(Int($0.remaining.rounded()))%" } ?? "—"))
-                                .font(.system(size: 9)).foregroundStyle(.white.opacity(0.72))
+                            Text(L("5 ч") + " · " + (five.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—"))
+                                .font(.system(size: 9)).foregroundStyle(WidgetInk(0.72))
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityElement(children: .combine).help(widgetQuotaExplanation(snapshot, now: now))
@@ -242,7 +257,7 @@ struct ActivityCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L(unavailable ? "Статистика недоступна" : data.series.isEmpty ? "Источник отключён" : "Пока нет данных"))
                         .font(.system(size: 13, weight: .medium))
-                    if !small { Text(L("История и подробности — в приложении")).font(.system(size: 11)).foregroundStyle(.white.opacity(0.7)) }
+                    if !small { Text(L("История и подробности — в приложении")).font(.system(size: 11)).foregroundStyle(WidgetInk(0.7)) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 if small {
@@ -281,7 +296,7 @@ struct ActivityCard: View {
                     status
                 }
                 Text(ActivityChartText.range(data.summary, compact: true))
-                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.7)).lineLimit(1).minimumScaleFactor(0.85)
+                    .font(.system(size: 10)).foregroundStyle(WidgetInk(0.7)).lineLimit(1).minimumScaleFactor(0.85)
             }
         } else {
             HStack(spacing: 6) {
@@ -293,7 +308,7 @@ struct ActivityCard: View {
                     if let resetButton { resetButton }
                 } else {
                     Text(ActivityChartText.range(data.summary))
-                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                        .font(.system(size: 10)).foregroundStyle(WidgetInk(0.7)).lineLimit(1)
                     status
                 }
             }.frame(height: family == .medium && selected != nil ? 24 : 16)
@@ -304,7 +319,7 @@ struct ActivityCard: View {
         VStack(alignment: .leading, spacing: small ? 3 : 1) {
             HStack(spacing: 5) {
                 Capsule().fill(activityAccent(series.provider)).frame(width: small ? 10 : 8, height: 3)
-                Text(series.provider.title).font(.system(size: small ? 10 : 9, weight: .medium)).foregroundStyle(.white.opacity(0.75))
+                Text(series.provider.title).font(.system(size: small ? 10 : 9, weight: .medium)).foregroundStyle(WidgetInk(0.75))
             }
             Text(ActivityChartText.value(series.totals(at: selected)))
                 .font(.system(size: small ? 21 : family == .large ? 20 : 14, weight: .semibold, design: .rounded))
@@ -317,26 +332,27 @@ struct ActivityCard: View {
         if let selected {
             HStack(spacing: 8) {
                 Text(ActivityChartText.point(selected, period: data.summary.period, compact: true))
-                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.8))
+                    .font(.system(size: 11)).foregroundStyle(WidgetInk(0.8))
                 Spacer(minLength: 0)
                 if let pointNavigation { pointNavigation(data, selected) }
                 else if let resetButton { resetButton }
             }.frame(height: 24)
         } else {
             Text(L("История и подробности — в приложении"))
-                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.55)).frame(height: 24)
+                .font(.system(size: 10)).foregroundStyle(WidgetInk(0.55)).frame(height: 24)
         }
     }
     @ViewBuilder private var status: some View {
         if data.stale || data.limited {
             Image(systemName: data.stale ? "clock.badge.exclamationmark" : "info.circle")
-                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.65))
+                .font(.system(size: 10)).foregroundStyle(WidgetInk(0.65))
                 .accessibilityLabel(L(data.stale ? "Данные устарели" : "По доступным записям"))
         }
     }
 }
 
 struct ActivitySeriesLegend: View {
+    @Environment(\.colorSchemeContrast) private var contrast
     let data: ActivityChartData
     var selectedDate: Date? = nil
     var small = false
@@ -375,7 +391,7 @@ struct ActivitySeriesLegend: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 5) {
                             swatch(series.provider)
-                            Text(series.provider.title).font(.system(size: 11, weight: .medium)).foregroundStyle(foreground.opacity(0.8))
+                            Text(series.provider.title).font(.system(size: 11, weight: .medium)).foregroundStyle(foreground.opacity(WidgetInk.level(0.8, contrast: contrast)))
                         }
                         Text(unavailable ? "—" : ActivityChartText.value(series.totals(at: selectedDate)))
                             .font(.system(size: 14, weight: .medium)).monospacedDigit().lineLimit(1)
@@ -505,7 +521,7 @@ struct ActivityTrendPlot: View {
                     ForEach(labelIndices, id: \.self) { index in
                         let labelWidth: CGFloat = data.summary.period == .month ? 44 : 30
                         Text(label(data.points[index].date)).font(.system(size: 11))
-                            .foregroundStyle(foreground.opacity(0.76)).lineLimit(1).frame(width: labelWidth)
+                            .foregroundStyle(foreground.opacity(WidgetInk.level(0.76, contrast: contrast))).lineLimit(1).frame(width: labelWidth)
                             .position(
                                 x: min(
                                     geometry.size.width - labelWidth / 2,
@@ -529,7 +545,7 @@ struct ActivityTrendPlot: View {
                     }
                     Text("0").position(x: 19, y: max(7, geometry.size.height - 6))
                 }.frame(width: 38).padding(.bottom, ActivityPlotGeometry.labelsHeight)
-                    .font(.system(size: 11)).foregroundStyle(foreground.opacity(0.7)).accessibilityHidden(true)
+                    .font(.system(size: 11)).foregroundStyle(foreground.opacity(WidgetInk.level(0.7, contrast: contrast))).accessibilityHidden(true)
             }
         }.accessibilityElement(children: .ignore)
             .accessibilityLabel(L("Статистика активности"))

@@ -1,12 +1,14 @@
 import Foundation
 
 public enum SessionNoticeKind: String, CaseIterable, Sendable {
-    case completed, permission, input
+    case completed, permission, input, failed, limit
     public var title: String {
         switch self {
         case .completed: return L("Ответ готов")
         case .permission: return L("Нужно разрешение")
         case .input: return L("Ждёт ответа")
+        case .failed: return L("Ошибка")
+        case .limit: return L("Лимиты")
         }
     }
 }
@@ -52,6 +54,7 @@ public struct SessionNoticeTracker {
             case .ready, .finished: kind = [.running, .permission, .input].contains(prior.phase) ? .completed : nil
             case .permission: kind = .permission
             case .input: kind = .input
+            case .failed: kind = [.running, .permission, .input].contains(prior.phase) ? .failed : nil
             default: kind = nil
             }
             if let kind { result.append(SessionNotice(session: row, kind: kind)) }

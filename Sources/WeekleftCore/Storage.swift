@@ -144,6 +144,21 @@ public enum LocalStateRecovery {
         try handle.close()
         guard rename(tmp.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
+    /// A writer killed between creating its private temporary and the rename
+    /// (a hook or status-line helper cancelled by its client) leaves it behind.
+    /// Remove only `write`'s own `.UUID.tmp` names, long after any write ends.
+    @discardableResult public static func removeAbandonedTemporaries(in directory: URL, now: Date = Date(), olderThan age: TimeInterval = 3600) throws -> Int {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        var removed = 0
+        for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) {
+            let name = file.lastPathComponent
+            guard name.hasPrefix("."), name.hasSuffix(".tmp"), UUID(uuidString: String(name.dropFirst().dropLast(4))) != nil,
+                  let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true, values.isSymbolicLink != true,
+                  let modified = values.contentModificationDate, now.timeIntervalSince(modified) > age else { continue }
+            try FileManager.default.removeItem(at: file); removed += 1
+        }
+        return removed
+    }
     public static func load<Value>(from url: URL, empty: Value, read: (URL) throws -> Value) throws -> RecoveredLocalState<Value> {
         let target = url.resolvingSymlinksInPath()
         do { return RecoveredLocalState(value: try read(target), backupURL: nil) }

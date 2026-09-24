@@ -188,20 +188,35 @@ public enum ClaudeProvider {
         guard lock >= 0 else { throw CocoaError(.fileWriteNoPermission) }
         defer { flock(lock, LOCK_UN); close(lock) }
         guard flock(lock, LOCK_EX) == 0 else { throw CocoaError(.fileWriteUnknown) }
-        let previous = try LocalStateRecovery.load(from: target, empty: [String: Any]()) { url in
+        let previous = try LocalStateRecovery.load(from: target, empty: (snapshot: UsageSnapshot?.none, fields: [String: Any]())) { url in
             let bytes = try Data(contentsOf: url)
             guard bytes.count <= 1_000_000 else { throw CocoaError(.fileReadCorruptFile) }
-            _ = try JSONDecoder().decode(UsageSnapshot.self, from: bytes)
-            return try JSONSerialization.jsonObject(with: bytes) as? [String: Any] ?? [:]
+            let stored = try JSONDecoder().decode(UsageSnapshot.self, from: bytes)
+            return (stored, try JSONSerialization.jsonObject(with: bytes) as? [String: Any] ?? [:])
         }
-        var seen = previous.value["captureFingerprints"] as? [String: Double] ?? [:]
+        var seen = previous.value.fields["captureFingerprints"] as? [String: Double] ?? [:]
         guard seen[digest] == nil else { return }
         // Bounded hashes contain no raw session identity, transcript or account data.
+        let writer = (root["session_id"] as? String).map { SHA256.hash(data: Data($0.utf8)).map { String(format: "%02x", $0) }.joined() }
+        // Usage within one window never decreases. Claude re-runs every session's
+        // status line (a window reset, refreshInterval), so an idle session re-sends
+        // its own older response; a lower value for the same window from another
+        // session is that older response and must neither replace nor re-stamp
+        // the newer observation. The last writer's own lower value is accepted.
+        if let stored = previous.value.snapshot, writer == nil || previous.value.fields["captureSession"] as? String != writer,
+           zip([stored.weekly, stored.fiveHour], [snapshot.weekly, snapshot.fiveHour]).contains(where: { old, new in
+               guard let old, let new, old.resetsAt != nil, old.resetsAt == new.resetsAt else { return false }
+               return new.usedPercent < old.usedPercent
+           }) { return }
         seen[digest] = now.timeIntervalSince1970
         seen = Dictionary(uniqueKeysWithValues: seen.sorted { $0.value > $1.value }.prefix(128).map { ($0.key, $0.value) })
         var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as! [String: Any]
         encoded["captureFingerprints"] = seen
+        encoded["captureSession"] = writer
         try LocalStateRecovery.write(JSONSerialization.data(withJSONObject: encoded, options: .sortedKeys), to: target)
+        // Claude cancels an in-flight status line when the next update starts.
+        // Best-effort cleanup; the capture above has already succeeded.
+        _ = try? LocalStateRecovery.removeAbandonedTemporaries(in: target.deletingLastPathComponent(), now: now)
     }
     private static func statusLineCommand(_ executable: String) -> String { SessionHooks.quote(executable) + " --claude-statusline" }
     private static func ownsStatusLine(_ command: String) -> Bool {
@@ -270,7 +285,7 @@ public enum ClaudeProvider {
         let current = try FileManager.default.fileExists(atPath: settings.path) ? Data(contentsOf: settings) : nil
         guard current == oldData else { throw SessionError.changedConfig }
         try SessionHooks.writeConfigurationChange(original: oldData,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
             to: settings, restorationURL: SessionHooks.restorationURL(for: settings, in: bridgeDirectory, prefix: "statusline"),
             disconnecting: false)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")
@@ -294,7 +309,7 @@ public enum ClaudeProvider {
         try checkpoint(.statusLineWrite)
         guard try Data(contentsOf: settings) == oldData else { throw SessionError.changedConfig }
         try SessionHooks.writeConfigurationChange(original: oldData,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
             to: settings, restorationURL: SessionHooks.restorationURL(for: settings, in: bridgeDirectory, prefix: "statusline"),
             disconnecting: true)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")

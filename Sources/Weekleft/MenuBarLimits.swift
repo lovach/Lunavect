@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 #if SWIFT_PACKAGE
 import WeekleftCore
@@ -98,7 +99,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             let window = preferences.period.window(in: snapshot).flatMap { $0.isExpired(at: now) ? nil : $0 }
             let stale = snapshot.isStale(window: window, now: now)
             let percent = window.map { String(Int($0.remaining.rounded())) }
-            let value = percent.map { $0 + "%" + (stale ? "*" : "") } ?? "—"
+            let value = window.map { PercentText.format(Int($0.remaining.rounded())) + (stale ? "*" : "") } ?? "—"
             // This is time until the actual reset, never the duration of the quota window.
             let countdown = window?.countdown(now: now) ?? "—"
             let resetDate = window?.resetsAt?.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))
@@ -132,6 +133,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     // Equal provider slots reserve the widest percentage, including its stale marker.
+    private var widestValue: String { PercentText.format(100) + "*" }
     private var valueFont: NSFont { .monospacedDigitSystemFont(ofSize: bounds.height >= 26 ? 12 : 10.5, weight: .semibold) }
     private var countdownFont: NSFont { .monospacedDigitSystemFont(ofSize: bounds.height >= 26 ? 9 : 8, weight: .medium) }
     private var logoSize: CGFloat { bounds.height >= 26 ? 16 : 14 }
@@ -139,11 +141,11 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     private var iconTextSpacing: CGFloat { style == .percentages ? 4 : 7 }
     private var providerSpacing: CGFloat { style == .percentages ? 8 : 12 }
     private func countdown(_ entry: MenuBarLimitEntry) -> String { entry.resetDate == nil ? "—" : entry.compactCountdown }
-    private var textColumnWidth: CGFloat {
+    var textColumnWidth: CGFloat {
         // Reserve the countdown column even when hidden, so both providers and
         // neighbouring menu bar items keep their positions when it is toggled.
         let longest = entries.map { (countdown($0) as NSString).size(withAttributes: [.font: countdownFont]).width }.max() ?? 0
-        let widestValue = ("100%*" as NSString).size(withAttributes: [.font: valueFont]).width
+        let widestValue = (self.widestValue as NSString).size(withAttributes: [.font: valueFont]).width
         if style == .percentages { return ceil(widestValue) }
         return ceil(max(longest, widestValue))
     }
@@ -203,14 +205,14 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             if style == .percentages {
                 let contentX = x + edgeInset
                 logo(entry.provider, in: NSRect(x: contentX, y: bounds.midY - logoSize / 2, width: logoSize, height: logoSize))
-                let textHeight = ("100%*" as NSString).size(withAttributes: [.font: valueFont]).height
+                let textHeight = (widestValue as NSString).size(withAttributes: [.font: valueFont]).height
                 drawText(entry.value, font: valueFont,
                          in: NSRect(x: contentX + logoSize + iconTextSpacing, y: bounds.midY - textHeight / 2,
                                     width: textColumnWidth, height: textHeight))
                 continue
             }
             let timeFont = countdownFont
-            let valueHeight = ("100%*" as NSString).size(withAttributes: [.font: valueFont]).height
+            let valueHeight = (widestValue as NSString).size(withAttributes: [.font: valueFont]).height
             let timeHeight = ("0" as NSString).size(withAttributes: [.font: timeFont]).height
             let trackHeight: CGFloat = bounds.height >= 26 ? 2 : 1.5
             // Keep the same icon center and track baseline with or without time.
@@ -254,6 +256,8 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     @Published var iconColor: MenuBarLimitsColor = .system
     @Published var meterColor: MenuBarLimitsColor = .provider
     @Published var refreshing = false
+    /// Refreshing waits for the network; the popover says so instead of ignoring the button.
+    @Published var offline = false
 }
 
 @MainActor final class MenuBarLimitsController: NSObject, NSPopoverDelegate {
@@ -267,6 +271,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     private var preferences = MenuBarLimitsPreferences()
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
+    private var networkObserver: AnyCancellable?
     private let onOpenLimits: () -> Void
     private let onOpenMenu: () -> Void
     private let onSelectPeriod: (MenuBarLimitsPeriod) -> Void
@@ -276,9 +281,13 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     private let contextMenu: (() -> NSMenu)?
     private let autosaveName: String?
 
+    /// `language` and `defaults` give the popover the same language and theme
+    /// as the sessions panel; the live application uses the shared settings.
+    /// `network` is the store's connection, whose offline state blocks refreshing.
     init(onSelectPeriod: @escaping (MenuBarLimitsPeriod) -> Void = { _ in }, onRefresh: @escaping () -> Void = {},
          onShow: @escaping () -> Void = {}, onHide: @escaping () -> Void = {}, onOpenMenu: @escaping () -> Void = {},
          contextMenu: (() -> NSMenu)? = nil,
+         language: LanguageSettings? = nil, defaults: UserDefaults = .standard, network: NetworkConnection? = nil,
          autosaveName: String? = "LunavectLimits",
          onOpenLimits: @escaping () -> Void) {
         self.onOpenLimits = onOpenLimits; self.onSelectPeriod = onSelectPeriod; self.onRefresh = onRefresh
@@ -287,10 +296,17 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
         self.onShow = onShow; self.onHide = onHide; self.autosaveName = autosaveName
         super.init()
         popover.behavior = .transient; popover.delegate = self
-        popover.contentViewController = NSHostingController(rootView: MenuBarLimitsPopover(model: panel,
-            onPeriod: { [weak self] in self?.selectPeriod($0) }, onRefresh: onRefresh,
-            onMenu: { [weak self] in self?.close(); self?.onOpenMenu() },
-            onSettings: { [weak self] in self?.close(); self?.onOpenLimits() }))
+        popover.contentViewController = NSHostingController(rootView: MenuBarLimitsPopoverRoot(language: language ?? .shared, defaults: defaults,
+            popover: MenuBarLimitsPopover(model: panel,
+                onPeriod: { [weak self] in self?.selectPeriod($0) }, onRefresh: onRefresh,
+                onMenu: { [weak self] in self?.close(); self?.onOpenMenu() },
+                onSettings: { [weak self] in self?.close(); self?.onOpenLimits() })))
+        networkObserver = network?.$state.map { $0 == .offline }.removeDuplicates().receive(on: RunLoop.main)
+            .sink { [weak self] offline in
+                guard let self else { return }
+                panel.offline = offline
+                if popover.isShown { sizePopoverToContent() }
+            }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -335,7 +351,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
         preferences.period = period; onSelectPeriod(period); refresh()
     }
     @objc private func togglePopover() {
-        if NSApp.currentEvent?.type == .rightMouseUp, let item = statusItem, let menu = contextMenu?() {
+        if StatusItemClick.opensMenu(NSApp.currentEvent), let item = statusItem, let menu = contextMenu?() {
             close(); item.menu = menu; item.button?.performClick(nil); item.menu = nil
             return
         }
@@ -348,7 +364,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
         popover.contentViewController?.view.window?.makeKey()
     }
     private func sizePopoverToContent() {
-        guard let host = popover.contentViewController as? NSHostingController<MenuBarLimitsPopover> else { return }
+        guard let host = popover.contentViewController as? NSHostingController<MenuBarLimitsPopoverRoot> else { return }
         // Measure without the current window's size proposal. Translations and
         // saved-data notices can require more height than a fresh English panel.
         let measuringView = NSHostingView(rootView: host.rootView)
@@ -361,13 +377,24 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     }
     func close() { popover.performClose(nil) }
     func stop() {
-        close(); dismissal.stop(); timer?.invalidate(); timer = nil
+        close(); dismissal.stop(); timer?.invalidate(); timer = nil; networkObserver = nil
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         statusItem = nil; content.removeFromSuperview()
     }
     isolated deinit {
         timer?.invalidate()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+    }
+}
+
+/// Like the sessions panel, the limits popover follows the app language and
+/// the Light/Dark choice in Settings rather than only the system appearance.
+struct MenuBarLimitsPopoverRoot: View {
+    @ObservedObject var language: LanguageSettings
+    let defaults: UserDefaults
+    let popover: MenuBarLimitsPopover
+    var body: some View {
+        LocalizedRoot(language: language) { popover }.defaultAppStorage(defaults)
     }
 }
 
@@ -387,13 +414,18 @@ struct MenuBarLimitsPopover: View {
                     if model.refreshing { ProgressView().controlSize(.small).frame(width: 18, height: 18) }
                     else { Image(systemName: "arrow.clockwise").frame(width: 18, height: 18) }
                 }
-                    .buttonStyle(.borderless).disabled(model.refreshing).help(L("Обновить лимиты"))
+                    .buttonStyle(.borderless).disabled(model.refreshing || model.offline).help(L("Обновить лимиты"))
                     .accessibilityLabel(L("Обновить лимиты")).accessibilityIdentifier("menu-limits-refresh")
                 Button(action: onMenu) {
                     Image(systemName: "slider.horizontal.3").frame(width: 18, height: 18)
                 }
                 .buttonStyle(.borderless).help(L("Строка меню"))
                 .accessibilityLabel(L("Строка меню")).accessibilityIdentifier("menu-limits-menu")
+            }
+            if model.offline {
+                Text(L("Ждём соединение. Данные обновятся автоматически."))
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("menu-limits-offline")
             }
             Picker(L("Период"), selection: Binding(get: { model.period }, set: { onPeriod($0) })) {
                 ForEach(MenuBarLimitsPeriod.allCases) { Text($0.title).tag($0) }

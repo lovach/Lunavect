@@ -34,6 +34,18 @@ import AwakeService
     func openLoginSettings() { XCTFail("Unexpected settings redirect") }
 }
 
+/// A banner authorization that stays in progress until the test answers.
+@MainActor private final class PendingNotificationPermissions: FeaturePermissionAccess {
+    var loginStatus: SMAppService.Status = .notRegistered
+    var pending: CheckedContinuation<Void, Never>?
+    func notificationStatus() async -> UNAuthorizationStatus { .notDetermined }
+    func authorizeNotifications() async throws -> Bool { await withCheckedContinuation { pending = $0 }; return true }
+    func registerLogin() throws {}
+    func unregisterLogin() async throws { loginStatus = .notRegistered }
+    func openNotificationSettings() -> Bool { true }
+    func openLoginSettings() {}
+}
+
 final class SettingsPreferencesTests: XCTestCase {
     private func defaults() throws -> UserDefaults {
         let name = "Lunavect.SettingsTests." + UUID().uuidString
@@ -129,6 +141,39 @@ final class SettingsPreferencesTests: XCTestCase {
         XCTAssertFalse(awake.isEnabled); XCTAssertTrue(awake.automatic)
         await awake.setAutomatic(false)
     }
+    @MainActor func testAutomaticStopDescriptionUsesTheChosenGraceWording() throws {
+        let awake = KeepAwake(client: SettingsAwakeClient(), defaults: try defaults())
+        let expected = [0: L("Сон вернётся сразу после завершения работы."),
+                        30: L("Сон вернётся через 30 секунд после завершения работы."),
+                        60: L("Сон вернётся через 1 минуту после завершения работы."),
+                        120: L("Сон вернётся через 2 минуты после завершения работы."),
+                        300: L("Сон вернётся через 5 минут после завершения работы.")]
+        for (seconds, text) in expected {
+            awake.setIdleGrace(seconds)
+            XCTAssertEqual(awake.automaticStopDescription, text)
+        }
+        // Every language names the choice, never "0 seconds" or "300 seconds".
+        for language in ["en", "de", "es", "fr", "zh-Hans"] {
+            XCTAssertFalse(L10n.text("Сон вернётся сразу после завершения работы.", language: language).contains("0"), language)
+            XCTAssertFalse(L10n.text("Сон вернётся через 5 минут после завершения работы.", language: language).contains("300"), language)
+        }
+    }
+    @MainActor func testRestoreDuringANotificationRequestResetsNothingAndSaysSo() async throws {
+        let permissions = PendingNotificationPermissions()
+        let features = AppFeatures(defaults: try defaults(), permissionAccess: permissions)
+        features.sounds = true; features.completionCooldown = 30
+        let enabling = Task { await features.setBanners(true) }
+        while permissions.pending == nil { await Task.yield() }
+        let whileBusy = await features.restoreDefaults()
+        XCTAssertFalse(whileBusy, "The reset reports the pending macOS request")
+        XCTAssertTrue(features.sounds, "Nothing is reset halfway")
+        XCTAssertEqual(features.completionCooldown, 30)
+        permissions.pending?.resume(); await enabling.value
+        let afterwards = await features.restoreDefaults()
+        XCTAssertTrue(afterwards)
+        XCTAssertFalse(features.banners); XCTAssertFalse(features.sounds)
+        XCTAssertEqual(features.completionCooldown, AppDefaultSettings.soundCooldown)
+    }
     @MainActor func testRestorePresentationPreservesConnectionsDatesAndWelcomeProgress() async throws {
         let defaults = try defaults(), permissions = SettingsPermissions()
         defaults.set(1, forKey: "welcomeCompletedVersion")
@@ -204,7 +249,7 @@ final class SettingsPreferencesTests: XCTestCase {
             L10n.defaults.set(language, forKey: "languageCode")
             try render(KeepAwakeSettingsView(awake: awake), name: "awake-" + language)
             try render(NotificationSettingsView(features: features), name: "notifications-" + language)
-            try render(BaseSettingsView(restore: {}), name: "defaults-" + language)
+            try render(BaseSettingsView(restore: { true }), name: "defaults-" + language)
         }
         L10n.defaults.set("en", forKey: "languageCode")
         await awake.setSafetyPolicy(.init(batteryProtection: false, thermalProtection: false))

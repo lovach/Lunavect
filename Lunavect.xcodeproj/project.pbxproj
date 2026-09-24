@@ -89,6 +89,7 @@
 		948FA5089FD1834406749278 /* ClientConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9730076AA21D09C5247F60F0 /* ClientConnection.swift */; };
 		981853CBD070163B03C9DA44 /* WeekleftWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83E87BA66A5F22FB4A99240D /* WeekleftWidget.swift */; };
 		9A6E68AD13A3A5B9B1E80FE8 /* claude.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 520C2C74AEFB55E80E2AE6AC /* claude.pdf */; };
+		9C77DCCA3A2010BB055D640B /* LimitAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF10245468ECDAC3E852D65 /* LimitAlerts.swift */; };
 		9DF6FE75CF13285E4E804C5C /* SessionPolling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34DB5E137C7471601258FFE /* SessionPolling.swift */; };
 		9F8D87F44297E5C133CDF444 /* ActivityPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365B0D0E5DF5052421B428EB /* ActivityPresentation.swift */; };
 		A0827BD3A25A869610AFB033 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6B2023A56E83F9F127F00A /* Localization.swift */; };
@@ -132,6 +133,7 @@
 		E7EBF0F06FD9A2247CB01BA2 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6B2023A56E83F9F127F00A /* Localization.swift */; };
 		E8028263CFFC7B7A2E94F25F /* AwakeLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13FE7B48C442317F500AD8AF /* AwakeLease.swift */; };
 		EA166D92853F3D1040A15B16 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00DE3C3478A69C3E7F7DF1C /* Models.swift */; };
+		EB0158CAC0EC473690B48592 /* LimitAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF10245468ECDAC3E852D65 /* LimitAlerts.swift */; };
 		EBAA9866E4243072F8BA39F6 /* ActivityHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CCFFB1D0B52A069DF3A9CE8 /* ActivityHistory.swift */; };
 		EEFA340B0D1C63E0C89BEB52 /* ActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F25D7FAA504A410D5502AF7B /* ActivityTracker.swift */; };
 		F0404E3A315BE15E9D7656BA /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 5CAA01FD2141707910A8B68D /* Localizable.strings */; };
@@ -277,6 +279,7 @@
 		E4BCE80157433D952E718FFB /* Translations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Translations.json; sourceTree = "<group>"; };
 		E7205CE1322E0292A795E59A /* ConnectionDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionDiagnosticsView.swift; sourceTree = "<group>"; };
 		ECAC781EC4BD9E685A603326 /* MenuBarLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarLimits.swift; sourceTree = "<group>"; };
+		EDF10245468ECDAC3E852D65 /* LimitAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LimitAlerts.swift; sourceTree = "<group>"; };
 		F12CB240632DA69B471E6199 /* AwakeProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwakeProtocol.swift; sourceTree = "<group>"; };
 		F25D7FAA504A410D5502AF7B /* ActivityTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTracker.swift; sourceTree = "<group>"; };
 		F723599BF79E46335BC8C9F0 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
@@ -461,6 +464,7 @@
 				C7074282E57C1511523239ED /* CodexActivity.swift */,
 				B4AFE0559E4DC9019EFCD701 /* CodexSessionMetadata.swift */,
 				D34C266069B5031FC119C950 /* ConnectionDiagnostics.swift */,
+				EDF10245468ECDAC3E852D65 /* LimitAlerts.swift */,
 				788A00B2932286D4969B2DAF /* LocalFileCache.swift */,
 				CA6B2023A56E83F9F127F00A /* Localization.swift */,
 				B00DE3C3478A69C3E7F7DF1C /* Models.swift */,
@@ -764,6 +768,7 @@
 				8669B21D3295CBFFCD3AEC78 /* CodexActivity.swift in Sources */,
 				08FAD9D65856DEEA5D2800AA /* CodexSessionMetadata.swift in Sources */,
 				C9BBC172338F3E1AA4ED233F /* ConnectionDiagnostics.swift in Sources */,
+				EB0158CAC0EC473690B48592 /* LimitAlerts.swift in Sources */,
 				7411719BDEDF562C0E8CAF37 /* LocalFileCache.swift in Sources */,
 				65AA4A6F6C5C57D25F265900 /* Localization.swift in Sources */,
 				362AC6E279A42BEB9AF7B9B4 /* Models.swift in Sources */,
@@ -832,6 +837,7 @@
 				05199BAABA805F18F1D04256 /* InterfaceMetrics.swift in Sources */,
 				E4C0C5B9E3CA6A6247E30C59 /* KeepAwake.swift in Sources */,
 				F28296F67C07A5E12906CB6E /* LanguageSettings.swift in Sources */,
+				9C77DCCA3A2010BB055D640B /* LimitAlerts.swift in Sources */,
 				7D59E642C5A5417109F95494 /* LocalFileCache.swift in Sources */,
 				E7EBF0F06FD9A2247CB01BA2 /* Localization.swift in Sources */,
 				5428ED5B1D21F5A8E160C5A7 /* Main.swift in Sources */,
@@ -1001,7 +1007,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 181;
+				CURRENT_PROJECT_VERSION = 184;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -1016,7 +1022,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.9;
+				MARKETING_VERSION = 0.2.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1106,7 +1112,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 181;
+				CURRENT_PROJECT_VERSION = 184;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1127,7 +1133,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.9;
+				MARKETING_VERSION = 0.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

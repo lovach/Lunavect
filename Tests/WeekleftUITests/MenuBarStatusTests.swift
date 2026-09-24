@@ -78,6 +78,17 @@ final class MenuBarStatusTests: XCTestCase {
         }
     }
 
+    func testControlClickOnAMenuBarItemShowsItsMenuLikeARightClick() throws {
+        func click(_ type: NSEvent.EventType, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: flags, timestamp: 0,
+                                             windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 0))
+        }
+        XCTAssertTrue(StatusItemClick.opensMenu(try click(.rightMouseUp)))
+        XCTAssertTrue(StatusItemClick.opensMenu(try click(.leftMouseUp, .control)))
+        XCTAssertFalse(StatusItemClick.opensMenu(try click(.leftMouseUp)))
+        XCTAssertFalse(StatusItemClick.opensMenu(try click(.leftMouseUp, .option)), "Only Control asks for the menu")
+        XCTAssertFalse(StatusItemClick.opensMenu(nil), "A keyboard shortcut or accessibility press opens the panel")
+    }
     @MainActor func testWaitingBubbleHasShapeCueWithMotionDisabled() {
         let content = MenuBarStatusContent(frame: NSRect(x: 0, y: 0, width: 50, height: 24))
         content.style = .activity
@@ -479,7 +490,12 @@ final class MenuBarStatusTests: XCTestCase {
         _ = NSApplication.shared
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         defer { NSStatusBar.system.removeStatusItem(item) }
-        let animator = MenuBarAnimator(statusItem: item)
+        // A controlled clock and captured timers: the result must not depend on the
+        // host's menu-bar visibility, display sleep or run-loop timing.
+        var clock: TimeInterval = 1_000
+        var timers: [Timer] = []
+        let animator = MenuBarAnimator(statusItem: item, now: { clock }, scheduleTimer: { timers.append($0) },
+                                       canRenderAnimation: { _ in true })
         animator.update(icon: .system, onlyWhileWorking: true, statusStyle: .activity, thinkingPhrases: false, running: 2, waiting: 0)
         let view = animator.content
         XCTAssertTrue(view.activityBubbleVisible)
@@ -488,7 +504,8 @@ final class MenuBarStatusTests: XCTestCase {
         let workingColor = view.activityBubbleColor
         let dots = view.activityDotCount
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            try await Task.sleep(nanoseconds: 650_000_000)
+            clock += 0.6
+            try XCTUnwrap(timers.last(where: \.isValid), "The bubble schedules its own timer").fire()
             XCTAssertNotEqual(view.activityDotCount, dots, "The bubble has its own timer even with a static icon and phrases disabled")
         } else { XCTAssertEqual(dots, 0) }
         XCTAssertEqual(reservedWidth(of: item), width)
@@ -886,9 +903,10 @@ final class MenuBarStatusTests: XCTestCase {
         }
         defaults.set(SettingsSection.menuBar.rawValue, forKey: "settingsSection")
         appearance.statusStyle = .summary
+        // Preview stores are isolated: they never load or save the real support folder.
         let settings = NSHostingView(
             rootView: SettingsView(
-                store: AppStore(), menuBarAppearance: appearance, sessions: SessionStore(),
+                store: uiDependencies.store, menuBarAppearance: appearance, sessions: uiDependencies.sessions,
                 updates: uiDependencies.updates, awake: uiDependencies.awake, features: uiDependencies.features,
                 language: uiDependencies.language
             )

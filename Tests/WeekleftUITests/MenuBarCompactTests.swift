@@ -6,6 +6,17 @@ import XCTest
 
 final class MenuBarCompactTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_900_000_000)
+    // Percentages follow the interface language; keep expectations independent of the host.
+    private var savedLanguage: Any?
+    override func setUp() {
+        super.setUp()
+        savedLanguage = L10n.defaults.object(forKey: "languageCode")
+        L10n.defaults.set("en", forKey: "languageCode")
+    }
+    override func tearDown() {
+        L10n.defaults.set(savedLanguage, forKey: "languageCode")
+        super.tearDown()
+    }
     private func snapshots(used: Double = 79, stale: Bool = false) throws -> [UsageSnapshot] {
         try ProviderID.allCases.map { provider in
             try UsageSnapshot(provider: provider,

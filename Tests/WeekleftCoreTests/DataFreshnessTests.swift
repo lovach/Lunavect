@@ -23,6 +23,37 @@ final class DataFreshnessTests: XCTestCase {
         XCTAssertEqual(snapshot.fetchedAt, now.addingTimeInterval(10))
         XCTAssertTrue(snapshot.isStale(now: now.addingTimeInterval(20)), "Receipt is not a server quota timestamp")
     }
+    /// Claude re-runs every session's status line when a window reaches its
+    /// reset and drops that window, so an idle session re-sends its own old
+    /// response under a new identity. It must not replace a newer observation.
+    func testIdleSessionRerunAfterResetDoesNotRegressAnotherSessionsNewerQuota() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let status = root.appendingPathComponent("quota.json")
+        let weeklyReset = now.addingTimeInterval(3 * 86400).timeIntervalSince1970
+        func payload(session: String, weekly: Double, fiveHour: (used: Double, reset: Date)?) throws -> Data {
+            var limits: [String: Any] = ["seven_day": ["used_percentage": weekly, "resets_at": weeklyReset]]
+            if let fiveHour { limits["five_hour"] = ["used_percentage": fiveHour.used, "resets_at": fiveHour.reset.timeIntervalSince1970] }
+            return try JSONSerialization.data(withJSONObject: ["session_id": session, "rate_limits": limits])
+        }
+        let fiveHourReset = now.addingTimeInterval(3600)
+        // Idle session B last received a response early; working session A later.
+        try ClaudeProvider.capture(payload(session: "b", weekly: 40, fiveHour: (10, fiveHourReset)), destination: status, now: now)
+        try ClaudeProvider.capture(payload(session: "a", weekly: 55, fiveHour: (30, fiveHourReset)), destination: status, now: now.addingTimeInterval(1800))
+        let newer = try Data(contentsOf: status)
+        // At the five-hour reset B's status line runs again without that window.
+        let rerun = fiveHourReset.addingTimeInterval(1)
+        try ClaudeProvider.capture(payload(session: "b", weekly: 40, fiveHour: nil), destination: status, now: rerun)
+        XCTAssertEqual(try Data(contentsOf: status), newer, "An older response must not replace or re-stamp a newer one")
+        let kept = try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: status))
+        XCTAssertEqual(kept.weekly?.usedPercent, 55)
+        XCTAssertEqual(kept.fetchedAt, now.addingTimeInterval(1800))
+        // A genuinely newer response from any session is still accepted.
+        try ClaudeProvider.capture(payload(session: "b", weekly: 57, fiveHour: nil), destination: status, now: rerun.addingTimeInterval(10))
+        let accepted = try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: status))
+        XCTAssertEqual(accepted.weekly?.usedPercent, 57)
+        XCTAssertEqual(accepted.fetchedAt, rerun.addingTimeInterval(10))
+    }
     func testNewProgressCanKeepOrLowerPercentageAndResetWindow() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

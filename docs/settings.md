@@ -9,7 +9,7 @@ Settings are grouped into Overview (Limits and Statistics), Application (General
 | Language and theme | Follow the system |
 | Menu bar | Lunavect icon and session summary; decorative thinking phrases off |
 | Menu bar limits | Off; weekly bars and percentages when enabled, no reset countdown |
-| Notifications | Banners and sounds off; completion, approval and input events selected for later use |
+| Notifications | Banners and sounds off; response-ready, approval, input, error and limit events selected for later use; limit warning below 10% |
 | Completion sound | Lunavect Lift; at most once every five seconds |
 | Launch at login and shortcut | Off; no shortcut assigned |
 | Keep Awake | Off; manual duration 15 minutes; automatic mode off |
@@ -29,7 +29,7 @@ These defaults apply once to a new installation. An update preserves existing ch
 - **Statistics:** hourly, weekly and monthly activity, source selection, project/session details and import history. The line joins recorded points; missing values between them remain unknown.
 - **General:** language, theme, launch at login, panel shortcut and when to hide finished sessions.
 - **Connections:** enabled providers, their local bridges and connection diagnostics.
-- **Notifications:** independent banners and sound; completion, approval and input events; completion sound preview; a pause of 0, 2, 5, 10 or 30 seconds between completion sounds. Events stay editable when both channels are off.
+- **Notifications:** independent banners and sound; response-ready, approval, input, error and limit events, with a limit warning level of 5, 10, 20 or 25% (see [Notifications](notifications.md#limits)); completion sound preview; a pause of 0, 2, 5, 10 or 30 seconds between completion sounds. Events stay editable when both channels are off.
 - **Keep Awake:** manual duration, automatic operation during work, a delay of 0, 30, 60, 120 or 300 seconds after work stops, battery operation, a 5–50% battery threshold and independent battery/thermal stopping switches. See [Keep Awake](keep-awake.md).
 - **Menu Bar:** separate limits and session-status switches, quota window, provider, style, colors, reset countdown, character, automatic character selection, animation and status text.
 - **Widgets:** quota display, **Glass background** and backdrop transparency. The slider spans 0–100%: 0% is an opaque backdrop, 100% removes Lunavect’s tint while retaining the system material. Saved numeric values are preserved. macOS controls the blur and wallpaper tint, and accessibility settings can force an opaque background. The decorative background belongs to WidgetKit’s removable container. The optional compatibility layer requests native material only for Lunavect’s widget kinds and falls back unchanged on an unsupported runtime; desktop appearance requires verification on each supported macOS version. The content, size, period and provider of a placed widget are selected through macOS's widget controls; the in-app preview does not change a placed widget.
@@ -40,7 +40,7 @@ These defaults apply once to a new installation. An update preserves existing ch
 
 Opening the session panel or the four-step guide keeps Settings open. Lunavect stays a menu-bar utility while Settings or the guide is open, without adding an application icon to the Dock or application switcher. Reopen its windows from the menu-bar icon. Approving Keep Awake returns to the surface that requested permission. Sidebar buttons support Up and Down arrow navigation when focused.
 
-The explicit **Back to sessions** button closes Settings and then opens the session panel after the window closes. Other open Lunavect windows stay open. Closing Settings with the red window button closes only that window; Lunavect continues running in the menu bar. To quit the app completely, use **Command-Q** or **Quit** in the menu bar icon's context menu.
+The explicit **Back to sessions** button closes Settings and then opens the session panel after the window closes. Other open Lunavect windows stay open. Closing Settings with the red window button closes only that window; Lunavect continues running in the menu bar. To quit the app completely, use **Command-Q** or **Quit** in the menu bar icon's context menu (right-click or Control-click the icon).
 
 While the session panel is open, existing rows keep their order as statuses and timers change. New sessions append at the end. Explicit pinning or moving still takes effect immediately; reopening uses the current saved/default order. The waiting count is a plain text filter with no checkbox or surrounding border.
 
@@ -50,7 +50,7 @@ The session viewport fits a whole number of rows at its top and bottom scroll li
 
 ## Restore defaults
 
-**General → Restore default settings** previews the scope and asks before applying it. The confirmation states that language and theme return to the system setting. It also resets menu-bar and widget appearance, notification and sound choices, the panel shortcut, launch at login, Keep Awake, session auto-hide and update preferences. Active Keep Awake is stopped, including a pending permission follow-up.
+**General → Restore default settings** previews the scope and asks before applying it. The confirmation states that language and theme return to the system setting. It also resets menu-bar and widget appearance, notification and sound choices, the panel shortcut, launch at login, Keep Awake, session auto-hide and update preferences. Active Keep Awake is stopped, including a pending permission follow-up. While Keep Awake is starting or stopping, or a macOS notification or login request is in progress, the reset is not applied and a message asks to try again in a few seconds.
 
 Connections, source configuration, activity history, hidden sessions, their arrangement and subscription dates are retained. The operation does not delete account data or revoke macOS permissions, and it does not replay onboarding.
 

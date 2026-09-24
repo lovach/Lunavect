@@ -168,7 +168,8 @@ struct ConnectionDiagnosticsView: View {
                 Button(L(diagnostics.results.isEmpty ? "Проверить подключение" : "Проверить снова")) { actions.start { await diagnostics.check(store: store, sessions: sessions) } }
                     .buttonStyle(.borderedProminent).disabled(diagnostics.busy)
             }.padding(20)
-        }.frame(width: 620, height: 640).background(Color(nsColor: .windowBackgroundColor))
+        // The Settings window can be as short as 580 points; the results scroll instead.
+        }.frame(width: 620, height: 580).background(Color(nsColor: .windowBackgroundColor))
             .task { if diagnostics.results.isEmpty { await diagnostics.check(store: store, sessions: sessions) } }
             .onAppear { actions.activate() }
             .onDisappear { actions.deactivate(); diagnostics.cancel() }
@@ -179,7 +180,7 @@ struct ConnectionDiagnosticsView: View {
                     ScrollView { Text(diagnostics.reportText ?? "").font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                     if saveFailed { Text(L("Не удалось сохранить отчёт.")).foregroundStyle(.orange) }
                     HStack {
-                        Button(L("Закрыть")) { diagnostics.reportText = nil }
+                        Button(L("Закрыть")) { diagnostics.reportText = nil }.keyboardShortcut(.cancelAction)
                         Spacer()
                         Button(L(diagnostics.copied ? "Скопировано" : "Копировать")) { SessionNavigation.copy(diagnostics.reportText ?? ""); diagnostics.copied = true }
                         Button(L("Сохранить…")) { saveReport() }

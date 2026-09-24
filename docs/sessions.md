@@ -9,11 +9,15 @@ Click Lunavect in the macOS menu bar to open the session panel. It brings Claude
 | State | Meaning |
 | --- | --- |
 | Working / Thinking / tool name | A source currently reports work. The timer belongs to the current response, not the session's total lifetime. |
+| In background + task count | Claude finished a reply while its own background tasks (shell commands, subagents, monitors) are still running. Claude Code wakes the session when they finish, so the task counts as working. |
+| Thinking or a tool + task count | Claude is still working and has already started background tasks. |
 | Compacting context | Claude's compaction lifecycle reports work. Manual compaction has its own timer; automatic compaction retains the running response's start. |
 | Permission needed | The client is waiting for approval. Return to the client to respond. |
-| Input needed | The client is waiting for input. |
+| Input needed | The client is waiting for input, including an MCP form or a request to open a link in the browser. |
 | Response ready | A response finished; the session may still be open in its client. |
 | Idle | A session is open without confirmed current work. |
+| Error reason | Claude's turn ended with an API error: limit reached, can't reach Claude, service error, sign in again, account issue or error. See [Notifications](notifications.md#errors). |
+| No network | The Mac has had no network connection for at least 10 seconds while the task was working. The timer keeps running; the previous status returns with the connection. |
 | Unknown or stale | Lunavect does not have a sufficiently current state. This is not treated as working or finished. |
 
 The working and awaiting-input counters summarize current states. A saved title, recent file read or an old catalog entry does not turn a task into a live session. The decorative menu-bar phrases describe an animation state, not a tool the agent has actually called.
@@ -26,21 +30,29 @@ From 0.1.2, a recognized closing decision question such as “Shall I apply thes
 
 This is a conservative inference from selected Russian, English and German wording, rather than confirmation of a permission dialog. Unknown wording remains **Response ready**. A fresh idle poll preserves the question without extending its timestamp; resumed work, explicit later states or the existing ten-minute hook freshness limit supersede it. During the running app session, once a later runtime state supersedes a question, an idle or missing catalog row cannot revive that same saved question. A later closing question is still counted. Structured permission events retain priority.
 
+## Background tasks in Claude
+
+Claude Code reports its in-flight background work in the documented [`Stop.background_tasks` field](https://code.claude.com/docs/en/hooks#stop-input). When a reply ends while such tasks are still running, Lunavect keeps the session working with the status **In background** instead of **Response ready**. A small blue capsule shows the number of Claude's background tasks whenever the session works: it grows when Claude starts a background command, subagent, monitor or workflow (`PostToolUse`), and is set exactly from `background_tasks` when a subagent finishes (`SubagentStop`) and at the end of each reply (`Stop`). A background command that finishes while Claude is still working is counted until the next of those events. The row tooltip lists commands, agents and monitors. A finished task wakes Claude again; replies to those task events stay silent. **Response ready** and its notification arrive once, when Claude stops with nothing left to wait for. Only counts by kind are stored, never commands or descriptions.
+
+Long-lived services never finish and never wake the session, so they do not hold the response: shell tasks that run dev servers (`npm run dev`, `vite`, `next dev`, `http.server`, `uvicorn`, `jekyll serve` and similar), followers (`tail -f`, `log stream`, `--watch`), tunnels and `docker compose up` without `-d` are recognized by their command. A background pause stays current for up to an hour without new events, which covers long renders and builds; an idle poll from Claude's session list does not end it. Another endless task that is not recognized keeps the session working until that hour passes and its state becomes unknown; no completion notice is sent for it. A closing question still shows **Input needed**. Scheduled wakeups (`session_crons`) do not hold the response. Clients that do not report `background_tasks` keep the previous behavior.
+
 ## Context compaction
 
 The development build observes Claude's documented `PreCompact` and `PostCompact` hooks, with `SessionStart` from compaction as a completion fallback. An idle catalog poll cannot cancel a fresh compaction event. Manual completion returns to idle; automatic completion returns to the running response. Later prompt, tool, stop and permission events supersede compaction normally. Missing completion events expire under the existing ten-minute hook freshness limit. Instructions and compacted summaries are not stored. Adding the handlers does not recover an already-missed start event or prove delivery from an existing client session.
 
 ## Find and arrange sessions
 
-Use search to find a title or project. **All**, **Claude** and **Codex** select providers; **Active** narrows the list to active states. The row menu contains the available actions for that session, including pinning, hiding, opening a project and copying a resume command. Drag rows to change their order.
+Use search to find a title or project. **All**, **Claude** and **Codex** select providers; **Active** narrows the list to active states. Clicking the awaiting-input count shows only sessions that need a reply or permission; click it again to show all. The row menu contains the available actions for that session, including pinning, hiding, opening a project and copying a resume command. Drag rows to change their order.
 
-Open **Hidden sessions** to review and restore hidden rows. Hiding affects Lunavect's list only: it does not cancel work or delete a conversation. A hidden session that is still working can continue to contribute to activity totals.
+On a trackpad, swipe a row right to open it or left to hide it. From the keyboard, **Command-F** focuses search and **Down Arrow** moves from search to the first row. On a focused row, **Return** opens it, **Up Arrow** and **Down Arrow** move focus, **Option-Up Arrow** and **Option-Down Arrow** move the row, **Command-Delete** hides it and **Esc** clears the row focus. After hiding a row, **Undo** in the panel footer or **Command-Z** while the panel is open restores it.
+
+Open **Hidden sessions** to review and restore hidden rows. Hiding affects Lunavect's list only: it does not cancel work or delete a conversation. A hidden session that is still working can continue to contribute to activity totals. A hidden session stays hidden while a source still lists it; once a complete client catalog has not listed it for 35 days, it leaves the hidden list. Reopening the panel from the menu bar returns to current sessions; search and filters are kept, while a message shown at the top of the panel is cleared when the panel closes.
 
 Optional automatic hiding is configured in Settings. It applies to inactive sessions after the selected interval; it does not hide working, waiting or unknown states just because an event is old. A new installation leaves automatic hiding off.
 
 ## Return to a task
 
-Click a row or use its open action. Lunavect uses the originating client when it can identify one. A live session in Terminal or iTerm2 is brought to the front in its own tab; macOS asks once for permission to control that terminal. The tab is found by the terminal device recorded by the session's hooks, or for a terminal session without one, by a running Claude or Codex process in the same project folder. A terminal app that is not running is not launched, and Desktop or editor sessions are never matched to a CLI in the same folder. A finished terminal session needs the CLI and project folder to remain available; its resume command is opened through Terminal. Other clients depend on the navigation route that client supports.
+Click a row or use its open action. Lunavect uses the originating client when it can identify one. A live session in Terminal or iTerm2 is brought to the front in its own tab; macOS asks once for permission to control that terminal. The tab is found by the terminal device recorded by the session's hooks, or for a terminal session without one, by a running Claude or Codex process in the same project folder. A terminal app that is not running is not launched, and Desktop or editor sessions are never matched to a CLI in the same folder. The search waits at most 10 seconds for each answer from the terminal and stops at the first unanswered request, so a busy terminal cannot freeze Lunavect; the tab is then treated as not found. A finished terminal session needs the CLI and project folder to remain available; its resume command is opened through Terminal. Other clients depend on the navigation route that client supports.
 
 Opening an application is not always the same as returning to the exact conversation. If the client is missing, the project was moved or the route is unsupported, use the row's project or resume action when available. Include the client and its version in reports about navigation problems.
 

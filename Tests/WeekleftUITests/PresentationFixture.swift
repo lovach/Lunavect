@@ -72,6 +72,8 @@ struct PresentationFixture {
             cwd: "/Users/demo/Projects/Lunavect", client: .desktop, phase: .running,
             updatedAt: time, observedAt: time, runtimeConfirmed: true)
         working.turnStartedAt = now.addingTimeInterval(-72)
+        // Claude has started two background subagents and a monitor while it keeps working.
+        working.backgroundWork = BackgroundWork(agents: 2, monitors: 1)
         var review = AgentSession(provider: .codex, sessionID: "demo-permission", title: "Review the release checklist",
             cwd: "/Users/demo/Projects/Lunavect", client: .desktop,
             phase: stage == 0 ? .running : stage == 1 ? .permission : .ready,

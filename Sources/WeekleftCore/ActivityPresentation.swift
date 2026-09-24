@@ -91,12 +91,17 @@ public struct ActivityChartData: Sendable {
     public let series: [ActivityChartSeries]
     public let now: Date
     public let limited: Bool
+    /// Seconds without a live observation before the data counts as stale.
+    public let staleAfter: TimeInterval
+    /// Widgets reload their history every 15 minutes; allow that plus the app's margin.
+    public static let widgetStaleness: TimeInterval = 900 + 300
     public var points: [ActivityDay] { summary.points }
     public var maximum: Double { ActivityChartScale.ceiling(series.flatMap { $0.summary.points }.map { $0.totals.active }.max() ?? 0) }
     public var hasData: Bool { series.contains { $0.summary.hasObservations } }
-    public var stale: Bool { series.contains { $0.summary.lastLiveObservedAt.map { now.timeIntervalSince($0) > 300 } ?? false } }
-    public init(history: ActivityHistory, now: Date = Date(), period: ActivityPeriod = .week, providers: [ProviderID] = ProviderID.allCases, calendar: Calendar = .current) {
-        self.now = now; limited = history.importWasLimited == true
+    public var stale: Bool { series.contains { $0.summary.lastLiveObservedAt.map { now.timeIntervalSince($0) > staleAfter } ?? false } }
+    public init(history: ActivityHistory, now: Date = Date(), period: ActivityPeriod = .week, providers: [ProviderID] = ProviderID.allCases,
+                calendar: Calendar = .current, staleAfter: TimeInterval = 300) {
+        self.now = now; limited = history.importWasLimited == true; self.staleAfter = staleAfter
         summary = history.summary(now: now, calendar: calendar, period: period, providers: providers)
         series = providers.map { ActivityChartSeries(provider: $0, summary: history.summary(now: now, calendar: calendar, period: period, providers: [$0])) }
     }

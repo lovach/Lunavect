@@ -8,7 +8,7 @@ Available in Lunavect 0.1.1 and later. Open **Settings → Menu Bar → Limits**
 - **Icons and percentages**: one compact row per provider, with no bars or reserved countdown column. Bar and countdown preferences remain saved for switching back.
 - **Rings**: compact circles whose filled arc represents the remaining allowance.
 
-Click an indicator to open the details panel with percentages, reset countdowns and exact local reset dates. The panel can refresh existing sources or change the selected window. **Menu** opens settings, remembering the last section; **Details** opens the full Limits page. Both remain available when the animated character is hidden.
+Click an indicator to open the details panel with percentages, reset countdowns and exact local reset dates. The panel can refresh existing sources or change the selected window. Its slider button, labelled **Menu Bar** in its tooltip, always opens **Settings → Menu Bar**; **Details** opens the full Limits page. Both remain available when the animated character is hidden.
 
 [Native style comparison](images/menu-bar.png)
 

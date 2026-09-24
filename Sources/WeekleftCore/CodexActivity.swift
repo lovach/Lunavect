@@ -235,6 +235,14 @@ public actor CodexActivityReader {
                            ["Codex Desktop", "codex_work_desktop"].contains(origin.payload.originator) {
                             cursor.client = .desktop
                         }
+                        // History untouched for over a day cannot yield a fresh lifecycle
+                        // event; the merge would discard it. Start at its end so launch does
+                        // not scan up to 8 MB of every old thread, and read only appended work.
+                        if Date().timeIntervalSince1970 - Double(metadata.modifiedSeconds) > 86400 {
+                            cursor.offset = count; cursor.file = metadata; cursor.checkpoint = checkpoint
+                            cursors[row.sessionID] = cursor
+                            return nil
+                        }
                     }
                     // Bound startup and recovery reads, then only consume appended bytes.
                     let start = max(cursor.offset, count > 8_000_000 ? count - 8_000_000 : 0)
