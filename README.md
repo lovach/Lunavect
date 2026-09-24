@@ -8,9 +8,9 @@
 See which AI coding agent is working, which one is waiting for you<br>
 and how much of your weekly and five-hour usage limits is left.
 
-<a href="https://github.com/lovach/Lunavect/releases/download/v0.2.0/Lunavect-0.2.0.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
+<a href="https://github.com/lovach/Lunavect/releases/download/v0.2.1/Lunavect-0.2.1.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
 
-<sub>Version 0.2.0 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
+<sub>Version 0.2.1 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
 
 <br>
 
@@ -92,7 +92,7 @@ brew tap lovach/lunavect https://github.com/lovach/Lunavect
 brew install --cask lovach/lunavect/lunavect
 ```
 
-**Or download** [Lunavect-0.2.0.dmg](https://github.com/lovach/Lunavect/releases/download/v0.2.0/Lunavect-0.2.0.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
+**Or download** [Lunavect-0.2.1.dmg](https://github.com/lovach/Lunavect/releases/download/v0.2.1/Lunavect-0.2.1.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
 
 Then choose **Connect Claude** or **Connect Codex**. Claude needs Claude Code CLI; Claude Desktop alone is not enough. Codex needs the official Codex app or CLI. Connect one provider or both. Sign-in stays with the official clients.
 

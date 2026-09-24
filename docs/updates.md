@@ -10,7 +10,7 @@ New profiles enable update checks and leave automatic downloads/installation off
 
 Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](privacy.md#network-requests).
 
-The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.0) is 0.2.0 (184). It shows Claude's background tasks while a session works, names the reason when a turn fails, warns before usage limits run out and marks working sessions when the Mac is offline, together with the fixes from a full review of the app.
+The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.1) is 0.2.1 (186). It keeps Claude sessions that wait for background work in the panel and applies the automatic hiding interval to finished sessions, on top of 0.2.0's background tasks, failure reasons, limit alerts and offline status.
 
 ## Preparing a release
 
@@ -32,10 +32,10 @@ Public build configuration is in `Config/Distribution.xcconfig` and `Config/Upda
 First refresh release tags and download the currently published appcast into a private evidence directory. Review that baseline; the tools do not fetch it automatically. Use a new version/tag and a build and marketing version above every published entry. For example, after replacing these illustrative values with the intended release:
 
 ```sh
-./scripts/distribute.sh archive 0.2.0 184 /path/to/published-appcast.xml
-./scripts/distribute.sh submit 0.2.0 184
+./scripts/distribute.sh archive 0.2.1 186 /path/to/published-appcast.xml
+./scripts/distribute.sh submit 0.2.1 186
 # After Apple's notarization completes:
-./scripts/distribute.sh export 0.2.0 184
+./scripts/distribute.sh export 0.2.1 186
 ```
 
 Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, a build or marketing version that does not exceed the supplied appcast, and a build that does not exceed a Lunavect installed in `~/Applications` or `/Applications`. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app only after the resource and helper-policy checks pass. `submit` and `export` refuse an archive unless that manifest is complete, names the same version and build, and still matches the archived app's hash; after a failed archive, use a new build number. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.
@@ -84,8 +84,8 @@ Keep packaging dependencies and output outside the repository:
 python3 -m venv /path/outside-repository/dmg-venv
 /path/outside-repository/dmg-venv/bin/pip install -r scripts/dmg/requirements.txt
 /path/outside-repository/dmg-venv/bin/python scripts/package-dmg.py \
-  --app '/path/to/Notarized-184/Lunavect.app' \
-  --output '/path/to/release-assets/Lunavect-0.2.0.dmg'
+  --app '/path/to/Notarized-186/Lunavect.app' \
+  --output '/path/to/release-assets/Lunavect-0.2.1.dmg'
 ```
 
 Replace these paths and version numbers with your exported app and intended output. The DMG is a read-only image containing the app and an Applications link. Its Finder layout uses `scripts/dmg/layout.json`; the AppKit background renderer provides 1× and 2× artwork. The pinned `dmgbuild` dependencies write the layout metadata without automating Finder. See the [installer screenshot](images/installer.jpg).
