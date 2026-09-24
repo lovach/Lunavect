@@ -130,7 +130,7 @@ No. It measures working intervals. Recovered history is marked <code>≈</code>,
 No. Session titles, project paths and activity history stay on your Mac. There is no account system or analytics backend; update checks go to GitHub without session data.
 </details>
 
-[All questions and answers](docs/faq.md) · [Installation and troubleshooting](docs/installation.md)
+[All questions and answers](docs/faq.md) · [Installation and troubleshooting](docs/installation.md) · [How-to guides](docs/README.md#how-to-guides)
 
 ## Privacy
 
