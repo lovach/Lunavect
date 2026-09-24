@@ -102,6 +102,22 @@ defaults:
       path: "verification.md"
     values:
       description: "What has been verified for each Lunavect release on real Macs, and the compatibility limits that remain open."
+  - scope:
+      path: "guides/claude-code-usage-limits-mac.md"
+    values:
+      description: "Check Claude Code's five-hour and weekly usage limits on a Mac with /usage, claude.ai and the status line, or keep them in the menu bar with Lunavect."
+  - scope:
+      path: "guides/codex-usage-limits-mac.md"
+    values:
+      description: "Check Codex five-hour and weekly usage limits with /status or the usage dashboard, or keep them in your Mac menu bar with Lunavect."
+  - scope:
+      path: "guides/claude-code-codex-notifications-mac.md"
+    values:
+      description: "Get a macOS notification when Claude Code or Codex finishes, needs permission, fails or runs low on usage, with hooks or with Lunavect."
+  - scope:
+      path: "guides/monitor-claude-code-codex-sessions-mac.md"
+    values:
+      description: "See every Claude Code and Codex session on your Mac in one menu bar panel: working, background tasks, waiting for you, failed or done."
 social:
   name: Lunavect
   links:
