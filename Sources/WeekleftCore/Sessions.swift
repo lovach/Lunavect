@@ -273,7 +273,12 @@ public enum SessionParser {
 public enum SessionList {
     public static func merge(catalog: [AgentSession], events: [AgentSession], now: Date = Date()) -> [AgentSession] {
         var result = Dictionary(catalog.map { ($0.id, $0) }, uniquingKeysWith: { a, b in a.updatedAt >= b.updatedAt ? a : b })
+        // Lunavect's hook receives every event the status-bar script does, with
+        // exact times and background work. That script's whole-second state is a
+        // fallback only for a session the hook has stopped reporting.
+        let hookedAt = Dictionary(events.filter { $0.evidence == .hook }.map { ($0.id, $0.observedAt) }, uniquingKeysWith: max)
         for event in events.sorted(by: { $0.observedAt < $1.observedAt }) where now.timeIntervalSince(event.observedAt) < 86400 {
+            if event.evidence == .legacy, let hooked = hookedAt[event.id], event.observedAt.timeIntervalSince(hooked) < 10 { continue }
             if var row = result[event.id] {
                 if event.isCodexSubagent == true { row.isCodexSubagent = true }
                 // Only hooks know the terminal a CLI session runs in; catalog rows never carry it.
@@ -329,6 +334,9 @@ public enum SessionList {
                     }
                 }
                 if fresh && event.client != .unknown && row.client != .background { row.client = event.client }
+                // Claude's catalog knows only when a session started. Whichever
+                // source decides the phase, the last task event is its activity.
+                if !event.isUnstartedClaudeLifecycle { row.updatedAt = max(row.updatedAt, event.updatedAt) }
                 result[event.id] = row
             } else { result[event.id] = event }
         }
