@@ -21,10 +21,11 @@ final class WidgetTransparencyTests: XCTestCase {
     }
 
     @MainActor func testRenderedBackdropAlphaAndRemovableContent() throws {
-        // Reduce Transparency and Increase Contrast always draw an opaque background;
-        // check the contract that applies to this host instead of failing on it.
-        let opaqueForAccessibility = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-            || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        // Reduce Transparency and Increase Contrast always draw an opaque background.
+        // Read them through the same renderer the background uses: ImageRenderer does
+        // not inherit the host's accessibility settings, so NSWorkspace can disagree.
+        var opaqueForAccessibility = false
+        _ = try bitmap(RenderedAccessibilityProbe { opaqueForAccessibility = $0 }, size: CGSize(width: 4, height: 4))
         for (value, expected) in [(0.0, 1.0), (0.5, 0.5), (1.0, 0.0), (-1.0, 1.0), (2.0, 0.0), (.nan, 0.5)] {
             let image = try bitmap(ActivityWidgetBackground(transparent: true, transparency: value), size: CGSize(width: 40, height: 40))
             XCTAssertEqual(try XCTUnwrap(image.colorAt(x: 20, y: 20)).alphaComponent, opaqueForAccessibility ? 1 : expected, accuracy: 0.01)
@@ -142,5 +143,16 @@ final class WidgetTransparencyTests: XCTestCase {
             .environment(\.colorScheme, .dark))
         renderer.proposedSize = ProposedViewSize(size); renderer.scale = 2; renderer.isOpaque = false
         return NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
+    }
+}
+
+/// Reports the accessibility settings SwiftUI applies inside a render.
+private struct RenderedAccessibilityProbe: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    let report: (Bool) -> Void
+    var body: some View {
+        let _ = report(reduceTransparency || contrast == .increased)
+        Color.clear
     }
 }
