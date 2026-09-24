@@ -4,6 +4,18 @@ The current public release is **Lunavect 0.1.9 (181)**. These records distinguis
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.9)
 
+## 0.2.0 release checks — September 24, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean merge commit `d167391736c34e4c84e5b21c49c3544aa756bdb2`, tagged `v0.2.0` (PR #23); archive provenance passed, and submit and export verified the archive's build manifest. |
+| Automated checks | Full local check on the release commit's content: 97 Python and 690 Swift tests passed (57 conditional skips), universal build, widget probes, resources and provenance. [Source CI](https://github.com/lovach/Lunavect/actions/runs/36018372493) passed after one fix: a widget transparency test compared its render with host accessibility flags that ImageRenderer does not inherit. |
+| Distribution | Developer ID signed and Apple notarized, build 184. Anonymous DMG, ZIP, appcast and checksum downloads matched the packaged bytes. The DMG app passed strict codesign, Gatekeeper and stapler checks and declares English as its development region. The ZIP signature verifies with the public key embedded in the app, and a modified copy is rejected; the latest feed points to 184. |
+| Installed build | The app from the release DMG was installed over local build 183 with `install.sh`. The widget extension 0.2.0 was the only active registration, with no lookup failures after launch. Lunavect's `SubagentStop` handler was present in Claude Code's settings, and a background command started mid-turn was recorded on the working session. No desktop widget was placed on this Mac, so live widget rendering was not observed. |
+| Remaining scope | A complete Sparkle installation cycle, real failure and limit banners, placed desktop widgets and other macOS versions remain unverified. |
+
+The 0.2.0 DMG SHA-256 is `3748dc7d0099aba234e273beb5ed2a02154f2a49283cd7da6467eb3b0ac4ff73`.
+
 ## Background tasks, failure reasons and limit alerts before 0.2.0 — September 24, 2026
 
 - Claude Code 2.1.280 was confirmed to pass `background_tasks` to the Stop hook with a headless session that started a background command (`type: shell`, `status: running`).
