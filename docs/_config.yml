@@ -19,6 +19,10 @@ defaults:
     values:
       image: /images/social-card.png
   - scope:
+      path: "google57e5ceebfc51505b.html"
+    values:
+      sitemap: false
+  - scope:
       path: "README.md"
     values:
       description: "Lunavect documentation: install, connect Claude Code and Codex, sessions, usage limits, widgets, notifications, Keep Awake, privacy and development."
