@@ -12,7 +12,7 @@ Preserve placeholders such as `{0}` and `{1}`. Keep Lunavect, Claude, Claude Cod
 
 Durations use the same abbreviated units across activity and quotas and omit a zero lower component (for example, `3 d` or `8 hr`). German distinguishes the ongoing-session filter (`Laufend`), working status (`Arbeitet`) and running count (`in Arbeit`). The feature name **Keep Awake** is consistent across its settings and panel controls.
 
-Dates use the selected locale. Manually entered subscription dates and user content must not be translated into different values. Decorative [thinking phrases](thinking-phrases.md) remain English in every interface language.
+Dates use the selected language with the region, 12- or 24-hour clock and first weekday from macOS, so an English interface in Austria shows 14:30 and weeks starting on Monday. Manually entered subscription dates and user content must not be translated into different values. Decorative [thinking phrases](thinking-phrases.md) remain English in every interface language.
 
 ## Verification
 

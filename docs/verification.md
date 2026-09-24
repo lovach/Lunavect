@@ -4,6 +4,14 @@ The current public release is **Lunavect 0.1.9 (181)**. These records distinguis
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.1.9)
 
+## Background tasks, failure reasons and limit alerts before 0.2.0 — September 24, 2026
+
+- Claude Code 2.1.280 was confirmed to pass `background_tasks` to the Stop hook with a headless session that started a background command (`type: shell`, `status: running`).
+- A local 0.1.9 build 183 with these changes was installed on the development Mac. After launch, the existing connection repair added Lunavect's `SubagentStop` handler to Claude Code's settings (13 Lunavect handlers). Starting a background command in the middle of a turn immediately recorded that session as working with one background command and no background pause; an earlier build recorded a pause with two background commands after the reply ended.
+- `claude agents --json --all` reported the working session as `busy` while it had background work; an idle poll during a pause is covered by tests only.
+- Failure-reason, limit-alert and No network behaviour is covered by unit and render tests; real error and limit banners were not triggered on the test Mac. No desktop widget was placed during these checks; the installed widget extension remained the only registered copy.
+- The full local check passed before release preparation: Python 97, Swift 689 passed with 57 skipped of 746, the unsigned universal Release build, widget probes, hook helper, product resources and provenance.
+
 ## 0.1.9 release checks — September 23, 2026
 
 | Area | Result |
@@ -189,7 +197,7 @@ Test counts above belong to the release source, not subsequent documentation or 
 
 ## Homebrew and installer
 
-The cask points to the 0.1.6 DMG and its verified SHA-256. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
+The cask points to the 0.1.9 DMG and the SHA-256 recorded in the 0.1.9 checks above. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
 
 The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstall on September 12. That exercise preserved the existing application and validated the downloaded signature and notarization. A Homebrew upgrade between distinct versions is a separate scenario; the real Sparkle update above does not establish it.
 
@@ -208,8 +216,8 @@ The deployment minimum is macOS 14. Release checks were performed on macOS 26.5.
 | Other Macs | Intel hardware, macOS 14/15 and every supported OS revision have not been exercised. |
 | First-time setup | Clean-Mac setup, different account plans and client versions, failed sign-in and retry need broader coverage. |
 | Session lifecycle | More real-client coverage is needed for prolonged tasks, cancellation, sleep/wake, offline periods and returning to the exact original session. |
-| Desktop widgets | Native layouts and the owner's glass setting were checked. Startup registration recovery was observed on a local development build; placement, editing and refresh of public build 162 on the actual desktop are not yet fully verified. WidgetKit schedules refreshes. |
-| Updates | Upgrade from public 0.1.4 (157) to 0.1.5 (162), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
+| Desktop widgets | Native layouts and the owner's glass setting were checked. Existing widgets stayed `LIVE` through installation of public build 181 and later timeline updates on the test Mac; placing and editing widgets with that build on the actual desktop, and other Macs, are not yet fully verified. WidgetKit schedules refreshes. |
+| Updates | A complete Sparkle upgrade between two public releases (most recently 0.1.8 (180) to 0.1.9 (181)), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
 | Accessibility | Full VoiceOver, keyboard navigation and widget appearance with increased contrast or reduced transparency need live verification. |
 | Battery use | Short process samples and synthetic benchmarks do not establish prolonged idle energy consumption. |
 | Experimental features | Optional glass and closed-lid Keep Awake are not guaranteed across Macs or future macOS releases. Glass is off by default. |

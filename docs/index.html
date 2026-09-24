@@ -145,7 +145,7 @@ footer a:hover { color: var(--text); }
   <div class="shot">
     <picture>
       <source media="(prefers-color-scheme: light)" srcset="images/showcase/hero-light.webp">
-      <img src="images/showcase/hero-dark.webp" width="2400" height="1350" alt="Lunavect in the macOS menu bar: the session panel lists nine Claude Code and Codex tasks, eight working and one waiting for permission, beside a desktop widget with weekly usage limits and a week of activity">
+      <img src="images/showcase/hero-dark.webp" width="2400" height="1350" fetchpriority="high" alt="Lunavect in the macOS menu bar: the session panel lists nine Claude Code and Codex tasks, eight working and one waiting for permission, beside a desktop widget with weekly usage limits and a week of activity">
     </picture>
   </div>
   <p class="note">The real app with fictional sessions and data.</p>
@@ -157,22 +157,26 @@ footer a:hover { color: var(--text); }
     <div class="shot"><img src="images/showcase/sessions.webp" width="2200" height="1600" loading="lazy" alt="Three Lunavect session panels: all nine tasks, a search result and the waiting filter"></div>
   </section>
   <section class="feature flip">
+    <div class="text"><h2>Background work, told once</h2><p>Claude's background commands, subagents and monitors appear as a small count on the session. A reply that leaves them running stays in the background, and one notification arrives when the work is done. If a turn fails, Lunavect says why: a reached limit and when it returns, a lost connection or a sign-in issue.</p></div>
+    <div class="shot" style="max-width:392px;justify-self:center;width:100%"><picture><source media="(prefers-color-scheme: light)" srcset="images/readme-sessions-light.png"><img src="images/readme-sessions-dark.png" width="784" height="774" loading="lazy" alt="Lunavect session panel: a Claude task thinking with three background tasks, a Codex task waiting for permission and a ready response"></picture></div>
+  </section>
+  <section class="feature">
     <div class="text"><h2>Usage limits at a glance</h2><p>Weekly and five-hour allowances for Claude and Codex with their reset times, in the menu bar as bars, percentages or rings. Missing or expired values are marked as unavailable, never guessed.</p></div>
     <div class="shot"><img src="images/showcase/limits.webp" width="2400" height="1100" loading="lazy" alt="Claude and Codex weekly usage limits in the menu bar, the Remaining popover and a desktop widget"></div>
   </section>
-  <section class="feature">
+  <section class="feature flip">
     <div class="text"><h2>Desktop widgets</h2><p>Limits, activity or both in small, medium and large sizes, on a solid background or adjustable glass. Widgets read saved data, so they keep working while the app is closed.</p></div>
     <div class="shot"><img src="images/showcase/widgets.webp" width="2400" height="1200" loading="lazy" alt="Lunavect WidgetKit widgets on glass: overview, limits and activity"></div>
   </section>
-  <section class="feature flip">
-    <div class="text"><h2>See where your time goes</h2><p>Working time by day, week and month for each provider, with project and session breakdowns. Recovered history is marked as approximate, and overlapping sessions are counted once.</p></div>
-    <div class="shot"><img src="images/showcase/activity.webp" width="2300" height="1500" loading="lazy" alt="Lunavect statistics window with a week of Claude and Codex working time"></div>
-  </section>
   <section class="feature">
+    <div class="text"><h2>See where your time goes</h2><p>Working time by day, week and month for each provider, with project and session breakdowns. Recovered history is marked as approximate, and overlapping sessions are counted once.</p></div>
+    <div class="shot"><img src="images/showcase/activity.webp" width="2300" height="1500" loading="lazy" alt="Lunavect Statistics settings with a week of Claude and Codex working time"></div>
+  </section>
+  <section class="feature flip">
     <div class="text"><h2>Make it yours</h2><p>Pick the Claude, Codex or Lunavect character, a one-line, two-line or activity-only status, and playful activity phrases while your agents work.</p></div>
     <div class="shot"><img src="images/showcase/customize.webp" width="2300" height="1650" loading="lazy" alt="Menu bar status styles and the Menu Bar settings with character selection"></div>
   </section>
-  <p class="also"><strong>Also included:</strong> notifications when a response is ready or an approval is needed, Keep Awake while agents work, light and dark appearance, and six languages: English, Russian, German, Spanish, French and Simplified Chinese.</p>
+  <p class="also"><strong>Also included:</strong> notifications when a response is ready, an approval or reply is needed, a turn fails or a limit runs low, Keep Awake while agents work, light and dark appearance, and six languages: English, Russian, German, Spanish, French and Simplified Chinese.</p>
 </div>
 
 <section class="install wrap" id="install">

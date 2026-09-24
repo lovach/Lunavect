@@ -8,7 +8,7 @@ See [Contributing](https://github.com/lovach/Lunavect/blob/main/.github/CONTRIBU
 
 - A full Xcode installation, selected with `xcode-select`.
 - A compatible Swift toolchain. The release source was checked with Xcode 26.6 and Swift 6.3.3.
-- XcodeGen is optional for regenerating the project. CI builds the committed Xcode project.
+- XcodeGen is optional for regenerating the project. `build.sh` regenerates only with XcodeGen 2.46.0, the version the parity check pins, and otherwise builds the committed project unchanged. CI builds the committed Xcode project.
 - Node.js is only needed to re-export the app icon; exported resources are included.
 
 ## Source map
@@ -31,13 +31,13 @@ Public branding is Lunavect. Compatibility-facing targets and identifiers retain
 `design/selected/selection.json` identifies the approved artwork. App and widget
 declare `LunavectTide.icns` through `CFBundleIconFile`; packaging reads that key
 instead of assuming an icon filename. Build, distribution and installation checks
-compare their icons, translations, version numbers and App Group. A per-bundle allowlist checks provider PDFs, animation/sound formats and intent localizations; app-only artwork/animations/audio are excluded from the widget. Source checks hash every packaged source resource, including interface marks.
+compare their icons, translations, version numbers and App Group. A per-bundle allowlist checks provider PDFs, animation/sound formats and intent localizations; app-only artwork/animations/audio are excluded from the widget. Both bundles must contain the extracted `Metadata.appintents` with the activity intents; the optional built-bundle intent test also requires a translation for every label that metadata shows. Source checks hash every packaged source resource, including interface marks.
 New builds also compare those resources against the current source. These checks cannot certify
 that macOS has refreshed every cached gallery icon.
 
 ## Temporary build registration cleanup
 
-Remove temporary app/extension registrations before the final installed-host registration. Unregistering a copy with the same bundle identifier, or restarting the extension, can leave desktop widgets showing placeholders even while timeline generation succeeds. `distribute.sh` restores the validated installed host and embedded extension after cleanup. `install.sh` also retires the previous installed copy (`pluginkit -r`, `lsregister -u`) before registering the new host last. The installed app re-confirms its own registration 5 seconds, 30 seconds, 2 minutes and 10 minutes after every launch without restarting the extension, so relaunching Lunavect repairs a lost lookup. For manual export/install work, finish all temporary-copy cleanup before launching the installed app. If further cleanup is necessary, re-register the installed host with `lsregister -f` and then its embedded extension with `pluginkit -a`. A successful extension timeline alone is not proof of desktop rendering: verify the existing widgets, and distinguish renderer `LIVE` from placeholder or bundle-lookup failures. Do not clear widget placement/preferences or restart global widget services as a routine cleanup step.
+Remove temporary app/extension registrations before the final installed-host registration. Unregistering a copy with the same bundle identifier, or restarting the extension, can leave desktop widgets showing placeholders even while timeline generation succeeds. `distribute.sh` restores the validated installed host and embedded extension after cleanup; `build.sh` does the same through `scripts/reassert-installed-widget.py` after unregistering its product. `install.sh` also retires the previous installed copy (`pluginkit -r`, `lsregister -u`) before registering the new host last. The installed app re-confirms its own registration 5 seconds, 30 seconds, 2 minutes and 10 minutes after every launch without restarting the extension, so relaunching Lunavect repairs a lost lookup. For manual export/install work, finish all temporary-copy cleanup before launching the installed app. If further cleanup is necessary, re-register the installed host with `lsregister -f` and then its embedded extension with `pluginkit -a`. A successful extension timeline alone is not proof of desktop rendering: verify the existing widgets, and distinguish renderer `LIVE` from placeholder or bundle-lookup failures. Do not clear widget placement/preferences or restart global widget services as a routine cleanup step.
 
 ## Build and test
 
@@ -141,7 +141,7 @@ Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` and set your own
 ./scripts/install.sh
 ```
 
-The default configuration is Release. `WEEKLEFT_SIGNING_CONFIG=/absolute/path/to/config.xcconfig ./scripts/build.sh` explicitly selects a reviewed signing configuration for a local candidate. Local candidates may have stable uncommitted changes; use `unsigned-check` or `unspecified` provenance, because `distribution` always requires a clean source tree. The local build number considers both `~/Applications` and `/Applications`, plus previous products. Use `WEEKLEFT_BUILD_CONFIGURATION=Debug` explicitly for debugging. Build products live outside the project. The install script targets `~/Applications/Lunavect.app`, so review it before running if you have an existing installation.
+The default configuration is Release. `WEEKLEFT_SIGNING_CONFIG=/absolute/path/to/config.xcconfig ./scripts/build.sh` explicitly selects a reviewed signing configuration for a local candidate. Local candidates may have stable uncommitted changes; use `unsigned-check` or `unspecified` provenance, because `distribution` always requires a clean source tree. The local build number considers both `~/Applications` and `/Applications`, plus previous products, so it can pass the last published build; `distribute.sh archive` then requires a release build above the installed one. Use `WEEKLEFT_BUILD_CONFIGURATION=Debug` explicitly for debugging. Build products live outside the project. The install script targets `~/Applications/Lunavect.app`, so review it before running if you have an existing installation. It refuses to install while another Lunavect copy exists at `/Applications/Lunavect.app`: both copies share the widget's bundle IDs. Remove that copy first ([uninstall](installation.md#uninstall)); the script then registers the new copy last.
 
 Public distribution uses Developer ID signing and notarization, described in [update packaging](updates.md). For a fork, use your own signing identity, update feed and update key.
 

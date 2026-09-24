@@ -21,9 +21,13 @@ final class WidgetTransparencyTests: XCTestCase {
     }
 
     @MainActor func testRenderedBackdropAlphaAndRemovableContent() throws {
+        // Reduce Transparency and Increase Contrast always draw an opaque background;
+        // check the contract that applies to this host instead of failing on it.
+        let opaqueForAccessibility = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         for (value, expected) in [(0.0, 1.0), (0.5, 0.5), (1.0, 0.0), (-1.0, 1.0), (2.0, 0.0), (.nan, 0.5)] {
             let image = try bitmap(ActivityWidgetBackground(transparent: true, transparency: value), size: CGSize(width: 40, height: 40))
-            XCTAssertEqual(try XCTUnwrap(image.colorAt(x: 20, y: 20)).alphaComponent, expected, accuracy: 0.01)
+            XCTAssertEqual(try XCTUnwrap(image.colorAt(x: 20, y: 20)).alphaComponent, opaqueForAccessibility ? 1 : expected, accuracy: 0.01)
         }
         let standard = try bitmap(ActivityWidgetBackground(transparent: false, transparency: 1), size: CGSize(width: 40, height: 40))
         XCTAssertEqual(try XCTUnwrap(standard.colorAt(x: 20, y: 20)).alphaComponent, 1)
@@ -78,6 +82,58 @@ final class WidgetTransparencyTests: XCTestCase {
             let image = try bitmap(board, size: CGSize(width: 816, height: 572))
             try XCTUnwrap(image.representation(using: .png, properties: [:]))
                 .write(to: directory.appendingPathComponent(light ? "transparency-light.png" : "transparency-dark.png"))
+        }
+    }
+
+    func testIncreaseContrastStrengthensDimWidgetInk() {
+        for (base, increased) in [(0.55, 0.95), (0.78, 0.95), (0.12, 0.3)] {
+            XCTAssertEqual(WidgetInk.level(base, increased: increased, contrast: .standard), base)
+            XCTAssertEqual(WidgetInk.level(base, increased: increased, contrast: .increased), increased)
+        }
+        XCTAssertEqual(WidgetInk.level(1, contrast: .increased), 1, "Increase Contrast never dims full-strength ink")
+    }
+
+    // Fictional values. Increase Contrast is read-only in public SwiftUI; this
+    // comparison forces it through the underscored preview key, test-only.
+    @MainActor func testExportIncreasedContrastComparison() throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_TRANSPARENCY"] else {
+            throw XCTSkip("Opt-in native contrast comparison")
+        }
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let snapshots = try ProviderID.allCases.map { id in
+            try UsageSnapshot(provider: id,
+                weekly: QuotaWindow(usedPercent: id == .claude ? 35 : 58, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
+                fiveHour: QuotaWindow(usedPercent: 20, durationMinutes: 300, resetsAt: now.addingTimeInterval(3600)),
+                fetchedAt: now.addingTimeInterval(id == .claude ? -3 * 3600 : 0))
+        }
+        var history = ActivityHistory()
+        history.append(start: now.addingTimeInterval(-1800), end: now, providers: 3)
+        var prefs = WidgetPreferences(); prefs.transparentBackground = true; prefs.transparency = 1; prefs.showFiveHour = true
+        let directory = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for contrast in [ColorSchemeContrast.standard, .increased] {
+            let board = VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
+                    LunavectWidgetCard(snapshots: snapshots, preferences: prefs, history: history, content: .limits, family: .medium, now: now)
+                        .clipShape(RoundedRectangle(cornerRadius: 24))
+                    LunavectWidgetCard(snapshots: snapshots, preferences: prefs, history: history, content: .limits, family: .small, now: now)
+                        .clipShape(RoundedRectangle(cornerRadius: 24))
+                }
+                LunavectWidgetCard(snapshots: snapshots, preferences: prefs, history: history, content: .overview, family: .large, now: now)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                HStack(spacing: 8) {
+                    ForEach([false, true], id: \.self) { active in
+                        Button {} label: { InterfaceIcon(.settings) }.buttonStyle(InterfaceToolbarStyle(active: active))
+                    }
+                    Button {} label: { InterfaceIcon(.search) }.buttonStyle(InterfaceToolbarStyle(selected: true))
+                }.padding(10).background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            }.padding(24)
+                .background(LinearGradient(colors: [Color(red: 0.86, green: 0.89, blue: 0.93), Color(red: 0.70, green: 0.78, blue: 0.80)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing))
+                .environment(\._colorSchemeContrast, contrast == .increased ? .increased : .standard)
+            let image = try bitmap(board, size: CGSize(width: 588, height: 648))
+            try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                .write(to: directory.appendingPathComponent("contrast-\(contrast == .increased ? "increased" : "standard").png"))
         }
     }
 

@@ -52,6 +52,35 @@ final class LocalizationTests: XCTestCase {
         }
     }
 
+    func testPercentagesUseOneLocalizedFormatEverywhere() {
+        XCTAssertEqual(PercentText.format(72, language: "ru"), "72%")
+        XCTAssertEqual(PercentText.format(72, language: "en"), "72%")
+        XCTAssertEqual(PercentText.format(72, language: "zh-Hans"), "72%")
+        for language in ["de", "es", "fr"] {
+            XCTAssertEqual(PercentText.format(72, language: language), "72\u{a0}%", language)
+            XCTAssertEqual(PercentText.sign(language: language), "\u{a0}%", language)
+        }
+        XCTAssertEqual(PercentText.sign(language: "en"), "%")
+        // Templates that embed a percentage must space it like "{0}%" does.
+        let unspaced = try! NSRegularExpression(pattern: "[0-9}][ \u{202f}]?%")
+        for (key, values) in L10n.translations {
+            for language in ["de", "es", "fr"] {
+                let text = values[language] ?? ""
+                XCTAssertNil(unspaced.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), "\(key):\(language)")
+            }
+        }
+    }
+
+    func testGermanAddressesTheUserFormallyThroughout() throws {
+        // Most German strings use "Sie"; informal pronouns and imperatives must not creep back in.
+        let informal = try NSRegularExpression(pattern: #"\b(du|dein\w*|dich|dir|Aktiviere|Beende|Bestätige|Erlaube|Installiere|Klicke|Melde|Prüfe|Schalte|Setze|Wähle|Öffne|Warte)\b"#,
+                                               options: [.caseInsensitive])
+        for (key, values) in L10n.translations {
+            let text = values["de"] ?? ""
+            XCTAssertNil(informal.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), "\(key): \(text)")
+        }
+    }
+
     /// Direct literal calls are exhaustive here. Dynamic L(variable) and
     /// persisted error keys are intentionally retained, never inferred dead.
     func testDirectSourceLookupKeysExistInCatalog() throws {

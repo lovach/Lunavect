@@ -128,7 +128,7 @@ struct UpdateSettingsView: View {
                 }
                 HStack {
                     Button(L(updates.notice == nil ? "Проверить обновления" : "Открыть обновление")) { updates.check() }.disabled(!updates.canCheck)
-                    if let date = updates.lastCheck { Text(L("Проверено {0}", date.formatted(date: .abbreviated, time: .shortened))).font(.system(size: 10)).foregroundStyle(.secondary) }
+                    if let date = updates.lastCheck { Text(L("Проверено {0}", date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(L10n.locale)))).font(.system(size: 10)).foregroundStyle(.secondary) }
                 }
                 Text(L("GitHub получает обычный сетевой запрос. Статистика использования и данные сессий не отправляются."))
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

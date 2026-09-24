@@ -12,14 +12,20 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$BUILD" =~ ^[0-9]+$ ]
 fi
 OUTPUT="${LUNAVECT_RELEASE_ROOT:-$HOME/Library/Developer/Xcode/Archives/Lunavect}"
 ARCHIVE="$OUTPUT/Lunavect-$VERSION-$BUILD.xcarchive"
+MANIFEST="$OUTPUT/Lunavect-$VERSION-$BUILD-manifest.json"
 mkdir -p "$OUTPUT"
+# An archive whose checks failed keeps an unfinished manifest. Later steps accept
+# only a complete distribution manifest whose recorded app hash still matches.
+require_verified_archive() {
+  python3 "$ROOT/scripts/build-manifest.py" verify --manifest "$MANIFEST" --kind distribution \
+    --version "$VERSION" --build "$BUILD" --app "$ARCHIVE/Products/Applications/Lunavect.app"
+}
 cd "$ROOT"
 case "$ACTION" in
   archive)
     if [ -z "$PREVIOUS_APPCAST" ]; then echo 'Archive requires a fresh published PREVIOUS_APPCAST file.' >&2; exit 2; fi
     python3 "$ROOT/scripts/release-preflight.py" --source-root "$ROOT" --version "$VERSION" --build "$BUILD" --previous-appcast "$PREVIOUS_APPCAST"
     if [ -e "$ARCHIVE" ]; then echo 'Archive already exists; use a new build number.' >&2; exit 1; fi
-    MANIFEST="$OUTPUT/Lunavect-$VERSION-$BUILD-manifest.json"
     python3 "$ROOT/scripts/build-manifest.py" begin --source-root "$ROOT" --kind distribution --require-clean --output "$MANIFEST"
     xcodebuild -project Lunavect.xcodeproj -scheme Weekleft -configuration Release \
       -destination 'generic/platform=macOS' -archivePath "$ARCHIVE" \
@@ -32,6 +38,7 @@ case "$ACTION" in
     python3 "$ROOT/scripts/build-manifest.py" finalize --source-root "$ROOT" --manifest "$MANIFEST" --app "$ARCHIVE/Products/Applications/Lunavect.app"
     ;;
   submit)
+    require_verified_archive
     python3 "$ROOT/scripts/verify-product-resources.py" "$ARCHIVE/Products/Applications/Lunavect.app"
     OPTIONS=$(mktemp)
     trap 'rm -f "$OPTIONS"' EXIT
@@ -46,6 +53,7 @@ PY
       -exportOptionsPlist "$OPTIONS" -allowProvisioningUpdates
     ;;
   export)
+    require_verified_archive
     xcodebuild -exportNotarizedApp -archivePath "$ARCHIVE" -exportPath "$OUTPUT/Notarized-$BUILD"
     python3 "$ROOT/scripts/verify-product-resources.py" "$OUTPUT/Notarized-$BUILD/Lunavect.app"
     ;;

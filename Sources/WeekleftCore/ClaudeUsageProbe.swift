@@ -135,10 +135,11 @@ public enum ClaudeUsageText {
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = calendar; formatter.timeZone = zone; formatter.isLenient = false
         let formats = ["MMM d 'at' h:mma", "MMM d 'at' ha", "MMM d 'at' HH:mm", "MMM d, h:mma", "MMM d, ha"]
+        var candidates: [Date] = []
         for format in formats {
             formatter.dateFormat = "yyyy " + format
             for candidateYear in [year, year + 1] {
-                if let date = formatter.date(from: "\(candidateYear) " + text), plausible(date, now: now, minutes: durationMinutes) { return date }
+                if let date = formatter.date(from: "\(candidateYear) " + text) { candidates.append(date) }
             }
         }
         for format in ["h:mma", "ha", "HH:mm"] {
@@ -149,15 +150,22 @@ public enum ClaudeUsageText {
                 guard let base = calendar.date(byAdding: .day, value: day, to: now),
                       let date = calendar.date(bySettingHour: parts.hour ?? 0, minute: parts.minute ?? 0, second: 0, of: base)
                 else { continue }
-                if plausible(date, now: now, minutes: durationMinutes) { return date }
+                candidates.append(date)
             }
         }
-        return nil
+        // The CLI formats to whole minutes and can still show a reset that has
+        // just passed. Keep that elapsed time (an expired window, never shown as
+        // current) rather than failing the probe or inventing an extra day/week.
+        return candidates.first { plausible($0, now: now, minutes: durationMinutes) }
+            ?? candidates.first { justElapsed($0, now: now) }
     }
     private static func plausible(_ date: Date, now: Date, minutes: Int) -> Bool {
-        // The CLI formats to whole minutes. Never invent an extra week/day when
-        // the displayed reset has just elapsed, or accept a misread past window.
+        // Never accept a misread past window or a reset beyond the window length.
         let interval = date.timeIntervalSince(now)
         return interval > 0 && interval <= Double(minutes * 60) + 120
+    }
+    private static func justElapsed(_ date: Date, now: Date) -> Bool {
+        let interval = date.timeIntervalSince(now)
+        return interval <= 0 && interval > -120
     }
 }

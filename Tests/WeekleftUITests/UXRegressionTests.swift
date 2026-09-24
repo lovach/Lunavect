@@ -410,6 +410,80 @@ final class UXRegressionTests: XCTestCase {
         XCTAssertEqual(invoked, 2)
     }
 
+    @MainActor func testRepeatedPanelOpenRequestsOpenOnceAndLetThePanelStepAside() async throws {
+        let state = SessionPanelState(isVisible: true)
+        let row = AgentSession(provider: .codex, sessionID: "fixture", title: "Example", cwd: "", phase: .ready, updatedAt: Date(), observedAt: Date())
+        let stepsAside = expectation(forNotification: .lunavectSessionOpened, object: nil)
+        stepsAside.assertForOverFulfill = true
+        var calls = 0
+        var release: CheckedContinuation<Void, Never>?
+        // Return key repeats, a swipe and a click arrive while the first open is still running.
+        let first = Task { await state.open(row) { _ in calls += 1; await withCheckedContinuation { release = $0 } } }
+        while release == nil { await Task.yield() }
+        XCTAssertTrue(state.openingIDs.contains(row.id))
+        for _ in 0..<3 {
+            let repeated = await state.open(row) { _ in calls += 1 }
+            XCTAssertFalse(repeated)
+        }
+        release?.resume()
+        let opened = await first.value
+        XCTAssertTrue(opened)
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(state.openingIDs.isEmpty)
+        await fulfillment(of: [stepsAside], timeout: 1)
+    }
+
+    @MainActor func testOpenFailureIsShownOnThePanelAndBringsAClosedPanelBack() async throws {
+        struct Failure: LocalizedError { var errorDescription: String? { "A synthetic launch failed" } }
+        let state = SessionPanelState(isVisible: true)
+        let row = AgentSession(provider: .codex, sessionID: "fixture", title: "Example", cwd: "", phase: .ready, updatedAt: Date(), observedAt: Date())
+        var reopened = 0
+        state.onHiddenIssue = { reopened += 1 }
+        let visible = await state.open(row) { _ in throw Failure() }
+        XCTAssertFalse(visible)
+        XCTAssertEqual(state.issue, "A synthetic launch failed")
+        XCTAssertEqual(reopened, 0, "An open panel shows the message in place")
+        // The client took focus and the popover closed before the route failed.
+        let hidden = await state.open(row) { _ in state.isVisible = false; throw Failure() }
+        XCTAssertFalse(hidden)
+        XCTAssertEqual(state.issue, "A synthetic launch failed")
+        XCTAssertEqual(reopened, 1, "A late failure brings the panel back instead of a detached alert")
+    }
+
+    @MainActor func testClosingThePanelEndsItsMessageAndHiddenSessionsPage() async throws {
+        let state = SessionPanelState(isVisible: true)
+        state.issue = "A failed notification open"
+        state.showsHiddenSessions = true
+        state.isVisible = false
+        state.isVisible = true
+        XCTAssertNil(state.issue, "A message belongs to the presentation it was shown in")
+        XCTAssertFalse(state.showsHiddenSessions, "The menu-bar item reopens current sessions")
+        // A failure reported while closed is kept for the presentation it brings forward.
+        state.isVisible = false
+        let opened = await state.openSession(id: "missing", rows: []) { _ in }
+        XCTAssertFalse(opened)
+        state.isVisible = true
+        XCTAssertEqual(state.issue, L("Сессия больше не активна или скрыта. Проверьте скрытые сессии внизу панели."))
+        state.isVisible = false
+        XCTAssertNil(state.issue)
+    }
+
+    @MainActor func testNotificationOpensAKnownRowWithoutWaitingForACatalogRefresh() async throws {
+        let state = SessionPanelState()
+        let row = AgentSession(provider: .codex, sessionID: "fixture", title: "Example", cwd: "", phase: .ready, updatedAt: Date(), observedAt: Date())
+        var rows = [row], refreshes = 0, opened: [String] = []
+        let known = await state.openSession(id: row.id, rows: rows, refresh: { refreshes += 1 }) { opened.append($0.id) }
+        XCTAssertTrue(known)
+        XCTAssertEqual(refreshes, 0, "The notice came from a row the panel already has")
+        XCTAssertEqual(opened, [row.id])
+        // A session not yet in the list is looked up again after one refresh.
+        let late = AgentSession(provider: .claude, sessionID: "late", title: "Example", cwd: "", phase: .input, updatedAt: Date(), observedAt: Date())
+        let found = await state.openSession(id: late.id, rows: rows, refresh: { refreshes += 1; rows.append(late) }) { opened.append($0.id) }
+        XCTAssertTrue(found)
+        XCTAssertEqual(refreshes, 1)
+        XCTAssertEqual(opened, [row.id, late.id])
+    }
+
     @MainActor func testWelcomeKeepsFourStepsWithAndWithoutRegisteredWidget() async throws {
         let environment = try AppEnvironment.preview(rows: [])
         defer { environment.stop() }

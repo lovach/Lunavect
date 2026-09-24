@@ -110,6 +110,38 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertTrue(subject.isEnabled); XCTAssertEqual(client.beginCount, 2)
         await subject.setAutomatic(false)
     }
+    /// A safety stop pauses automatic mode, says so, and resumes by itself:
+    /// at once when the stop conditions change, otherwise after five minutes.
+    @MainActor func testAutomaticSuspensionIsVisibleAndResumes() async throws {
+        let suite = "awake-auto-resume-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let client = FakeAwakeClient(); client.failBegin = true
+        var clock = Date(timeIntervalSince1970: 1_900_000_000)
+        let subject = KeepAwake(client: client, now: { clock }, defaults: defaults)
+        subject.observe([AgentSession(provider: .codex, sessionID: "work", title: "Example", cwd: "", phase: .running, updatedAt: clock, observedAt: clock)])
+        await subject.setAutomatic(true)
+        XCTAssertEqual(subject.statusDescription, L("Приостановлено, повторим через 5 минут"))
+        clock += 120; await subject.reconcileAutomatic()
+        XCTAssertEqual(client.beginCount, 1, "no loop within the pause")
+        clock += 200; client.failBegin = false
+        subject.observe([AgentSession(provider: .codex, sessionID: "work", title: "Example", cwd: "", phase: .running, updatedAt: clock, observedAt: clock)])
+        await subject.reconcileAutomatic()
+        XCTAssertEqual(client.beginCount, 2); XCTAssertTrue(subject.isEnabled)
+        await subject.stop()
+
+        client.failBegin = true
+        subject.observe([AgentSession(provider: .codex, sessionID: "work", title: "Example", cwd: "", phase: .running, updatedAt: clock, observedAt: clock)])
+        await subject.reconcileAutomatic()
+        XCTAssertFalse(subject.isEnabled)
+        let beforePolicy = client.beginCount
+        client.failBegin = false
+        var policy = subject.safetyPolicy; policy.thermalProtection.toggle()
+        await subject.setSafetyPolicy(policy)
+        XCTAssertEqual(client.beginCount, beforePolicy + 1, "changed conditions resume at once")
+        XCTAssertTrue(subject.isEnabled)
+        await subject.setAutomatic(false)
+    }
     @MainActor func testUpdatedBuildRestartsHelperOnceBeforeUse() async throws {
         let suite = "awake-test-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -266,6 +298,24 @@ final class KeepAwakeTests: XCTestCase {
         while client.gate == nil { await Task.yield() }
         awake.shutdown(); client.gate?.resume(); await task.value
         XCTAssertFalse(awake.isEnabled); XCTAssertNil(awake.endsAt)
+    }
+    @MainActor func testRestoreDuringAStartReportsItInsteadOfLeavingKeepAwakeOnSilently() async throws {
+        let suite = "awake-restore-busy-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let client = FakeAwakeClient(); client.suspendBegin = true
+        let awake = KeepAwake(client: client, defaults: defaults)
+        awake.duration = .fourHours
+        let starting = Task { await awake.start() }
+        while client.gate == nil { await Task.yield() }
+        let whileStarting = await awake.restoreDefaults()
+        XCTAssertFalse(whileStarting, "A reset that cannot stop Keep Awake yet is reported")
+        client.suspendBegin = false; client.gate?.resume(); await starting.value
+        XCTAssertTrue(awake.isEnabled)
+        let afterwards = await awake.restoreDefaults()
+        XCTAssertTrue(afterwards)
+        XCTAssertFalse(awake.isEnabled); XCTAssertFalse(client.held)
+        XCTAssertEqual(awake.duration, AppDefaultSettings.awakeDuration)
     }
     @MainActor func testDurationSelectionDoesNotStartUntilSwitchIsEnabled() async {
         let client = FakeAwakeClient(), now = Date()

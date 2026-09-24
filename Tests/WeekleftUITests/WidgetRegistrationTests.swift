@@ -64,11 +64,15 @@ import Darwin
 
     func testCancelledRepairDoesNotSaveStampOrReload() async {
         let defaults = defaults()
+        let started = expectation(description: "Repair is running")
+        // The repair reports success after cancellation; the service must still discard it.
         let service = WidgetRegistration(defaults: defaults, target: target,
-            repair: { _ in try? await Task.sleep(for: .seconds(60)); return true },
+            repair: { _ in started.fulfill(); try? await Task.sleep(for: .seconds(60)); return true },
             reassert: { _ in XCTFail("Cancelled registration"); return false },
             reload: { XCTFail("Cancelled registration") }, pause: {}, settle: { _ in })
-        service.start(); await Task.yield(); service.stop()
+        service.start()
+        await fulfillment(of: [started], timeout: 3)
+        service.stop()
         await service.waitUntilFinished()
         XCTAssertNil(defaults.string(forKey: WidgetRegistration.stampKey))
     }
@@ -99,13 +103,16 @@ import Darwin
 
     func testStopDuringSettleSkipsReassert() async {
         let defaults = defaults()
+        let settling = expectation(description: "First settle is running")
         defaults.set(target.stamp, forKey: WidgetRegistration.stampKey)
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build"); return false },
             reassert: { _ in XCTFail("Stopped before the check"); return false },
             reload: { XCTFail("Stopped before the check") }, pause: {},
-            settle: { _ in try await Task.sleep(for: .seconds(60)) })
-        service.start(); await Task.yield(); service.stop()
+            settle: { _ in settling.fulfill(); try await Task.sleep(for: .seconds(60)) })
+        service.start()
+        await fulfillment(of: [settling], timeout: 3)
+        service.stop()
         await service.waitUntilFinished()
     }
 

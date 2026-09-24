@@ -10,6 +10,7 @@ struct SessionsView: View {
     @ObservedObject var store: SessionStore
     @ObservedObject var panelState = SessionPanelState(isVisible: true)
     @ObservedObject var updates: AppUpdates
+    @ObservedObject var network = NetworkConnection()
     var awake: KeepAwake
     var isPreview = false
     var onSettings: () -> Void
@@ -28,9 +29,9 @@ struct SessionsView: View {
     @State var showingAwake = false
     @State private var activeOnly = false
     @State var attentionOnly = false
+    @State private var userRefreshing = false
     @FocusState private var focusedSession: String?
     @State private var actionIssue: String?
-    @State private var showingHidden = false
     private func visible(at now: Date) -> [AgentSession] {
         if let rows = reorder.rows { return rows }
         return filteredSessions(at: now)
@@ -49,7 +50,7 @@ struct SessionsView: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let height = panelHeight(at: context.date)
             Group {
-                if showingHidden { hiddenList } else { sessionList(at: context.date) }
+                if panelState.showsHiddenSessions { hiddenList } else { sessionList(at: context.date) }
             }.frame(width: 360, height: height)
                 .onChange(of: height, initial: true) { _, value in onHeightChange?(value) }
         }
@@ -63,7 +64,7 @@ struct SessionsView: View {
             .onChange(of: store.providers) { _, values in
                 if values.count < 2 || !values.contains(where: { $0.rawValue == provider }) { provider = "" }
             }
-            .onChange(of: showingHidden) { _, hidden in
+            .onChange(of: panelState.showsHiddenSessions) { _, hidden in
                 if !hidden { focusedSession = SessionKeyboardFocus.search }
             }
             .transaction { transaction in
@@ -75,7 +76,7 @@ struct SessionsView: View {
     }
     private var hasFilters: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !provider.isEmpty || activeOnly || attentionOnly }
     private func panelHeight(at now: Date) -> CGFloat {
-        if showingHidden { return min(480, max(300, CGFloat(store.hiddenCount) * 62 + 180)) }
+        if panelState.showsHiddenSessions { return min(480, max(300, CGFloat(store.hiddenCount) * 62 + 180)) }
         return listLayout(rowCount: visible(at: now).count).panelHeight
     }
     private func listLayout(rowCount: Int) -> SessionPanelLayout {
@@ -84,7 +85,7 @@ struct SessionsView: View {
     }
     private var hiddenList: some View {
         HiddenSessionsView(sessions: store.hiddenSessions,
-                           onBack: { showingHidden = false },
+                           onBack: { panelState.showsHiddenSessions = false },
                            onRestore: { id in perform { try store.restore(id) } },
                            onRemove: { id in perform { try store.removeHidden(id) } },
                            onRemoveAll: { perform { try store.removeHidden() } },
@@ -174,8 +175,9 @@ struct SessionsView: View {
                         ForEach(rows) { row in
                                 SessionRow(
                                     session: row, now: now, phase: row.effectivePhase(now: now),
-                                    swipePresentation: swipePresentation, onHide: { perform { try store.hide(row) } },
-                                    onError: { actionIssue = $0 }, clientResolver: store.clientResolver,
+                                    offlineSince: network.offlineSince, swipePresentation: swipePresentation, onHide: { perform { try store.hide(row) } },
+                                    onError: { actionIssue = $0 }, onOpen: { open(row) },
+                                    isOpening: panelState.openingIDs.contains(row.id),
                                     isPinned: store.arrangement.pinned.contains(row.id),
                                     onPin: { perform(userReordered: true) { try store.setPinned(row.id, !store.arrangement.pinned.contains(row.id)) } },
                                        onMove: { movingDown in move(row.id, movingDown: movingDown, rows: rows) },
@@ -200,7 +202,19 @@ struct SessionsView: View {
                                        isDragging: reorder.id == row.id, isFocused: focusedSession == row.id)
                                 .focusable().focused($focusedSession, equals: row.id)
                                 .focusEffectDisabled()
-                                .onKeyPress(.return) { open(row); return .handled }
+                                // Holding Return must not open the same session again.
+                                .onKeyPress(.return, phases: [.down, .repeat]) { press in
+                                    if press.phase == .down { open(row) }
+                                    return .handled
+                                }
+                                // Command-Delete hides the focused row, like Move to Trash in
+                                // Finder; the row menu shows the shortcut and Undo restores it.
+                                // The Delete key arrives as U+007F; SwiftUI's .delete is U+0008.
+                                .onKeyPress(keys: [.delete, KeyEquivalent("\u{7F}")], phases: .down) { press in
+                                    guard press.modifiers.intersection([.command, .option, .control, .shift]) == .command else { return .ignored }
+                                    perform { try store.hide(row) }
+                                    return .handled
+                                }
                                 .onKeyPress(keys: [.upArrow, .downArrow]) { press in
                                     if press.modifiers.contains(.option) {
                                         move(row.id, movingDown: press.key == .downArrow, rows: rows)
@@ -279,19 +293,7 @@ struct SessionsView: View {
             swipePresentation.update(id: id, offset: offset, reduceMotion: reduceMotion)
         }, onAction: { id, action in
             guard let row = store.sessions.first(where: { $0.id == id }) else { return }
-            if action == .hide { perform { try store.hide(row) } }
-            else {
-                Task { @MainActor in
-                    do { try await SessionNavigation.open(row, resolver: store.clientResolver) }
-                            catch {
-                                actionIssue =
-                                    (error as? SessionOpeningError)?.errorDescription
-                                    ?? L(
-                                        "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."
-                                    )
-                            }
-                        }
-            }
+            if action == .hide { perform { try store.hide(row) } } else { open(row) }
         }))
         .background {
             Color(nsColor: .windowBackgroundColor).opacity(reduceTransparency || contrast == .increased ? 1 : 0.94)
@@ -325,8 +327,17 @@ struct SessionsView: View {
                             onKeepAwakeSettings?()
                         }).padding(10).frame(width: 330)
                     }
-                Button { Task { await store.refresh() } } label: { InterfaceIcon(.refresh, size: 18) }
-                    .buttonStyle(InterfaceToolbarStyle()).disabled(store.refreshing || isPreview).help(L("Обновить сессии"))
+                // Background polls join this refresh; only a refresh the user asked for shows progress.
+                Button {
+                    guard !userRefreshing else { return }
+                    userRefreshing = true
+                    Task { await store.refresh(); userRefreshing = false }
+                } label: {
+                    ZStack {
+                        if userRefreshing { ProgressView().controlSize(.small) } else { InterfaceIcon(.refresh, size: 18) }
+                    }.frame(width: 18, height: 18)
+                }
+                    .buttonStyle(InterfaceToolbarStyle()).disabled(isPreview).help(L("Обновить сессии"))
                     .accessibilityLabel(L("Обновить сессии"))
                 Button(action: onSettings) { InterfaceIcon(.settings, size: 18) }
                     .buttonStyle(InterfaceToolbarStyle())
@@ -362,6 +373,11 @@ struct SessionsView: View {
             Text(label).foregroundStyle(.secondary)
         }.font(.system(size: 11))
     }
+    /// Without a connection no app can report status; ask to connect instead.
+    var emptyStateDetail: String {
+        if hasFilters { return L("Нет сессий для выбранных фильтров. Сбросьте фильтры, чтобы увидеть остальные сессии.") }
+        return store.providers.isEmpty ? L("Подключите Claude или Codex в настройках подключений.") : L("Приложения ещё не передали живой статус.")
+    }
     private var emptyState: some View {
         let loading = store.refreshing && store.updatedAt == nil
         return VStack(spacing: 12) {
@@ -371,26 +387,22 @@ struct SessionsView: View {
                 .font(.system(size: 13, weight: .medium)).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             if !loading {
-                Text(hasFilters ? L("Нет сессий для выбранных фильтров. Сбросьте фильтры, чтобы увидеть остальные сессии.") : L("Приложения ещё не передали живой статус."))
+                Text(emptyStateDetail)
                     .font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !loading && !hasFilters && store.providers.isEmpty {
-                Button(L("Подключить приложения"), action: onConnections ?? onSettings)
-                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(.blue)
+                Button(action: onConnections ?? onSettings) {
+                    Text(L("Подключить приложения")).frame(minHeight: 24).contentShape(Rectangle())
+                }.buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(.blue)
             }
         }.padding(24)
     }
+    /// Click, menu, Return and swipe share one guarded opener; its failure is
+    /// shown on the panel, which returns if it closed while the client opened.
     private func open(_ row: AgentSession) {
-        Task { @MainActor in
-            do { try await SessionNavigation.open(row, resolver: store.clientResolver) }
-            catch {
-                actionIssue =
-                    (error as? SessionOpeningError)?.errorDescription
-                    ?? L(
-                        "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."
-                    )
-            }
+        Task { @MainActor [panelState, resolver = store.clientResolver] in
+            await panelState.open(row) { try await SessionNavigation.open($0, resolver: resolver) }
         }
     }
     private func move(_ id: String, movingDown: Bool, rows: [AgentSession]) {
@@ -414,10 +426,12 @@ struct SessionsView: View {
                 HStack {
                     Text(L("Скрыто: {0}", hidden.displayTitle)).lineLimit(1)
                     Spacer()
-                    Button(L("Отменить")) { perform { try store.undoHide() } }.buttonStyle(.plain).foregroundStyle(.blue)
+                    Button { perform { try store.undoHide() } } label: {
+                        Text(L("Отменить")).frame(minHeight: 24).contentShape(Rectangle())
+                    }.buttonStyle(.plain).foregroundStyle(.blue)
                 }.font(.system(size: 11))
             }
-            Button { showingHidden = true } label: {
+            Button { panelState.showsHiddenSessions = true } label: {
                 HStack {
                     InterfaceLabel(L("Скрытые сессии"), .hidden)
                     Spacer()
@@ -443,11 +457,15 @@ struct SessionRow: View {
     var session: AgentSession
     var now: Date
     var phase: SessionPhase
+    /// Brief path changes (Wi-Fi roaming) are not reported as a lost network.
+    var offlineSince: Date? = nil
+    var offline: Bool { phase == .running && offlineSince.map { now.timeIntervalSince($0) >= 10 } == true }
     @ObservedObject var swipePresentation: SessionSwipePresentation
     private var swipeOffset: Double { swipePresentation.id == session.id ? swipePresentation.offset : 0 }
     var onHide: () -> Void
     var onError: (String) -> Void
-    var clientResolver = ClientExecutableResolver()
+    var onOpen: (() -> Void)? = nil
+    var isOpening = false
     var isPinned = false
     var onPin: (() -> Void)? = nil
     var onMove: ((Bool) -> Void)? = nil
@@ -460,7 +478,6 @@ struct SessionRow: View {
     var isFocused = false
     @StateObject private var dragAnchor = SessionRowDragAnchor()
     @StateObject private var menuAnchor = SessionMenuAnchor()
-    @State private var opening = false
     @State private var hovering = false
     var displayTitle: String { session.displayTitle }
     var accessibilityName: String {
@@ -471,7 +488,7 @@ struct SessionRow: View {
     var color: Color {
         switch phase {
         case .permission, .input: return .orange
-        case .running: return .blue
+        case .running: return offline ? .secondary : .blue
         case .ready: return .green
         case .failed: return .red
         default: return .secondary
@@ -504,14 +521,16 @@ struct SessionRow: View {
         ]
     }
     var accessibilityReorderItems: [SessionMenuAnchor.Item] { reorderMenuItems.filter(\.enabled) }
+    /// Command-Delete (⌫) on a focused row.
+    static let hideKey = String(UnicodeScalar(UInt8(NSBackspaceCharacter)))
     var menuItems: [SessionMenuAnchor.Item] {
         [
-            .init(title: L("Открыть сессию"), enabled: !opening, action: openSession),
+            .init(title: L("Открыть сессию"), enabled: !isOpening, action: openSession),
             session.client == .vscode ? .init(title: L("В VS Code должен быть открыт проект этой сессии."), enabled: false, action: {}) : nil,
             .separator,
             onPin.map { .init(title: L(isPinned ? "Открепить" : "Закрепить"), action: $0) },
         ].compactMap { $0 } + reorderMenuItems + [
-            .init(title: L("Скрыть в Lunavect"), action: onHide),
+            .init(title: L("Скрыть в Lunavect"), keyEquivalent: Self.hideKey, keyModifiers: .command, action: onHide),
             .separator,
             .init(title: L("Открыть папку проекта"), enabled: !session.cwd.isEmpty, action: {
                 if !SessionNavigation.revealProject(session) { onError(L("Папка проекта недоступна.")) }
@@ -522,25 +541,28 @@ struct SessionRow: View {
     }
     private func showActions() { menuAnchor.show(menuItems) }
     private func openSession() {
-        guard !opening else { return }; opening = true
-        Task { @MainActor in
-            defer { opening = false }
-            do {
-                try await SessionNavigation.open(session, resolver: clientResolver)
-                NotificationCenter.default.post(name: .lunavectSessionOpened, object: nil)
-            }
-            catch {
-                onError(
-                    (error as? SessionOpeningError)?.errorDescription
-                        ?? L(
-                            "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."
-                        ))
-            }
-        }
+        guard !isOpening else { return }
+        onOpen?()
     }
+    /// Background tasks Claude started are shown while the task works, whether
+    /// Claude is still generating or already waiting for them.
+    private var background: BackgroundWork? { phase == .running ? session.backgroundWork : nil }
+    /// One tooltip for the whole row: the interaction overlay receives the pointer,
+    /// so the title, the status as shown, background tasks and the full folder live here.
+    var rowToolTip: String {
+        var lines = [displayTitle, statusTitle]
+        if let background { lines.append(background.summary) }
+        lines.append(session.cwd.isEmpty ? session.project : session.cwd)
+        lines.append(session.provider.title + " · " + session.client.title)
+        return lines.joined(separator: "\n")
+    }
+    /// The pin glyph is decorative; VoiceOver hears the pinned state with the status.
+    var accessibilityStatus: String { isPinned ? statusTitle + ", " + L("Закреплена") : statusTitle }
     var statusTitle: String {
-        guard phase == .running else { return phase.title }
+        guard phase == .running else { return phase == .failed ? session.failure?.title ?? phase.title : phase.title }
+        if offline { return L("Нет сети") }
         if session.compactionTrigger != nil { return session.activityTitle }
+        if session.awaitingBackground == true, session.tool?.isEmpty != false { return L("В фоне") }
         return L(session.tool?.isEmpty == false ? "Работает" : "Думает")
     }
     private var providerImage: some View {
@@ -566,6 +588,7 @@ struct SessionRow: View {
                         let seconds = max(0, Int(now.timeIntervalSince(start)))
                         Text(String(format: "%d:%02d", seconds / 60, seconds % 60)).monospacedDigit()
                     }
+                    if let background { BackgroundWorkBadge(work: background).padding(.leading, 2) }
                     Spacer(minLength: 0)
                     Text(session.shortProjectPath).lineLimit(1).truncationMode(.head)
                         .frame(maxWidth: 128, alignment: .trailing)
@@ -576,7 +599,7 @@ struct SessionRow: View {
     }
     private var rowControls: some View {
             HStack(spacing: 2) {
-                if isPinned { InterfaceIcon(.pin, size: 11).foregroundStyle(.blue).accessibilityLabel(L("Закреплена")) }
+                if isPinned { InterfaceIcon(.pin, size: 11).foregroundStyle(.blue) }
                 actionsMenu
             }.foregroundStyle(.secondary)
     }
@@ -599,9 +622,9 @@ struct SessionRow: View {
     private var interactiveRow: some View {
         rowSurface
             .background(SessionRowDragAnchorView(anchor: dragAnchor))
-            .help(displayTitle + "\n" + session.project + " · " + session.client.title + "\n" + session.activityTitle)
+            .help(rowToolTip)
             .overlay(alignment: .leading) {
-                SessionRowInteraction(session: session, anchor: dragAnchor, onClick: openSession, onMenu: showActions,
+                SessionRowInteraction(session: session, anchor: dragAnchor, toolTip: rowToolTip, onClick: openSession, onMenu: showActions,
                                       onStart: { onDragStart?($0, $1, $2) }, onMove: { onDragMove?($0) }, onEnd: { onDragEnd?($0) })
                     // Keep the native ellipsis button independent of row clicks.
                     .padding(.trailing, 36).accessibilityHidden(true)
@@ -625,7 +648,7 @@ struct SessionRow: View {
             .onHover { hovering = $0 }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(accessibilityName)
-            .accessibilityValue(statusTitle)
+            .accessibilityValue(accessibilityStatus)
             .accessibilityAction(.default, openSession)
             .accessibilityIdentifier("session-row-" + session.id)
             .accessibilityAction(named: Text(L("Открыть сессию")), openSession)
@@ -646,6 +669,30 @@ struct SessionPanelSectionHeights: PreferenceKey {
     static let defaultValue: [String: CGFloat] = [:]
     static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
         value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
+/// Claude's own in-flight background tasks: one glyph and a count instead of
+/// prose; the breakdown by kind is in the tooltip and the accessibility label.
+struct BackgroundWorkBadge: View {
+    let work: BackgroundWork
+    @Environment(\.colorSchemeContrast) private var contrast
+    var body: some View {
+        HStack(spacing: 3) { InterfaceIcon(.layers, size: 10); Text(String(work.total)).monospacedDigit() }
+            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.blue)
+            .padding(.horizontal, 5).padding(.vertical, 1.5)
+            .background(Color.blue.opacity(contrast == .increased ? 0.28 : 0.14), in: Capsule())
+            .overlay { if contrast == .increased { Capsule().strokeBorder(Color.blue, lineWidth: 1) } }
+            .fixedSize()
+            .help(work.summary)
+            .accessibilityElement(children: .ignore).accessibilityLabel(work.summary)
+    }
+}
+extension BackgroundWork {
+    var summary: String {
+        let parts = [("Команды: {0}", commands), ("Агенты: {0}", agents), ("Мониторы: {0}", monitors), ("Другие: {0}", other)]
+            .filter { $0.1 > 0 }.map { L($0.0, String($0.1)) }
+        return L("Фоновые задачи") + " — " + parts.joined(separator: ", ")
     }
 }
 

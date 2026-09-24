@@ -16,7 +16,7 @@ The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.
 
 For a new Lunavect release, preserve its signing identity, bundle IDs, App Group, update feed and Ed25519 update key. Create a new key only for a separate fork or a planned key migration, not for an ordinary update.
 
-1. Run the project checks and inspect the relevant live behavior. Choose a build number higher than every published build.
+1. Run the project checks and inspect the relevant live behavior. Choose a build number higher than every published build and than any Lunavect installed on the release Mac: `build.sh` numbers local builds above the installed copy, and Sparkle offers only a higher build.
 2. Build and export a Developer ID signed app. Complete notarization and staple the ticket. Do not edit the bundle afterward.
 3. Package the signed update ZIP, appcast and DMG in a new output directory.
 4. Publish them together with checksums in a stable GitHub Release. The appcast's ZIP URL must point to that exact release tag.
@@ -38,7 +38,7 @@ First refresh release tags and download the currently published appcast into a p
 ./scripts/distribute.sh export 0.1.9 181
 ```
 
-Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, and a build or marketing version that does not exceed the supplied appcast. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.
+Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, a build or marketing version that does not exceed the supplied appcast, and a build that does not exceed a Lunavect installed in `~/Applications` or `/Applications`. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app only after the resource and helper-policy checks pass. `submit` and `export` refuse an archive unless that manifest is complete, names the same version and build, and still matches the archived app's hash; after a failed archive, use a new build number. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.
 
 The distribution workflow uses the Apple account configured in Xcode. Export reports when notarization has not yet completed. A completed export contains the app's notarization ticket.
 

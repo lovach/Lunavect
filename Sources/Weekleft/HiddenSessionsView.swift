@@ -82,7 +82,8 @@ struct HiddenSessionsView: View {
                     InterfaceIcon(hasQuery ? .search : .hidden, size: 24).foregroundStyle(.secondary)
                     Text(L(hasQuery ? "Ничего не найдено" : "Нет скрытых сессий")).font(.system(size: 12))
                     if hasQuery {
-                        Button(L("Очистить поиск")) { query = "" }.buttonStyle(.plain).foregroundStyle(.blue).font(.system(size: 11))
+                        Button { query = "" } label: { Text(L("Очистить поиск")).frame(minHeight: 24).contentShape(Rectangle()) }
+                            .buttonStyle(.plain).foregroundStyle(.blue).font(.system(size: 11))
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

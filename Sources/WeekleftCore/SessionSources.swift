@@ -596,14 +596,17 @@ enum SessionProcess {
 }
 
 public extension SessionHooks {
+    static func readHookPayload(from input: FileHandle, limit: Int = SessionRecord.maximumPayloadBytes) -> Data? {
+        var data = Data()
+        while let part = try? input.read(upToCount: 1 << 20), !part.isEmpty {
+            data.append(part)
+            if data.count > limit { return nil }
+        }
+        return data
+    }
     static func captureFromStandardInput(provider: ProviderID) {
         // Lifecycle tools must never block, approve, or inject context into the source session.
-        let input = FileHandle.standardInput
-        var data = Data()
-        while let part = try? input.read(upToCount: 65536), !part.isEmpty {
-            data.append(part)
-            if data.count > 1_000_000 { print("{}"); return }
-        }
+        guard let data = readHookPayload(from: .standardInput) else { print("{}"); return }
         let env = ProcessInfo.processInfo.environment
         let client = SessionProcess.client(parentPID: getppid(), entrypoint: env["CLAUDE_CODE_ENTRYPOINT"] ?? "", terminal: env["TERM_PROGRAM"] ?? "")
         let nested = provider == .claude ? SessionProcess.nestedClaudeRuntime(startPID: getppid()) : nil

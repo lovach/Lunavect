@@ -47,6 +47,9 @@ class InstallTransactionTests(unittest.TestCase):
         scripts = self.root / 'scripts'; scripts.mkdir()
         source = (ROOT / 'scripts/install.sh').read_text().replace('$HOME', '$INSTALL_FIXTURE_HOME')
         source = source.replace(REGISTER, str(self.bin / 'lsregister')).replace('/usr/bin/pkill', str(self.bin / 'pkill'))
+        self.global_app = self.root / 'global/Lunavect.app'
+        assert 'GLOBAL_APP=/Applications/Lunavect.app\n' in source
+        source = source.replace('GLOBAL_APP=/Applications/Lunavect.app\n', 'GLOBAL_APP=' + str(self.global_app) + '\n')
         (scripts / 'install.sh').write_text(source)
         for name in ('verify-product-resources.py', 'verify-hook-helper.py', 'verify-app-groups.py', 'migrate-app-group.py'):
             (scripts / name).write_text('raise SystemExit(0)\n')
@@ -78,6 +81,25 @@ class InstallTransactionTests(unittest.TestCase):
         self.assertEqual((self.dest / 'marker').read_text(), 'old')
         self.assertEqual((self.legacy / 'marker').read_text(), 'foreign')
         self.assertFalse((self.root / 'trace').exists())
+
+    def test_second_copy_in_applications_is_rejected_before_any_side_effect(self):
+        self.bundle(self.global_app, 'dmg')
+        result = self.run_install()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('Another Lunavect is installed at ' + str(self.global_app), result.stderr)
+        self.assertEqual((self.dest / 'marker').read_text(), 'old')
+        self.assertEqual((self.global_app / 'marker').read_text(), 'dmg')
+        self.assertFalse((self.root / 'trace').exists())
+
+    def test_unrelated_or_linked_applications_entry_does_not_block_install(self):
+        self.global_app.parent.mkdir()
+        self.global_app.symlink_to(self.dest)
+        self.assertEqual(self.run_install().returncode, 0)
+        self.global_app.unlink()
+        self.bundle(self.global_app, 'foreign', 'other.app')
+        result = self.run_install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.dest / 'marker').read_text(), 'new')
 
     def test_foreign_legacy_symlink_preserved(self):
         self.legacy.symlink_to(self.source)

@@ -13,7 +13,7 @@ import WeekleftCore
         var catalog: (ProviderID, ClientExecutableResolver, [AgentSession], [String]) async throws -> CatalogResult = { _, _, _, _ in ([], false) }
         var events: ([AgentSession], [ProviderID], Date) async throws -> [AgentSession] = { _, _, _ in [] }
         var titles: ([AgentSession], [String], [ProviderID]) async throws -> [String: String] = { _, _, _ in [:] }
-        var hooksState: () -> [ProviderID: Bool] = { [:] }
+        var hooksState: @Sendable () -> [ProviderID: Bool] = { [:] }
         var initialEvents: (URL) -> [AgentSession] = { _ in [] }
         var schedulesTimers = false
         var watchesEvents = false
@@ -304,6 +304,10 @@ import WeekleftCore
     private var eventTask: Task<Void, Never>?
     private var refreshID: UUID?
     private var eventID: UUID?
+    private var refreshDemand: SharedWorkDemand?
+    private var eventDemand: SharedWorkDemand?
+    /// A source changed while a read was already enumerating it.
+    private var eventsChanged = false
     private var panelVisible = false
     private var polling: SessionPolling?
     private var lastCatalogPollAt: Date?
@@ -345,11 +349,13 @@ import WeekleftCore
     }
     private func isCurrent(_ expected: UInt64) -> Bool { !stopped && generation == expected && !Task.isCancelled }
     private func cancelEventRead() {
-        eventTask?.cancel(); eventTask = nil; eventID = nil
+        eventTask?.cancel(); eventTask = nil; eventID = nil; eventDemand = nil
+        // The superseding read enumerates after any change seen so far.
+        eventsChanged = false
     }
     private func invalidateWork() {
         generation &+= 1
-        refreshTask?.cancel(); refreshTask = nil; refreshID = nil
+        refreshTask?.cancel(); refreshTask = nil; refreshID = nil; refreshDemand = nil
         cancelEventRead()
         refreshing = false
         polling = nil
@@ -395,29 +401,36 @@ import WeekleftCore
         watcher.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self, self.isCurrent(current) else { return }
-                self.beginEvents()
+                self.sourceChanged()
             }
         }
         watcher.setCancelHandler { close(fd) }
         eventWatcher = watcher; watcher.resume()
     }
-    @discardableResult private func beginRefresh() -> Task<Void, Never>? {
+    @discardableResult private func beginRefresh(requested: Bool = false) -> Task<Void, Never>? {
         guard !stopped, !Task.isCancelled else { return nil }
         if let refreshTask { return refreshTask }
         let current = generation, id = UUID()
         refreshing = true; refreshID = id
+        refreshDemand = SharedWorkDemand(requested: requested)
         lastCatalogPollAt = now()
         let task = Task { [weak self] in
             guard let self else { return }
             await self.performRefresh(generation: current)
-            if self.refreshID == id { self.refreshTask = nil; self.refreshID = nil; self.refreshing = false }
+            if self.refreshID == id { self.refreshTask = nil; self.refreshID = nil; self.refreshDemand = nil; self.refreshing = false }
         }
         refreshTask = task
         return task
     }
     func refresh() async {
-        guard let task = beginRefresh() else { return }
-        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        guard let task = beginRefresh(requested: true), let demand = refreshDemand else { return }
+        await Self.wait(for: task, demand: demand)
+    }
+    /// A caller that joined shared work stops only its own interest: the work is
+    /// cancelled once no caller that requested it still waits for the result.
+    private static func wait(for task: Task<Void, Never>, demand: SharedWorkDemand) async {
+        demand.join()
+        await withTaskCancellationHandler { await task.value } onCancel: { if demand.leave() { task.cancel() } }
     }
     private func performRefresh(generation expected: UInt64) async {
         guard isCurrent(expected) else { return }
@@ -453,7 +466,12 @@ import WeekleftCore
         updatedAt = now()
         await readEvents()
         guard isCurrent(expected) else { return }
-        updateHookConfiguration()
+        // Polls read client configuration off the main thread; user actions below
+        // still update synchronously so their result is visible immediately.
+        let hooksState = dependencies.hooksState
+        let state = await Task.detached(priority: .utility) { hooksState() }.value
+        guard isCurrent(expected) else { return }
+        publishHookConfiguration(state)
     }
     private func fetchIfEnabled(_ id: ProviderID, resolver: ClientExecutableResolver, generation expected: UInt64) async -> Result<CatalogResult, Error>? {
         guard isCurrent(expected), providers.contains(id) else { return nil }
@@ -469,27 +487,36 @@ import WeekleftCore
             return .failure(error)
         }
     }
-    @discardableResult private func beginEvents() -> Task<Void, Never>? {
+    /// A hook wrote a record. A read already in progress may have enumerated the
+    /// directory before the write, so the change schedules exactly one more read.
+    func sourceChanged() { beginEvents(afterChange: true) }
+    @discardableResult private func beginEvents(requested: Bool = false, afterChange: Bool = false) -> Task<Void, Never>? {
         guard !stopped, !Task.isCancelled else { return nil }
         // Freshness belongs to the display clock, not source success. Keep menu
         // subscribers in sync even while a read is pending or repeatedly fails.
         // Do this before coalescing reads; the background timer still has to age
         // the last observation without starting another source operation.
         publishVisible()
-        if let eventTask { return eventTask }
+        if let eventTask {
+            if afterChange { eventsChanged = true }
+            return eventTask
+        }
         let current = generation, id = UUID()
-        eventID = id
+        eventID = id; eventsChanged = false
+        eventDemand = SharedWorkDemand(requested: requested)
         let task = Task { [weak self] in
             guard let self else { return }
             await self.performReadEvents(generation: current)
-            if self.eventID == id { self.eventTask = nil; self.eventID = nil }
+            guard self.eventID == id else { return }
+            self.eventTask = nil; self.eventID = nil; self.eventDemand = nil
+            if self.eventsChanged, self.isCurrent(current) { self.beginEvents() }
         }
         eventTask = task
         return task
     }
     func readEvents() async {
-        guard let task = beginEvents() else { return }
-        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        guard let task = beginEvents(requested: true), let demand = eventDemand else { return }
+        await Self.wait(for: task, demand: demand)
     }
     private func performReadEvents(generation expected: UInt64) async {
         guard isCurrent(expected) else { return }
@@ -578,6 +605,9 @@ import WeekleftCore
             try removeHiddenInternalSessions()
             if organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
                 try visibility?.pruneRemoved(now: now)
+                // Only a provider whose current catalog arrived complete can prove absence.
+                let complete = Set(providers.filter { catalog[$0] != nil && typedIssues[$0] == nil })
+                try visibility?.observe(Set(rows.map(\.id)), completeProviders: complete, now: now)
                 var next = arrangement
                 if next.observe(Set(taskRows.map(\.id)), now: now) { try saveArrangement(next) }
                 organizationCheckedAt = now
@@ -622,8 +652,10 @@ import WeekleftCore
             }
         }
     }
-    func updateHookConfiguration() {
-        hooksInstalled = dependencies.hooksState()
+    func updateHookConfiguration() { publishHookConfiguration(dependencies.hooksState()) }
+    /// An unchanged state must not invalidate every observing view on each poll.
+    private func publishHookConfiguration(_ state: [ProviderID: Bool]) {
+        if hooksInstalled != state { hooksInstalled = state }
     }
     private func repairMovedConnections() {
         guard dependencies.allowsClientConfiguration else { return }
@@ -681,6 +713,18 @@ import WeekleftCore
     }
 }
 
+/// Callers share one in-flight read. Work the store started itself (timers,
+/// file changes) ends only through invalidation; work callers requested ends
+/// when every caller waiting for it has been cancelled.
+final class SharedWorkDemand: Sendable {
+    private let waiting = OSAllocatedUnfairLock(initialState: 0)
+    let requested: Bool
+    init(requested: Bool) { self.requested = requested }
+    func join() { waiting.withLock { $0 += 1 } }
+    /// A waiter was cancelled; true when nobody who requested the work still waits.
+    func leave() -> Bool { waiting.withLock { $0 -= 1; return requested && $0 <= 0 } }
+}
+
 enum SessionNavigation {
     /// `focus` is the only step that scripts another application; tests replace it.
     @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver(),
@@ -693,6 +737,8 @@ enum SessionNavigation {
             guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { throw SessionOpeningError.missingTerminal }
             let directory = SessionHooks.directory.appendingPathComponent("Openers")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            // Best-effort: an old launcher that cannot be removed must not block opening.
+            _ = try? SessionHooks.pruneOpeners(in: directory)
             let file = directory.appendingPathComponent(session.provider.rawValue + "-" + session.sessionID + ".command")
             try script.write(to: file, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)

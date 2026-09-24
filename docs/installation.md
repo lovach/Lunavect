@@ -57,7 +57,15 @@ brew upgrade --cask lovach/lunavect/lunavect
 
 Disconnect Claude and Codex in **Settings → Connections**, then quit Lunavect. This lets Lunavect restore previous event handlers and the Claude status line before the app is removed.
 
-For a Homebrew installation:
+If you have used **Keep Awake**, stop it, quit Lunavect and remove its system helper before removing the app. Deleting the app does not run this cleanup. Run the command from the installed app:
+
+```sh
+"/Applications/Lunavect.app/Contents/MacOS/Lunavect" --unregister-awake-helper
+```
+
+For an installation in your home folder, use `"$HOME/Applications/Lunavect.app/Contents/MacOS/Lunavect"`. The command fails if sleep is still disabled or the helper could not be unregistered; resolve that before removing the app. [Complete removal](updates.md#complete-removal) lists the checks.
+
+For a Homebrew installation (the cask quits Lunavect before removing it):
 
 ```sh
 brew uninstall --cask lovach/lunavect/lunavect

@@ -18,9 +18,9 @@ final class ActivityServiceTests: XCTestCase {
         }
         func finish(_ index: Int, result: ActivityImportResult) { pending.removeValue(forKey: index)?.resume(returning: result) }
     }
-    private func imported(_ provider: ProviderID) -> ActivityImportResult {
+    private func imported(_ provider: ProviderID, endingAt end: TimeInterval = -10) -> ActivityImportResult {
         var result = ActivityImportResult()
-        result.intervals = [.init(start: now.addingTimeInterval(-60), end: now.addingTimeInterval(-10), providers: provider == .claude ? 1 : 2)]
+        result.intervals = [.init(start: now.addingTimeInterval(end - 50), end: now.addingTimeInterval(end), providers: provider == .claude ? 1 : 2)]
         return result
     }
     @MainActor private func waitUntilIdle(_ service: ActivityService) async {
@@ -30,17 +30,21 @@ final class ActivityServiceTests: XCTestCase {
         await fulfillment(of: [done], timeout: 3)
         token.cancel()
     }
-    @MainActor func testImmediateStopBeforeTaskRunsNeverInvokesImportBackend() async {
-        let invoked = expectation(description: "Cancelled backend must not start"); invoked.isInverted = true
+    @MainActor func testImmediateStopBeforeTaskRunsNeverInvokesImportBackend() async throws {
+        let invoked = CallCounter()
         let service = ActivityService(clock: { self.now }, importer: { _, _, _ in
-            invoked.fulfill(); return ActivityImportResult()
+            invoked.next(); return ActivityImportResult()
         })
-        service.setProviders([.codex]); service.requestImport(); service.stop()
-        await fulfillment(of: [invoked], timeout: 0.04)
+        service.setProviders([.codex]); service.requestImport()
+        let worker = try XCTUnwrap(service.importTask)
+        service.stop()
+        // Wait for the cancelled worker itself, not for a time window.
+        await worker.value
+        XCTAssertEqual(invoked.value, 0, "Cancelled backend must not start")
         XCTAssertFalse(service.importing)
         XCTAssertNil(service.history.importedAt)
     }
-    @MainActor func testStopRejectsLateImportAndRepeatedStartOwnsOneWorker() async {
+    @MainActor func testStopRejectsLateImportAndRepeatedStartOwnsOneWorker() async throws {
         let called = expectation(description: "Initial import")
         let restarted = expectation(description: "Restarted import")
         let counter = CallCounter()
@@ -50,6 +54,7 @@ final class ActivityServiceTests: XCTestCase {
         })
         service.start(providers: [.codex]); service.start(providers: [.codex])
         await fulfillment(of: [called], timeout: 3)
+        let stopped = try XCTUnwrap(service.importTask)
         service.stop(); service.stop()
         XCTAssertFalse(service.importing)
         service.start(providers: [.codex]); service.start(providers: [.codex])
@@ -57,16 +62,19 @@ final class ActivityServiceTests: XCTestCase {
         await gate.finish(1, result: imported(.codex))
         await waitUntilIdle(service)
         let expected = service.history
-        let changed = expectation(description: "Stopped worker must not publish"); changed.isInverted = true
-        let token = service.$history.dropFirst().sink { _ in changed.fulfill() }
-        await gate.finish(0, result: imported(.claude))
-        await fulfillment(of: [changed], timeout: 0.04)
+        var published = 0
+        let token = service.$history.dropFirst().sink { _ in published += 1 }
+        // Selected-source data that would change the history if it were merged.
+        await gate.finish(0, result: imported(.codex, endingAt: -600))
+        // The stopped worker has received its late result once its task ends.
+        await stopped.value
         token.cancel()
+        XCTAssertEqual(published, 0, "Stopped worker must not publish")
         XCTAssertEqual(service.history, expected)
         XCTAssertEqual(counter.value, 2)
         service.stop()
     }
-    @MainActor func testProviderChangeCancelsOldImportAndKeepsNewSelection() async {
+    @MainActor func testProviderChangeCancelsOldImportAndKeepsNewSelection() async throws {
         let called = expectation(description: "Both provider selections run"); called.expectedFulfillmentCount = 2
         let gate = Imports { called.fulfill() }
         let first = expectation(description: "First import started")
@@ -77,15 +85,17 @@ final class ActivityServiceTests: XCTestCase {
         })
         service.start(providers: [.claude, .codex])
         await fulfillment(of: [first], timeout: 3)
+        let replaced = try XCTUnwrap(service.importTask)
         service.setProviders([.claude])
         await fulfillment(of: [called], timeout: 3)
         await gate.finish(1, result: imported(.claude))
         await waitUntilIdle(service)
-        let changed = expectation(description: "Disabled source must not publish"); changed.isInverted = true
-        let token = service.$history.dropFirst().sink { _ in changed.fulfill() }
+        var published = 0
+        let token = service.$history.dropFirst().sink { _ in published += 1 }
         await gate.finish(0, result: imported(.codex))
-        await fulfillment(of: [changed], timeout: 0.04)
+        await replaced.value
         token.cancel()
+        XCTAssertEqual(published, 0, "Disabled source must not publish")
         XCTAssertEqual(service.history.summary(now: now).totals.claude, 50)
         XCTAssertEqual(service.history.summary(now: now).totals.codex, 0)
         let calls = await gate.calls

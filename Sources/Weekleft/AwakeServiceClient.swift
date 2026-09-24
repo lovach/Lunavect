@@ -14,8 +14,17 @@ import AwakeService
     func disconnect()
 }
 
+/// The helper did not answer in time. Unlike a refused or broken connection this
+/// says nothing about its registration, so it never re-registers the daemon.
+struct AwakeCallTimeout: Error {}
+
 @MainActor final class AwakeServiceClient: AwakeClient {
+    typealias ConnectionFactory = @MainActor () throws -> NSXPCConnection
+    /// Longer than the helper's slowest begin: three pmset runs of up to 6 s each.
+    nonisolated static let callTimeout: TimeInterval = 20
     private let service: AwakeServiceAccess
+    private let makeConnection: ConnectionFactory
+    private let callTimeout: TimeInterval
     // The nonisolated lifetime holder can invalidate during destruction without
     // reading main-actor storage from a nonisolated deinit.
     private let connectionLifetime = AwakeConnectionLifetime()
@@ -26,12 +35,24 @@ import AwakeService
     private let registration: AwakeServiceRegistration
     private var startupRefresh: Task<Void, Never>?
     private(set) var registrationFailure: Error?
+    /// - Parameter makeConnection: an unresumed connection to the helper; the
+    ///   default is the privileged service with its code-signing requirement.
     init(service: AwakeServiceAccess? = nil, registration: AwakeServiceRegistration? = nil,
-         refreshAtStartup: Bool = true) {
+         refreshAtStartup: Bool = true, makeConnection: ConnectionFactory? = nil,
+         callTimeout: TimeInterval = AwakeServiceClient.callTimeout) {
         self.service = service ?? .live(); self.registration = registration ?? AwakeServiceRegistration()
+        self.callTimeout = callTimeout
+        self.makeConnection = makeConnection ?? {
+            let connection = NSXPCConnection(machServiceName: AwakeServiceID.label, options: .privileged)
+            connection.setCodeSigningRequirement(try AwakeServiceID.requirement(for: AwakeServiceID.label))
+            return connection
+        }
         if refreshAtStartup {
             startupRefresh = Task { [weak self] in
-                guard let self, self.isAvailable else { return }
+                guard let self else { return }
+                self.registration.resumeInterruptedRefresh(status: { self.service.status },
+                                                           register: { try self.service.register() })
+                guard self.isAvailable else { return }
                 do { try await self.refreshRegistration(); self.registrationFailure = nil }
                 catch { self.registrationFailure = error }
             }
@@ -68,7 +89,8 @@ import AwakeService
         do { try await call(request) }
         catch AwakeFailure.unavailable {
             // BTM may retain the old bundle's file identity after an atomic update.
-            // Refresh that registration once; permission and signing errors never retry.
+            // Refresh that registration once; permission and signing errors never retry,
+            // and neither does a slow reply (AwakeCallTimeout).
             try await registration.refreshIfNeeded(force: true, status: { service.status },
                 unregister: {
                     try await self.service.verifySleepRestored()
@@ -109,16 +131,16 @@ import AwakeService
         let connection: NSXPCConnection
         if let existing = self.connection { connection = existing }
         else {
-            connection = NSXPCConnection(machServiceName: AwakeServiceID.label, options: .privileged)
+            connection = try makeConnection()
             connection.remoteObjectInterface = NSXPCInterface(with: LunavectAwakeProtocol.self)
-            connection.setCodeSigningRequirement(try AwakeServiceID.requirement(for: AwakeServiceID.label))
             connection.resume()
             self.connection = connection
         }
+        let timeout = callTimeout
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 let reply = AwakeReply(continuation)
-                DispatchQueue.global().asyncAfter(deadline: .now() + 10) { reply.finish(.failure(AwakeFailure.unavailable)) }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { reply.finish(.failure(AwakeCallTimeout())) }
                 guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in reply.finish(.failure(AwakeFailure.unavailable)) }) as? LunavectAwakeProtocol else {
                     reply.finish(.failure(AwakeFailure.unavailable)); return
                 }
@@ -126,7 +148,13 @@ import AwakeService
                     reply.finish(success ? .success(()) : .failure(AwakeFailure(rawValue: reason) ?? .system))
                 }
             }
-        } catch { disconnect(); throw error }
+        } catch {
+            // Drop only the connection this call used. A stop and a new start
+            // can replace it meanwhile; that newer lease must survive.
+            connection.invalidate()
+            if self.connection === connection { self.connection = nil }
+            throw error
+        }
     }
 }
 
@@ -137,6 +165,7 @@ import AwakeService
     private let defaults: UserDefaults
     private let build: String?
     private let key = "awake.registeredBuild"
+    private let pendingKey = "awake.registrationRenewalPending"
     init(defaults: UserDefaults = .standard,
          build: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) {
         self.defaults = defaults; self.build = build
@@ -144,7 +173,17 @@ import AwakeService
     func rememberCurrentBuild() {
         if let build { defaults.set(build, forKey: key) }
     }
-    func forgetCurrentBuild() { defaults.removeObject(forKey: key) }
+    func forgetCurrentBuild() { defaults.removeObject(forKey: key); defaults.removeObject(forKey: pendingKey) }
+    /// Completes a renewal that quitting interrupted after its unregister step.
+    /// Only that unfinished maintenance is resumed: a helper that is still
+    /// registered, awaits approval or was removed on purpose is left alone.
+    func resumeInterruptedRefresh(status: () -> SMAppService.Status, register: () throws -> Void) {
+        guard defaults.bool(forKey: pendingKey) else { return }
+        defaults.removeObject(forKey: pendingKey)
+        guard status() == .notRegistered else { return }
+        try? register()
+        if status() == .enabled || status() == .requiresApproval { rememberCurrentBuild() }
+    }
     func refreshIfNeeded(force: Bool = false, status: () -> SMAppService.Status,
                          unregister: () async throws -> Void, register: () throws -> Void,
                          pause: (Int) async throws -> Void = { attempt in
@@ -152,6 +191,10 @@ import AwakeService
                          }) async throws {
         guard force || (build != nil && defaults.string(forKey: key) != build) else { return }
         guard status() == .enabled else { throw AwakeFailure.permission }
+        // Quitting between unregister and register would leave the approved
+        // helper unregistered; the next launch then completes the renewal.
+        defaults.set(true, forKey: pendingKey)
+        defer { defaults.removeObject(forKey: pendingKey) }
         try await unregister()
         for attempt in 0...3 {
             do { try register(); break }

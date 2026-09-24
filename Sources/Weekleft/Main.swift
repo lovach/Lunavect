@@ -35,6 +35,15 @@ import AwakeService
     }
 }
 
+/// A right click or a Control-click on a menu-bar item shows its menu, as
+/// elsewhere in macOS; only a plain click opens the panel.
+enum StatusItemClick {
+    static func opensMenu(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        return event.type == .rightMouseUp || (event.type == .leftMouseUp && event.modifierFlags.contains(.control))
+    }
+}
+
 /// Back from Settings is an ordered transition, unlike opening the panel from
 /// the menu bar. A newer window action invalidates its deferred presentation.
 @MainActor final class SettingsToSessionsTransition {
@@ -81,6 +90,7 @@ import AwakeService
     var limitsObserver: AnyCancellable?
     var languageObserver: AnyCancellable?
     var noticeObserver: AnyCancellable?
+    var limitObserver: AnyCancellable?
     var connectionsObserver: AnyCancellable?
     private var openedFromURL = false
     private var widgetRegistration: WidgetRegistration?
@@ -95,9 +105,9 @@ import AwakeService
         popover.delegate = self
         popover.contentSize = NSSize(width: 360, height: 480)
         popover.contentViewController = NSHostingController(
-            rootView: LocalizedRoot(language: environment.language) { [sessions, environment, sessionPanelState] in
+            rootView: LocalizedRoot(language: environment.language) { [sessions, environment, sessionPanelState, network = store.network] in
                 SessionsView(
-                    store: sessions, panelState: sessionPanelState, updates: environment.updates,
+                    store: sessions, panelState: sessionPanelState, updates: environment.updates, network: network,
                     awake: environment.awake, isPreview: environment.isPreview,
                     onSettings: { [weak self] in
                         self?.popover.performClose(nil); self?.showSettings()
@@ -114,6 +124,7 @@ import AwakeService
         sessionOpenedObserver = NotificationCenter.default.addObserver(forName: .lunavectSessionOpened, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { if self?.popover.isShown == true { self?.popover.close() } }
         }
+        sessionPanelState.onHiddenIssue = { [weak self] in self?.showSessionIssue() }
         statusVisibilityObserver = menuBarAppearance.$showsSessionStatus.receive(on: RunLoop.main).sink { [weak self] visible in
             guard let self else { return }
             if !visible { self.popover.performClose(nil) }
@@ -125,6 +136,7 @@ import AwakeService
             onHide: { [weak self] in self?.menuBarAnimator?.setPopoverOpen(self?.popover.isShown == true) },
             onOpenMenu: { [weak self] in self?.showMenuBarSettings() },
             contextMenu: { [weak self] in self?.statusMenu() ?? NSMenu() },
+            network: store.network,
             onOpenLimits: { [weak self] in self?.showLimits() })
         limitsObserver = Publishers.CombineLatest3(store.$snapshots, store.$preferences.map(\.providers).removeDuplicates(), menuBarAppearance.$limits)
             .combineLatest(environment.language.$code, store.$refreshing).receive(on: RunLoop.main).sink { [weak self] state, _, refreshing in
@@ -148,11 +160,11 @@ import AwakeService
             features.onOpenSession = { [weak self] id in
                 Task { @MainActor in
                     guard let self else { return }
-                    await self.sessions.refresh()
-                    let opened = await self.sessionPanelState.openSession(id: id, rows: self.sessions.sessions) { row in
+                    // A known row opens at once; a failure is reported on the panel.
+                    await self.sessionPanelState.openSession(id: id, rows: self.sessions.sessions,
+                                                             refresh: { await self.sessions.refresh() }) { row in
                         try await SessionNavigation.open(row, resolver: self.store.clientResolver)
                     }
-                    if !opened { self.showSessionIssue() }
                 }
             }
             features.start()
@@ -163,6 +175,11 @@ import AwakeService
             noticeObserver = sessions.observations.sink { observation in
                 features.observe(observation.rows, at: observation.date)
             }
+            // Only connected providers are warned about.
+            limitObserver = store.$snapshots.combineLatest(store.$preferences.map(\.providers).removeDuplicates())
+                .receive(on: RunLoop.main).sink { snapshots, providers in
+                    features.observeLimits(snapshots.filter { providers.contains($0.provider) }, providers: Set(providers))
+                }
         }
         if !environment.isPreview {
             sessions.onObservation = { [weak self] rows, now in
@@ -230,7 +247,7 @@ import AwakeService
     }
     @objc func togglePopover() {
         guard let button = statusItem.button else { return }
-        if NSApp.currentEvent?.type == .rightMouseUp {
+        if StatusItemClick.opensMenu(NSApp.currentEvent) {
             statusItem.menu = statusMenu(); button.performClick(nil); statusItem.menu = nil
         } else if popover.isShown { popover.performClose(nil) }
         else { showSessions() }
@@ -537,8 +554,24 @@ import AwakeService
                     $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated &&
                     (!onlyFinishedLaunching || $0.isFinishedLaunching)
                 }) else { return false }
-        existing.activate(options: [])
+        reopen(existing)
         return true
+    }
+    /// Ask the running copy to show itself, as a Dock or Finder reopen does:
+    /// Launch Services sends it a reopen event, which presents the session panel
+    /// or its open window. Activating a menu-bar app alone shows nothing.
+    @MainActor private static func reopen(_ existing: NSRunningApplication) {
+        final class Outcome: @unchecked Sendable { var opened = false }
+        let outcome = Outcome(), finished = DispatchSemaphore(value: 0)
+        if let url = existing.bundleURL {
+            // The handler runs on a concurrent queue; this process exits right after.
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { app, error in
+                outcome.opened = app != nil && error == nil
+                finished.signal()
+            }
+            if finished.wait(timeout: .now() + 5) == .success, outcome.opened { return }
+        }
+        existing.activate(options: [])
     }
     @MainActor private static func removeAwakeHelper() {
         guard Bundle.main.bundleIdentifier == AwakeServiceID.app else {

@@ -92,6 +92,11 @@ final class ProductImprovementsTests: XCTestCase {
         try render(
             LimitsProviderSummary(snapshot: claude, showFiveHour: true, now: now).defaultAppStorage(defaults).padding(
                 20), size: CGSize(width: 620, height: 280), to: directory.appendingPathComponent("model-visible.png"))
+        var yesterday = claude
+        yesterday.fetchedAt = now.addingTimeInterval(-26 * 3600)
+        try render(
+            LimitsProviderSummary(snapshot: yesterday, showFiveHour: false, now: now).defaultAppStorage(defaults).padding(20),
+            size: CGSize(width: 620, height: 280), to: directory.appendingPathComponent("limits-yesterday.png"))
         L10n.defaults.set("en", forKey: "languageCode")
         try render(
             ActivityStatisticsView(store: store, historyExpanded: true).disclosureGroupStyle(FullRowDisclosureStyle())
@@ -231,6 +236,26 @@ final class ProductImprovementsTests: XCTestCase {
                     try render(MenuBarAppearanceView(appearance: appearance).padding(20), size: CGSize(width: 640, height: 300), to: directory.appendingPathComponent("sections-compact.png"))
                 }
             }
+        }
+    }
+
+    @MainActor func testDiagnosticsSheetFitsTheSmallestSettingsWindow() throws {
+        _ = NSApplication.shared
+        let preview = try AppEnvironment.preview(rows: [])
+        defer { preview.stop() }
+        // Prepared results keep the sheet from starting a live client check.
+        let diagnostics = ConnectionDiagnostics()
+        diagnostics.results = [ConnectionDiagnostic(provider: .claude, clientFound: true, signIn: .signedIn, eventsConfigured: true,
+            snapshot: UsageSnapshot(provider: .claude, issue: UsageError.claudeUsageUnavailable.errorDescription), sessionIssue: nil),
+            ConnectionDiagnostic(provider: .codex, clientFound: false, signIn: .unavailable, eventsConfigured: false, snapshot: nil, sessionIssue: nil)]
+        let view = ConnectionDiagnosticsView(store: preview.store, sessions: preview.sessions, diagnostics: diagnostics, onConnect: { _, _ in })
+        let size = NSHostingView(rootView: view).fittingSize
+        // Settings keeps a content height of at least 580 points (Main.swift contentMinSize).
+        XCTAssertLessThanOrEqual(size.height, 580, "A taller sheet runs past a minimum-height Settings window")
+        if let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_PRODUCT"] {
+            let directory = URL(fileURLWithPath: output)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try render(view, size: size, to: directory.appendingPathComponent("diagnostics-minimum.png"))
         }
     }
 

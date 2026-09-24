@@ -38,6 +38,18 @@ Search, filter, pin and hide sessions. Live Terminal and iTerm2 sessions open in
 
 <img src="docs/images/showcase/sessions.webp" width="760" alt="Three Lunavect session panels: all nine tasks, a search for “bill” showing one Claude task, and the waiting filter showing the task that needs permission">
 
+### Background work, told once
+
+Claude's background commands, subagents and monitors appear as a small count on the session.<br>
+A reply that leaves them running stays in the background, and one notification arrives when the work is done.<br>
+If a turn fails, Lunavect says why: a reached limit and when it returns, a lost connection, or a sign-in issue.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme-sessions-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/readme-sessions-light.png">
+  <img src="docs/images/readme-sessions-dark.png" width="392" alt="Lunavect session panel: a Claude task thinking with a capsule showing three background tasks, a Codex task waiting for permission and a response that is ready">
+</picture>
+
 ### Usage limits at a glance
 
 Weekly and five-hour allowances for Claude and Codex, with reset times.<br>
@@ -57,7 +69,7 @@ Choose a solid background or adjustable glass.
 Working time by day, week and month for each provider,<br>
 with project and session breakdowns. Recovered history is marked as approximate.
 
-<img src="docs/images/showcase/activity.webp" width="820" alt="Lunavect statistics window: a week of Claude and Codex working time with a daily chart">
+<img src="docs/images/showcase/activity.webp" width="820" alt="Lunavect Statistics settings: a week of Claude and Codex working time with a daily chart">
 
 ### Make it yours
 
@@ -66,7 +78,7 @@ and playful activity phrases while your agents work.
 
 <img src="docs/images/showcase/customize.webp" width="820" alt="Menu bar status styles with the Claude, Lunavect and Codex characters above the Menu Bar settings, where the character and status style are chosen">
 
-**Also included:** notifications when a response is ready or an approval is needed ·<br>
+**Also included:** notifications when a response is ready, an approval or reply is needed, a turn fails or a limit runs low ·<br>
 Keep Awake while agents work · light and dark appearance · English, Russian, German, Spanish, French and Simplified Chinese
 
 </div>

@@ -167,11 +167,16 @@ public enum TerminalLocation {
     public static func valid(_ tty: String) -> Bool {
         tty.range(of: #"^/dev/ttys[0-9]{1,4}\z"#, options: .regularExpression) != nil
     }
+    /// Each Apple event waits at most `focusTimeout` seconds and a timeout ends the
+    /// whole search, so a busy or hung terminal cannot hold the caller for the
+    /// default two minutes per event. Other per-tab errors only skip that tab.
+    public static let focusTimeout = 10
     public static func focusScript(tty: String, app: String) -> String? {
         guard valid(tty) else { return nil }
         switch app {
         case "Terminal":
             return """
+            with timeout of \(focusTimeout) seconds
             tell application "Terminal"
                 repeat with w in windows
                     try
@@ -184,15 +189,21 @@ public enum TerminalLocation {
                                     activate
                                     return true
                                 end if
+                            on error errorMessage number errorNumber
+                                if errorNumber is -1712 then error errorMessage number errorNumber
                             end try
                         end repeat
+                    on error errorMessage number errorNumber
+                        if errorNumber is -1712 then error errorMessage number errorNumber
                     end try
                 end repeat
             end tell
+            end timeout
             return false
             """
         case "iTerm2":
             return """
+            with timeout of \(focusTimeout) seconds
             tell application "iTerm2"
                 repeat with w in windows
                     try
@@ -206,12 +217,17 @@ public enum TerminalLocation {
                                         activate
                                         return true
                                     end if
+                                on error errorMessage number errorNumber
+                                    if errorNumber is -1712 then error errorMessage number errorNumber
                                 end try
                             end repeat
                         end repeat
+                    on error errorMessage number errorNumber
+                        if errorNumber is -1712 then error errorMessage number errorNumber
                     end try
                 end repeat
             end tell
+            end timeout
             return false
             """
         default: return nil

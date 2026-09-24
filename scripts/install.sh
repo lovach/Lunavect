@@ -5,6 +5,7 @@ BUILD_CONFIGURATION="${WEEKLEFT_BUILD_CONFIGURATION:-Release}"
 case "$BUILD_CONFIGURATION" in Debug|Release) ;; *) echo "Expected Debug or Release configuration" >&2; exit 2 ;; esac
 APP_SOURCE="${LUNAVECT_INSTALL_SOURCE:-$DERIVED_DIR/Build/Products/$BUILD_CONFIGURATION/Lunavect.app}"
 APP_DEST="$HOME/Applications/Lunavect.app"
+GLOBAL_APP=/Applications/Lunavect.app
 LEGACY_APP="$HOME/Applications/Weekleft.app"
 MIGRATED_LEGACY_APP=false
 INSTALLED_NEW=false
@@ -23,6 +24,16 @@ for existing in "$APP_DEST" "$LEGACY_APP"; do
     fi
   fi
 done
+# A DMG or Homebrew copy in /Applications shares the app and widget bundle IDs,
+# so WidgetKit could bind either copy. Retire it first; this script then
+# registers the installed copy last.
+if [ -e "$GLOBAL_APP" ] &&
+   [ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$GLOBAL_APP/Contents/Info.plist" 2>/dev/null)" = 'com.weekleft.app' ] &&
+   [ "$(cd "$GLOBAL_APP" && pwd -P)" != "$(cd "$APP_DEST" 2>/dev/null && pwd -P)" ]; then
+  echo "Another Lunavect is installed at $GLOBAL_APP; desktop widgets could bind to either copy." >&2
+  echo 'Quit Lunavect, remove that copy (see docs/installation.md#uninstall), then run this script again.' >&2
+  exit 1
+fi
 if pgrep -x Weekleft >/dev/null || pgrep -x Lunavect >/dev/null; then
   echo 'Quit Lunavect before installing an updated build.' >&2
   exit 1

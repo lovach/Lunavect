@@ -28,7 +28,7 @@ Some paths still use **Weekleft**, the original internal name, to preserve compa
 
 | Location | Contents |
 | --- | --- |
-| `~/Library/Application Support/Weekleft/Sessions/` | Session records, hidden sessions, ordering, resume launchers and hook configuration backups |
+| `~/Library/Application Support/Weekleft/Sessions/` | Session records, hidden sessions, ordering, resume launchers (removed after a day) and hook configuration backups |
 | `~/Library/Application Support/Weekleft/ClaudeStatusLine/` | Claude quota caches and the previous status-line configuration |
 | `~/Library/Application Support/Weekleft/ConnectionSetup/` | Commands used to install or sign in to an official client |
 | `~/Library/Application Support/Weekleft/QuotaProbe/` | Isolated working directory for Claude's `/usage` command |

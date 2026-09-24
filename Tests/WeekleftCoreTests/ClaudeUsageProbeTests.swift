@@ -57,6 +57,24 @@ final class ClaudeUsageProbeTests: XCTestCase {
         XCTAssertNil(ClaudeUsageText.resetDate("Dec 31 at 10pm (UTC)", now: newYear, durationMinutes: 10080, timeZone: utc))
         XCTAssertNil(ClaudeUsageText.resetDate("10pm (UTC)", now: newYear, durationMinutes: 300, timeZone: utc))
     }
+    /// The CLI shows a reset rounded to the minute and may still show it just
+    /// after it passed. Keep the elapsed time (displayed as expired) instead of
+    /// failing the whole probe or inventing the next day.
+    func testJustElapsedResetIsKeptAsExpiredWithoutFailingTheProbe() throws {
+        let utc = TimeZone(secondsFromGMT: 0)!
+        let now = ISO8601DateFormatter().date(from: "2026-09-10T15:00:20Z")!
+        let elapsed = ISO8601DateFormatter().date(from: "2026-09-10T15:00:00Z")!
+        XCTAssertEqual(ClaudeUsageText.resetDate("3pm (UTC)", now: now, durationMinutes: 300, timeZone: utc), elapsed)
+        XCTAssertEqual(ClaudeUsageText.resetDate("Sep 10 at 3pm (UTC)", now: now, durationMinutes: 10080, timeZone: utc), elapsed)
+        XCTAssertNil(ClaudeUsageText.resetDate("2:57pm (UTC)", now: now, durationMinutes: 300, timeZone: utc), "Only a reset that has just passed")
+        let screen = text.replacingOccurrences(of: "Resets 7:39pm (Europe/Vienna)", with: "Resets 3pm (UTC)")
+        let result = try ClaudeUsageText.parse(screen, now: now)
+        XCTAssertEqual(result.weekly?.remaining, 69)
+        XCTAssertEqual(result.fiveHour?.resetsAt, elapsed)
+        XCTAssertEqual(result.fiveHour.map { $0.isExpired(at: now) }, true)
+        XCTAssertTrue(result.isStale(window: result.fiveHour, now: now), "An elapsed window is never shown as current")
+        XCTAssertFalse(result.isStale(window: result.weekly, now: now))
+    }
     func testNewestObservationWinsAndOldStatusLineCannotOverwriteUsageProbe() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

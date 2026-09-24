@@ -40,7 +40,11 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
     @Published private(set) var automatic: Bool
     @Published private(set) var idleDeadline: Date?
     private var rows: [AgentSession] = []
-    private var automaticSuspended = false
+    /// Automatic mode after a failed or refused start: no retry loop, but it is
+    /// shown, lifted when the stop conditions change and retried after a pause.
+    @Published private(set) var automaticSuspended = false
+    private var suspendedAt: Date?
+    static let suspensionRetry: TimeInterval = 300
     private let defaults: UserDefaults
     private let client: AwakeClient
     private let now: () -> Date
@@ -54,8 +58,16 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
     private var permissionGeneration = 0
     private var permissionOrigin = AwakePermissionOrigin.sessions
     var onPermissionFinished: ((AwakePermissionOrigin) -> Void)?
+    /// Worded like the "After sessions finish" choices, not in raw seconds.
     var automaticStopDescription: String {
-        L("Сон вернётся через {0} с после завершения работы.", String(idleGraceSeconds))
+        switch idleGraceSeconds {
+        case 0: return L("Сон вернётся сразу после завершения работы.")
+        case 30: return L("Сон вернётся через 30 секунд после завершения работы.")
+        case 60: return L("Сон вернётся через 1 минуту после завершения работы.")
+        case 120: return L("Сон вернётся через 2 минуты после завершения работы.")
+        case 300: return L("Сон вернётся через 5 минут после завершения работы.")
+        default: return L("Сон вернётся через {0} с после завершения работы.", String(idleGraceSeconds))
+        }
     }
     var protectionDescription: String {
         var parts: [String] = []
@@ -66,6 +78,7 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
         return parts.joined(separator: " · ")
     }
     var statusDescription: String {
+        if automatic && automaticSuspended && !isEnabled { return L("Приостановлено, повторим через 5 минут") }
         if automatic && endsAt == nil {
             if let idleDeadline { return L("До {0}", idleDeadline.formatted(.dateTime.hour().minute().locale(L10n.locale))) }
             return L(isEnabled ? "Пока работают сессии" : "Ждём работающие сессии")
@@ -99,22 +112,26 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
         guard !isBusy else { return }
         safetyPolicy = policy.normalized
         if let data = try? JSONEncoder().encode(safetyPolicy) { defaults.set(data, forKey: "awake.safety") }
-        guard isEnabled else { return }
+        if automaticSuspended { liftSuspension(); issue = nil }
+        guard isEnabled else { await reconcileAutomatic(); return }
         isBusy = true; defer { isBusy = false }
         do { try await client.configure(policy: safetyPolicy); issue = nil }
         catch {
-            automaticSuspended = automatic; clearState(); client.disconnect()
+            suspendAutomatic(); clearState(); client.disconnect()
             issue = message(for: error)
         }
     }
-    func restoreDefaults() async {
-        guard !isBusy else { return }
+    /// - Returns: false when a start or stop in progress kept the reset from
+    ///   applying completely; the caller reports it instead of a silent partial reset.
+    @discardableResult func restoreDefaults() async -> Bool {
+        guard !isBusy else { return false }
         cancelPermission()
         await setAutomatic(false)
         if isEnabled { await stop() }
         duration = AppDefaultSettings.awakeDuration
         setIdleGrace(AppDefaultSettings.awakeIdleGrace)
         await setSafetyPolicy(.init())
+        return !automatic && !isEnabled && !isAwaitingPermission && safetyPolicy == AwakeSafetyPolicy().normalized
     }
     func observe(_ rows: [AgentSession]) {
         self.rows = rows
@@ -124,11 +141,18 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
     func setAutomatic(_ enabled: Bool) async {
         guard !isBusy else { return }
         automatic = enabled; defaults.set(enabled, forKey: "awake.whileWorking")
-        automaticSuspended = false; idleDeadline = nil; issue = nil
+        liftSuspension(); idleDeadline = nil; issue = nil
         if enabled { await reconcileAutomatic() }
         else if isEnabled { await stop() }
     }
+    private func suspendAutomatic() {
+        automaticSuspended = automatic; suspendedAt = automatic ? now() : nil
+    }
+    private func liftSuspension() { automaticSuspended = false; suspendedAt = nil }
     func reconcileAutomatic() async {
+        if automaticSuspended, let suspendedAt, now() < suspendedAt || now().timeIntervalSince(suspendedAt) >= Self.suspensionRetry {
+            liftSuspension()
+        }
         guard automatic, !automaticSuspended, !isBusy else { return }
         if rows.contains(where: { $0.effectivePhase(now: now()) == .running }) {
             idleDeadline = nil
@@ -210,7 +234,7 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
                     Task { @MainActor in await self?.check() }
                 }
             }
-        } catch { automaticSuspended = automatic; clearState(); client.disconnect(); refreshPermission(); issue = message(for: error) }
+        } catch { suspendAutomatic(); clearState(); client.disconnect(); refreshPermission(); issue = message(for: error) }
     }
     func stop() async {
         guard !isBusy else { return }
@@ -232,7 +256,7 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
         do { try await client.keepAlive() }
         catch {
             guard generation == self.generation else { return }
-            automaticSuspended = automatic
+            suspendAutomatic()
             clearState(); client.disconnect(); issue = message(for: error)
         }
     }

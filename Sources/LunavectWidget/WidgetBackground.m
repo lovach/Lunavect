@@ -90,10 +90,19 @@ void LunavectSetWidgetBackgroundEnabled(BOOL enabled) {
     }
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        originalEncode = (void *)method_setImplementation(class_getInstanceMethod(descriptor, encode), (IMP)encodeWithTransparentBackground);
-        originalTransparent = (void *)method_setImplementation(class_getInstanceMethod(descriptor, plain), (IMP)transparent);
-        originalTransparentForFamily = (void *)method_setImplementation(class_getInstanceMethod(descriptor, family), (IMP)transparentForFamily);
-        originalMaterialForFamily = (void *)method_setImplementation(class_getInstanceMethod(descriptor, material), (IMP)materialForFamily);
+        // WidgetKit can encode or query a descriptor on another thread while this
+        // runs. A replacement may be called as soon as it is installed and always
+        // calls the saved originals, so save all of them before installing any.
+        Method encodeMethod = class_getInstanceMethod(descriptor, encode), plainMethod = class_getInstanceMethod(descriptor, plain);
+        Method familyMethod = class_getInstanceMethod(descriptor, family), materialMethod = class_getInstanceMethod(descriptor, material);
+        originalEncode = (void *)method_getImplementation(encodeMethod);
+        originalTransparent = (void *)method_getImplementation(plainMethod);
+        originalTransparentForFamily = (void *)method_getImplementation(familyMethod);
+        originalMaterialForFamily = (void *)method_getImplementation(materialMethod);
+        method_setImplementation(encodeMethod, (IMP)encodeWithTransparentBackground);
+        method_setImplementation(plainMethod, (IMP)transparent);
+        method_setImplementation(familyMethod, (IMP)transparentForFamily);
+        method_setImplementation(materialMethod, (IMP)materialForFamily);
     });
     atomic_store(&backgroundEnabled, true);
 }

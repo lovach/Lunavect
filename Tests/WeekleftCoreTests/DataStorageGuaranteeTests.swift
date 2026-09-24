@@ -113,4 +113,24 @@ final class DataStorageGuaranteeTests: XCTestCase {
         }
     }
 
+    /// Reinstalling after the client edited its settings (an app move or new hook
+    /// events) must not record Lunavect's own old handlers as the "original".
+    func testDisconnectAfterReinstallOverAnEditedFileRemovesEveryOwnHandler() throws {
+        for provider in [ProviderID.codex, .claude] {
+            let root = try root(), config = root.appendingPathComponent("hooks.json"), backups = root.appendingPathComponent("backups")
+            try Data("{\"custom\": 1}".utf8).write(to: config)
+            try SessionHooks.install(provider: provider, executable: "/bin/sh", configURL: config, backupDirectory: backups)
+            var edited = try JSONSerialization.jsonObject(with: Data(contentsOf: config)) as! [String: Any]
+            edited["external"] = "kept"
+            try JSONSerialization.data(withJSONObject: edited).write(to: config)
+            try SessionHooks.install(provider: provider, executable: "/usr/bin/true", configURL: config, backupDirectory: backups)
+            try SessionHooks.remove(provider: provider, configURL: config, backupDirectory: backups)
+            let text = try String(contentsOf: config, encoding: .utf8)
+            XCTAssertFalse(text.contains("lunavect-session-monitor"), "\(provider): no Lunavect handler survives the first disconnect")
+            let result = try JSONSerialization.jsonObject(with: Data(contentsOf: config)) as! [String: Any]
+            XCTAssertEqual(result["external"] as? String, "kept")
+            XCTAssertFalse(text.contains("\\/"), "paths are written without escaped slashes")
+            XCTAssertEqual(result["custom"] as? Int, 1)
+        }
+    }
 }

@@ -39,6 +39,16 @@ struct PanelShortcut: Codable, Equatable {
         ]
         return names[code] ?? L("Клавиша {0}", String(code))
     }
+    /// Standard editing, window and input-source commands must keep working in
+    /// every app; a global hot key would take them over system-wide.
+    static func isReserved(keyCode: UInt32, modifiers: UInt32) -> Bool {
+        let command = UInt32(cmdKey), shift = UInt32(shiftKey), control = UInt32(controlKey), option = UInt32(optionKey)
+        // Q W C V X Z A F N O S P H M T comma space tab grave
+        let commandKeys: Set<UInt32> = [12, 13, 8, 9, 7, 6, 0, 3, 45, 31, 1, 35, 4, 46, 17, 43, 49, 48, 50]
+        if (modifiers == command || modifiers == command | shift), commandKeys.contains(keyCode) { return true }
+        if keyCode == 49, modifiers == control || modifiers == control | option || modifiers == command | option { return true }
+        return false
+    }
 }
 
 @MainActor protocol FeaturePermissionAccess {
@@ -78,6 +88,15 @@ struct PanelShortcut: Codable, Equatable {
     @Published var completion: Bool { didSet { defaults.set(completion, forKey: "noticeCompletion") } }
     @Published var permission: Bool { didSet { defaults.set(permission, forKey: "noticePermission") } }
     @Published var input: Bool { didSet { defaults.set(input, forKey: "noticeInput") } }
+    @Published var failure: Bool { didSet { defaults.set(failure, forKey: "noticeFailure") } }
+    @Published var limits: Bool { didSet { defaults.set(limits, forKey: "noticeLimits") } }
+    static let limitThresholds = [5, 10, 20, 25]
+    @Published var limitThreshold: Int {
+        didSet {
+            if !Self.limitThresholds.contains(limitThreshold) { limitThreshold = oldValue; return }
+            defaults.set(limitThreshold, forKey: "noticeLimitThreshold")
+        }
+    }
     @Published var completionCooldown: Int {
         didSet { defaults.set(completionCooldown, forKey: "noticeCompletionCooldown") }
     }
@@ -117,6 +136,12 @@ struct PanelShortcut: Codable, Equatable {
     private var permissionGeneration = 0
     private var checkingPermissions = false
     private var tracker = SessionNoticeTracker()
+    /// Latest quota snapshots, for the time an exhausted limit becomes available again.
+    private var snapshots: [UsageSnapshot] = []
+    private var limitTracker: LimitAlertTracker
+    private var limitTimer: Timer?
+    private var wakeObserver: NSObjectProtocol?
+    private var limitProviders: Set<ProviderID>?
     private var hotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
     private var activationObserver: NSObjectProtocol?
@@ -137,6 +162,12 @@ struct PanelShortcut: Codable, Equatable {
         completion = defaults.object(forKey: "noticeCompletion") as? Bool ?? true
         permission = defaults.object(forKey: "noticePermission") as? Bool ?? true
         input = defaults.object(forKey: "noticeInput") as? Bool ?? true
+        failure = defaults.object(forKey: "noticeFailure") as? Bool ?? true
+        limits = defaults.object(forKey: "noticeLimits") as? Bool ?? true
+        let threshold = defaults.object(forKey: "noticeLimitThreshold") as? Int ?? 10
+        limitThreshold = Self.limitThresholds.contains(threshold) ? threshold : 10
+        limitTracker = LimitAlertTracker(state: defaults.data(forKey: "noticeLimitState")
+            .flatMap { try? JSONDecoder().decode(LimitAlertState.self, from: $0) } ?? LimitAlertState())
         let cooldown = defaults.object(forKey: "noticeCompletionCooldown") as? Int ?? AppDefaultSettings.soundCooldown
         completionCooldown = [0, 2, 5, 10, 30].contains(cooldown) ? cooldown : AppDefaultSettings.soundCooldown
         shortcut = defaults.data(forKey: "panelShortcut").flatMap { try? JSONDecoder().decode(PanelShortcut.self, from: $0) }
@@ -150,6 +181,13 @@ struct PanelShortcut: Codable, Equatable {
         refreshSystemState()
         activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshSystemState() }
+        }
+        // A wall-clock timer can fire late across sleep; re-check limit returns on wake.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !self.stopped else { return }
+                self.evaluateLimits(at: self.now())
+            }
         }
     }
     func refreshSystemState() {
@@ -271,20 +309,89 @@ struct PanelShortcut: Codable, Equatable {
         let notices = tracker.update(rows, now: date ?? now())
         guard banners || sounds else { return }
         for notice in notices {
-            guard (notice.kind == .completed && completion) || (notice.kind == .permission && permission) || (notice.kind == .input && input) else { continue }
-            deliver(title: notice.kind.title, body: notice.session.provider.title + " · " + notice.session.displayTitle, sessionID: notice.session.id, kind: notice.kind)
+            guard (notice.kind == .completed && completion) || (notice.kind == .permission && permission) || (notice.kind == .input && input)
+                || (notice.kind == .failed && failure) else { continue }
+            var body = notice.session.provider.title + " · " + notice.session.displayTitle
+            if notice.session.failure == .limit, let reset = limitResetTime(for: notice.session.provider, now: date ?? now()) {
+                body += " · " + L("снова доступен в {0}", Self.resetText(reset, now: date ?? now()))
+            }
+            let title = notice.kind == .failed ? (notice.session.failure?.title ?? notice.kind.title) : notice.kind.title
+            deliver(title: title, body: body, sessionID: notice.session.id, kind: notice.kind)
         }
+    }
+    func useSnapshots(_ snapshots: [UsageSnapshot]) { self.snapshots = snapshots }
+    /// Low-limit warnings and returns, from fresh quota observations only.
+    /// - Parameter providers: connected providers; nil treats every provider as connected.
+    func observeLimits(_ snapshots: [UsageSnapshot], providers: Set<ProviderID>? = nil, at date: Date? = nil) {
+        guard !isolated, !stopped else { return }
+        useSnapshots(snapshots)
+        limitProviders = providers
+        evaluateLimits(at: date ?? now())
+    }
+    private func evaluateLimits(at date: Date) {
+        let alerts = limitTracker.update(snapshots, threshold: limitThreshold, now: date,
+                                         announce: limits && (banners || sounds), providers: limitProviders)
+        if let data = try? JSONEncoder().encode(limitTracker.state) { defaults.set(data, forKey: "noticeLimitState") }
+        scheduleLimitTimer(now: date)
+        for alert in alerts {
+            let provider = alert.provider.title
+            switch alert.kind {
+            case .low(let remaining):
+                let title = alert.window == .fiveHour ? L("{0}: осталось {1}% на 5 часов", provider, String(remaining))
+                                                      : L("{0}: осталось {1}% на неделю", provider, String(remaining))
+                deliver(title: title, body: L("Сброс: {0}", Self.resetText(alert.resetsAt, now: date)), sessionID: nil, kind: .limit)
+            case .restored:
+                deliver(title: L("Лимит {0} снова доступен", provider),
+                        body: L(alert.window == .fiveHour ? "Пятичасовое окно обновилось" : "Недельный лимит обновился"), sessionID: nil, kind: .limit)
+            }
+        }
+    }
+    /// Announce a return on time even when no new quota arrives at the reset.
+    private func scheduleLimitTimer(now date: Date) {
+        limitTimer?.invalidate(); limitTimer = nil
+        guard let deadline = limitTracker.nextDeadline(now: date) else { return }
+        let timer = Timer(fire: Date().addingTimeInterval(max(1, deadline.timeIntervalSince(date))), interval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.stopped else { return }
+                self.evaluateLimits(at: self.now())
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        limitTimer = timer
+    }
+    /// When every exhausted window of this provider has reset, from fresh data only.
+    func limitResetTime(for provider: ProviderID, now: Date) -> Date? {
+        let windows = snapshots.filter { snapshot in
+            guard snapshot.provider == provider, snapshot.issue == nil, let fetchedAt = snapshot.fetchedAt else { return false }
+            let age = now.timeIntervalSince(fetchedAt)
+            return age >= -60 && age <= 900
+        }.flatMap { snapshot in
+            [snapshot.fiveHour, snapshot.weekly].compactMap { $0 } + (snapshot.modelQuotas ?? []).map(\.window)
+        }
+        return windows.filter { $0.remaining < 1 }.compactMap(\.resetsAt).filter { $0 > now }.max()
+    }
+    /// "12:20" today, otherwise the weekday with the time.
+    static func resetText(_ date: Date, now: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = L10n.locale
+        formatter.setLocalizedDateFormatFromTemplate(Calendar.current.isDate(date, inSameDayAs: now) ? "jmm" : "EEEjmm")
+        return formatter.string(from: date)
     }
     func testNotification() {
         deliver(title: "Lunavect", body: L("Проверочное уведомление"), sessionID: nil, kind: .completed, bypassSoundCooldown: true)
     }
     func previewCompletionSound() { if !isolated && !stopped { playSound(.completed) } }
-    func restoreDefaults() async {
+    /// - Returns: false while a notification or login request is in progress;
+    ///   nothing is reset then, so the caller can ask to try again.
+    @discardableResult func restoreDefaults() async -> Bool {
+        guard !busy else { return false }
         await setBanners(false)
-        sounds = false; completion = true; permission = true; input = true
+        sounds = false; completion = true; permission = true; input = true; failure = true
+        limits = true; limitThreshold = 10
         completionCooldown = AppDefaultSettings.soundCooldown
         registerShortcut(nil)
         if permissionAccess.loginStatus != .notRegistered { await setLogin(false) }
+        return true
     }
     private func reserveSound(_ kind: SessionNoticeKind, bypassCooldown: Bool) -> Bool {
         guard sounds else { return false }
@@ -312,8 +419,12 @@ struct PanelShortcut: Codable, Equatable {
             let content = UNMutableNotificationContent()
             content.title = title; content.body = body
             if shouldPlaySound { content.sound = kind == .completed ? UNNotificationSound(named: UNNotificationSoundName(NotificationAudio.completionFilename)) : .default }
-            if let sessionID { content.userInfo = ["sessionID": sessionID] }
-            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            if let sessionID { content.userInfo = ["sessionID": sessionID]; content.threadIdentifier = sessionID }
+            // A session's newer state replaces its earlier banner instead of
+            // leaving an outdated "approval needed" beside it. Limit notices and
+            // the test notification stay separate entries.
+            let request = UNNotificationRequest(identifier: sessionID.map { "session:" + $0 } ?? UUID().uuidString,
+                                                content: content, trigger: nil)
             let generation = lifecycleGeneration
             sender(request) { [weak self] error in
                 if error != nil { Task { @MainActor in
@@ -361,6 +472,9 @@ struct PanelShortcut: Codable, Equatable {
                 }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
                 guard status == noErr else { setIssue(L("Не удалось зарегистрировать сочетание клавиш."), for: .login); return }
             }
+            guard !PanelShortcut.isReserved(keyCode: value.keyCode, modifiers: value.modifiers) else {
+                setIssue(L("Это сочетание недоступно. Выберите другое."), for: .login); return
+            }
             let status = RegisterEventHotKey(value.keyCode, value.modifiers, EventHotKeyID(signature: 0x4C554E41, id: 1), GetApplicationEventTarget(), 0, &candidate)
             guard status == noErr else { setIssue(L("Это сочетание недоступно. Выберите другое."), for: .login); return }
         }
@@ -373,6 +487,9 @@ struct PanelShortcut: Codable, Equatable {
     }
     func stop() {
         lifecycleGeneration += 1
+        limitTimer?.invalidate(); limitTimer = nil
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        wakeObserver = nil
         stopped = true; started = false
         needsSystemStateRefresh = false
         systemStateTask?.cancel(); systemStateTask = nil
@@ -417,6 +534,8 @@ struct AppBehaviorSettings: View {
     @ObservedObject var features = AppFeatures.shared
     @State private var recording = false
     @State private var monitor: Any?
+    @State private var clickMonitor: Any?
+    @State private var resignObserver: NSObjectProtocol?
     var body: some View {
         GroupBox(L("Запуск и быстрый доступ")) {
             VStack(alignment: .leading, spacing: 10) {
@@ -441,7 +560,7 @@ struct AppBehaviorSettings: View {
                     Text(L("Открыть панель сессий")); Spacer()
                     Button(recording ? L("Нажмите сочетание…") : features.shortcut?.displayLabel ?? L("Назначить клавиши")) { beginRecording() }
                         .accessibilityLabel(L("Открыть панель сессий"))
-                        .accessibilityValue(features.shortcut?.displayLabel ?? L("Назначить клавиши"))
+                        .accessibilityValue(recording ? L("Нажмите сочетание…") : features.shortcut?.displayLabel ?? L("Назначить клавиши"))
                     if features.shortcut != nil {
                         Button { features.registerShortcut(nil) } label: { InterfaceIcon(.close).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle()) }
                             .buttonStyle(.plain).help(L("Убрать сочетание")).accessibilityLabel(L("Убрать сочетание"))
@@ -455,11 +574,22 @@ struct AppBehaviorSettings: View {
     }
     private func stopRecording() {
         if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil; recording = false
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        monitor = nil; clickMonitor = nil; resignObserver = nil; recording = false
     }
     private func beginRecording() {
         stopRecording(); recording = true
+        // Only this Settings window records; leaving it or clicking elsewhere ends recording.
+        let window = NSApp.keyWindow
+        resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { _ in
+            MainActor.assumeIsolated { stopRecording() }
+        }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
+            stopRecording(); return event
+        }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard window == nil || event.window === window else { return event }
             if event.keyCode == 53 { stopRecording(); return nil }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard !flags.intersection([.command, .control, .option]).isEmpty else { return nil }
@@ -508,7 +638,7 @@ struct NotificationSettingsView: View {
                     Picker(L("Пауза между звуками завершения"), selection: $features.completionCooldown) {
                         Text(L("Без паузы")).tag(0)
                         ForEach([2, 5, 10, 30], id: \.self) { Text(L("{0} с", String($0))).tag($0) }
-                    }.labelsHidden().frame(maxWidth: .infinity).accessibilityIdentifier("notification-sound-cooldown")
+                    }.labelsHidden().accessibilityIdentifier("notification-sound-cooldown")
                     }
                 }.toggleStyle(.switch).padding(12)
             }
@@ -521,6 +651,13 @@ struct NotificationSettingsView: View {
                     Toggle(L("Ответ готов"), isOn: $features.completion)
                     Toggle(L("Нужно разрешение"), isOn: $features.permission)
                     Toggle(L("Ждёт ответа"), isOn: $features.input)
+                    Toggle(L("Ошибки"), isOn: $features.failure)
+                    Toggle(L("Лимиты"), isOn: $features.limits)
+                    SettingsRow(L("Предупреждать при остатке")) {
+                        Picker(L("Предупреждать при остатке"), selection: $features.limitThreshold) {
+                            ForEach(AppFeatures.limitThresholds, id: \.self) { Text(L("{0}%", String($0))).tag($0) }
+                        }.labelsHidden().accessibilityIdentifier("notification-limit-threshold")
+                    }.disabled(!features.limits)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
             }
             Button(L("Проверить уведомление")) { features.testNotification() }

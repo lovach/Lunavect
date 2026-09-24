@@ -62,7 +62,7 @@ python3 scripts/build-manifest.py finalize \
   --artifact appcast=/path/to/appcast.xml
 ```
 
-Replace these paths with the exact reviewed output paths. This command records evidence; it neither signs nor uploads. A missing artifact fails. The finalizer reads version/build from the actual app Info.plist, hashes files with SHA-256 and records directory entries using the aggregate hash method named in the manifest. Symlinks are hashed without reading their targets. The manifest cannot be contained in a directory it hashes, since that would create an invalid self-reference.
+Replace these paths with the exact reviewed output paths. This command records evidence; it neither signs nor uploads. `build-manifest.py verify --manifest … --app … [--kind … --version … --build …]` accepts only a `complete` manifest whose recorded app hash still matches; `distribute.sh submit` and `export` run it on the archived app. A missing artifact fails. The finalizer reads version/build from the actual app Info.plist, hashes files with SHA-256 and records directory entries using the aggregate hash method named in the manifest. Symlinks are hashed without reading their targets. The manifest cannot be contained in a directory it hashes, since that would create an invalid self-reference.
 
 The source record contains commit, dirty flag, content/index/status fingerprints and a file count; it does not publish source filenames, diffs, Git remote URLs, environment values, account data or raw toolchain diagnostics. Ignored files, including local signing configuration and credentials, are excluded. Do not explicitly select private files as artifacts. Signing/notarization settings, environment and dependency caches are outside this fingerprint's scope.
 

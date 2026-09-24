@@ -180,6 +180,25 @@ class BuildManifestTests(unittest.TestCase):
         self.assertIn('must not contain its own manifest', result.stderr)
         self.assertEqual(self.read()['status'], 'started')
 
+    def test_verify_accepts_only_complete_matching_manifest(self):
+        def verify(*extra, success):
+            return self.run_manifest('verify', '--manifest', self.manifest, '--app', self.product, *extra, success=success)
+        self.begin()
+        self.assertIn('not complete', verify(success=False).stderr)
+        self.finalize()
+        verify('--kind', 'unsigned-check', '--version', '1.2.3', '--build', '130', success=True)
+        for extra in (('--kind', 'distribution'), ('--build', '131'), ('--version', '1.2.4')):
+            verify(*extra, success=False)
+        (self.product / 'Contents/binary').write_bytes(b'modified after verification')
+        self.assertIn('App differs', verify(success=False).stderr)
+
+    def test_verify_rejects_source_changed_manifest(self):
+        self.begin()
+        (self.repo / 'source.txt').write_text('changed during build\n')
+        self.finalize(success=False)
+        result = self.run_manifest('verify', '--manifest', self.manifest, '--app', self.product, success=False)
+        self.assertIn('not complete', result.stderr)
+
     def test_two_worktrees_have_independent_source_checkpoints(self):
         second = self.base / 'second-checkout'
         self.run_git('worktree', 'add', '--quiet', '--detach', str(second), 'HEAD')

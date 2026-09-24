@@ -25,7 +25,8 @@ import WeekleftCore
     private var observationState: Set<String> = []
     private var appliedWrite = 0
     private var importGeneration = 0
-    private var importTask: Task<Void, Never>?
+    /// Readable so tests can await a cancelled worker instead of a time window.
+    private(set) var importTask: Task<Void, Never>?
     private var pendingImport = false
     private var started = false
     private var acceptsWork = true

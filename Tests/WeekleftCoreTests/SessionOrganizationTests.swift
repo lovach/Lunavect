@@ -45,6 +45,72 @@ final class SessionOrganizationTests: XCTestCase {
         XCTAssertEqual((saved["sessions"] as? [String: Any])?.count, 2)
         XCTAssertTrue(visibility.visible([row("recent")]).isEmpty)
     }
+    func testHiddenRecordsExpireOnlyAfterLongAbsenceFromACompleteSource() throws {
+        let url = try directory().appendingPathComponent("hidden.json")
+        let old = now.addingTimeInterval(-40 * 86400).timeIntervalSinceReferenceDate
+        let records: [String: Any] = [
+            "claude:listed": ["hiddenAt": old], "claude:gone": ["hiddenAt": old], "codex:unobserved": ["hiddenAt": old],
+            "claude:active": ["hiddenAt": old, "eventAt": now.addingTimeInterval(-2 * 86400).timeIntervalSinceReferenceDate],
+            "claude:removed": ["hiddenAt": now.timeIntervalSinceReferenceDate, "removed": true],
+        ]
+        try JSONSerialization.data(withJSONObject: ["sessions": records]).write(to: url)
+        var visibility = try SessionVisibility(url: url, now: now)
+        XCTAssertEqual(visibility.hidden.count, 4, "Loading alone never expires a hidden session")
+        XCTAssertEqual(try visibility.observe(["claude:listed"], completeProviders: [], now: now), 0, "A partial observation proves no absence")
+        XCTAssertEqual(try visibility.observe(["claude:listed"], completeProviders: [.claude], now: now), 1)
+        XCTAssertEqual(visibility.hidden, ["claude:listed", "claude:active", "codex:unobserved"])
+        XCTAssertTrue(visibility.visible([row("listed")]).isEmpty, "A session that is still listed stays hidden")
+        // A sighting restarts the retention period; later absence counts from it.
+        XCTAssertEqual(try visibility.observe([], completeProviders: [.claude], now: now.addingTimeInterval(34 * 86400)), 1)
+        XCTAssertEqual(try SessionVisibility(url: url, now: now.addingTimeInterval(34 * 86400)).hidden, ["claude:listed", "codex:unobserved"])
+        XCTAssertEqual(try visibility.observe([], completeProviders: [.claude], now: now.addingTimeInterval(36 * 86400)), 1)
+        XCTAssertEqual(visibility.hidden, ["codex:unobserved"], "An unobserved provider keeps its records")
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertNotNil((saved["sessions"] as? [String: Any])?["claude:removed"], "Removed tombstones keep their own expiry")
+    }
+    func testAbandonedTemporariesAreRemovedButWritesInProgressAndForeignFilesAreKept() throws {
+        let root = try directory(), manager = FileManager.default, date = Date()
+        func file(_ name: String, age: TimeInterval) throws -> URL {
+            let url = root.appendingPathComponent(name)
+            try Data("x".utf8).write(to: url)
+            try manager.setAttributes([.modificationDate: date.addingTimeInterval(-age)], ofItemAtPath: url.path)
+            return url
+        }
+        let abandoned = try file("." + UUID().uuidString + ".tmp", age: 7200)
+        let kept = try [file("." + UUID().uuidString + ".tmp", age: 60), file(".notes.tmp", age: 7200),
+                        file(UUID().uuidString + ".tmp", age: 7200), file(".lunavect-" + UUID().uuidString + ".tmp", age: 7200)]
+        let link = root.appendingPathComponent("." + UUID().uuidString + ".tmp")
+        try manager.createSymbolicLink(at: link, withDestinationURL: kept[1])
+        try SessionHooks.prune(at: root, now: date)
+        XCTAssertFalse(manager.fileExists(atPath: abandoned.path))
+        for url in kept + [link] { XCTAssertNotNil(try? manager.attributesOfItem(atPath: url.path), url.lastPathComponent) }
+        // The status-line helper cleans its own directory after a capture.
+        let status = try directory(), orphan = status.appendingPathComponent("." + UUID().uuidString + ".tmp")
+        try Data("x".utf8).write(to: orphan)
+        try manager.setAttributes([.modificationDate: date.addingTimeInterval(-7200)], ofItemAtPath: orphan.path)
+        try ClaudeProvider.capture(JSONSerialization.data(withJSONObject: ["rate_limits": ["seven_day": [
+            "used_percentage": 20, "resets_at": date.addingTimeInterval(86400).timeIntervalSince1970]]]),
+            destination: status.appendingPathComponent("quota.json"), now: date)
+        XCTAssertEqual(try manager.contentsOfDirectory(atPath: status.path).filter { $0.hasSuffix(".tmp") }, [])
+    }
+    func testOnlyOwnLaunchersOlderThanADayArePruned() throws {
+        let root = try directory(), manager = FileManager.default, date = Date()
+        func file(_ name: String, age: TimeInterval) throws -> URL {
+            let url = root.appendingPathComponent(name)
+            try Data("#!/bin/zsh\n".utf8).write(to: url)
+            try manager.setAttributes([.modificationDate: date.addingTimeInterval(-age)], ofItemAtPath: url.path)
+            return url
+        }
+        let old = try file("claude-" + UUID().uuidString + ".command", age: 2 * 86400)
+        let kept = try [file("codex-" + UUID().uuidString + ".command", age: 3600), file("notes.command", age: 2 * 86400),
+                        file("claude-" + UUID().uuidString + ".txt", age: 2 * 86400)]
+        let link = root.appendingPathComponent("claude-" + UUID().uuidString + ".command")
+        try manager.createSymbolicLink(at: link, withDestinationURL: kept[1])
+        XCTAssertEqual(try SessionHooks.pruneOpeners(in: root, now: date), 1)
+        XCTAssertFalse(manager.fileExists(atPath: old.path))
+        for url in kept + [link] { XCTAssertNotNil(try? manager.attributesOfItem(atPath: url.path), url.lastPathComponent) }
+        XCTAssertEqual(try SessionHooks.pruneOpeners(in: root.appendingPathComponent("missing"), now: date), 0)
+    }
     func testHookConnectionRoundTripPreservesBytesModeAndForeignSemantics() throws {
         let root = try directory(), file = root.appendingPathComponent("settings.json"), backups = root.appendingPathComponent("backups")
         let original = Data("{ \"env\": {\"X\":\"值\"}, \"unrelated\": [1,true,null] }\n".utf8)

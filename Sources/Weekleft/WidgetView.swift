@@ -27,7 +27,7 @@ struct WeekleftCard: View {
                     Image(systemName: "exclamationmark.circle").font(.system(size: 10))
                         .help(L("Некоторые данные не обновились. Откройте настройки для подробностей."))
                 }
-            }.foregroundStyle(.white.opacity(0.85)).frame(height: 12).padding(.bottom, 8)
+            }.foregroundStyle(WidgetInk(0.85)).frame(height: 12).padding(.bottom, 8)
             providerRow(.claude)
             Spacer().frame(height: max(4, min(16, size.height - 154)))
             providerRow(.codex)
@@ -63,28 +63,28 @@ struct WeekleftCard: View {
                         HStack(spacing: 4) {
                             Image(systemName: "timer").font(.system(size: 9))
                             Text(weekly.countdown(now: now)).font(.system(size: 11)).monospacedDigit()
-                        }.foregroundStyle(.white.opacity(0.84))
+                        }.foregroundStyle(WidgetInk(0.84))
                             .help(L("Сброс недельного лимита: ") + resetDescription(weekly))
                             .padding(.trailing, 6)
                     }
                     HStack(alignment: .firstTextBaseline, spacing: 1) {
                         Text(weekly.map { String(Int($0.remaining.rounded())) } ?? "—").font(.system(size: 25, weight: .semibold)).monospacedDigit()
-                        if weekly != nil { Text("%").font(.system(size: 12)) }
+                        if weekly != nil { Text(PercentText.sign()).font(.system(size: 12)) }
                     }.opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.6 : 1)
                 }.frame(height: 23).lineLimit(1)
                 bar(weekly, accent: accent, height: 5).opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.5 : 1).padding(.top, 7)
                 HStack(spacing: 6) {
                     if weekly == nil || snapshot.isStale(window: snapshot.weekly, now: now) {
                         Text(widgetQuotaStatus(snapshot, now: now)).font(.system(size: 9))
-                            .foregroundStyle(.white.opacity(0.78)).lineLimit(1).minimumScaleFactor(0.8)
+                            .foregroundStyle(WidgetInk(0.78)).lineLimit(1).minimumScaleFactor(0.8)
                     }
                     if preferences.showFiveHour {
-                        Text(L("5 ч") + " · " + (fiveHour.map { "\(Int($0.remaining.rounded()))%" } ?? "—"))
-                            .font(.system(size: 9)).monospacedDigit().foregroundStyle(.white.opacity(0.78)).fixedSize()
+                        Text(L("5 ч") + " · " + (fiveHour.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—"))
+                            .font(.system(size: 9)).monospacedDigit().foregroundStyle(WidgetInk(0.78)).fixedSize()
                     }
                     Spacer(minLength: 0)
                     if !demo, snapshot.isStale(window: snapshot.weekly, now: now), let fetched = snapshot.fetchedAt {
-                        Text(widgetQuotaDate(fetched, now: now)).font(.system(size: 9)).foregroundStyle(.white.opacity(0.65)).fixedSize()
+                        Text(widgetQuotaDate(fetched, now: now)).font(.system(size: 9)).foregroundStyle(WidgetInk(0.65)).fixedSize()
                     }
                 }.frame(height: 14).padding(.top, 6)
                     .help(widgetQuotaExplanation(snapshot, now: now))
@@ -95,10 +95,10 @@ struct WeekleftCard: View {
     private func bar(_ window: QuotaWindow?, accent: Color, height: CGFloat) -> some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.12))
+                Capsule().fill(WidgetInk(0.12, increased: 0.3))
                 if let window { Capsule().fill(accent).frame(width: geometry.size.width * window.remaining / 100) }
             }
-        }.frame(height: height).accessibilityLabel(L("Осталось")).accessibilityValue(window.map { L("{0} процентов", String(Int($0.remaining.rounded()))) } ?? L("Нет данных"))
+        }.frame(height: height).accessibilityLabel(L("Осталось")).accessibilityValue(window.map { PercentText.format(Int($0.remaining.rounded())) } ?? L("Нет данных"))
     }
     private func resetDescription(_ window: QuotaWindow) -> String {
         guard let date = window.resetsAt else { return L("время неизвестно") }
@@ -133,7 +133,7 @@ struct SingleProviderLimitsCard: View {
                 ProviderLogo(id: snapshot.provider).foregroundStyle(activityAccent(snapshot.provider)).scaleEffect(0.75).frame(width: 24, height: 24)
             }.frame(height: 24)
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(weekly.map { "\(Int($0.remaining.rounded()))%" } ?? "—")
+                Text(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—")
                     .font(.system(size: compact ? 28 : 36, weight: .semibold)).monospacedDigit()
                     .opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.6 : 1)
                 if !compact { Text(L("Недельный остаток")).font(.system(size: 11)).foregroundStyle(.secondary) }
@@ -141,16 +141,16 @@ struct SingleProviderLimitsCard: View {
             if compact { Text(L("Недельный остаток")).font(.system(size: 9)).foregroundStyle(.secondary) }
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.12))
+                    Capsule().fill(WidgetInk(0.12, increased: 0.3))
                     if let weekly { Capsule().fill(activityAccent(snapshot.provider)).frame(width: geometry.size.width * weekly.remaining / 100) }
                 }
             }.frame(height: 5).opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.5 : 1).accessibilityLabel(L("Осталось"))
-                .accessibilityValue(weekly.map { L("{0} процентов", String(Int($0.remaining.rounded()))) } ?? L("Нет данных"))
+                .accessibilityValue(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? L("Нет данных"))
             if preferences.showFiveHour {
                 HStack {
                     Text(L("5 ч"))
                     Spacer()
-                    Text(five.map { "\(Int($0.remaining.rounded()))%" } ?? "—").monospacedDigit()
+                    Text(five.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—").monospacedDigit()
                 }.font(.system(size: 10)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)

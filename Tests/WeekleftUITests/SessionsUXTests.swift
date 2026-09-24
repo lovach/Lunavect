@@ -122,6 +122,78 @@ final class SessionsUXTests: XCTestCase {
         XCTAssertNil(transaction.animation)
         XCTAssertTrue(transaction.disablesAnimations, "Reduce Motion must suppress an inherited parent animation, too")
     }
+    @MainActor func testEmptyPanelWithoutConnectionsAsksToConnectInsteadOfWaitingForStatus() throws {
+        let uiDependencies = try AppEnvironment.preview(rows: [])
+        defer { uiDependencies.stop() }
+        try withStore { store, _, _ in
+            let panel = SessionsView(store: store, updates: uiDependencies.updates, awake: uiDependencies.awake, onSettings: {})
+            XCTAssertEqual(panel.emptyStateDetail, L("Приложения ещё не передали живой статус."))
+            store.useProviders([])
+            XCTAssertEqual(panel.emptyStateDetail, L("Подключите Claude или Codex в настройках подключений."),
+                           "No app can report status before one is connected")
+            let filtered = SessionsView(store: store, updates: uiDependencies.updates, awake: uiDependencies.awake, onSettings: {}, attentionOnly: true)
+            XCTAssertEqual(filtered.emptyStateDetail, L("Нет сессий для выбранных фильтров. Сбросьте фильтры, чтобы увидеть остальные сессии."))
+        }
+    }
+    @MainActor func testRowMenuShowsTheCommandDeleteShortcutForHiding() throws {
+        _ = NSApplication.shared
+        var hidden = 0
+        let card = SessionRow(session: row("shortcut"), now: Date(), phase: .ready, swipePresentation: SessionSwipePresentation(),
+                              onHide: { hidden += 1 }, onError: { _ in }, onPin: {})
+        let menu = SessionMenuAnchor().makeMenu(card.menuItems)
+        let index = menu.indexOfItem(withTitle: L("Скрыть в Lunavect"))
+        XCTAssertGreaterThanOrEqual(index, 0)
+        let item = try XCTUnwrap(menu.item(at: index))
+        XCTAssertEqual(item.keyEquivalent, "\u{8}", "Shown as ⌫, the key a focused row handles")
+        XCTAssertEqual(item.keyEquivalentModifierMask, .command)
+        menu.performActionForItem(at: index)
+        XCTAssertEqual(hidden, 1)
+    }
+    @MainActor func testCommandDeleteHidesTheFocusedRowWithoutFullKeyboardAccess() throws {
+        _ = NSApplication.shared
+        let uiDependencies = try AppEnvironment.preview(rows: [])
+        defer { uiDependencies.stop() }
+        try withStore { store, _, defaults in
+            let rows = [row("first"), row("second")]
+            store.acceptSessions(rows)
+            let panel = SessionsView(store: store, panelState: SessionPanelState(isVisible: true), updates: uiDependencies.updates,
+                                     awake: uiDependencies.awake, onSettings: {})
+            let host = NSHostingView(rootView: panel.defaultAppStorage(defaults))
+            host.frame = CGRect(x: 0, y: 0, width: 360, height: 400)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            window.makeKeyAndOrderFront(nil)
+            defer { window.contentView = nil; window.close() }
+            func settle() { for _ in 0..<4 { RunLoop.main.run(until: Date().addingTimeInterval(0.06)) } }
+            func press(_ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws {
+                NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)))
+                settle()
+            }
+            settle()
+            // Tab reaches the search field and Down Arrow the first row, with or without Full Keyboard Access.
+            try press("\t", 48)
+            guard window.firstResponder is NSTextView else { throw XCTSkip("This test host has no key window for keyboard input") }
+            try press(String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), 125)
+            try press("\u{7F}", 51)
+            XCTAssertEqual(store.hiddenCount, 0, "Delete alone does not hide")
+            try press("\u{7F}", 51, .command)
+            XCTAssertEqual(store.hiddenSessions.map(\.id), [rows[0].id])
+            XCTAssertEqual(store.lastHidden?.id, rows[0].id, "The Undo toast offers to restore it")
+        }
+    }
+    @MainActor func testVoiceOverHearsThatARowIsPinned() {
+        let session = row("pinned")
+        func card(pinned: Bool) -> SessionRow {
+            SessionRow(session: session, now: Date(), phase: .ready, swipePresentation: SessionSwipePresentation(),
+                       onHide: {}, onError: { _ in }, isPinned: pinned, onPin: {})
+        }
+        // The row's accessibility value; the pin glyph itself is hidden from VoiceOver.
+        XCTAssertEqual(card(pinned: false).accessibilityStatus, L("Ответ готов"))
+        XCTAssertEqual(card(pinned: true).accessibilityStatus, L("Ответ готов") + ", " + L("Закреплена"))
+    }
     @MainActor private func withStore(_ body: (SessionStore, URL, UserDefaults) throws -> Void) throws {
         let suite = "Lunavect.SessionsUX." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

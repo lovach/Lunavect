@@ -13,6 +13,9 @@ extension ActivityPeriod: AppEnum {
         .day: "Day", .week: "Week", .month: "Month"
     ]
 }
+// The extracted Metadata.appintents lists only all/claude/codex (build 182 checked),
+// so Edit Widget shows three sources. The legacy .comparison label stays for decoding;
+// both values render as .all.
 extension ActivitySource: AppEnum {
     public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Source"
     public static let caseDisplayRepresentations: [ActivitySource: DisplayRepresentation] = [

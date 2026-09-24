@@ -189,12 +189,36 @@ import Combine
         store.stop()
     }
 
+    func testDailyCheckExpiresOnlyHiddenSessionsAbsentFromACompleteCatalog() async throws {
+        let root = try directory(), longAgo = instant.addingTimeInterval(-40 * 86400)
+        var listed = session("listed", provider: .claude), gone = listed
+        gone.sessionID = "gone"; gone.observedAt = longAgo; gone.updatedAt = longAgo
+        var visibility = try SessionVisibility(url: root.appendingPathComponent("hidden-sessions.json"), now: longAgo)
+        try visibility.hide(listed, now: longAgo)
+        try visibility.hide(gone, now: longAgo)
+        listed.phase = .idle
+        var clock = instant, catalogFails = true
+        let store = try fixture(.init(catalog: { _, _, _, _ in
+            if catalogFails { throw SessionError.timeout }
+            return ([listed], false)
+        }), directory: root, now: { clock })
+        defer { store.stop() }
+        store.useProviders([.claude])
+        await store.refresh()
+        XCTAssertEqual(store.hiddenIDs, [gone.id, listed.id].sorted(), "A failed catalog cannot prove that a session is gone")
+        clock += 86400; catalogFails = false
+        await store.refresh()
+        XCTAssertEqual(store.hiddenIDs, [listed.id], "A session the catalog still lists stays hidden")
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertEqual(try SessionVisibility(url: root.appendingPathComponent("hidden-sessions.json"), now: clock).hidden, [listed.id])
+    }
+
     func testPrecancelledRefreshDoesNotStartAnyDependency() async throws {
         var calls = 0
         let store = try fixture(.init(catalog: { _, _, _, _ in calls += 1; return ([], false) },
                                       events: { _, _, _ in calls += 1; return [] },
                                       titles: { _, _, _ in calls += 1; return [:] },
-                                      hooksState: { calls += 1; return [:] }))
+                                      hooksState: { XCTFail("No dependency may start"); return [:] }))
         let request = Task { await store.refresh() }
         request.cancel(); await request.value
         XCTAssertEqual(calls, 0)
@@ -272,6 +296,58 @@ import Combine
         XCTAssertTrue(store.diagnosticEntries.isEmpty)
         XCTAssertNil(store.updatedAt)
         XCTAssertFalse(store.refreshing)
+    }
+
+    func testCancellingOneOfTwoWaitersKeepsTheSharedRefresh() async throws {
+        for cancelFirst in [false, true] {
+            let began = expectation(description: "Catalog pending")
+            var resume: CheckedContinuation<Void, Never>?
+            var catalogCancelled = false
+            let row = session("shared")
+            let store = try fixture(.init(catalog: { _, _, _, _ in
+                await withCheckedContinuation { resume = $0; began.fulfill() }
+                catalogCancelled = Task.isCancelled
+                return ([row], false)
+            }))
+            store.useProviders([.codex])
+            let first = Task { await store.refresh() }
+            await fulfillment(of: [began], timeout: 2)
+            let joined = Task { await store.refresh() }
+            for _ in 0..<10 { await Task.yield() }
+            (cancelFirst ? first : joined).cancel()
+            for _ in 0..<10 { await Task.yield() }
+            resume?.resume()
+            await first.value; await joined.value
+            XCTAssertFalse(catalogCancelled, "Another caller still waits for this refresh")
+            XCTAssertEqual(store.sessions.map(\.sessionID), ["shared"])
+            XCTAssertEqual(store.updatedAt, instant)
+            XCTAssertFalse(store.refreshing)
+            store.stop()
+        }
+    }
+
+    func testSourceChangeDuringAReadSchedulesExactlyOneMoreRead() async throws {
+        let began = expectation(description: "First read pending"), followUp = expectation(description: "Follow-up read")
+        var resume: CheckedContinuation<Void, Never>?
+        var reads = 0
+        let store = try fixture(.init(events: { _, _, _ in
+            reads += 1
+            if reads == 1 { await withCheckedContinuation { resume = $0; began.fulfill() } }
+            if reads == 2 { followUp.fulfill() }
+            return []
+        }))
+        defer { store.stop() }
+        store.useProviders([.codex])
+        let request = Task { await store.readEvents() }
+        await fulfillment(of: [began], timeout: 2)
+        store.sourceChanged(); store.sourceChanged()
+        resume?.resume(); await request.value
+        await fulfillment(of: [followUp], timeout: 2)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(reads, 2, "Changes during one read coalesce into a single follow-up")
+        store.sourceChanged()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(reads, 3, "A change with no read in progress starts one directly")
     }
 
     func testStopDuringEventsPreventsTitleReadAndObservation() async throws {

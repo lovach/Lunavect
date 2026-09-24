@@ -40,6 +40,8 @@ struct ConnectionsView: View {
     @State private var claudeBridge = ClaudeProvider.statusLineInstalled()
     @State private var disconnectedProvider: ProviderID?
     @State private var disconnectedEventsOnly = false
+    /// The card the user refreshed; background polls do not show progress in every card.
+    @State private var refreshingCard: ProviderID?
 
     var body: some View {
         GroupBox {
@@ -141,11 +143,14 @@ struct ConnectionsView: View {
                 Spacer()
                 Button(L(card.actionTitle)) {
                     if card.needsSetup { selectedRepair = nil; selectedProvider = id }
-                    else { Task { await store.refresh(provider: id); await sessions.refresh() } }
-                }.disabled(store.refreshing || sessions.refreshing)
+                    else {
+                        refreshingCard = id
+                        Task { await store.refresh(provider: id); await sessions.refresh(); refreshingCard = nil }
+                    }
+                }.disabled(store.refreshing || refreshingCard != nil)
                     .accessibilityIdentifier("connect-" + id.rawValue)
             }
-            if store.refreshing { ProgressView().controlSize(.small) }
+            if refreshingCard == id { ProgressView().controlSize(.small) }
             if let date = snapshot?.fetchedAt {
                 Text(L("Последние данные: {0}", date.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
                     .font(.system(size: 12)).foregroundStyle(.secondary)

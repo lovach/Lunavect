@@ -42,7 +42,15 @@ public enum L10n {
         #endif
         return defaults.string(forKey: "languageCode") ?? "system"
     }
-    public static var locale: Locale { Locale(identifier: AppLanguage.resolve(selection)) }
+    public static var locale: Locale { locale(language: AppLanguage.resolve(selection)) }
+    /// The interface language with the user's region, clock and calendar settings,
+    /// so times and weeks match the Mac even when the language differs.
+    public static func locale(language: String, base: Locale = .autoupdatingCurrent) -> Locale {
+        var components = Locale.Components(locale: base)
+        components.languageComponents = Locale.Language.Components(identifier: language)
+        components.region = base.region
+        return Locale(components: components)
+    }
     public static let translations: [String: [String: String]] = {
         #if SWIFT_PACKAGE
         let url = Bundle.module.url(forResource: "Translations", withExtension: "json")
@@ -68,6 +76,19 @@ public enum L10n {
 }
 public func L(_ key: String, _ arguments: String...) -> String {
     L10n.text(key, language: L10n.selection, arguments: arguments)
+}
+
+/// Whole percentages in the interface language: "72%" or "72 %", as the
+/// translations of "{0}%" define. VoiceOver reads the same text and applies
+/// its own plural forms, so it is also the accessibility value.
+public enum PercentText {
+    public static func format(_ value: Int, language: String = L10n.selection) -> String {
+        L10n.text("{0}%", language: language, arguments: [String(value)])
+    }
+    /// The sign with its language-specific spacing, for layouts that set the number apart.
+    public static func sign(language: String = L10n.selection) -> String {
+        L10n.text("{0}%", language: language, arguments: [""])
+    }
 }
 
 /// Shared abbreviated units for quotas, activity totals and chart readouts.

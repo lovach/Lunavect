@@ -164,6 +164,7 @@ struct SessionRowDragAnchorView: NSViewRepresentable {
 struct SessionRowInteraction: NSViewRepresentable {
     let session: AgentSession
     let anchor: SessionRowDragAnchor
+    var toolTip: String? = nil
     var onClick: () -> Void
     var onMenu: () -> Void
     var onStart: (NSImage, CGRect, CGPoint) -> Void
@@ -173,6 +174,7 @@ struct SessionRowInteraction: NSViewRepresentable {
     func updateNSView(_ view: Handle, context: Context) {
         view.session = session; view.anchor = anchor; view.onClick = onClick; view.onMenu = onMenu; view.onStart = onStart; view.onMove = onMove; view.onEnd = onEnd
         view.setAccessibilityLabel(L("Перетащите, чтобы изменить порядок"))
+        if view.toolTip != toolTip { view.toolTip = toolTip }
     }
     final class Handle: NSView {
         var session: AgentSession?

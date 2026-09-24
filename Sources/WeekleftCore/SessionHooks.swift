@@ -32,7 +32,7 @@ public enum SessionHooks {
     static func marker(_ provider: ProviderID) -> String { "# lunavect-session-monitor:\(provider.rawValue)" }
     static func events(_ provider: ProviderID) -> [String] {
         ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd"] +
-        (provider == .claude ? ["Notification", "PostToolUseFailure", "StopFailure", "PreCompact", "PostCompact"] : ["Interrupt"])
+        (provider == .claude ? ["Notification", "PostToolUseFailure", "StopFailure", "PreCompact", "PostCompact", "SubagentStop"] : ["Interrupt"])
     }
     public static func configured(_ provider: ProviderID, configURL: URL? = nil) -> Bool {
         guard let data = try? Data(contentsOf: configURL ?? self.configURL(provider)),
@@ -117,7 +117,7 @@ public enum SessionHooks {
         guard current == old else { throw SessionError.changedConfig }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try writeConfigurationChange(original: old,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
             to: url, restorationURL: restorationURL(for: url, in: backup, prefix: provider.rawValue),
             disconnecting: executable == nil)
         try pruneOwnedBackups(in: backup, prefix: provider.rawValue + "-")
@@ -142,11 +142,21 @@ public enum SessionHooks {
                 else { try FileManager.default.removeItem(at: url.resolvingSymlinksInPath()) }
             } else { try writeConfigurationVerified(updated, to: url) }
             if FileManager.default.fileExists(atPath: restorationURL.path) { try FileManager.default.removeItem(at: restorationURL) }
+        } else if !ownsSnapshot, containsOwnedEntries(original) {
+            // These bytes already hold Lunavect's own (older) handlers, e.g. after an app
+            // move or new hook events; they are not a pre-connection original. Without a
+            // snapshot, disconnecting removes only Lunavect's entries and keeps the rest.
+            if FileManager.default.fileExists(atPath: restorationURL.path) { try FileManager.default.removeItem(at: restorationURL) }
+            try writeConfigurationVerified(updated, to: url)
         } else {
             let saved = ConfigurationRestoration(original: ownsSnapshot ? previous?.original : original, installed: updated)
             try secureWriteVerified(JSONEncoder().encode(saved), to: restorationURL)
             try writeConfigurationVerified(updated, to: url)
         }
+    }
+    static func containsOwnedEntries(_ data: Data?) -> Bool {
+        guard let data, let text = String(data: data, encoding: .utf8) else { return false }
+        return text.contains("# lunavect-session-monitor:") || text.contains(" --claude-statusline")
     }
     /// Client-owned configuration keeps its existing mode. Private monitor data
     /// continues to use secureWriteVerified's 0600 policy.
@@ -262,8 +272,24 @@ public enum SessionHooks {
             }
             close(fd)
         }
+        try LocalStateRecovery.removeAbandonedTemporaries(in: directory, now: now)
         try secureWrite(Data(), to: stamp)
         try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: stamp.path)
+        return removed
+    }
+    /// Terminal runs a launcher once and `exec`s the client, so it is only needed
+    /// until Terminal starts it. Remove only Lunavect's own launchers after a day.
+    @discardableResult public static func pruneOpeners(in directory: URL, now: Date = Date()) throws -> Int {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return 0 }
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        var removed = 0
+        for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) where file.pathExtension == "command" {
+            let name = file.deletingPathExtension().lastPathComponent
+            guard ProviderID.allCases.contains(where: { name.hasPrefix($0.rawValue + "-") && SessionParser.validID(String(name.dropFirst($0.rawValue.count + 1))) }),
+                  let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true, values.isSymbolicLink != true,
+                  let modified = values.contentModificationDate, now.timeIntervalSince(modified) > 86400 else { continue }
+            try FileManager.default.removeItem(at: file); removed += 1
+        }
         return removed
     }
 }

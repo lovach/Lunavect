@@ -5,7 +5,7 @@
 	<key>CFBundleLocalizations</key>
 	<array><string>ru</string><string>en</string><string>de</string><string>es</string><string>fr</string><string>zh-Hans</string></array>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>ru</string>
+	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

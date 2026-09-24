@@ -12,8 +12,16 @@ cask "lunavect" do
 
   app "Lunavect.app"
 
+  uninstall quit: "com.weekleft.app"
+
   caveats <<~EOS
     Before uninstalling, disconnect Claude and Codex in Settings > Connections
     so their previous event handlers and status line can be restored.
+
+    If you used Keep Awake, stop it and quit Lunavect, then remove its
+    system helper before uninstalling:
+      "#{appdir}/Lunavect.app/Contents/MacOS/Lunavect" --unregister-awake-helper
+    Complete removal steps:
+      https://github.com/lovach/Lunavect/blob/main/docs/updates.md#complete-removal
   EOS
 end
