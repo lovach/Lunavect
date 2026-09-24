@@ -106,6 +106,8 @@ xcrun stapler validate '/Volumes/Lunavect/Lunavect.app'
 
 Use the actual mounted volume path. Then check installation, launch, retained settings, fresh client events and allowances. Widget placement and refresh require their own desktop check.
 
+Before installing a release on the Mac that built it, unregister the exported and archived copies of that build with `lsregister -u` and run `scripts/reassert-installed-widget.py`. A registered copy of the same build can make macOS drop the installed widget extension at the app's registration confirmation, leaving desktop widgets on placeholders. Relaunch the app and keep placed widgets in view through its 10-minute confirmation schedule.
+
 References: [Sparkle setup](https://sparkle-project.org/documentation/), [customization](https://sparkle-project.org/documentation/customization/), [gentle reminders](https://sparkle-project.org/documentation/gentle-reminders/), [publishing](https://sparkle-project.org/documentation/publishing/).
 
 ## Keep Awake signing and upgrade policy
