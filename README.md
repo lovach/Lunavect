@@ -4,9 +4,9 @@
 
 # Lunavect
 
-**The menu bar companion for Claude Code and Codex on your Mac.**<br>
-See which AI coding agent is working, which one is waiting for you<br>
-and how much of your weekly and five-hour usage limits is left.
+**See which Claude Code or Codex session is waiting for you.**<br>
+Every agent session on your Mac with its live state, right in the menu bar,<br>
+next to both tools' weekly and five-hour limits with reset times.
 
 <a href="https://github.com/lovach/Lunavect/releases/download/v0.2.1/Lunavect-0.2.1.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
 
@@ -24,6 +24,8 @@ and how much of your weekly and five-hour usage limits is left.
 
 [Features](#features) · [Install](#install) · [FAQ](#faq) · [Website](https://lovach.github.io/Lunavect/) · [Release notes](CHANGELOG.md)
 
+<sub>If Lunavect helps you catch a waiting agent, a ⭐ helps other Mac developers find it.</sub>
+
 </div>
 
 ## Features
@@ -37,6 +39,8 @@ working, thinking, waiting for permission or input, or done.<br>
 Search, filter, pin and hide sessions. Live Terminal and iTerm2 sessions open in their own tab.
 
 <img src="docs/images/showcase/sessions.webp" width="760" alt="Three Lunavect session panels: all nine tasks, a search for “bill” showing one Claude task, and the waiting filter showing the task that needs permission">
+
+<img src="docs/images/showcase/demo-waiting.webp" width="760" alt="A 13-second loop from the real app with fictional sessions: eight agents work and one waits for an answer; Lunavect shows it in the menu bar, one click opens that session, and after the answer it is back to work">
 
 ### Background work, told once
 
