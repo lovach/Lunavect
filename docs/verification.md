@@ -1,8 +1,23 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.2.1 (186)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.2.2 (188)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.1)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.2)
+
+## 0.2.2 release checks — September 26, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `905bf352505263ab0b75240e98e22d2d4daa2011`, tagged `v0.2.2`, merged through [PR #31](https://github.com/lovach/Lunavect/pull/31). The merge tree matches the archived source exactly; archive, submit and export provenance passed. Includes the previously local README/site introduction and demo from Claude’s commit `0812cb4`. The older audit worktree contained no additional unpublished application fixes. |
+| Automated checks | Full local release check: 97 Python and 696 Swift tests passed, 58 conditional skips and no failures; the built intent-resource test passed separately. Universal app/widget build, widget probes, resource/helper checks and XcodeGen 2.46.0 parity passed. [Source CI](https://github.com/lovach/Lunavect/actions/runs/36262750808) passed. After the packaging cleanup correction, the full local check passed again with 100 Python and 696 Swift tests, the same 58 conditional skips, and all build/resource/provenance gates. |
+| Terminal navigation | The detached-hook regression failed before the fix; the real Apple Terminal integration verified a live tab, restored minimized window and exited tab retaining a reused device. Details and limits are recorded below. |
+| Distribution | Developer ID signed and Apple notarized, build 188. Anonymous DMG, ZIP, appcast and checksum downloads match the packaged bytes. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, resources, hooks, App Group and helper-policy checks. ZIP and feed signatures verify with the embedded public key; deliberately damaged copies of both are rejected. The latest feed points to 188. All 12 previous releases retain their 50 asset identities, URLs, sizes and digests. |
+| Installation | Installed the notarized release DMG over local build 187. Forty application preference values and all six shared preference values were unchanged; only the derived limit-notification state and version-specific widget-registration stamp changed. Existing Claude/Codex observations continued after launch. |
+| Build-Mac widget incident | During release submission cleanup, the still-installed build 187 lost its widget host lookup at 20:21:46 and showed placeholders. Packaging subsequently registered the exported build 188 again. Removing that export alone was insufficient: Launch Services also retained three records for already deleted check/archive products. Retiring those exact stale records left only the installed app and widget registered. Both desktop widgets then stayed LIVE through build 188’s 10-minute confirmation at 20:47:29, and through the corrected full-check cleanup and downloaded-DMG verification. No widget placements or preferences were removed. |
+| Tooling correction | The check runner retires its own product before deletion; package tools retire their exported source in a `finally` block and reassert the installed host. The distribution cleanup handles its exact missing intermediate path before retiring it. The installed app and aliases are protected; cleanup failure still restores the installed host. These changes affect release tooling, not the already archived application binary. |
+| Remaining scope | The reporter’s Mac, live iTerm2 interaction, real Automation denial, a complete Sparkle download/install cycle, and other macOS/hardware combinations were not exercised. The local widget recovery is not proof of every future update path. |
+
+The 0.2.2 DMG SHA-256 is `fe328a97c9d50a145f66bd714419eb5b37603bd03dc96d5e094b5a7a9b8dd120`.
 
 ## Local Terminal navigation fix — September 26, 2026
 
