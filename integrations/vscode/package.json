@@ -1,0 +1,14 @@
+{
+  "name": "lunavect",
+  "displayName": "Lunavect Sessions",
+  "description": "Let Lunavect focus the existing Claude or Codex session in this VS Code window.",
+  "version": "0.1.0",
+  "publisher": "lovach",
+  "license": "MIT",
+  "engines": { "vscode": "^1.94.0" },
+  "categories": ["Other"],
+  "extensionKind": ["ui"],
+  "activationEvents": ["onStartupFinished", "onUri"],
+  "main": "./extension.js",
+  "capabilities": { "untrustedWorkspaces": { "supported": true } }
+}

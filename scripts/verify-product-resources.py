@@ -14,6 +14,7 @@ APP_ONLY = {'LunavectMark.png', 'LunavectMarkLeft.png', 'LunavectMarkRight.png',
             'clawd-laptop.json', 'clawd-walking.gif', 'clawd-waving.gif',
             'codex-companion.webp', 'lunavect-complete.wav', 'Lunavect-NOTICE.txt',
             'IconSources.md', 'Sparkle-LICENSE.txt'}
+IDE_PACKAGES = {'lunavect-vscode.vsix', 'lunavect-jetbrains.zip', 'manifest.json'}
 # App Intents metadata read by Edit Widget and the chart buttons. A silent
 # extraction failure still builds, so require the packaged artifact itself.
 APP_INTENTS = {'SelectActivityPointIntent'}
@@ -85,6 +86,8 @@ def verify(app, source_root=None):
         for name in required:
             verify_resource(directory / name)
         allowed = required | {'Metadata.appintents'} | {language + '.lproj' for language in infos[0]['CFBundleLocalizations']}
+        if bundle == app:
+            allowed.add('IDEConnectors')
         unexpected = {path.name for path in directory.iterdir()} - allowed
         if unexpected:
             raise ValueError(f'{bundle.name}: resources outside bundle allowlist: {", ".join(sorted(unexpected))}')
@@ -94,6 +97,19 @@ def verify(app, source_root=None):
                 raise ValueError(f'{bundle.name}: missing {language} intent localization')
     verify_intent_metadata(app, APP_INTENTS)
     verify_intent_metadata(widget, WIDGET_INTENTS)
+    connectors = app / 'Contents/Resources/IDEConnectors'
+    if {path.name for path in connectors.iterdir()} != IDE_PACKAGES:
+        raise ValueError('IDE connector installer set is incomplete or contains unexpected files')
+    manifest = json.loads((connectors / 'manifest.json').read_bytes())
+    if set(manifest.get('artifacts', {})) != IDE_PACKAGES - {'manifest.json'}:
+        raise ValueError('IDE connector installer manifest is incomplete')
+    for name, expected in manifest['artifacts'].items():
+        if digest(connectors / name) != expected:
+            raise ValueError(f'IDE connector {name} differs from its manifest')
+    if source_root is not None:
+        for name in IDE_PACKAGES:
+            if digest(connectors / name) != digest(source_root / 'Sources/Weekleft/Resources/IDEConnectors' / name):
+                raise ValueError(f'Built IDE connector {name} is stale relative to the source')
     for name in SHARED:
         if digest(app / 'Contents/Resources' / name) != digest(widget / 'Contents/Resources' / name):
             raise ValueError(f'App/widget {name} differs')

@@ -3,6 +3,49 @@ import XCTest
 @testable import Weekleft
 
 final class SessionNavigationIntegrationTests: XCTestCase {
+    @MainActor func testExplicitIDEFixtureFromProcessOriginThroughNativeFocus() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNAVECT_IDE_NAVIGATION_FIXTURE"] else {
+            throw XCTSkip("Explicit opt-in required: focuses operator-owned IDE terminal fixtures")
+        }
+        struct Fixture: Decodable { let terminals: [Int32]; let providers: [ProviderID]?; let cwd: String }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        var lastLocation: IDESessionLocation?
+        for (provider, pid) in zip(fixture.providers ?? [.claude, .codex], fixture.terminals) {
+            let location = try XCTUnwrap(IDEProcessLocation.locate(parentPID: pid, provider: provider))
+            lastLocation = location
+            XCTAssertTrue(location.usesTerminal)
+            var row = AgentSession(provider: provider, sessionID: UUID().uuidString, title: "Fixture", cwd: fixture.cwd,
+                                   client: location.editor.client, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+            row.ideLocation = location
+            try await SessionNavigation.open(row)
+        }
+        if fixture.terminals.count > 2, let lastLocation {
+            let process = try XCTUnwrap(IDEProcessLocation.process(fixture.terminals[2]))
+            XCTAssertTrue(process.hasTerminal)
+            var classic = AgentSession(provider: .claude, sessionID: UUID().uuidString, title: "Classic fixture", cwd: fixture.cwd,
+                                       client: lastLocation.editor.client, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+            classic.ideLocation = .init(editor: lastLocation.editor, bundleIdentifier: lastLocation.bundleIdentifier,
+                                       appPath: lastLocation.appPath, runtime: process.identity, usesTerminal: true)
+            try await SessionNavigation.open(classic)
+        }
+    }
+    @MainActor func testIDEOriginWinsOverStaleTerminalAndNeverFallsBackToDesktop() async throws {
+        for provider in ProviderID.allCases {
+            for client in [SessionClient.vscode, .jetbrains] {
+                var row = AgentSession(provider: provider, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture",
+                                       cwd: "/tmp", client: client, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+                row.terminalTTY = "/dev/ttys004"; row.terminalApp = "Terminal"
+                var attempts = 0
+                let failure = SessionOpeningError.ideBridgeMissing(client.title)
+                do {
+                    try await SessionNavigation.open(row, focus: { _ in XCTFail("IDE must not run Terminal AppleScript"); return false },
+                        openIDE: { selected in attempts += 1; XCTAssertEqual(selected.id, row.id); throw failure })
+                    XCTFail("IDE failure must be reported without another route")
+                } catch { XCTAssertEqual(error as? SessionOpeningError, failure) }
+                XCTAssertEqual(attempts, 1)
+            }
+        }
+    }
     @MainActor func testExplicitDetachedHookAndCatalogOpenRealTerminal() async throws {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_TERMINAL_NAVIGATION_FIXTURE"] else {
             throw XCTSkip("Explicit opt-in required: focuses an operator-owned Terminal fixture")

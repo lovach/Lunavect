@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 REPORTER = ROOT / 'scripts/check-report.py'
 STAGES = (
-    'source_checkpoint', 'python_tests', 'swift_tests', 'widget_probe_build',
+    'source_checkpoint', 'python_tests', 'ide_connector_tests', 'swift_tests', 'widget_probe_build',
     'widget_fallback', 'widget_private_abi', 'unsigned_build', 'hook_helper',
     'product_resources', 'intent_resources', 'build_provenance',
 )
@@ -44,7 +44,10 @@ if intent:
 elif event['opt_in']:
     raise SystemExit('Inherited opt-in flag reached a check command')
 failure = os.environ.get('CHECK_FIXTURE_FAIL')
-if name == 'swift':
+if name == 'node':
+    assert args == ['--test', 'integrations/vscode/protocol.test.js', 'integrations/vscode/routing.test.js'], args
+    print('IDE connector fixture passed')
+elif name == 'swift':
     if args == ['--version']:
         print('Apple Swift version 6.3.3 (swiftlang-6.3.3.1 clang-1700.0.0)')
     elif intent:
@@ -118,7 +121,7 @@ class CheckRunnerTests(unittest.TestCase):
         self.bin = self.base / 'bin'
         self.bin.mkdir()
         tool = '#!' + sys.executable + '\n' + textwrap.dedent(TOOL)
-        for name in ('swift', 'clang', 'xcodebuild'):
+        for name in ('swift', 'clang', 'xcodebuild', 'node'):
             path = self.bin / name
             path.write_text(tool)
             path.chmod(0o755)

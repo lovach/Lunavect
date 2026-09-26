@@ -60,3 +60,7 @@ If cleanup fails, the app reports the error; resolve it before deleting the app.
 - Codex: [CLI](https://learn.chatgpt.com/docs/cli), [authentication](https://learn.chatgpt.com/docs/auth), [app-server](https://learn.chatgpt.com/docs/app-server), [hooks](https://learn.chatgpt.com/docs/hooks).
 
 These references describe the clients' interfaces, not a certification or endorsement of Lunavect. Current installation and compatibility evidence is recorded in [verification](verification.md).
+
+## Sessions in editors
+
+Lunavect 0.2.3 includes local companions for VS Code and JetBrains 2026.2. Install the companion from Settings → Connections → Sessions in editors to select the existing Claude or Codex terminal tab. See [IDE session setup and compatibility](ide-sessions.md), including the separate limits for provider panels and remote workspaces.

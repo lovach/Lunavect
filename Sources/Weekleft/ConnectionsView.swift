@@ -64,6 +64,7 @@ struct ConnectionsView: View {
                     }.accessibilityIdentifier("connection-removal-result")
                 }
                 DisclosureGroup(L("Подключение на вашем Mac")) { ConnectionPrivacyView().padding(.top, 8) }
+                IDEConnectionsView()
                 Button { showingDiagnostics = true } label: { InterfaceLabel(L("Проверить подключение"), .activity) }
                     .accessibilityIdentifier("connection-diagnostics")
                 DisclosureGroup(L("Дополнительные настройки")) {

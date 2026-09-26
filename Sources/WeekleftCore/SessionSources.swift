@@ -78,6 +78,8 @@ public enum SessionSources {
             let data = try SessionProcess.run(path: path, arguments: ["agents", "--json", "--all"])
             return try SessionParser.claude(data, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
                 SessionProcess.terminalLocation(parentPID: $0, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
+            }, ide: {
+                IDEProcessLocation.locate(parentPID: $0, provider: .claude)
             })
         }
     }
@@ -556,7 +558,9 @@ enum SessionProcess {
             // codex) says nothing about the host; its parent decides.
             let bundledCLI = name.contains("/Contents/Resources/")
             if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
-            if name.contains("/Visual Studio Code.app/") { return .vscode }
+            if !bundledCLI, let range = name.range(of: ".app/Contents/"),
+               let bundle = IDEProcessLocation.bundleIdentifier(String(name[..<range.lowerBound]) + ".app"),
+               let editor = SessionIDE.identify(bundleIdentifier: bundle) { return editor.client }
             if name.contains("/Terminal.app/") || name.contains("/iTerm.app/") { return .terminal }
             var info = proc_bsdinfo()
             let size = Int32(MemoryLayout.size(ofValue: info))
@@ -596,6 +600,9 @@ enum SessionProcess {
             // A Desktop/editor runtime must not inherit an ancestor shell's tab.
             if !path.contains("/Contents/Resources/"),
                ["/Claude.app/", "/ChatGPT.app/", "/Codex.app/", "/Visual Studio Code.app/"].contains(where: path.contains) { return nil }
+            if !path.contains("/Contents/Resources/"), let range = path.range(of: ".app/Contents/"),
+               let bundle = IDEProcessLocation.bundleIdentifier(String(path[..<range.lowerBound]) + ".app"),
+               SessionIDE.identify(bundleIdentifier: bundle) != nil { return nil }
             pid = Int32(info.pbi_ppid)
         }
         // A root-owned login process can hide the terminal app's ancestry while
@@ -618,10 +625,11 @@ public extension SessionHooks {
         // Lifecycle tools must never block, approve, or inject context into the source session.
         guard let data = readHookPayload(from: .standardInput) else { print("{}"); return }
         let env = ProcessInfo.processInfo.environment
-        let client = SessionProcess.client(parentPID: getppid(), entrypoint: env["CLAUDE_CODE_ENTRYPOINT"] ?? "", terminal: env["TERM_PROGRAM"] ?? "")
+        let ide = IDEProcessLocation.locate(parentPID: getppid(), provider: provider)
+        let client = ide?.editor.client ?? SessionProcess.client(parentPID: getppid(), entrypoint: env["CLAUDE_CODE_ENTRYPOINT"] ?? "", terminal: env["TERM_PROGRAM"] ?? "")
         let nested = provider == .claude ? SessionProcess.nestedClaudeRuntime(startPID: getppid()) : nil
         let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
-        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal)
+        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide)
         print("{}")
     }
 }

@@ -1,0 +1,20 @@
+{
+  "artifacts": {
+    "lunavect-jetbrains.zip": "81eaeca4f0c5c468d835b2a2de048b4977e562e797dbc574b5e244860bfa0744",
+    "lunavect-vscode.vsix": "c4c2a7e46342238f360d512ba65a077716dce92ddc1c84038f679e5afe288778"
+  },
+  "jetbrainsSDK": "IU-262.10968.63",
+  "jetbrainsVersion": "2026.2.3",
+  "sources": {
+    "integrations/jetbrains/resources/META-INF/plugin.xml": "93307884332081fdaff3d5b8043024577cb3277b8745e050c900f652e218374d",
+    "integrations/jetbrains/src/com/lunavect/sessions/BridgeService.java": "b9868014994066f28a99b2df0820b4875bd599fc4463779412c8bc8536e2965d",
+    "integrations/jetbrains/src/com/lunavect/sessions/BridgeStartup.java": "855849f7c48ac23bf19b4c4445b36d540903ffd06a9ff67ab65a93b129133e24",
+    "integrations/vscode/README.md": "31bb28a19b26e9acdbfe69f8c5e17ca3801cfdbf79c9d11399c4e226b89ba435",
+    "integrations/vscode/extension.js": "c9895bdeda09cc45afb7c6478fb146579366c98286a550ae6149586b49b8b6ad",
+    "integrations/vscode/package.json": "24b770b6af42ca21b0c79f108b4bdc06e3b3878bae00f2b991924e13903ec1fd",
+    "integrations/vscode/protocol.test.js": "f71818f10634b690bc4e5587bf917bcf07178d4778152d28e4cdb14f0565591f",
+    "integrations/vscode/routing.js": "8fbddf1341f2111b8ae72833a9b84bd61bb9a2715271cc9b14535c174e80ff8e",
+    "integrations/vscode/routing.test.js": "38bd703114849ac97cd72b70fe941aa075facbe40d4f41bf3f337a82be82a47d"
+  },
+  "version": 1
+}

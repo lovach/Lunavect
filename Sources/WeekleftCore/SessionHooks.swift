@@ -193,7 +193,7 @@ public enum SessionHooks {
     public static func secureWrite(_ data: Data, to url: URL) throws {
         try LocalStateRecovery.write(data, to: url)
     }
-    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil) throws {
+    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil) throws {
         let now = Date()
         let initial = try SessionRecord.event(data, provider: provider, previous: nil, now: now, client: client)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -206,6 +206,15 @@ public enum SessionHooks {
         var record = try SessionRecord.event(data, provider: provider, previous: previous, now: now, client: client)
         if provider == .claude, let nestedClaudeRuntime { record.session.isNestedClaudeSession = nestedClaudeRuntime }
         if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
+        if let ide {
+            record.session.ideLocation = ide; record.session.client = ide.editor.client
+            record.session.terminalTTY = nil; record.session.terminalApp = nil
+        } else if terminal != nil || [.terminal, .desktop, .background].contains(client) {
+            record.session.ideLocation = nil
+            if client == .desktop || client == .background {
+                record.session.terminalTTY = nil; record.session.terminalApp = nil
+            }
+        }
         try secureWrite(JSONEncoder().encode(record), to: file)
     }
     public static func load(at directory: URL = directory) -> [AgentSession] {

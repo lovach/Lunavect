@@ -18,8 +18,8 @@ settings:
     REGISTER_APP_GROUPS: YES
     WEEKLEFT_APP_GROUP: group.com.weekleft.shared
     ENABLE_HARDENED_RUNTIME: YES
-    CURRENT_PROJECT_VERSION: 188
-    MARKETING_VERSION: 0.2.2
+    CURRENT_PROJECT_VERSION: 189
+    MARKETING_VERSION: 0.2.3
     GENERATE_INFOPLIST_FILE: NO
 targets:
   Weekleft:
@@ -33,7 +33,10 @@ targets:
       - path: Sources/Weekleft
         excludes: ['Resources']
       - path: Sources/Weekleft/Resources
-        excludes: [clawd-laptop.gif]
+        excludes: [clawd-laptop.gif, IDEConnectors]
+        buildPhase: resources
+      - path: Sources/Weekleft/Resources/IDEConnectors
+        type: folder
         buildPhase: resources
       - path: Sources/LunavectWidget/Resources
         buildPhase: resources
