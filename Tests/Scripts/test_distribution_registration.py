@@ -22,7 +22,13 @@ class DistributionRegistrationTests(unittest.TestCase):
     def test_failed_host_registration_is_reported(self):
         self.exercise(fail=True)
 
-    def exercise(self, identifier='com.weekleft.app', widget_version='163', fail=False):
+    def test_transient_unregister_failure_is_retried(self):
+        self.exercise(unregister_failures=1)
+
+    def test_persistent_unregister_failure_still_restores_installed_host(self):
+        self.exercise(unregister_failures=3)
+
+    def exercise(self, identifier='com.weekleft.app', widget_version='163', fail=False, unregister_failures=0):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
             archive, output = home / 'Archive.xcarchive', home / 'output'
@@ -36,11 +42,15 @@ class DistributionRegistrationTests(unittest.TestCase):
             source = (ROOT / 'scripts/distribute.sh').read_text().split('python3 - "$ARCHIVE" "$OUTPUT" "$BUILD" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
             # Isolate the fallback install root as well as the home directory.
             source = source.replace("Path('/Applications/Lunavect.app')", "Path(" + repr(str(home / 'global/Lunavect.app')) + ")")
-            trace, lookup = [], {'valid': True}
+            trace, lookup = [], {'valid': True, 'unregister_attempts': 0}
             def run(argv, **kwargs):
                 trace.append(argv)
                 if argv[1] in ('-u', '-r'):
                     lookup['valid'] = False
+                    if argv[1] == '-u':
+                        lookup['unregister_attempts'] += 1
+                        if lookup['unregister_attempts'] <= unregister_failures:
+                            raise subprocess.CalledProcessError(1, argv, stderr='failed to scan: -10814')
                 elif argv[1] == '-f':
                     if fail:
                         raise subprocess.CalledProcessError(42, argv)
@@ -49,13 +59,14 @@ class DistributionRegistrationTests(unittest.TestCase):
                 elif argv[1] == '-a':
                     self.assertTrue(lookup['valid'], 'Extension registered without its host')
                 return subprocess.CompletedProcess(argv, 0)
-            with patch('pathlib.Path.home', return_value=home), patch('sys.argv', ['cleanup', str(archive), str(output), '163']), patch('subprocess.check_output', return_value=f'path: {exported} (0x1)\n'), patch('subprocess.run', side_effect=run), patch('builtins.print'):
-                if fail:
+            with patch('pathlib.Path.home', return_value=home), patch('sys.argv', ['cleanup', str(archive), str(output), '163']), patch('subprocess.check_output', return_value=f'path: {exported} (0x1)\n'), patch('subprocess.run', side_effect=run), patch('builtins.print'), patch('time.sleep'):
+                if fail or unregister_failures >= 3:
                     with self.assertRaises(subprocess.CalledProcessError):
                         exec(compile(source, 'distribution-cleanup', 'exec'), {})
                 else:
                     exec(compile(source, 'distribution-cleanup', 'exec'), {})
-            self.assertTrue(any(argv[1] == '-r' for argv in trace))
+            if unregister_failures < 3:
+                self.assertTrue(any(argv[1] == '-r' for argv in trace))
             valid = identifier == 'com.weekleft.app' and widget_version == '163'
             if valid and not fail:
                 self.assertTrue(lookup['valid'])

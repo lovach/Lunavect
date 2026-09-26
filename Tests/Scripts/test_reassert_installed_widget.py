@@ -1,6 +1,7 @@
 """The installed widget is reasserted only for a matching Lunavect copy."""
 import importlib.util
 import plistlib
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,20 @@ SPEC.loader.exec_module(reassert)
 
 
 class ReassertInstalledWidgetTests(unittest.TestCase):
+    def test_failed_unregister_accepts_only_confirmed_absence(self):
+        app = Path('/tmp/owned-fixture.app')
+        for present in [False, True]:
+            def run(argv, **kwargs):
+                if argv[1] == '-u':
+                    raise subprocess.CalledProcessError(1, argv, stderr='failed to scan: -10814')
+                self.assertEqual(argv[1], '-dump')
+                return subprocess.CompletedProcess(argv, 0, stdout=f'path: {app} (0x1)\n' if present else '')
+            if present:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    reassert.unregister(app, run=run)
+            else:
+                reassert.unregister(app, run=run)
+
     def bundle(self, app, host='com.weekleft.app', widget='com.weekleft.app.widget', build='182', widget_build='182'):
         for path, identifier, version in [(app, host, build), (app / 'Contents/PlugIns/LunavectWidget.appex', widget, widget_build)]:
             info = path / 'Contents/Info.plist'

@@ -1,8 +1,24 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.2.2 (188)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.2.3 (189)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.2)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.3)
+
+## 0.2.3 release checks — September 26, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `18908e8724b4cda78387d7fbeba15a95091d3eb8`, tagged `v0.2.3`, merged through [PR #34](https://github.com/lovach/Lunavect/pull/34). Merge `010e87b` has exactly the archived source tree. The archive manifest, signed export and provenance passed. |
+| Automated checks | The final local release check passed 709 Swift tests, with 59 conditional skips, plus 102 Python and 8 Node companion tests. The built intent-resource test passed separately. Universal app/widget/helper builds, widget probes, packaged resources and XcodeGen 2.46.0 parity passed. [Source CI](https://github.com/lovach/Lunavect/actions/runs/36271843106) passed. The subsequent cleanup hardening passed all 105 Python tests. |
+| IDE navigation | Real local VS Code and IntelliJ IDEA 2026.2.3 selected the intended terminal and project window using inert Claude/Codex-named native fixture processes. JetBrains Classic and Reworked terminals were exercised, including the final native `SessionNavigation.open` path. Exited, ambiguous, stale and reused-process cases have regression coverage. Tests made no model requests and accessed no provider credentials. |
+| Provider panels | Routes for the official Claude Code and Codex VS Code extensions have interface/contract tests. Authenticated end-to-end panel behavior is not verified. JetBrains AI Chat/ACP panels, remote workspaces and JetBrains versions outside 2026.2 are not supported. Other JetBrains products were not exercised. See [IDE setup and compatibility](ide-sessions.md). |
+| Distribution | Developer ID signed, Apple notarized, universal build 189. Anonymous downloads of all four release assets match the packaged bytes, sizes and SHA-256 digests. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, resources, hook-helper, App Group and awake-policy checks. ZIP and feed signatures verify with the embedded public key; damaged copies are rejected. The latest feed points to 189. All 13 earlier releases retain their 54 asset identities, URLs, sizes and digests. |
+| Installation | Installed from the notarized release DMG over build 188. Forty application preference values and all six shared preference values were unchanged; only derived limit-notification state and the widget-registration stamp changed. The packaged VS Code companion was also installed in the normal local VS Code profile. JetBrains was exercised in an isolated test installation. |
+| Widgets | Both existing desktop widgets rendered LIVE after installation and through the 10-minute registration confirmation at 23:18:38–39, then again after public-DMG validation at 23:19:07–08. Only the installed host and extension remained registered. No widget placements or shared preferences were removed. This is system-renderer evidence; owner visual confirmation of this specific update remains separate. |
+| Release-tool cleanup | Launch Services intermittently returned `-10814` while retiring an owned intermediate or already absent temporary copy. The completed archive itself passed product and provenance checks; the exact temporary registration was retired and the installed host reasserted before notarization. Tooling now retries transient errors, accepts absence only after a fresh registry read, and reasserts the installed host even when cleanup fails. These follow-up script changes do not modify the published application binary. |
+| Remaining scope | Authenticated provider panels, the reporter's Mac, other IDE/macOS versions and products, and a complete Sparkle download/install cycle were not exercised. Local terminal fixtures and widget logs do not establish every real-user combination. |
+
+The 0.2.3 DMG SHA-256 is `624c60510d2c4b3688e34c5816514ff8abb37419330dd04d276d8e3a3274c10f`.
 
 ## 0.2.2 release checks — September 26, 2026
 
