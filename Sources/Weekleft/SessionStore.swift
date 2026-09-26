@@ -728,8 +728,8 @@ final class SharedWorkDemand: Sendable {
 enum SessionNavigation {
     /// `focus` is the only step that scripts another application; tests replace it.
     @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver(),
-                                focus: @MainActor (AgentSession) -> Bool = { focusTerminal($0) }) async throws {
-        if session.terminalFocusCandidate, focus(session) { return }
+                                focus: @MainActor (AgentSession) throws -> Bool = { try focusTerminal($0) }) async throws {
+        if session.terminalFocusCandidate, try focus(session) { return }
         if session.client == .terminal || session.client == .background {
             let script = try session.terminalScript(resolver: resolver)
             var directoryExists: ObjCBool = false
@@ -759,21 +759,29 @@ enum SessionNavigation {
         guard NSWorkspace.shared.open(url) else { throw SessionOpeningError.launchFailed(session.client) }
     }
     /// A live CLI session stays where it runs: bring its own tab to the front.
-    @MainActor static func focusTerminal(_ session: AgentSession) -> Bool {
+    @MainActor static func focusTerminal(_ session: AgentSession) throws -> Bool {
         let log = Logger(subsystem: "com.weekleft.app", category: "navigation")
-        // Scripting a terminal that is not running would launch it with no tab to show.
-        guard let target = TerminalLocation.focusTarget(for: session),
-              let bundle = TerminalLocation.bundleIdentifier(forApp: target.app),
-              !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty,
-              let source = TerminalLocation.focusScript(tty: target.tty, app: target.app),
-              let script = NSAppleScript(source: source) else {
+        guard let target = TerminalLocation.focusTarget(for: session) else {
             log.notice("terminal focus unavailable: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
-            return false
+            throw SessionOpeningError.terminalTabUnavailable
         }
-        var error: NSDictionary?
-        let focused = script.executeAndReturnError(&error).booleanValue && error == nil
-        log.notice("terminal focus \(focused ? "succeeded" : "failed", privacy: .public) \(error?.description ?? "", privacy: .public)")
-        return focused
+        // A root-owned login may hide the host's name. Match the exact device
+        // against running supported terminals; never launch an empty terminal.
+        let apps = target.app.isEmpty ? ["Terminal", "iTerm2"] : [target.app]
+        var failure: SessionOpeningError?
+        for app in apps {
+            guard let bundle = TerminalLocation.bundleIdentifier(forApp: app),
+                  !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty else { continue }
+            guard let source = TerminalLocation.focusScript(tty: target.tty, app: app),
+                  let script = NSAppleScript(source: source) else { throw SessionOpeningError.terminalFocusFailed(app) }
+            var error: NSDictionary?
+            let focused = script.executeAndReturnError(&error).booleanValue
+            let code = error?[NSAppleScript.errorNumber] as? Int
+            log.notice("terminal focus \(focused && error == nil ? "succeeded" : "failed", privacy: .public), code=\(code ?? 0)")
+            if error != nil { failure = failure ?? TerminalLocation.focusError(code: code, app: app) }
+            else if focused { return true }
+        }
+        throw failure ?? SessionOpeningError.terminalTabUnavailable
     }
     @MainActor static func copy(_ text: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)

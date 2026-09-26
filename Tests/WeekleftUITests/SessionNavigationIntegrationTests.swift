@@ -1,8 +1,50 @@
 import XCTest
-import WeekleftCore
+@testable import WeekleftCore
 @testable import Weekleft
 
 final class SessionNavigationIntegrationTests: XCTestCase {
+    @MainActor func testExplicitDetachedHookAndCatalogOpenRealTerminal() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNAVECT_TERMINAL_NAVIGATION_FIXTURE"] else {
+            throw XCTSkip("Explicit opt-in required: focuses an operator-owned Terminal fixture")
+        }
+        struct Fixture: Decodable { let clientPID: Int32; let hookPID: Int32; let tty: String; let windowID: Int? }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        let hooked = try XCTUnwrap(SessionProcess.terminalLocation(parentPID: fixture.hookPID, termProgram: "Apple_Terminal"))
+        XCTAssertEqual(hooked.tty, fixture.tty)
+        let data = try JSONSerialization.data(withJSONObject: [["sessionId": "01234567-89ab-cdef-0123-456789abcdef",
+            "pid": fixture.clientPID, "kind": "interactive", "status": "busy"]])
+        let row = try XCTUnwrap(SessionParser.claude(data, terminal: { pid in
+            SessionProcess.terminalLocation(parentPID: pid, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
+        }).first)
+        XCTAssertEqual(row.terminalTTY, fixture.tty)
+        XCTAssertEqual(row.client, .terminal)
+        try await SessionNavigation.open(row)
+        if let windowID = fixture.windowID {
+            // Unminimizing a macOS window finishes after the Apple event returns.
+            try await Task.sleep(for: .seconds(1))
+            let script = try XCTUnwrap(NSAppleScript(source: """
+            tell application "Terminal"
+                return (id of front window is \(windowID)) and (miniaturized of front window is false) and ((count of processes of selected tab of front window) > 0)
+            end tell
+            """))
+            var error: NSDictionary?
+            XCTAssertTrue(script.executeAndReturnError(&error).booleanValue, "Must show the live window, not an exited tab that reused its TTY")
+            XCTAssertNil(error)
+        }
+    }
+
+    @MainActor func testTerminalFocusFailureReachesThePanelWithoutLaunchingAnotherClient() async throws {
+        let row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture",
+                               cwd: "/tmp", client: .terminal, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        let resolver = ClientExecutableResolver(discoverClaude: { XCTFail("Do not resume an already open session"); return nil })
+        for failure in [SessionOpeningError.terminalAutomationDenied("Terminal"), .terminalFocusTimedOut("Terminal"), .terminalTabUnavailable] {
+            do {
+                try await SessionNavigation.open(row, resolver: resolver, focus: { _ in throw failure })
+                XCTFail("Navigation must report the actual focus failure")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, failure) }
+        }
+    }
+
     @MainActor func testSelectedUnavailableClientFailsBeforeAnySystemNavigation() async throws {
         let session = AgentSession(provider: .codex, sessionID: "01234567-89ab-cdef-0123-456789abcdef",
                                    title: "Fixture", cwd: "/missing/fixture/project", client: .terminal,

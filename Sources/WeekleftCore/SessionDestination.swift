@@ -91,10 +91,15 @@ public extension AgentSession {
 
 public enum SessionOpeningError: LocalizedError, Equatable {
     case unavailableConfiguredCodex, sessionMayBeOpen
+    case terminalTabUnavailable, terminalAutomationDenied(String), terminalFocusTimedOut(String), terminalFocusFailed(String)
     case missingCLI(ProviderID), missingProject, missingTerminal, invalidID, missingDesktopLink, missingClient(String), launchFailed(SessionClient)
     public var errorDescription: String? {
         switch self {
         case .sessionMayBeOpen: return L("Сессия может быть открыта в терминале. Вернитесь в исходное окно. Через «…» можно открыть папку проекта или скопировать ID сессии.")
+        case .terminalTabUnavailable: return L("Не удалось найти исходную вкладку этой сессии. Убедитесь, что она открыта в Terminal или iTerm2, и повторите переход.")
+        case .terminalAutomationDenied(let app): return L("Разрешите Lunavect управлять {0}: Системные настройки → Конфиденциальность и безопасность → Автоматизация. Затем повторите переход.", app)
+        case .terminalFocusTimedOut(let app): return L("{0} не ответил на запрос перехода. Закройте открытые диалоги в терминале и повторите попытку.", app)
+        case .terminalFocusFailed(let app): return L("Не удалось переключить вкладку в {0}. Откройте терминал и повторите переход.", app)
         case .unavailableConfiguredCodex: return L("Клиент Codex по выбранному пути недоступен. Откройте «Подключения» и выберите исполняемый файл заново.")
         case .missingCLI(let provider): return L("Не найден клиент {0}. Откройте «Подключения» и завершите установку официального клиента.", provider.title)
         case .missingProject: return L("Папка проекта недоступна. Верните её на прежнее место или откройте сессию в официальном приложении. Команду продолжения можно скопировать через «…».")
@@ -115,7 +120,14 @@ public enum SessionOpeningError: LocalizedError, Equatable {
 /// Brings an existing terminal tab to the front by its controlling device.
 /// The device path is validated before it is placed in the script.
 public enum TerminalLocation {
-    public struct Target: Equatable, Sendable {
+    public static func focusError(code: Int?, app: String) -> SessionOpeningError {
+        switch code {
+        case -1743: return .terminalAutomationDenied(app)
+        case -1712: return .terminalFocusTimedOut(app)
+        default: return .terminalFocusFailed(app)
+        }
+    }
+    public struct Target: Hashable, Sendable {
         public let tty: String
         public let app: String
         public init(tty: String, app: String) { self.tty = tty; self.app = app }
@@ -135,8 +147,10 @@ public enum TerminalLocation {
     /// Reads process metadata only (executable path, working directory, device).
     public static func runningTarget(provider: ProviderID, cwd: String) -> Target? {
         guard cwd.hasPrefix("/") else { return nil }
+        let canonicalDirectory = URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path
         var pids = [pid_t](repeating: 0, count: 4096)
         let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
+        var targets = Set<Target>()
         for pid in pids.prefix(max(0, count)) where pid > 0 {
             var info = proc_bsdinfo()
             let size = Int32(MemoryLayout.size(ofValue: info))
@@ -147,14 +161,16 @@ public enum TerminalLocation {
             let vsize = Int32(MemoryLayout.size(ofValue: vnode))
             guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vnode, vsize) == vsize else { continue }
             let dir = withUnsafeBytes(of: vnode.pvi_cdir.vip_path) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
-            guard dir == cwd, let dev = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { continue }
+            guard URL(fileURLWithPath: dir).resolvingSymlinksInPath().path == canonicalDirectory,
+                  let dev = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { continue }
             let tty = "/dev/" + String(cString: dev)
             guard valid(tty) else { continue }
             // The ancestry can stop at Terminal's root-owned login process.
             let app = SessionProcess.terminalLocation(parentPID: pid, termProgram: "")?.app ?? "Terminal"
-            return Target(tty: tty, app: app)
+            targets.insert(Target(tty: tty, app: app))
         }
-        return nil
+        // Several tasks may share one project. Never jump to an arbitrary task.
+        return targets.count == 1 ? targets.first : nil
     }
     public static func bundleIdentifier(forApp app: String) -> String? {
         switch app {
@@ -182,7 +198,7 @@ public enum TerminalLocation {
                     try
                         repeat with t in tabs of w
                             try
-                                if tty of t is "\(tty)" then
+                                if tty of t is "\(tty)" and (count of processes of t) > 0 then
                                     if miniaturized of w then set miniaturized of w to false
                                     set selected of t to true
                                     set index of w to 1
@@ -190,11 +206,11 @@ public enum TerminalLocation {
                                     return true
                                 end if
                             on error errorMessage number errorNumber
-                                if errorNumber is -1712 then error errorMessage number errorNumber
+                                if errorNumber is -1712 or errorNumber is -1743 then error errorMessage number errorNumber
                             end try
                         end repeat
                     on error errorMessage number errorNumber
-                        if errorNumber is -1712 then error errorMessage number errorNumber
+                        if errorNumber is -1712 or errorNumber is -1743 then error errorMessage number errorNumber
                     end try
                 end repeat
             end tell
@@ -218,12 +234,12 @@ public enum TerminalLocation {
                                         return true
                                     end if
                                 on error errorMessage number errorNumber
-                                    if errorNumber is -1712 then error errorMessage number errorNumber
+                                    if errorNumber is -1712 or errorNumber is -1743 then error errorMessage number errorNumber
                                 end try
                             end repeat
                         end repeat
                     on error errorMessage number errorNumber
-                        if errorNumber is -1712 then error errorMessage number errorNumber
+                        if errorNumber is -1712 or errorNumber is -1743 then error errorMessage number errorNumber
                     end try
                 end repeat
             end tell
