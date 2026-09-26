@@ -5115,5 +5115,33 @@
     "es": "No se ha restaurado todo: Keep Awake o una solicitud de macOS sigue en curso. Vuelve a intentarlo en unos segundos.",
     "fr": "Tout n’a pas été rétabli : Keep Awake ou une demande macOS est encore en cours. Réessayez dans quelques secondes.",
     "zh-Hans": "未能全部恢复：Keep Awake 或 macOS 请求仍在进行中。请几秒后重试。"
+  },
+  "Не удалось найти исходную вкладку этой сессии. Убедитесь, что она открыта в Terminal или iTerm2, и повторите переход.": {
+    "en": "Could not find this session’s original tab. Make sure it is open in Terminal or iTerm2, then try again.",
+    "de": "Der ursprüngliche Tab dieser Sitzung wurde nicht gefunden. Prüfen Sie, ob er in Terminal oder iTerm2 geöffnet ist, und versuchen Sie es erneut.",
+    "es": "No se encontró la pestaña original de esta sesión. Comprueba que esté abierta en Terminal o iTerm2 y vuelve a intentarlo.",
+    "fr": "L’onglet d’origine de cette session est introuvable. Vérifiez qu’il est ouvert dans Terminal ou iTerm2, puis réessayez.",
+    "zh-Hans": "找不到此会话的原始标签页。请确认它在 Terminal 或 iTerm2 中打开，然后重试。"
+  },
+  "Разрешите Lunavect управлять {0}: Системные настройки → Конфиденциальность и безопасность → Автоматизация. Затем повторите переход.": {
+    "en": "Allow Lunavect to control {0} in System Settings → Privacy & Security → Automation, then try again.",
+    "de": "Erlauben Sie Lunavect unter Systemeinstellungen → Datenschutz & Sicherheit → Automation, {0} zu steuern. Versuchen Sie es dann erneut.",
+    "es": "Permite que Lunavect controle {0} en Ajustes del Sistema → Privacidad y seguridad → Automatización y vuelve a intentarlo.",
+    "fr": "Autorisez Lunavect à contrôler {0} dans Réglages Système → Confidentialité et sécurité → Automatisation, puis réessayez.",
+    "zh-Hans": "请在系统设置 → 隐私与安全性 → 自动化中允许 Lunavect 控制 {0}，然后重试。"
+  },
+  "{0} не ответил на запрос перехода. Закройте открытые диалоги в терминале и повторите попытку.": {
+    "en": "{0} did not respond to the request to switch tabs. Close any open dialogs in the terminal, then try again.",
+    "de": "{0} hat auf die Anfrage zum Tabwechsel nicht geantwortet. Schließen Sie offene Dialoge im Terminal und versuchen Sie es erneut.",
+    "es": "{0} no respondió a la solicitud de cambiar de pestaña. Cierra los diálogos abiertos en el terminal y vuelve a intentarlo.",
+    "fr": "{0} n’a pas répondu à la demande de changement d’onglet. Fermez les boîtes de dialogue ouvertes dans le terminal, puis réessayez.",
+    "zh-Hans": "{0} 未响应标签页切换请求。请关闭终端中打开的对话框，然后重试。"
+  },
+  "Не удалось переключить вкладку в {0}. Откройте терминал и повторите переход.": {
+    "en": "Could not switch tabs in {0}. Open the terminal, then try again.",
+    "de": "Der Tab in {0} konnte nicht gewechselt werden. Öffnen Sie das Terminal und versuchen Sie es erneut.",
+    "es": "No se pudo cambiar de pestaña en {0}. Abre el terminal y vuelve a intentarlo.",
+    "fr": "Impossible de changer d’onglet dans {0}. Ouvrez le terminal, puis réessayez.",
+    "zh-Hans": "无法切换 {0} 中的标签页。请打开终端，然后重试。"
   }
 }

@@ -76,7 +76,9 @@ public enum SessionSources {
     public static func claude(path: String) async throws -> [AgentSession] {
         try await SessionProcess.detached {
             let data = try SessionProcess.run(path: path, arguments: ["agents", "--json", "--all"])
-            return try SessionParser.claude(data, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) })
+            return try SessionParser.claude(data, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
+                SessionProcess.terminalLocation(parentPID: $0, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
+            })
         }
     }
     public static func codex(path: String) async throws -> [AgentSession] {
@@ -570,28 +572,36 @@ enum SessionProcess {
     /// The controlling terminal device of the client process and the terminal
     /// application that owns it. Reads only process metadata, never arguments or environment.
     static func terminalLocation(parentPID: Int32, termProgram: String) -> (tty: String, app: String)? {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout.size(ofValue: info))
-        guard proc_pidinfo(parentPID, PROC_PIDTBSDINFO, 0, &info, size) == size, info.e_tdev != UInt32.max,
-              let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { return nil }
-        let tty = "/dev/" + String(cString: name)
-        guard TerminalLocation.valid(tty) else { return nil }
-        // Terminal starts shells through a root-owned login process, so the
-        // ancestor walk may stop early; the terminal's own marker comes first.
-        if termProgram == "Apple_Terminal" { return (tty, "Terminal") }
-        if termProgram == "iTerm.app" { return (tty, "iTerm2") }
-        var pid = parentPID
+        // Hook runners may call setsid(), losing their own controlling TTY.
+        // Follow their parents to the client rather than giving up at the hook.
+        // Read only process metadata; never arguments, environment or terminal text.
+        var tty: String?, pid = parentPID, seen = Set<Int32>()
+        let markedApp = termProgram == "Apple_Terminal" ? "Terminal" : termProgram == "iTerm.app" ? "iTerm2" : nil
         for _ in 0..<16 {
+            guard pid > 1, seen.insert(pid).inserted else { return nil }
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout.size(ofValue: info))
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { break }
+            if tty == nil, info.e_tdev != UInt32.max, let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) {
+                let candidate = "/dev/" + String(cString: name)
+                if TerminalLocation.valid(candidate) { tty = candidate }
+            }
+            // Terminal's root-owned login can block further process inspection.
+            if let tty, let markedApp { return (tty, markedApp) }
             var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
             guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
             let path = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
-            if path.contains("/Terminal.app/") { return (tty, "Terminal") }
-            if path.contains("/iTerm.app/") { return (tty, "iTerm2") }
-            var parent = proc_bsdinfo()
-            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &parent, size) == size, parent.pbi_ppid > 1, parent.pbi_ppid != UInt32(pid) else { break }
-            pid = Int32(parent.pbi_ppid)
+            if let tty, path.contains("/Terminal.app/") { return (tty, "Terminal") }
+            if let tty, path.contains("/iTerm.app/") { return (tty, "iTerm2") }
+            // A Desktop/editor runtime must not inherit an ancestor shell's tab.
+            if !path.contains("/Contents/Resources/"),
+               ["/Claude.app/", "/ChatGPT.app/", "/Codex.app/", "/Visual Studio Code.app/"].contains(where: path.contains) { return nil }
+            pid = Int32(info.pbi_ppid)
         }
-        return nil
+        // A root-owned login process can hide the terminal app's ancestry while
+        // the client's TTY remains known. The navigation layer can match that
+        // exact device against running supported terminals without guessing a tab.
+        return tty.map { ($0, termProgram) }
     }
 }
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2 — 2026-09-26
+
+### Fixed
+
+- Opening a running Claude Code session can recover its Terminal tab even when a detached hook has lost the terminal device. Each live session is matched by its own process, including multiple sessions in the same project.
+- Apple Terminal navigation ignores exited tabs that still hold a reused terminal device and restores the correct minimized window. Ambiguous project matches no longer select an arbitrary tab.
+- If macOS denies Automation access, the session panel explains which permission to enable. Missing tabs, timeouts and other terminal errors also have specific messages.
+
+### Documentation
+
+- Updated the README and website introduction and added a short session demonstration to the README.
+
 ## 0.2.1 — 2026-09-24
 
 ### Fixed

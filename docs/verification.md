@@ -4,6 +4,16 @@ The current public release is **Lunavect 0.2.1 (186)**. These records distinguis
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.1)
 
+## Local Terminal navigation fix — September 26, 2026
+
+A report from another Mac showed a live Claude session failing to open in Apple Terminal with the generic “session may be open” warning. The remote Mac’s logs were not available, so its exact cause remains unconfirmed. Local reproductions established two defects: a hook runner detached with `setsid()` lost the client’s terminal device, and an exited Terminal tab could retain a TTY later reused by another live session. The old focus script returned success for that exited tab while the correct window remained minimized.
+
+Hooks now follow bounded process ancestry, Claude catalog rows recover their own device by PID, and older hook locations cannot replace a current catalog location. A root-owned login process can hide the terminal app’s name without losing a known device; navigation matches it only against running Terminal/iTerm2 instances. The directory fallback resolves path aliases and rejects multiple distinct devices. Apple Terminal focus skips tabs with no running processes. Automation denial and timeout retain their specific recovery messages instead of becoming the generic warning.
+
+Validation: the detached-hook regression failed on the original code. The focused Swift suite completed 117 tests, with 112 passing, five optional skips and no failures. An explicitly enabled integration test used an operator-owned native process and detached child in the real Apple Terminal, then exercised production catalog parsing and `SessionNavigation.open`. It verified the actual foreground window, unminimized state and live tab, including an exited tab with a reused TTY. No model prompt or account request was needed for this fixture. The two live mechanisms do not establish which one occurred on the reporter’s Mac; iTerm2 interaction and an actual denied macOS permission were not exercised live (error propagation was tested synthetically).
+
+Local candidate: signed universal Release build **187** compiled successfully, passed strict signature, resource, hook-helper and App Group checks, and was installed over build 186. The built source files were hash-compared with the tested working tree. Widget preferences were unchanged after installation; the app restarted and resumed quota updates. This is a local candidate, not a published or notarized release.
+
 ## 0.2.1 release checks — September 24, 2026
 
 | Area | Result |

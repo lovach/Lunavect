@@ -224,7 +224,8 @@ public enum SessionParser {
             return session
         }
     }
-    public static func claude(_ data: Data, now: Date = Date(), nestedRuntime: (Int32) -> Bool? = { _ in nil }) throws -> [AgentSession] {
+    public static func claude(_ data: Data, now: Date = Date(), nestedRuntime: (Int32) -> Bool? = { _ in nil },
+                              terminal: (Int32) -> TerminalLocation.Target? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
         return rows.compactMap { row in
             guard let id = (row["sessionId"] ?? row["id"]) as? String, validID(id) else { return nil }
@@ -263,6 +264,10 @@ public enum SessionParser {
                 session.isNestedClaudeSession = false
             } else if let pid = row["pid"] as? Int, pid > 1, let safePID = Int32(exactly: pid) {
                 session.isNestedClaudeSession = nestedRuntime(safePID)
+                if let location = terminal(safePID), TerminalLocation.valid(location.tty) {
+                    session.client = .terminal
+                    session.terminalTTY = location.tty; session.terminalApp = location.app
+                }
             }
             let livePresence = ["busy", "waiting", "idle"].contains(status) || (row["pid"] as? Int ?? 0) > 0
             session.catalogHistory = background && ["blocked", "done", "failed", "stopped"].contains(row["state"] as? String) && !livePresence
@@ -281,8 +286,9 @@ public enum SessionList {
             if event.evidence == .legacy, let hooked = hookedAt[event.id], event.observedAt.timeIntervalSince(hooked) < 10 { continue }
             if var row = result[event.id] {
                 if event.isCodexSubagent == true { row.isCodexSubagent = true }
-                // Only hooks know the terminal a CLI session runs in; catalog rows never carry it.
-                if let tty = event.terminalTTY { row.terminalTTY = tty; row.terminalApp = event.terminalApp }
+                // A live catalog PID identifies the current tab. Old hook records
+                // can still name a device from before this session was resumed.
+                if row.terminalTTY == nil, let tty = event.terminalTTY { row.terminalTTY = tty; row.terminalApp = event.terminalApp }
                 if row.client == .unknown, event.client != .unknown { row.client = event.client }
                 if row.provider == .claude, row.client == .background {
                     row.isNestedClaudeSession = false
