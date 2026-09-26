@@ -10,7 +10,7 @@
 
 ### Documentation
 
-- Updated the README and website introduction and added a short session demonstration to the README.
+- Updated the README and website introduction.
 
 ## 0.2.1 — 2026-09-24
 
