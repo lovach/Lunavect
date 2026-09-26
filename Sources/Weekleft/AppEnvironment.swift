@@ -98,6 +98,7 @@ enum AppPreviewRequest: Equatable {
     let updates: AppUpdates
     let awake: KeepAwake
     let language: LanguageSettings
+    let analytics: UsageAnalytics
     let defaults: UserDefaults
     let isPreview: Bool
     private let cleanup: () -> Void
@@ -112,6 +113,10 @@ enum AppPreviewRequest: Equatable {
         self.menuBarAppearance = menuBarAppearance; self.features = features
         self.updates = updates; self.awake = awake; self.language = language
         self.isPreview = isPreview; self.cleanup = cleanup
+        self.analytics = UsageAnalytics(defaults: defaults,
+            configuration: isPreview ? nil : .bundled(),
+            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
         self.activityContinuity = isPreview ? nil : ActivityContinuity()
         if !isPreview {
             awakeObservation = awake.$isEnabled.sink { [weak activityContinuity] enabled in
@@ -157,6 +162,7 @@ enum AppPreviewRequest: Equatable {
     }
 
     func stop() {
+        analytics.stop()
         awakeObservation = nil
         activityContinuity?.stop()
         features.stop(); sessions.stop(); store.stop(); awake.shutdown()

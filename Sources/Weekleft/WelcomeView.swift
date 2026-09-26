@@ -7,6 +7,7 @@ import WeekleftCore
 @MainActor struct WelcomeView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var sessions: SessionStore
+    @Environment(\.usageAnalytics) private var analytics
     var onFinish: () -> Void
     /// The last step's button is labelled «Open sessions» and must do exactly that.
     var onOpenSessions: (() -> Void)?
@@ -67,6 +68,7 @@ import WeekleftCore
                 feature(.sessions, "Быстрый доступ к сессиям")
             }
             ConnectionPrivacyView()
+            if let analytics { UsageAnalyticsView(analytics: analytics, invitation: true) }
             Text(L("Обучение можно пропустить и открыть снова в настройках."))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
         case 1:

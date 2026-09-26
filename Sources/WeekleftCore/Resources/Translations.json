@@ -5234,5 +5234,54 @@
     "es": "Actualizar conexión",
     "fr": "Actualiser la connexion",
     "zh-Hans": "刷新连接"
+  },
+  "Помочь улучшить Lunavect": {
+    "en": "Help improve Lunavect",
+    "de": "Lunavect verbessern helfen",
+    "es": "Ayuda a mejorar Lunavect",
+    "fr": "Aider à améliorer Lunavect",
+    "zh-Hans": "帮助改进 Lunavect"
+  },
+  "Обработчик — PostHog EU. Можно отключить в любой момент; приложение работает и без статистики.": {
+    "en": "Processed by PostHog EU. You can turn this off at any time; the app works without statistics.",
+    "de": "Verarbeitung durch PostHog EU. Jederzeit abschaltbar; die App funktioniert auch ohne Statistik.",
+    "es": "Procesado por PostHog EU. Puedes desactivarlo cuando quieras; la app funciona sin estadísticas.",
+    "fr": "Traitement par PostHog EU. Désactivable à tout moment ; l’app fonctionne sans statistiques.",
+    "zh-Hans": "由 PostHog EU 处理。可随时关闭；关闭后应用仍可正常使用。"
+  },
+  "Нет, спасибо": {
+    "en": "No thanks",
+    "de": "Nein, danke",
+    "es": "No, gracias",
+    "fr": "Non merci",
+    "zh-Hans": "不用，谢谢"
+  },
+  "Разрешить статистику": {
+    "en": "Allow statistics",
+    "de": "Statistik erlauben",
+    "es": "Permitir estadísticas",
+    "fr": "Autoriser les statistiques",
+    "zh-Hans": "允许统计"
+  },
+  "Какие данные отправляются": {
+    "en": "What is collected",
+    "de": "Welche Daten werden gesendet?",
+    "es": "Qué datos se recopilan",
+    "fr": "Quelles données sont envoyées",
+    "zh-Hans": "收集哪些数据"
+  },
+  "Число запусков, версия Lunavect и macOS, тип клиента и результат перехода к сессии. Без постоянного ID, содержимого сессий, названий проектов и путей.": {
+    "en": "Launch count, Lunavect and macOS versions, client type and session navigation result. No persistent ID, session content, project names or paths.",
+    "de": "Anzahl der Starts, Lunavect- und macOS-Version, Clienttyp und Ergebnis der Sitzungsnavigation. Keine dauerhafte ID, Sitzungsinhalte, Projektnamen oder Pfade.",
+    "es": "Número de inicios, versiones de Lunavect y macOS, tipo de cliente y resultado de abrir una sesión. Sin ID persistente, contenido de sesiones, nombres de proyectos ni rutas.",
+    "fr": "Nombre de lancements, versions de Lunavect et macOS, type de client et résultat de l’ouverture d’une session. Aucun identifiant permanent, contenu de session, nom de projet ou chemin.",
+    "zh-Hans": "启动次数、Lunavect 和 macOS 版本、客户端类型及会话跳转结果。不含持久 ID、会话内容、项目名称或路径。"
+  },
+  "Отправлять техническую статистику": {
+    "en": "Share technical statistics",
+    "de": "Technische Statistik teilen",
+    "es": "Compartir estadísticas técnicas",
+    "fr": "Partager des statistiques techniques",
+    "zh-Hans": "分享技术统计"
   }
 }

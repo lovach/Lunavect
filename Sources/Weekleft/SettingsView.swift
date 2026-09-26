@@ -63,6 +63,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     @ObservedObject var awake: KeepAwake
     @ObservedObject var features: AppFeatures
     @ObservedObject var language: LanguageSettings
+    @Environment(\.usageAnalytics) private var analytics
     var onShowSessions: () -> Void = {}
     var onShowWelcome: () -> Void = {}
     @AppStorage("settingsSection") private var section: SettingsSection = .connections
@@ -104,6 +105,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 .background(Color(nsColor: .windowBackgroundColor))
         }.frame(minWidth: 800, minHeight: 580)
             .disclosureGroupStyle(FullRowDisclosureStyle())
+
     }
 
     private var sidebar: some View {
@@ -161,6 +163,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .limits:
             LimitsOverview(store: store) { section = .connections }
         case .general:
+            if let analytics { UsageAnalyticsView(analytics: analytics) }
             AppBehaviorSettings(features: features)
             GroupBox {
                 VStack(spacing: 10) {
