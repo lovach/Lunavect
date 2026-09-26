@@ -38,6 +38,46 @@ class ReassertInstalledWidgetTests(unittest.TestCase):
             self.assertIsNone(restored, kwargs)
             self.assertEqual(calls, [], kwargs)
 
+    def test_temporary_copy_is_retired_before_installed_host_is_reasserted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            installed, exported = root / 'Applications/Lunavect.app', root / 'export/Lunavect.app'
+            self.bundle(installed); self.bundle(exported)
+            calls = []
+            def run(argv, check):
+                self.assertTrue((exported / 'Contents/Info.plist').exists())
+                calls.append(argv)
+            self.assertEqual(reassert.retire_temporary([exported], [installed], run=run), [exported])
+            self.assertEqual(calls, [
+                ['pluginkit', '-r', str(exported / 'Contents/PlugIns/LunavectWidget.appex')],
+                [reassert.LSREGISTER, '-u', str(exported)],
+                [reassert.LSREGISTER, '-f', str(installed)],
+                ['pluginkit', '-a', str(installed / 'Contents/PlugIns/LunavectWidget.appex')]])
+            self.assertTrue((exported / 'Contents/Info.plist').exists(), 'Cleanup never deletes the packaged source')
+
+    def test_retirement_preserves_installed_aliases_foreign_and_missing_apps(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); installed = root / 'Applications/Lunavect.app'
+            alias, foreign, missing = root / 'alias.app', root / 'foreign.app', root / 'missing.app'
+            self.bundle(installed); self.bundle(foreign, host='other.app'); alias.symlink_to(installed)
+            calls = []
+            retired = reassert.retire_temporary([installed, alias, foreign, missing], [installed],
+                                                run=lambda argv, check: calls.append(argv))
+            self.assertEqual(retired, []); self.assertEqual(calls, [])
+
+    def test_failed_retirement_still_reasserts_installed_host(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); installed, exported = root / 'installed.app', root / 'exported.app'
+            self.bundle(installed); self.bundle(exported); calls = []
+            def run(argv, check):
+                calls.append(argv)
+                if argv[:2] == [reassert.LSREGISTER, '-u']:
+                    raise RuntimeError('Synthetic unregister failure')
+            with self.assertRaisesRegex(RuntimeError, 'Synthetic'):
+                reassert.retire_temporary([exported], [installed], run=run)
+            self.assertEqual(calls[-2:], [[reassert.LSREGISTER, '-f', str(installed)],
+                              ['pluginkit', '-a', str(installed / 'Contents/PlugIns/LunavectWidget.appex')]])
+
 
 if __name__ == '__main__':
     unittest.main()

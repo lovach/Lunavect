@@ -60,6 +60,14 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     try:
+        prepare(args)
+    finally:
+        checked(sys.executable, str(Path(__file__).with_name('reassert-installed-widget.py')),
+                '--retire-app', str(args.app))
+
+
+def prepare(args):
+    try:
         import dmgbuild
     except ImportError:
         raise ValueError('Install the release-only dependencies from scripts/dmg/requirements.txt in a virtual environment')

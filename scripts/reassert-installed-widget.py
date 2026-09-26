@@ -7,6 +7,7 @@ placeholders. This only re-registers an installed copy whose host and widget
 identifiers and build numbers match; it never launches, replaces or edits it.
 """
 from pathlib import Path
+import argparse
 import plistlib
 import subprocess
 import sys
@@ -40,8 +41,41 @@ def reassert(candidates, run=subprocess.run):
     return None
 
 
+def retire_temporary(copies, candidates, run=subprocess.run):
+    """Unregister only explicitly owned build copies before their files disappear."""
+    installed = {path.resolve() for path in candidates}
+    retired = []
+    try:
+        for app in copies:
+            if app.resolve() in installed:
+                continue
+            try:
+                info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+            except (OSError, ValueError):
+                continue
+            if info.get('CFBundleIdentifier') != 'com.weekleft.app':
+                continue
+            retired.append(app)
+            extension = app / 'Contents/PlugIns/LunavectWidget.appex'
+            if extension.is_dir():
+                run(['pluginkit', '-r', str(extension)], check=False)
+            run([LSREGISTER, '-u', str(app)], check=True)
+    finally:
+        # Retiring a copy can invalidate the installed host's lookup as well.
+        if retired:
+            reassert(candidates, run=run)
+    return retired
+
+
 if __name__ == '__main__':
-    restored = reassert(installed_copies())
-    if restored:
-        print(f'Installed Lunavect widget registration reasserted: {restored}')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--retire-app', action='append', type=Path, default=[])
+    args = parser.parse_args()
+    if args.retire_app:
+        retired = retire_temporary(args.retire_app, installed_copies())
+        print(f'Temporary Lunavect registrations retired: {len(retired)}; installed host reasserted when present.')
+    else:
+        restored = reassert(installed_copies())
+        if restored:
+            print(f'Installed Lunavect widget registration reasserted: {restored}')
     sys.exit(0)

@@ -64,7 +64,7 @@ esac
 # archive registration is disabled. Keep them out of Spotlight/widget discovery.
 python3 - "$ARCHIVE" "$OUTPUT" "$BUILD" <<'PY'
 from pathlib import Path
-import plistlib, subprocess, sys
+import plistlib, shutil, subprocess, sys
 archive, output, build = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 copies = [archive / 'Products/Applications/Lunavect.app',
           output / f'Submission-{build}/Lunavect.app',
@@ -76,6 +76,18 @@ register = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/F
 registered = {line.split('path:', 1)[1].strip().rsplit(' (0x', 1)[0]
               for line in subprocess.check_output([register, '-dump'], text=True).splitlines()
               if line.strip().startswith('path:')}
+# Xcode can remove its intermediate app before cleanup. A missing path cannot
+# be unregistered by Launch Services. Restore just that known build product long
+# enough to retire its existing record, then remove our temporary restoration.
+restored = []
+intermediate = copies[4]
+archived = archive / 'Products/Applications/Lunavect.app'
+if str(intermediate) in registered and not intermediate.exists() and not intermediate.is_symlink():
+    if plistlib.loads((archived / 'Contents/Info.plist').read_bytes()).get('CFBundleIdentifier') != 'com.weekleft.app':
+        raise SystemExit('Unexpected archive source for registration cleanup')
+    intermediate.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['ditto', str(archived), str(intermediate)], check=True)
+    restored.append(intermediate)
 for app in copies:
     if not (app / 'Contents/Info.plist').is_file():
         continue
@@ -86,6 +98,8 @@ for app in copies:
         subprocess.run([register, '-u', str(app)], check=True)
     for extension in (app / 'Contents/PlugIns').glob('*.appex'):
         subprocess.run(['pluginkit', '-r', str(extension)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+for app in restored:
+    shutil.rmtree(app)
 # Removing an archive's extension can invalidate the containing-bundle lookup
 # for the installed copy too. Reassert the installed host AFTER all removals.
 # Do not launch it, replace files, change defaults or restart system services.

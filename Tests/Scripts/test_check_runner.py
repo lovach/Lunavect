@@ -151,6 +151,16 @@ class CheckRunnerTests(unittest.TestCase):
         (repo / 'Tests/Scripts').mkdir(parents=True)
         for script in ('check.sh', 'check-report.py', 'build-manifest.py'):
             shutil.copy2(ROOT / 'scripts' / script, repo / 'scripts' / script)
+        # The real boundary has its own injected-runner tests. This fixture must
+        # never change the developer's registered apps, even on a failed check.
+        (repo / 'scripts/reassert-installed-widget.py').write_text(textwrap.dedent('''\
+            import os, sys
+            from pathlib import Path
+            assert sys.argv[1] == '--retire-app'
+            app = Path(sys.argv[2])
+            assert '/Lunavect-Check.noindex/run.' in str(app) or '/shared-derived-parent/run.' in str(app)
+            assert app.name == 'Lunavect.app'
+        '''))
         for script in ('verify-hook-helper.py', 'verify-product-resources.py'):
             (repo / 'scripts' / script).write_text(textwrap.dedent('''\
                 import os

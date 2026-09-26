@@ -46,6 +46,14 @@ def main():
     parser.add_argument('--tools', type=Path, default=Path('.build/artifacts/sparkle/Sparkle/bin'))
     parser.add_argument('--previous-appcast', type=Path, required=True, help='Fresh published appcast used for the archive preflight')
     args = parser.parse_args()
+    try:
+        prepare(args)
+    finally:
+        subprocess.run([os.sys.executable, str(Path(__file__).with_name('reassert-installed-widget.py')),
+                        '--retire-app', str(args.app)], check=True)
+
+
+def prepare(args):
     app, output, key = args.app.resolve(), args.output.resolve(), args.key_file.resolve()
     info, repo, version, build = inspect_app(app)
     preflight.validate_previous(version, build, args.previous_appcast)

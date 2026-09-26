@@ -14,16 +14,19 @@ RESULT_DIR=""
 REPORT=""
 REPORTER="$PROJECT_ROOT/scripts/check-report.py"
 
-# Never inspect/unregister another app or delete the shared parent directory.
+# Retire only this run's product while it still exists; never remove sibling runs.
 cleanup_check() {
   local status=$?
   trap - EXIT
+  local cleanup_status=0
+  python3 "$PROJECT_ROOT/scripts/reassert-installed-widget.py" --retire-app "$DERIVED_DIR/Build/Products/Release/Lunavect.app" || cleanup_status=$?
+  if [ "$status" -eq 0 ]; then status=$cleanup_status; fi
   if [ -n "$REPORT" ]; then
     local report_status=0
     python3 "$REPORTER" finish "$REPORT" "$status" || report_status=$?
     if [ "$status" -eq 0 ]; then status=$report_status; fi
   fi
-  rm -rf "$RUN_DIR"
+  if [ "$cleanup_status" -eq 0 ]; then rm -rf "$RUN_DIR"; fi
   if [ -n "$RESULT_DIR" ]; then printf '\nCheck evidence: %s\n' "$RESULT_DIR"; fi
   exit "$status"
 }
