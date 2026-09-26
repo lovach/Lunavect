@@ -64,7 +64,7 @@ esac
 # archive registration is disabled. Keep them out of Spotlight/widget discovery.
 python3 - "$ARCHIVE" "$OUTPUT" "$BUILD" <<'PY'
 from pathlib import Path
-import plistlib, shutil, subprocess, sys
+import plistlib, shutil, subprocess, sys, time
 archive, output, build = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 copies = [archive / 'Products/Applications/Lunavect.app',
           output / f'Submission-{build}/Lunavect.app',
@@ -88,38 +88,56 @@ if str(intermediate) in registered and not intermediate.exists() and not interme
     intermediate.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(['ditto', str(archived), str(intermediate)], check=True)
     restored.append(intermediate)
-for app in copies:
-    if not (app / 'Contents/Info.plist').is_file():
-        continue
-    info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
-    if info.get('CFBundleIdentifier') != 'com.weekleft.app':
-        raise SystemExit('Unexpected app in distribution output')
-    if str(app) in registered:
-        subprocess.run([register, '-u', str(app)], check=True)
-    for extension in (app / 'Contents/PlugIns').glob('*.appex'):
-        subprocess.run(['pluginkit', '-r', str(extension)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-for app in restored:
-    shutil.rmtree(app)
-# Removing an archive's extension can invalidate the containing-bundle lookup
-# for the installed copy too. Reassert the installed host AFTER all removals.
-# Do not launch it, replace files, change defaults or restart system services.
-for installed in [Path.home() / 'Applications/Lunavect.app', Path('/Applications/Lunavect.app')]:
-    if installed.is_symlink() or not installed.is_dir():
-        continue
-    extension = installed / 'Contents/PlugIns/LunavectWidget.appex'
-    try:
-        host_info = plistlib.loads((installed / 'Contents/Info.plist').read_bytes())
-        widget_info = plistlib.loads((extension / 'Contents/Info.plist').read_bytes())
-    except (OSError, ValueError):
-        continue
-    if (host_info.get('CFBundleIdentifier') != 'com.weekleft.app'
-            or widget_info.get('CFBundleIdentifier') != 'com.weekleft.app.widget'
-            or not host_info.get('CFBundleVersion')
-            or host_info['CFBundleVersion'] != widget_info.get('CFBundleVersion')):
-        continue
-    subprocess.run([register, '-f', str(installed)], check=True)
-    subprocess.run(['pluginkit', '-a', str(extension)], check=True)
-    print('Installed Lunavect widget registration restored after temporary-copy cleanup.')
-    break
+try:
+    for app in copies:
+        if not (app / 'Contents/Info.plist').is_file():
+            continue
+        info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+        if info.get('CFBundleIdentifier') != 'com.weekleft.app':
+            raise SystemExit('Unexpected app in distribution output')
+        if str(app) in registered:
+            # Launch Services may briefly reject a bundle just restored from the
+            # archive. Retry only this owned path; persistent failure remains fatal.
+            for attempt in range(3):
+                try:
+                    subprocess.run([register, '-u', str(app)], check=True)
+                    break
+                except subprocess.CalledProcessError:
+                    # Another unregister can already have retired this record.
+                    # Confirm absence rather than ignoring a real cleanup error.
+                    fresh = subprocess.check_output([register, '-dump'], text=True)
+                    remaining = {Path(line.split('path:', 1)[1].strip().rsplit(' (0x', 1)[0]).resolve()
+                                 for line in fresh.splitlines() if line.strip().startswith('path:')}
+                    if app.resolve() not in remaining:
+                        break
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.5 * (attempt + 1))
+        for extension in (app / 'Contents/PlugIns').glob('*.appex'):
+            subprocess.run(['pluginkit', '-r', str(extension)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for app in restored:
+        shutil.rmtree(app)
+    # Removing an archive's extension can invalidate the containing-bundle lookup
+    # for the installed copy too. Reassert the installed host AFTER all removals.
+    # Do not launch it, replace files, change defaults or restart system services.
+finally:
+    for installed in [Path.home() / 'Applications/Lunavect.app', Path('/Applications/Lunavect.app')]:
+        if installed.is_symlink() or not installed.is_dir():
+            continue
+        extension = installed / 'Contents/PlugIns/LunavectWidget.appex'
+        try:
+            host_info = plistlib.loads((installed / 'Contents/Info.plist').read_bytes())
+            widget_info = plistlib.loads((extension / 'Contents/Info.plist').read_bytes())
+        except (OSError, ValueError):
+            continue
+        if (host_info.get('CFBundleIdentifier') != 'com.weekleft.app'
+                or widget_info.get('CFBundleIdentifier') != 'com.weekleft.app.widget'
+                or not host_info.get('CFBundleVersion')
+                or host_info['CFBundleVersion'] != widget_info.get('CFBundleVersion')):
+            continue
+        subprocess.run([register, '-f', str(installed)], check=True)
+        subprocess.run(['pluginkit', '-a', str(extension)], check=True)
+        print('Installed Lunavect widget registration restored after temporary-copy cleanup.')
+        break
 print('Temporary distribution registrations removed; installed files and preferences unchanged.')
 PY

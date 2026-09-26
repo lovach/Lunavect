@@ -8,9 +8,9 @@
 Every agent session on your Mac with its live state, right in the menu bar,<br>
 next to both tools' weekly and five-hour limits with reset times.
 
-<a href="https://github.com/lovach/Lunavect/releases/download/v0.2.2/Lunavect-0.2.2.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
+<a href="https://github.com/lovach/Lunavect/releases/download/v0.2.3/Lunavect-0.2.3.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
 
-<sub>Version 0.2.2 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
+<sub>Version 0.2.3 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
 
 <br>
 
@@ -94,9 +94,11 @@ brew tap lovach/lunavect https://github.com/lovach/Lunavect
 brew install --cask lovach/lunavect/lunavect
 ```
 
-**Or download** [Lunavect-0.2.2.dmg](https://github.com/lovach/Lunavect/releases/download/v0.2.2/Lunavect-0.2.2.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
+**Or download** [Lunavect-0.2.3.dmg](https://github.com/lovach/Lunavect/releases/download/v0.2.3/Lunavect-0.2.3.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
 
 Then choose **Connect Claude** or **Connect Codex**. Claude needs Claude Code CLI; Claude Desktop alone is not enough. Codex needs the official Codex app or CLI. Connect one provider or both. Sign-in stays with the official clients.
+
+For local VS Code or JetBrains 2026.2 terminals, install the bundled companion from **Settings → Connections → Sessions in editors** to return to the exact session tab. See [IDE setup and supported surfaces](docs/ide-sessions.md).
 
 [Setup, updates and uninstall](docs/installation.md) · [Compatibility and known limitations](docs/verification.md)
 

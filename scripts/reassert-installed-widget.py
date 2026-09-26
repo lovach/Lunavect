@@ -41,6 +41,18 @@ def reassert(candidates, run=subprocess.run):
     return None
 
 
+def unregister(app, run=subprocess.run):
+    """Already-retired paths are success only after a fresh registry check."""
+    try:
+        run([LSREGISTER, '-u', str(app)], check=True)
+    except subprocess.CalledProcessError:
+        listing = run([LSREGISTER, '-dump'], check=True, capture_output=True, text=True).stdout
+        registered = {Path(line.split('path:', 1)[1].strip().rsplit(' (0x', 1)[0]).resolve()
+                      for line in listing.splitlines() if line.strip().startswith('path:')}
+        if app.resolve() in registered:
+            raise
+
+
 def retire_temporary(copies, candidates, run=subprocess.run):
     """Unregister only explicitly owned build copies before their files disappear."""
     installed = {path.resolve() for path in candidates}
@@ -59,7 +71,7 @@ def retire_temporary(copies, candidates, run=subprocess.run):
             extension = app / 'Contents/PlugIns/LunavectWidget.appex'
             if extension.is_dir():
                 run(['pluginkit', '-r', str(extension)], check=False)
-            run([LSREGISTER, '-u', str(app)], check=True)
+            unregister(app, run=run)
     finally:
         # Retiring a copy can invalidate the installed host's lookup as well.
         if retired:
