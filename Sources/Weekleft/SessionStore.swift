@@ -728,7 +728,12 @@ final class SharedWorkDemand: Sendable {
 enum SessionNavigation {
     /// `focus` is the only step that scripts another application; tests replace it.
     @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver(),
-                                focus: @MainActor (AgentSession) throws -> Bool = { try focusTerminal($0) }) async throws {
+                                focus: @MainActor (AgentSession) throws -> Bool = { try focusTerminal($0) },
+                                openIDE: @MainActor (AgentSession) async throws -> Void = { try await focusIDE($0) }) async throws {
+        if session.ideLocation != nil || session.client == .vscode || session.client == .jetbrains {
+            try await openIDE(session)
+            return
+        }
         if session.terminalFocusCandidate, try focus(session) { return }
         if session.client == .terminal || session.client == .background {
             let script = try session.terminalScript(resolver: resolver)
@@ -757,6 +762,16 @@ enum SessionNavigation {
         let clientName = session.client == .vscode ? "VS Code" : session.provider.title
         guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { throw SessionOpeningError.missingClient(clientName) }
         guard NSWorkspace.shared.open(url) else { throw SessionOpeningError.launchFailed(session.client) }
+    }
+    @MainActor static func focusIDE(_ session: AgentSession) async throws {
+        try await IDEBridge.open(session, activateApp: { pid in
+            await MainActor.run { NSRunningApplication(processIdentifier: pid)?.activate() ?? false }
+        }) { url, app in
+            do {
+                _ = try await NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+                return true
+            } catch { return false }
+        }
     }
     /// A live CLI session stays where it runs: bring its own tab to the front.
     @MainActor static func focusTerminal(_ session: AgentSession) throws -> Bool {

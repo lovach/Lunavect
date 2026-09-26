@@ -26,6 +26,7 @@
 		1DD018B3BF4D1A661E2CED64 /* ActivityPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365B0D0E5DF5052421B428EB /* ActivityPresentation.swift */; };
 		1EA96A8EDE0A5385A621531A /* WidgetBackground.m in Sources */ = {isa = PBXBuildFile; fileRef = 9735B796FF471D192667E05E /* WidgetBackground.m */; };
 		20AC9C113F8497B20D743963 /* Sparkle-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 63090FE9A21351ABD0746E94 /* Sparkle-LICENSE.txt */; };
+		2211F95A7AF64FB908880245 /* IDESessionLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5377D763D3FE92F668C42D7 /* IDESessionLocation.swift */; };
 		2251636C2BC7CDDBA64A8D63 /* codex.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 494E230F1107EEF5F71F02F1 /* codex.pdf */; };
 		235F52810F9A521B7643A8BD /* SnapshotPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CCAC4B82B3449AABEBFA40F /* SnapshotPersistence.swift */; };
 		24A5FCBD8FC8C2D10F07B66B /* LunavectTide.icns in Resources */ = {isa = PBXBuildFile; fileRef = DF8EFC3151EEE99328F860CB /* LunavectTide.icns */; };
@@ -41,6 +42,7 @@
 		3B9D4B00317C980215926CF3 /* ActivityWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D121E8B72C841C55B5809456 /* ActivityWidgetView.swift */; };
 		3BB10ECF0BB45F7916D25DD4 /* clawd-laptop.json in Resources */ = {isa = PBXBuildFile; fileRef = DABC6091A836498F7DA3DD6D /* clawd-laptop.json */; };
 		3E7F5BA1CFD6C31C2EF21309 /* AwakeLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13FE7B48C442317F500AD8AF /* AwakeLease.swift */; };
+		40A6986C9F5188C1F57F359A /* IDEBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED52819098062FE231BCF7D9 /* IDEBridge.swift */; };
 		41921077DE2B9A8FE70A1B63 /* WidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEBE743BD96448FC267743F /* WidgetView.swift */; };
 		47E4BCD5B66B7CF98E7A2B03 /* SystemSleepSetting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8C05325F14D50D9315D1122 /* SystemSleepSetting.swift */; };
 		4DFA165D0208B8136C78A081 /* CodexAnimation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F73CE91878580448FE361E /* CodexAnimation.swift */; };
@@ -55,6 +57,7 @@
 		54E58B79D7851E57E9F03FBE /* LunavectMarkLeft.png in Resources */ = {isa = PBXBuildFile; fileRef = 8A583D7DA3745D14EAE37EF0 /* LunavectMarkLeft.png */; };
 		559F689E384DD80303DB5031 /* MenuBarLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECAC781EC4BD9E685A603326 /* MenuBarLimits.swift */; };
 		57730EEA34A2432B108BB937 /* SessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A03157D076BE897B5CF275 /* SessionsView.swift */; };
+		57E5FCF01E4EDAB6AC3FD99E /* IDEConnectors in Resources */ = {isa = PBXBuildFile; fileRef = 65F66722D2E73957F8BF1AA8 /* IDEConnectors */; };
 		5B9C99F54EE0C2AA3E637D65 /* MenuBarScenes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0359C5E77621B5ABEB05B9ED /* MenuBarScenes.swift */; };
 		5D994FB0AB7829D2FDE97356 /* ActivityHistoryImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C70FEFEF51BBA2434DAB68B /* ActivityHistoryImporter.swift */; };
 		5E37DE0B55C3A1D6D3724602 /* Sessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F36C69FDA21D980CF78E95A /* Sessions.swift */; };
@@ -123,6 +126,7 @@
 		D7E352BBBCCC4D2C6D8BB976 /* ActivityWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D121E8B72C841C55B5809456 /* ActivityWidgetView.swift */; };
 		D8C569BAC9B7F74E5FE2CA40 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36CC0DBA8238984854D3A3F8 /* SessionStore.swift */; };
 		D9B8CB32467B7E5BE5200F4F /* ThirdParty-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = C345476E51B0FD776000CD73 /* ThirdParty-LICENSE.txt */; };
+		DB821CAEF744165F5D2BD230 /* IDEConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD17B66CA34FC1D2AF8AC974 /* IDEConnectionsView.swift */; };
 		DB91D43E2E15A8CD445BB76D /* LunavectMarkRight.png in Resources */ = {isa = PBXBuildFile; fileRef = C98CA8EA76C53A67EFAAEF44 /* LunavectMarkRight.png */; };
 		DE21FED6422F81FDCE161F78 /* ActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F25D7FAA504A410D5502AF7B /* ActivityTracker.swift */; };
 		DF8C32EF4D912F03183DF8E5 /* ActivityHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CCFFB1D0B52A069DF3A9CE8 /* ActivityHistory.swift */; };
@@ -130,8 +134,10 @@
 		E2D52098F99963C1A1161291 /* MenuBarAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0219A08FBDA0BC2CE1AA753D /* MenuBarAppearance.swift */; };
 		E4526AB70121579D525D8286 /* SubscriptionCalendar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8575633272066B60FA5691B1 /* SubscriptionCalendar.swift */; };
 		E4C0C5B9E3CA6A6247E30C59 /* KeepAwake.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFF01D5C3CC5EE9EF0F5D2E /* KeepAwake.swift */; };
+		E6D4E3F7A855A720E21D5987 /* IDEBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED52819098062FE231BCF7D9 /* IDEBridge.swift */; };
 		E7EBF0F06FD9A2247CB01BA2 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6B2023A56E83F9F127F00A /* Localization.swift */; };
 		E8028263CFFC7B7A2E94F25F /* AwakeLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13FE7B48C442317F500AD8AF /* AwakeLease.swift */; };
+		E9CC8D28006B382EA0E4F2C9 /* IDESessionLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5377D763D3FE92F668C42D7 /* IDESessionLocation.swift */; };
 		EA166D92853F3D1040A15B16 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00DE3C3478A69C3E7F7DF1C /* Models.swift */; };
 		EB0158CAC0EC473690B48592 /* LimitAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF10245468ECDAC3E852D65 /* LimitAlerts.swift */; };
 		EBAA9866E4243072F8BA39F6 /* ActivityHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CCFFB1D0B52A069DF3A9CE8 /* ActivityHistory.swift */; };
@@ -223,6 +229,7 @@
 		5F36C69FDA21D980CF78E95A /* Sessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sessions.swift; sourceTree = "<group>"; };
 		618E992E189626F08A4959AD /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		63090FE9A21351ABD0746E94 /* Sparkle-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Sparkle-LICENSE.txt"; sourceTree = "<group>"; };
+		65F66722D2E73957F8BF1AA8 /* IDEConnectors */ = {isa = PBXFileReference; lastKnownFileType = folder; name = IDEConnectors; path = Sources/Weekleft/Resources/IDEConnectors; sourceTree = SOURCE_ROOT; };
 		6DC4CF26FB571F62F890F610 /* clawd-walking.gif */ = {isa = PBXFileReference; lastKnownFileType = image.gif; path = "clawd-walking.gif"; sourceTree = "<group>"; };
 		739640887B16506C6A5B8688 /* AppFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFeatures.swift; sourceTree = "<group>"; };
 		780039D8CA11672F3EB534B7 /* clawd-waving.gif */ = {isa = PBXFileReference; lastKnownFileType = image.gif; path = "clawd-waving.gif"; sourceTree = "<group>"; };
@@ -271,6 +278,7 @@
 		D4E35B5443D0961B690A6F81 /* SessionNoticeTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionNoticeTracker.swift; sourceTree = "<group>"; };
 		D8E9D06C5A7EB254CBAA01E7 /* ActivityBreakdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityBreakdownView.swift; sourceTree = "<group>"; };
 		DABC6091A836498F7DA3DD6D /* clawd-laptop.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "clawd-laptop.json"; sourceTree = "<group>"; };
+		DD17B66CA34FC1D2AF8AC974 /* IDEConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDEConnectionsView.swift; sourceTree = "<group>"; };
 		DD935DC8B8F653A6CFB0E46B /* SessionArrangement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionArrangement.swift; sourceTree = "<group>"; };
 		DF8EFC3151EEE99328F860CB /* LunavectTide.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = LunavectTide.icns; sourceTree = "<group>"; };
 		E0DBDBF6B699906DDE77585B /* SubscriptionDatePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionDatePicker.swift; sourceTree = "<group>"; };
@@ -279,9 +287,11 @@
 		E4BCE80157433D952E718FFB /* Translations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Translations.json; sourceTree = "<group>"; };
 		E7205CE1322E0292A795E59A /* ConnectionDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionDiagnosticsView.swift; sourceTree = "<group>"; };
 		ECAC781EC4BD9E685A603326 /* MenuBarLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarLimits.swift; sourceTree = "<group>"; };
+		ED52819098062FE231BCF7D9 /* IDEBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDEBridge.swift; sourceTree = "<group>"; };
 		EDF10245468ECDAC3E852D65 /* LimitAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LimitAlerts.swift; sourceTree = "<group>"; };
 		F12CB240632DA69B471E6199 /* AwakeProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwakeProtocol.swift; sourceTree = "<group>"; };
 		F25D7FAA504A410D5502AF7B /* ActivityTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTracker.swift; sourceTree = "<group>"; };
+		F5377D763D3FE92F668C42D7 /* IDESessionLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDESessionLocation.swift; sourceTree = "<group>"; };
 		F723599BF79E46335BC8C9F0 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		F87FC6C4BFE71F1B9F0CC485 /* ReleaseConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseConfiguration.swift; sourceTree = "<group>"; };
 		F9C6C5B745CEBE840B9D5ABA /* LanguageSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSettings.swift; sourceTree = "<group>"; };
@@ -347,6 +357,7 @@
 				9F743D8112622A1BF43DDD4F /* codex-companion.webp */,
 				494E230F1107EEF5F71F02F1 /* codex.pdf */,
 				2AC09F5F8132C3AB669EEAFB /* IconSources.md */,
+				65F66722D2E73957F8BF1AA8 /* IDEConnectors */,
 				CB49BC9D009135572FC9980F /* lunavect-complete.wav */,
 				309808EA3E1BB3BB8696C5DF /* Lunavect-LICENSE.txt */,
 				D41E9A368C4DAABBC7DDD6B4 /* Lunavect-NOTICE.txt */,
@@ -416,6 +427,7 @@
 				3B44377720ABBE9B93104B37 /* ConnectionSetupView.swift */,
 				BB73181B3221C069ACED0200 /* ConnectionsView.swift */,
 				83BAADC66DA4CEA79BD50CFE /* HiddenSessionsView.swift */,
+				DD17B66CA34FC1D2AF8AC974 /* IDEConnectionsView.swift */,
 				1039DF4F18DD5B81FB79D96F /* InterfaceIcon.swift */,
 				2EC8AD5AD265E0B33A2BC17F /* InterfaceMetrics.swift */,
 				5AFF01D5C3CC5EE9EF0F5D2E /* KeepAwake.swift */,
@@ -464,6 +476,8 @@
 				C7074282E57C1511523239ED /* CodexActivity.swift */,
 				B4AFE0559E4DC9019EFCD701 /* CodexSessionMetadata.swift */,
 				D34C266069B5031FC119C950 /* ConnectionDiagnostics.swift */,
+				ED52819098062FE231BCF7D9 /* IDEBridge.swift */,
+				F5377D763D3FE92F668C42D7 /* IDESessionLocation.swift */,
 				EDF10245468ECDAC3E852D65 /* LimitAlerts.swift */,
 				788A00B2932286D4969B2DAF /* LocalFileCache.swift */,
 				CA6B2023A56E83F9F127F00A /* Localization.swift */,
@@ -652,6 +666,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				57E5FCF01E4EDAB6AC3FD99E /* IDEConnectors in Resources */,
 				BA51DD0F16F887B235DCEECD /* IconSources.md in Resources */,
 				5412477E78E6EAA5C96828E1 /* Localizable.strings in Resources */,
 				FDA832C689932C81FBDE0C40 /* Lunavect-LICENSE.txt in Resources */,
@@ -768,6 +783,8 @@
 				8669B21D3295CBFFCD3AEC78 /* CodexActivity.swift in Sources */,
 				08FAD9D65856DEEA5D2800AA /* CodexSessionMetadata.swift in Sources */,
 				C9BBC172338F3E1AA4ED233F /* ConnectionDiagnostics.swift in Sources */,
+				E6D4E3F7A855A720E21D5987 /* IDEBridge.swift in Sources */,
+				E9CC8D28006B382EA0E4F2C9 /* IDESessionLocation.swift in Sources */,
 				EB0158CAC0EC473690B48592 /* LimitAlerts.swift in Sources */,
 				7411719BDEDF562C0E8CAF37 /* LocalFileCache.swift in Sources */,
 				65AA4A6F6C5C57D25F265900 /* Localization.swift in Sources */,
@@ -833,6 +850,9 @@
 				D4CCEFC16912FB9DC9FF2D11 /* ConnectionSetupView.swift in Sources */,
 				13B19688017DB85F4C18267B /* ConnectionsView.swift in Sources */,
 				BD1F8A09522EB1ECD753A5BB /* HiddenSessionsView.swift in Sources */,
+				40A6986C9F5188C1F57F359A /* IDEBridge.swift in Sources */,
+				DB821CAEF744165F5D2BD230 /* IDEConnectionsView.swift in Sources */,
+				2211F95A7AF64FB908880245 /* IDESessionLocation.swift in Sources */,
 				8AF07056EDC22A5AFA958EF3 /* InterfaceIcon.swift in Sources */,
 				05199BAABA805F18F1D04256 /* InterfaceMetrics.swift in Sources */,
 				E4C0C5B9E3CA6A6247E30C59 /* KeepAwake.swift in Sources */,
@@ -1007,7 +1027,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 188;
+				CURRENT_PROJECT_VERSION = 189;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -1022,7 +1042,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.3;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1112,7 +1132,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 188;
+				CURRENT_PROJECT_VERSION = 189;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1133,7 +1153,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.3;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -28,12 +28,13 @@ public enum SessionPhase: String, Codable, Sendable, CaseIterable {
     }
 }
 public enum SessionClient: String, Codable, Sendable {
-    case desktop, terminal, vscode, background, unknown
+    case desktop, terminal, vscode, jetbrains, background, unknown
     public var title: String {
         switch self {
         case .desktop: return "Desktop"
         case .terminal: return "Terminal"
         case .vscode: return "VS Code"
+        case .jetbrains: return "JetBrains"
         case .background: return L("Фоновая сессия")
         case .unknown: return L("Клиент не указан")
         }
@@ -42,7 +43,7 @@ public enum SessionClient: String, Codable, Sendable {
         switch self {
         case .desktop: return "macwindow"
         case .terminal: return "terminal"
-        case .vscode: return "chevron.left.forwardslash.chevron.right"
+        case .vscode, .jetbrains: return "chevron.left.forwardslash.chevron.right"
         case .background: return "arrow.triangle.2.circlepath"
         case .unknown: return "desktopcomputer"
         }
@@ -88,6 +89,8 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// terminal application, used only to bring the existing tab to the front.
     public var terminalTTY: String?
     public var terminalApp: String?
+    /// Exact local IDE origin. Optional so records from earlier releases still load.
+    public var ideLocation: IDESessionLocation?
     /// Claude's own background tasks known to be in flight: set exactly at Stop
     /// and SubagentStop, raised when a background launch is observed. Only
     /// counts by kind are kept.
@@ -225,7 +228,8 @@ public enum SessionParser {
         }
     }
     public static func claude(_ data: Data, now: Date = Date(), nestedRuntime: (Int32) -> Bool? = { _ in nil },
-                              terminal: (Int32) -> TerminalLocation.Target? = { _ in nil }) throws -> [AgentSession] {
+                              terminal: (Int32) -> TerminalLocation.Target? = { _ in nil },
+                              ide: (Int32) -> IDESessionLocation? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
         return rows.compactMap { row in
             guard let id = (row["sessionId"] ?? row["id"]) as? String, validID(id) else { return nil }
@@ -264,7 +268,9 @@ public enum SessionParser {
                 session.isNestedClaudeSession = false
             } else if let pid = row["pid"] as? Int, pid > 1, let safePID = Int32(exactly: pid) {
                 session.isNestedClaudeSession = nestedRuntime(safePID)
-                if let location = terminal(safePID), TerminalLocation.valid(location.tty) {
+                if let location = ide(safePID) {
+                    session.ideLocation = location; session.client = location.editor.client
+                } else if let location = terminal(safePID), TerminalLocation.valid(location.tty) {
                     session.client = .terminal
                     session.terminalTTY = location.tty; session.terminalApp = location.app
                 }
@@ -288,7 +294,10 @@ public enum SessionList {
                 if event.isCodexSubagent == true { row.isCodexSubagent = true }
                 // A live catalog PID identifies the current tab. Old hook records
                 // can still name a device from before this session was resumed.
-                if row.terminalTTY == nil, let tty = event.terminalTTY { row.terminalTTY = tty; row.terminalApp = event.terminalApp }
+                if row.ideLocation == nil, row.terminalTTY == nil, row.client != .background, let ide = event.ideLocation {
+                    row.ideLocation = ide; row.client = ide.editor.client
+                }
+                if row.ideLocation == nil, row.terminalTTY == nil, let tty = event.terminalTTY { row.terminalTTY = tty; row.terminalApp = event.terminalApp }
                 if row.client == .unknown, event.client != .unknown { row.client = event.client }
                 if row.provider == .claude, row.client == .background {
                     row.isNestedClaudeSession = false
@@ -339,7 +348,9 @@ public enum SessionList {
                         }
                     }
                 }
-                if fresh && event.client != .unknown && row.client != .background { row.client = event.client }
+                if fresh && event.client != .unknown && row.client != .background && row.ideLocation == nil && row.terminalTTY == nil {
+                    row.client = event.client
+                }
                 // Claude's catalog knows only when a session started. Whichever
                 // source decides the phase, the last task event is its activity.
                 if !event.isUnstartedClaudeLifecycle { row.updatedAt = max(row.updatedAt, event.updatedAt) }

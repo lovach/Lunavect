@@ -5143,5 +5143,96 @@
     "es": "No se pudo cambiar de pestaña en {0}. Abre el terminal y vuelve a intentarlo.",
     "fr": "Impossible de changer d’onglet dans {0}. Ouvrez le terminal, puis réessayez.",
     "zh-Hans": "无法切换 {0} 中的标签页。请打开终端，然后重试。"
+  },
+  "Подключите {0} в настройках Lunavect, чтобы переходить к сессиям в редакторе.": {
+    "en": "Connect {0} in Lunavect settings to open sessions in the editor.",
+    "de": "Verbinden Sie {0} in den Lunavect-Einstellungen, um Sitzungen im Editor zu öffnen.",
+    "es": "Conecta {0} en los ajustes de Lunavect para abrir sesiones en el editor.",
+    "fr": "Connectez {0} dans les réglages de Lunavect pour ouvrir les sessions dans l’éditeur.",
+    "zh-Hans": "请在 Lunavect 设置中连接 {0}，以便在编辑器中打开会话。"
+  },
+  "Не удалось найти эту сессию в {0}. Проверьте, что её проект и вкладка открыты, затем обновите список.": {
+    "en": "Could not find this session in {0}. Make sure its project and tab are open, then refresh the list.",
+    "de": "Diese Sitzung wurde in {0} nicht gefunden. Öffnen Sie das zugehörige Projekt und den Tab und aktualisieren Sie die Liste.",
+    "es": "No se encontró esta sesión en {0}. Comprueba que su proyecto y pestaña estén abiertos y actualiza la lista.",
+    "fr": "Cette session est introuvable dans {0}. Vérifiez que son projet et son onglet sont ouverts, puis actualisez la liste.",
+    "zh-Hans": "未能在 {0} 中找到此会话。请确认其项目和标签页已打开，然后刷新列表。"
+  },
+  "Этот способ запуска сессии в {0} пока не поддерживается. Поддерживаемые варианты указаны в настройках подключения редакторов.": {
+    "en": "This type of session in {0} is not supported yet. See editor connection settings for supported options.",
+    "de": "Diese Sitzungsart in {0} wird noch nicht unterstützt. Unterstützte Optionen finden Sie in den Editor-Verbindungseinstellungen.",
+    "es": "Este tipo de sesión en {0} aún no es compatible. Consulta las opciones admitidas en los ajustes de conexión de editores.",
+    "fr": "Ce type de session dans {0} n’est pas encore pris en charge. Consultez les options disponibles dans les réglages de connexion des éditeurs.",
+    "zh-Hans": "暂不支持 {0} 中此方式启动的会话。请在编辑器连接设置中查看支持的方式。"
+  },
+  "В {0} найдено несколько подходящих окон. Оставьте проект открытым в одном окне и повторите переход.": {
+    "en": "Several matching windows were found in {0}. Keep the project open in one window and try again.",
+    "de": "In {0} wurden mehrere passende Fenster gefunden. Lassen Sie das Projekt in einem Fenster geöffnet und versuchen Sie es erneut.",
+    "es": "Se encontraron varias ventanas coincidentes en {0}. Deja el proyecto abierto en una sola ventana y vuelve a intentarlo.",
+    "fr": "Plusieurs fenêtres correspondantes ont été trouvées dans {0}. Gardez le projet ouvert dans une seule fenêtre et réessayez.",
+    "zh-Hans": "在 {0} 中找到多个匹配窗口。请仅在一个窗口中打开该项目，然后重试。"
+  },
+  "{0} не подтвердил переход к сессии. Проверьте запросы разрешений в редакторе и повторите попытку.": {
+    "en": "{0} did not confirm opening the session. Check for permission prompts in the editor and try again.",
+    "de": "{0} hat das Öffnen der Sitzung nicht bestätigt. Prüfen Sie Berechtigungsabfragen im Editor und versuchen Sie es erneut.",
+    "es": "{0} no confirmó la apertura de la sesión. Revisa las solicitudes de permisos en el editor y vuelve a intentarlo.",
+    "fr": "{0} n’a pas confirmé l’ouverture de la session. Vérifiez les demandes d’autorisation dans l’éditeur et réessayez.",
+    "zh-Hans": "{0} 未确认打开会话。请检查编辑器中的权限提示，然后重试。"
+  },
+  "Сессии в редакторах": {
+    "en": "Sessions in editors",
+    "de": "Sitzungen in Editoren",
+    "es": "Sesiones en editores",
+    "fr": "Sessions dans les éditeurs",
+    "zh-Hans": "编辑器中的会话"
+  },
+  "Установите модуль Lunavect в редактор, чтобы переходить к нужной вкладке Claude или Codex.": {
+    "en": "Install the Lunavect companion in your editor to open the right Claude or Codex tab.",
+    "de": "Installieren Sie die Lunavect-Erweiterung im Editor, um den richtigen Claude- oder Codex-Tab zu öffnen.",
+    "es": "Instala el complemento de Lunavect en tu editor para abrir la pestaña correcta de Claude o Codex.",
+    "fr": "Installez le module Lunavect dans votre éditeur pour ouvrir le bon onglet Claude ou Codex.",
+    "zh-Hans": "在编辑器中安装 Lunavect 扩展，即可打开对应的 Claude 或 Codex 标签页。"
+  },
+  "Модуль работает": {
+    "en": "Companion connected",
+    "de": "Erweiterung verbunden",
+    "es": "Complemento conectado",
+    "fr": "Module connecté",
+    "zh-Hans": "扩展已连接"
+  },
+  "Модуль не подключён": {
+    "en": "Companion not connected",
+    "de": "Erweiterung nicht verbunden",
+    "es": "Complemento no conectado",
+    "fr": "Module non connecté",
+    "zh-Hans": "扩展未连接"
+  },
+  "Показать модуль": {
+    "en": "Show installer",
+    "de": "Installationsdatei anzeigen",
+    "es": "Mostrar instalador",
+    "fr": "Afficher le programme d’installation",
+    "zh-Hans": "显示安装包"
+  },
+  "VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. После установки откройте проект и обновите подключение.": {
+    "en": "VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. After installation, open a project and refresh the connection.",
+    "de": "VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. Öffnen Sie danach ein Projekt und aktualisieren Sie die Verbindung.",
+    "es": "VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. Después, abre un proyecto y actualiza la conexión.",
+    "fr": "VS Code : Extensions → Install from VSIX. JetBrains : Settings → Plugins → Install Plugin from Disk. Ensuite, ouvrez un projet et actualisez la connexion.",
+    "zh-Hans": "VS Code：Extensions → Install from VSIX。JetBrains：Settings → Plugins → Install Plugin from Disk。安装后，请打开项目并刷新连接。"
+  },
+  "Поддерживаются локальные терминалы VS Code и JetBrains 2026.2, а также панели Claude Code и Codex в VS Code. AI Chat JetBrains и удалённые рабочие среды пока не поддерживаются.": {
+    "en": "Supports local terminals in VS Code and JetBrains 2026.2, plus Claude Code and Codex panels in VS Code. JetBrains AI Chat and remote workspaces are not supported yet.",
+    "de": "Unterstützt lokale Terminals in VS Code und JetBrains 2026.2 sowie Claude Code und Codex in VS Code. JetBrains AI Chat und Remote-Arbeitsbereiche werden noch nicht unterstützt.",
+    "es": "Admite terminales locales de VS Code y JetBrains 2026.2, y paneles de Claude Code y Codex en VS Code. Aún no admite AI Chat de JetBrains ni espacios de trabajo remotos.",
+    "fr": "Prend en charge les terminaux locaux de VS Code et JetBrains 2026.2, ainsi que les panneaux Claude Code et Codex de VS Code. AI Chat de JetBrains et les espaces de travail distants ne sont pas encore pris en charge.",
+    "zh-Hans": "支持 VS Code 和 JetBrains 2026.2 的本地终端，以及 VS Code 中的 Claude Code 和 Codex 面板。暂不支持 JetBrains AI Chat 和远程工作区。"
+  },
+  "Обновить подключение": {
+    "en": "Refresh connection",
+    "de": "Verbindung aktualisieren",
+    "es": "Actualizar conexión",
+    "fr": "Actualiser la connexion",
+    "zh-Hans": "刷新连接"
   }
 }

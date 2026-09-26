@@ -9,7 +9,7 @@ See [Contributing](https://github.com/lovach/Lunavect/blob/main/.github/CONTRIBU
 - A full Xcode installation, selected with `xcode-select`.
 - A compatible Swift toolchain. The release source was checked with Xcode 26.6 and Swift 6.3.3.
 - XcodeGen is optional for regenerating the project. `build.sh` regenerates only with XcodeGen 2.46.0, the version the parity check pins, and otherwise builds the committed project unchanged. CI builds the committed Xcode project.
-- Node.js is only needed to re-export the app icon; exported resources are included.
+- Node.js 20 or later is needed for the IDE companion tests and for re-exporting the app icon. Exported resources and offline companion installers are included. Rebuilding the JetBrains installer additionally requires IntelliJ IDEA 2026.2 with its bundled JDK; see [IDE sessions](ide-sessions.md).
 
 ## Source map
 
@@ -47,7 +47,7 @@ From the repository root:
 ./scripts/check.sh
 ```
 
-This runs Swift and Python tests, widget background compatibility checks, and a universal Release build of the app, helpers and widget without a signing account. Every invocation creates its own temporary Xcode directory, including simultaneous runs from the same checkout. `WEEKLEFT_CHECK_DERIVED_DATA` selects a **parent directory**; it is no longer an exact DerivedData path to reuse. The check unregisters its own app product while the bundle still exists, restores the validated installed host when present, and removes only its newly created child after success or failure. It does not replace or unregister installed apps. If registration cleanup fails, the run directory is retained for diagnosis instead of leaving a record for a deleted bundle.
+This runs Swift, Python and IDE companion tests, widget background compatibility checks, and a universal Release build of the app, helpers and widget without a signing account. Every invocation creates its own temporary Xcode directory, including simultaneous runs from the same checkout. `WEEKLEFT_CHECK_DERIVED_DATA` selects a **parent directory**; it is no longer an exact DerivedData path to reuse. The check unregisters its own app product while the bundle still exists, restores the validated installed host when present, and removes only its newly created child after success or failure. It does not replace or unregister installed apps. If registration cleanup fails, the run directory is retained for diagnosis instead of leaving a record for a deleted bundle.
 
 Results persist in a new directory under `build/check-results/`; `WEEKLEFT_CHECK_RESULTS` can select another parent. Each run contains `check-results.json`, `check-summary.md` and `build-manifest.json`. Local stage logs help diagnose failures; they are not uploaded as CI artifacts. Do not edit or stage source files during a check: provenance compares the source content and Git index before and after the build, and fails if either changed. Existing stable uncommitted changes are recorded as dirty.
 

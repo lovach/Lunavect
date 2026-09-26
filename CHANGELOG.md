@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3 — 2026-09-26
+
+- Added exact navigation to existing Claude Code and Codex terminal sessions in local VS Code and JetBrains 2026.2, including the Classic and Reworked JetBrains terminals.
+- Added offline editor companions and a setup section under Settings → Connections. The app selects the session's project, window and tab, verifies the live process identity and waits for focus confirmation.
+- Added workspace-aware routes for the official Claude Code and Codex extensions in VS Code. These routes have interface/contract coverage; authenticated provider-panel behavior has not yet been verified.
+- Prevented IDE sessions from falling back to Apple Terminal or Codex Desktop. Closed tabs, missing companions and ambiguous windows now show editor-specific messages.
+- Added companion protocol, origin, navigation and packaged-installer checks, plus translations in all six app languages.
+
+Compatibility: this version supports local macOS editors. JetBrains AI Chat/ACP panels, other JetBrains versions and remote workspaces are not supported. See [IDE session setup](docs/ide-sessions.md).
+
 ## 0.2.2 — 2026-09-26
 
 ### Fixed

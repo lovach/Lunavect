@@ -65,6 +65,7 @@ public extension AgentSession {
     /// A live CLI session is brought forward in its own terminal tab. A device
     /// recorded by a hook is evidence even when another source names the client.
     var terminalFocusCandidate: Bool {
+        ideLocation == nil && client != .vscode && client != .jetbrains &&
         !canLaunchTerminalSession && (client == .terminal || terminalTTY.map(TerminalLocation.valid) == true)
     }
     /// Background attach is safe; foreground resume requires recorded exit.
@@ -92,6 +93,7 @@ public extension AgentSession {
 public enum SessionOpeningError: LocalizedError, Equatable {
     case unavailableConfiguredCodex, sessionMayBeOpen
     case terminalTabUnavailable, terminalAutomationDenied(String), terminalFocusTimedOut(String), terminalFocusFailed(String)
+    case ideBridgeMissing(String), ideSessionUnavailable(String), ideUnsupported(String), ideAmbiguous(String), ideTimedOut(String)
     case missingCLI(ProviderID), missingProject, missingTerminal, invalidID, missingDesktopLink, missingClient(String), launchFailed(SessionClient)
     public var errorDescription: String? {
         switch self {
@@ -100,6 +102,11 @@ public enum SessionOpeningError: LocalizedError, Equatable {
         case .terminalAutomationDenied(let app): return L("Разрешите Lunavect управлять {0}: Системные настройки → Конфиденциальность и безопасность → Автоматизация. Затем повторите переход.", app)
         case .terminalFocusTimedOut(let app): return L("{0} не ответил на запрос перехода. Закройте открытые диалоги в терминале и повторите попытку.", app)
         case .terminalFocusFailed(let app): return L("Не удалось переключить вкладку в {0}. Откройте терминал и повторите переход.", app)
+        case .ideBridgeMissing(let app): return L("Подключите {0} в настройках Lunavect, чтобы переходить к сессиям в редакторе.", app)
+        case .ideSessionUnavailable(let app): return L("Не удалось найти эту сессию в {0}. Проверьте, что её проект и вкладка открыты, затем обновите список.", app)
+        case .ideUnsupported(let app): return L("Этот способ запуска сессии в {0} пока не поддерживается. Поддерживаемые варианты указаны в настройках подключения редакторов.", app)
+        case .ideAmbiguous(let app): return L("В {0} найдено несколько подходящих окон. Оставьте проект открытым в одном окне и повторите переход.", app)
+        case .ideTimedOut(let app): return L("{0} не подтвердил переход к сессии. Проверьте запросы разрешений в редакторе и повторите попытку.", app)
         case .unavailableConfiguredCodex: return L("Клиент Codex по выбранному пути недоступен. Откройте «Подключения» и выберите исполняемый файл заново.")
         case .missingCLI(let provider): return L("Не найден клиент {0}. Откройте «Подключения» и завершите установку официального клиента.", provider.title)
         case .missingProject: return L("Папка проекта недоступна. Верните её на прежнее место или откройте сессию в официальном приложении. Команду продолжения можно скопировать через «…».")

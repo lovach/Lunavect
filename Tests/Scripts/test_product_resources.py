@@ -34,6 +34,7 @@ class ProductResourceTests(unittest.TestCase):
                 localized.mkdir()
                 shutil.copyfile(ROOT / 'Sources/LunavectWidget/Resources' / (language + '.lproj') / 'Localizable.strings', localized / 'Localizable.strings')
             self.metadata(bundle, RESOURCES.WIDGET_INTENTS if bundle == self.widget else RESOURCES.APP_INTENTS)
+        shutil.copytree(ROOT / 'Sources/Weekleft/Resources/IDEConnectors', self.app / 'Contents/Resources/IDEConnectors')
 
     def metadata(self, bundle, actions, enums=('ActivityPeriod', 'ActivitySource')):
         path = bundle / 'Contents/Resources/Metadata.appintents/extract.actionsdata'
@@ -83,6 +84,11 @@ class ProductResourceTests(unittest.TestCase):
 
     def test_matching_app_and_extension(self):
         self.assertEqual(RESOURCES.verify(self.app), '108')
+
+    def test_corrupt_ide_installer_is_rejected(self):
+        (self.app / 'Contents/Resources/IDEConnectors/lunavect-vscode.vsix').write_bytes(b'broken')
+        with self.assertRaisesRegex(ValueError, 'differs from its manifest'):
+            RESOURCES.verify(self.app)
 
     def test_stale_widget_version_is_rejected(self):
         (self.widget / 'Contents/Info.plist').write_bytes(plistlib.dumps({**self.info, 'CFBundleVersion': '96'}))
