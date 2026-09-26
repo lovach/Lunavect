@@ -40,8 +40,6 @@ Search, filter, pin and hide sessions. Live Terminal and iTerm2 sessions open in
 
 <img src="docs/images/showcase/sessions.webp" width="760" alt="Three Lunavect session panels: all nine tasks, a search for “bill” showing one Claude task, and the waiting filter showing the task that needs permission">
 
-<img src="docs/images/showcase/demo-waiting.webp" width="760" alt="A 13-second loop from the real app with fictional sessions: eight agents work and one waits for an answer; Lunavect shows it in the menu bar, one click opens that session, and after the answer it is back to work">
-
 ### Background work, told once
 
 Claude's background commands, subagents and monitors appear as a small count on the session.<br>
