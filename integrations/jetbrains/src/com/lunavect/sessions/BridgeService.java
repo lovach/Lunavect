@@ -1,8 +1,12 @@
 package com.lunavect.sessions;
 
 import com.google.gson.*;
+import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationType;
+import com.intellij.notification.Notifications;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
@@ -35,12 +39,15 @@ import java.util.concurrent.*;
 
 /** User-owned local focus endpoint. Never reads terminal output or sends shell input. */
 public final class BridgeService implements Disposable {
+    /** Published in the descriptor; the Python packaging test keeps it equal to plugin.xml. */
+    static final String VERSION = "0.1.2";
     private final ScheduledExecutorService workers = Executors.newScheduledThreadPool(4, task -> {
         Thread thread = new Thread(task, "Lunavect IDE focus"); thread.setDaemon(true); return thread;
     });
     private final Set<SocketChannel> clients = ConcurrentHashMap.newKeySet();
-    private ServerSocketChannel server;
+    private volatile ServerSocketChannel server;
     private Path descriptorPath, socketPath;
+    private int uid;
     private volatile boolean disposed;
     private final String id = UUID.randomUUID().toString();
     private final Gson gson = new Gson();
@@ -48,16 +55,20 @@ public final class BridgeService implements Disposable {
     public BridgeService() {
         workers.execute(() -> {
             try { start(); }
-            catch (Exception failure) { dispose(); }
+            catch (Exception failure) {
+                // Previously visible only in idea.log; the user now learns why navigation is unavailable.
+                if (!disposed) warn(failure);
+                dispose();
+            }
         });
     }
 
     private void start() throws Exception {
         if (!System.getProperty("os.name", "").startsWith("Mac")) return;
         Path home = Path.of(System.getProperty("user.home"));
-        int uid = ((Number) Files.getAttribute(home, "unix:uid")).intValue();
+        uid = ((Number) Files.getAttribute(home, "unix:uid")).intValue();
         Path root = home.resolve("Library/Application Support/Lunavect/IDEBridge");
-        Path sockets = Path.of("/tmp/lunavect-ide-" + uid);
+        Path sockets = socketDirectory(uid, id);
         privateDirectory(root, uid); privateDirectory(sockets, uid);
         Path app = Path.of(PathManager.getHomePath());
         while (app != null && !app.toString().endsWith(".app")) app = app.getParent();
@@ -68,20 +79,69 @@ public final class BridgeService implements Disposable {
         String bundle = new String(plist.getInputStream().readNBytes(200), StandardCharsets.UTF_8).trim();
         if (!bundle.startsWith("com.jetbrains.")) throw new IOException("Unsupported IDE identity");
         socketPath = sockets.resolve(id + ".sock"); descriptorPath = root.resolve(id + ".json");
-        server = ServerSocketChannel.open(StandardProtocolFamily.UNIX);
-        server.bind(UnixDomainSocketAddress.of(socketPath));
-        Files.setPosixFilePermissions(socketPath, PosixFilePermissions.fromString("rw-------"));
+        bind();
         JsonObject descriptor = new JsonObject();
         descriptor.addProperty("version", 1); descriptor.addProperty("id", id); descriptor.addProperty("editor", "jetbrains");
+        descriptor.addProperty("companion", VERSION);
         descriptor.addProperty("pid", ProcessHandle.current().pid()); descriptor.addProperty("appPath", app.toString());
         descriptor.addProperty("bundleIdentifier", bundle); descriptor.addProperty("socketPath", socketPath.toString());
         publish(descriptor);
-        workers.scheduleWithFixedDelay(() -> { try { publish(descriptor); } catch (IOException ignored) {} }, 30, 30, TimeUnit.SECONDS);
+        workers.scheduleWithFixedDelay(() -> {
+            try {
+                // A cleaned temporary folder removes the socket while the IDE runs. Closing the
+                // channel wakes accept(); the loop below binds the same path again.
+                ServerSocketChannel current = server;
+                if (!disposed && current != null && !Files.exists(socketPath, LinkOption.NOFOLLOW_LINKS)) current.close();
+                publish(descriptor);
+            } catch (IOException ignored) {}
+        }, 30, 30, TimeUnit.SECONDS);
         while (!disposed) {
-            SocketChannel client = server.accept();
-            if (clients.size() >= 8) { client.close(); continue; }
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-            clients.add(client); workers.execute(() -> handle(client, deadline));
+            ServerSocketChannel channel = server;
+            try {
+                while (!disposed) {
+                    SocketChannel client = channel.accept();
+                    if (clients.size() >= 8) { client.close(); continue; }
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                    clients.add(client); workers.execute(() -> handle(client, deadline));
+                }
+            } catch (ClosedChannelException closed) {
+                if (disposed) return;
+                bind();
+            }
+        }
+    }
+
+    /** The user's private temporary folder; Lunavect also accepts /tmp/lunavect-ide-<uid> of 0.1.x companions. */
+    private static Path socketDirectory(int uid, String id) {
+        String temporary = System.getenv("TMPDIR");
+        if (temporary == null || !temporary.startsWith("/")) temporary = System.getProperty("java.io.tmpdir", "");
+        if (temporary.startsWith("/")) {
+            Path directory = Path.of(temporary).resolve("lunavect");
+            // sockaddr_un holds 104 bytes including the terminator.
+            if (directory.resolve(id + ".sock").toString().getBytes(StandardCharsets.UTF_8).length <= 103) return directory;
+        }
+        return Path.of("/tmp/lunavect-ide-" + uid);
+    }
+
+    private void bind() throws IOException {
+        privateDirectory(socketPath.getParent(), uid);
+        Files.deleteIfExists(socketPath);
+        ServerSocketChannel channel = ServerSocketChannel.open(StandardProtocolFamily.UNIX);
+        channel.bind(UnixDomainSocketAddress.of(socketPath));
+        Files.setPosixFilePermissions(socketPath, PosixFilePermissions.fromString("rw-------"));
+        server = channel;
+        if (disposed) { channel.close(); Files.deleteIfExists(socketPath); }
+    }
+
+    private static void warn(Exception failure) {
+        String reason = "Unsafe bridge directory".equals(failure.getMessage())
+                ? "its private folder is a link or belongs to another user" : "its local connection could not be opened";
+        try {
+            Notifications.Bus.notify(new Notification("Lunavect Sessions", "Lunavect Sessions is not active",
+                    "Lunavect cannot switch to terminal sessions in this IDE: " + reason + ". Restart the IDE after fixing it.",
+                    NotificationType.WARNING));
+        } catch (Throwable ignored) {
+            // Never let a notification failure affect the IDE.
         }
     }
 
@@ -153,6 +213,10 @@ public final class BridgeService implements Disposable {
             pids.add(pid);
         }
         CompletableFuture<JsonObject> result = new CompletableFuture<>();
+        // A probe only reads tool window state: it may run while a modal dialog is open,
+        // and a busy UI thread (indexing) is reported quickly as "busy" instead of
+        // holding the request. Focus keeps the default modality and its longer wait.
+        boolean probe = action.equals("probe");
         ApplicationManager.getApplication().invokeLater(() -> {
             if (result.isDone() || disposed || System.nanoTime() >= deadline) { result.cancel(false); return; }
             try {
@@ -163,9 +227,10 @@ public final class BridgeService implements Disposable {
                 JsonObject reply = status("matched");
                 reply.addProperty("shellPID", match.pid); result.complete(reply);
             } catch (Throwable failure) { result.complete(status("failed")); }
-        });
-        try { return result.get(Math.max(1, Math.min(TimeUnit.SECONDS.toNanos(5), deadline - System.nanoTime())), TimeUnit.NANOSECONDS); }
-        catch (TimeoutException timeout) { result.cancel(false); return status("timeout"); }
+        }, probe ? ModalityState.any() : ModalityState.defaultModalityState());
+        long wait = probe ? TimeUnit.MILLISECONDS.toNanos(1500) : TimeUnit.SECONDS.toNanos(5);
+        try { return result.get(Math.max(1, Math.min(wait, deadline - System.nanoTime())), TimeUnit.NANOSECONDS); }
+        catch (TimeoutException timeout) { result.cancel(false); return status(probe ? "busy" : "timeout"); }
     }
 
     private record TerminalMatch(Project project, Content content, JComponent component, long pid) {}

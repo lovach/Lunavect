@@ -1,24 +1,26 @@
 {
   "artifacts": {
     "lunavect-jetbrains.zip": "518ef4cf00486c3fffe36385d1cd952e6ec5d8444df4f9bf311ba91921edd1a5",
-    "lunavect-vscode.vsix": "f6fbd4dee16ed64c2e2b613f6deec8ca835aae555aab50cf559fff782c545b0d"
+    "lunavect-vscode.vsix": "d47023752d8bc442b1827930166802eed1ae5ab1eb15d34befe356ed9f5783f8"
   },
   "companionVersion": {
     "jetbrains": "0.1.1",
-    "vscode": "0.1.1"
+    "vscode": "0.1.2"
   },
   "jetbrainsSDK": "IU-262.10968.63",
   "jetbrainsVersion": "2026.2.3",
+  "pendingSources": {
+    "integrations/jetbrains/resources/META-INF/plugin.xml": "1fee10c6c4bb763e623767edaf5fb25d18e3fd5dc7bb4c0757ff0a5de5ff69ff",
+    "integrations/jetbrains/src/com/lunavect/sessions/BridgeService.java": "fcdac4c25718e4420102a99c0f7b97d26dad20f34c60b7c59d78e01969a79aab"
+  },
   "sources": {
     "integrations/jetbrains/resources/META-INF/plugin.xml": "676ddc22861af407a78ac6a3c416f827504410e5e94397812c2e4cd8b165291d",
     "integrations/jetbrains/src/com/lunavect/sessions/BridgeService.java": "993699e9aea243fba7d013df455262b484201510bf42fcf438bf288424eeded0",
     "integrations/jetbrains/src/com/lunavect/sessions/BridgeStartup.java": "855849f7c48ac23bf19b4c4445b36d540903ffd06a9ff67ab65a93b129133e24",
-    "integrations/vscode/README.md": "31bb28a19b26e9acdbfe69f8c5e17ca3801cfdbf79c9d11399c4e226b89ba435",
-    "integrations/vscode/extension.js": "60959d1a9115d580af195589090e1bd1f7512f91baf6fb9d9b2ed7161436b6e7",
-    "integrations/vscode/package.json": "5ce5386009c22a4bbd25e6e5bef4af880b5c0b34fb45b7188f87d2d67181f08b",
-    "integrations/vscode/protocol.test.js": "be6e3a7e39bf8ebc3c99c205598f279edee7e6012c173fc5a46e466b86ba6639",
-    "integrations/vscode/routing.js": "f0089a26a469c692f27db1471614b2b370ecd7700694f77e90e61baa2aa7e517",
-    "integrations/vscode/routing.test.js": "8d143f49c2cfb890b23a91d47a1fc4324dfd973b7b36358dfa4ee8f931e739bd"
+    "integrations/vscode/README.md": "dac081831db4b86896f54ad91570530eb4a2e4a12c3f23fe16861404116fd340",
+    "integrations/vscode/extension.js": "f7c12da33e57cd40a6e4b30caeb2cbabc5813dc359bdc10da6be07f71c0723bc",
+    "integrations/vscode/package.json": "c3f10bed86b70c90c85dcd119fb972b06d0c05e6409091a33cf413735189da5a",
+    "integrations/vscode/routing.js": "f0089a26a469c692f27db1471614b2b370ecd7700694f77e90e61baa2aa7e517"
   },
   "version": 1
 }

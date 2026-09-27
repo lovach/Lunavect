@@ -1,7 +1,7 @@
 <idea-plugin>
   <id>com.lunavect.sessions</id>
   <name>Lunavect Sessions</name>
-  <version>0.1.1</version>
+  <version>0.1.2</version>
   <vendor url="https://github.com/lovach/Lunavect">Lunavect</vendor>
   <description>Focus an existing Claude or Codex terminal session from Lunavect.</description>
   <idea-version since-build="262" until-build="262.*"/>
@@ -10,5 +10,6 @@
   <extensions defaultExtensionNs="com.intellij">
     <applicationService serviceImplementation="com.lunavect.sessions.BridgeService"/>
     <postStartupActivity implementation="com.lunavect.sessions.BridgeStartup"/>
+    <notificationGroup id="Lunavect Sessions" displayType="BALLOON"/>
   </extensions>
 </idea-plugin>
