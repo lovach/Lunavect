@@ -200,4 +200,30 @@ import Combine
         XCTAssertEqual(sessions.hiddenIDs, ["codex:gone-codex"],
                        "The check runs once the catalogs have answered; a failed Codex read proves nothing")
     }
+
+    // S-03: a rejected SubagentStop raise reaches the store's diagnostics once,
+    // as a fixed code with counts only.
+    func testRejectedBackgroundRaiseBecomesOneDiagnosticEntry() async throws {
+        var clock = instant
+        func hook(_ name: String, _ extra: [String: Any] = [:], after previous: SessionRecord?, at date: Date) throws -> SessionRecord {
+            var payload: [String: Any] = ["session_id": "audit", "cwd": "/Users/fixture/Projects/lunavect", "hook_event_name": name]
+            payload.merge(extra) { $1 }
+            return try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: .claude, previous: previous, now: date)
+        }
+        let tasks: [[String: Any]] = [["id": "a1", "type": "subagent", "status": "running"], ["id": "b1", "type": "shell", "status": "running"]]
+        var record = try hook("SubagentStop", ["background_tasks": tasks], after: hook("UserPromptSubmit", after: nil, at: clock), at: clock.addingTimeInterval(1))
+        let sessions = try store(.init(events: { _, _, _ in [record.session] }), now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude])
+        await sessions.readEvents(); clock += 2; await sessions.readEvents()
+        XCTAssertEqual(sessions.diagnosticEntries.count, 1)
+        XCTAssertEqual(sessions.diagnosticEntries.first?.issue.code, "claude.sessionCatalog.unsupportedResponse")
+        XCTAssertEqual(sessions.diagnosticEntries.first?.hook, HookDiagnostic(kind: .backgroundCountRaised, at: instant.addingTimeInterval(1),
+                                                                              reported: BackgroundWork(commands: 1, agents: 1)))
+        XCTAssertNil(sessions.typedIssues[.claude], "A diagnostic, not a connection issue")
+        XCTAssertEqual(sessions.sessions.first?.backgroundWork, nil, "No badge")
+        record = try hook("SubagentStop", ["background_tasks": tasks], after: record, at: clock)
+        await sessions.readEvents()
+        XCTAssertEqual(sessions.diagnosticEntries.count, 2, "A later rejected report is a new entry")
+    }
 }

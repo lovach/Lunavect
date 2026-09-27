@@ -86,6 +86,8 @@ import WeekleftCore
     struct DiagnosticEntry: Equatable {
         let date: Date
         let issue: ClientIntegrationIssue
+        /// A fact the hook helper recorded, such as a rejected SubagentStop count.
+        var hook: HookDiagnostic? = nil
     }
     /// Fixed codes only; bounded and local to this store's lifetime.
     @Published private(set) var diagnosticEntries: [DiagnosticEntry] = []
@@ -532,6 +534,7 @@ import WeekleftCore
             let events = try await dependencies.events(rows, providers, now())
             guard isCurrent(expected) else { return }
             let date = now()
+            recordHookDiagnostics(events.filter { providers.contains($0.provider) && !internalSessionIDs.contains($0.id) })
             let currentEvents = suppressResolvedClaudeQuestions(events.filter { providers.contains($0.provider) }, catalog: rows, now: date)
             // `--all` re-lists finished and dormant background tasks on every poll.
             // Such history joins the merge only when a hook event names it; otherwise
@@ -575,8 +578,28 @@ import WeekleftCore
         guard let issue = ClientIntegrationIssue.classify(error, provider: provider, capability: .sessionCatalog) else { return }
         typedIssues[provider] = issue
         issues[provider] = L(issue.message)
-        diagnosticEntries.append(DiagnosticEntry(date: now(), issue: issue))
+        appendDiagnostic(DiagnosticEntry(date: now(), issue: issue))
+    }
+    private func appendDiagnostic(_ entry: DiagnosticEntry) {
+        diagnosticEntries.append(entry)
         if diagnosticEntries.count > 32 { diagnosticEntries.removeFirst(diagnosticEntries.count - 32) }
+    }
+    /// Latest hook fact already turned into an entry, by session and kind.
+    private var reportedHookDiagnostics: [String: Date] = [:]
+    /// Hook records keep only their latest fact; each new one becomes one entry.
+    /// It is diagnostic only: no connection issue, message or badge.
+    private func recordHookDiagnostics(_ events: [AgentSession]) {
+        for event in events {
+            guard let fact = event.hookDiagnostic else { continue }
+            let key = event.id + ":" + fact.kind.rawValue
+            guard fact.at > (reportedHookDiagnostics[key] ?? .distantPast) else { continue }
+            reportedHookDiagnostics[key] = fact.at
+            appendDiagnostic(DiagnosticEntry(date: fact.at, issue: ClientIntegrationIssue(provider: event.provider, capability: .sessionCatalog,
+                                                                                            reason: .unsupportedResponse), hook: fact))
+        }
+        if reportedHookDiagnostics.count > 512 {
+            reportedHookDiagnostics = Dictionary(uniqueKeysWithValues: reportedHookDiagnostics.sorted { $0.value > $1.value }.prefix(256).map { ($0.key, $0.value) })
+        }
     }
     private func suppressResolvedClaudeQuestions(_ events: [AgentSession], catalog: [AgentSession], now: Date) -> [AgentSession] {
         resolvedClaudeQuestions = resolvedClaudeQuestions.filter {

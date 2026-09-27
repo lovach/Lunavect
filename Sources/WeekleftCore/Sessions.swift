@@ -91,15 +91,17 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     public var terminalApp: String?
     /// Exact local IDE origin. Optional so records from earlier releases still load.
     public var ideLocation: IDESessionLocation?
-    /// Claude's own background tasks known to be in flight: set exactly at Stop
-    /// and SubagentStop, raised when a background launch is observed. Only
-    /// counts by kind are kept.
+    /// Claude's own background tasks known to be in flight: set exactly at Stop,
+    /// raised when a background launch is observed, only lowered or confirmed by
+    /// SubagentStop. Only counts by kind are kept.
     public var backgroundWork: BackgroundWork?
     /// Claude finished its reply while those tasks run; they will wake it. Set
     /// only by Stop and cleared by any later event of the session.
     public var awaitingBackground: Bool?
     /// Why Claude's last turn ended with an API error. The error text is not kept.
     public var failure: SessionFailure?
+    /// The latest fact the hook helper could not report to the app directly.
+    public var hookDiagnostic: HookDiagnostic?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -482,10 +484,17 @@ public struct SessionRecord: Codable, Sendable {
                 record.session.backgroundWork = work
             }
         case "SubagentStop":
-            // Reports the parent session's in-flight tasks while it keeps working;
-            // it is not a turn boundary, so phase, tool and freshness stay as they are.
+            // Not a turn boundary: phase, tool and freshness stay as they are.
+            // Its list is not authoritative (decision 10): it can lower or confirm
+            // what this session launched, never raise it. Stop sets the exact set.
             guard provider == .claude, previous != nil, payload["background_tasks"] != nil else { throw SessionError.invalidResponse }
-            record.session.backgroundWork = ClaudeBackgroundWork.awaited(payload["background_tasks"])
+            let reported = ClaudeBackgroundWork.awaited(payload["background_tasks"]) ?? BackgroundWork()
+            let known = record.session.backgroundWork ?? BackgroundWork()
+            let lowered = known.lowered(to: reported)
+            record.session.backgroundWork = lowered.total > 0 ? lowered : nil
+            if lowered != reported {
+                record.session.hookDiagnostic = HookDiagnostic(kind: .backgroundCountRaised, at: now, reported: reported)
+            }
             return record
         case "Stop":
             record.pendingApprovals = []; record.unidentifiedApproval = nil
@@ -528,6 +537,21 @@ public struct SessionRecord: Codable, Sendable {
         record.session.tool = name == "PreToolUse" && !tool.isEmpty ? tool : nil
         if client != .unknown { record.session.client = client }
         return record
+    }
+}
+
+/// A fixed code, time and counts only: never a payload, command or description.
+/// The app turns a new one into a diagnostic entry; records keep only the latest.
+public struct HookDiagnostic: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        /// SubagentStop reported more background work than the session started.
+        case backgroundCountRaised
+    }
+    public var kind: Kind
+    public var at: Date
+    public var reported: BackgroundWork?
+    public init(kind: Kind, at: Date, reported: BackgroundWork? = nil) {
+        self.kind = kind; self.at = at; self.reported = reported
     }
 }
 
@@ -595,6 +619,11 @@ public struct BackgroundWork: Codable, Equatable, Sendable {
         commands = Self.adding(commands, other.commands); agents = Self.adding(agents, other.agents)
         monitors = Self.adding(monitors, other.monitors); self.other = Self.adding(self.other, other.other)
     }
+    /// Each kind lowered to a report, never raised above what is known.
+    public func lowered(to report: BackgroundWork) -> BackgroundWork {
+        BackgroundWork(commands: min(commands, report.commands), agents: min(agents, report.agents),
+                       monitors: min(monitors, report.monitors), other: min(other, report.other))
+    }
 }
 
 /// Claude Code reports in-flight background work in Stop input (`background_tasks`,
@@ -602,7 +631,9 @@ public struct BackgroundWork: Codable, Equatable, Sendable {
 /// is a pause. Services and followers never finish or wake it; they don't delay
 /// the response. Commands and descriptions are inspected here, never stored.
 enum ClaudeBackgroundWork {
-    private static let finished: Set<String> = ["completed", "failed", "killed", "stopped", "cancelled", "canceled", "error", "done"]
+    /// Only a task that is known to be in flight and identifiable is awaited;
+    /// finished, unknown or unnamed entries never hold a reply or a badge.
+    private static let inFlight: Set<String> = ["running", "pending"]
     private static let services = [
         #"\btail\b[^|;&\n]*\s(?:-[a-z0-9]*f\b|--follow\b)"#,
         #"\blog\s+stream\b"#,
@@ -622,7 +653,8 @@ enum ClaudeBackgroundWork {
     static func awaited(_ value: Any?) -> BackgroundWork? {
         guard let tasks = value as? [[String: Any]] else { return nil }
         var work = BackgroundWork()
-        for task in tasks.prefix(500) where !finished.contains((task["status"] as? String ?? "").lowercased()) {
+        for task in tasks.prefix(500) where inFlight.contains((task["status"] as? String ?? "").lowercased()) {
+            guard let id = task["id"] as? String, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             switch (task["type"] as? String ?? "").lowercased() {
             case "shell":
                 if let command = task["command"] as? String, isService(command) { continue }
