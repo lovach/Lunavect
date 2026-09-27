@@ -10,7 +10,7 @@ New profiles enable update checks and leave automatic downloads/installation off
 
 Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](privacy.md#network-requests).
 
-The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.3) is 0.2.3 (189). It adds companions for local VS Code and JetBrains 2026.2 terminal navigation, editor connection settings and workspace-aware VS Code provider routes. See [IDE setup and compatibility](ide-sessions.md) for supported surfaces and remaining verification limits. Settings and client connections are retained.
+The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.4) is 0.2.4 (191). It improves cancellable Terminal/IDE navigation, local-file recovery and quota freshness, and bundles companion version 0.1.1. Reinstall the editor companions from Settings → Connections to receive their fixes. See [IDE setup and compatibility](ide-sessions.md) for supported surfaces and remaining verification limits. Settings and client connections are retained.
 
 ## Preparing a release
 
@@ -32,10 +32,10 @@ Public build configuration is in `Config/Distribution.xcconfig` and `Config/Upda
 First refresh release tags and download the currently published appcast into a private evidence directory. Review that baseline; the tools do not fetch it automatically. Use a new version/tag and a build and marketing version above every published entry. For example, after replacing these illustrative values with the intended release:
 
 ```sh
-./scripts/distribute.sh archive 0.2.3 189 /path/to/published-appcast.xml
-./scripts/distribute.sh submit 0.2.3 189
+./scripts/distribute.sh archive 0.2.4 191 /path/to/published-appcast.xml
+./scripts/distribute.sh submit 0.2.4 191
 # After Apple's notarization completes:
-./scripts/distribute.sh export 0.2.3 189
+./scripts/distribute.sh export 0.2.4 191
 ```
 
 Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, a build or marketing version that does not exceed the supplied appcast, and a build that does not exceed a Lunavect installed in `~/Applications` or `/Applications`. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app only after the resource and helper-policy checks pass. `submit` and `export` refuse an archive unless that manifest is complete, names the same version and build, and still matches the archived app's hash; after a failed archive, use a new build number. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.
@@ -84,8 +84,8 @@ Keep packaging dependencies and output outside the repository:
 python3 -m venv /path/outside-repository/dmg-venv
 /path/outside-repository/dmg-venv/bin/pip install -r scripts/dmg/requirements.txt
 /path/outside-repository/dmg-venv/bin/python scripts/package-dmg.py \
-  --app '/path/to/Notarized-189/Lunavect.app' \
-  --output '/path/to/release-assets/Lunavect-0.2.3.dmg'
+  --app '/path/to/Notarized-191/Lunavect.app' \
+  --output '/path/to/release-assets/Lunavect-0.2.4.dmg'
 ```
 
 Replace these paths and version numbers with your exported app and intended output. The DMG is a read-only image containing the app and an Applications link. Its Finder layout uses `scripts/dmg/layout.json`; the AppKit background renderer provides 1× and 2× artwork. The pinned `dmgbuild` dependencies write the layout metadata without automating Finder. See the [installer screenshot](images/installer.jpg).
