@@ -113,7 +113,8 @@ public enum SessionOpeningError: LocalizedError, Equatable {
         case .ideSessionUnavailable(let app): return L("Не удалось найти эту сессию в {0}. Проверьте, что её проект и вкладка открыты, затем обновите список.", app)
         case .ideUnsupported(let app): return L("Этот способ запуска сессии в {0} пока не поддерживается. Поддерживаемые варианты указаны в настройках подключения редакторов.", app)
         case .ideAmbiguous(let app): return L("В {0} найдено несколько подходящих окон. Оставьте проект открытым в одном окне и повторите переход.", app)
-        case .ideTimedOut(let app): return L("{0} не подтвердил переход к сессии. Проверьте запросы разрешений в редакторе и повторите попытку.", app)
+        case .ideTimedOut(let app):
+            return L("{0} не ответил вовремя. Редактор может быть занят (например, индексацией) или ждать ответа в диалоге. Повторите переход через несколько секунд.", app)
         case .ideBridgeUnresponsive(let app):
             return L("Модуль Lunavect в {0} установлен, но не отвечает. Подождите полминуты или перезапустите окно редактора, затем повторите переход.", app)
         case .ideCompanionIncompatible(let app):

@@ -769,13 +769,22 @@ enum SessionNavigation {
     }
     @MainActor static func focusIDE(_ session: AgentSession) async throws {
         try await IDEBridge.open(session, activateApp: { pid in
-            await MainActor.run { NSRunningApplication(processIdentifier: pid)?.activate() ?? false }
+            await MainActor.run { activateEditor(pid) }
         }) { url, app in
             do {
                 _ = try await NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
                 return true
             } catch { return false }
         }
+    }
+    /// Activation is cooperative on macOS 14 and later: yield to the editor first.
+    /// From a notification Lunavect itself may not be active, so the first request
+    /// can be refused; a request on behalf of the current app is the second try.
+    @MainActor static func activateEditor(_ pid: Int32) -> Bool {
+        guard let editor = NSRunningApplication(processIdentifier: pid) else { return false }
+        NSApp.yieldActivation(to: editor)
+        if editor.activate() { return true }
+        return editor.activate(from: NSRunningApplication.current, options: [])
     }
     /// A live CLI session stays where it runs: bring its own tab to the front.
     /// The policy lives in `TerminalLocation.focusSession`; only the running-app check needs AppKit.

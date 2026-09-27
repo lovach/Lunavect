@@ -5214,12 +5214,12 @@
     "fr": "Plusieurs fenêtres correspondantes ont été trouvées dans {0}. Gardez le projet ouvert dans une seule fenêtre et réessayez.",
     "zh-Hans": "在 {0} 中找到多个匹配窗口。请仅在一个窗口中打开该项目，然后重试。"
   },
-  "{0} не подтвердил переход к сессии. Проверьте запросы разрешений в редакторе и повторите попытку.": {
-    "en": "{0} did not confirm opening the session. Check for permission prompts in the editor and try again.",
-    "de": "{0} hat das Öffnen der Sitzung nicht bestätigt. Prüfen Sie Berechtigungsabfragen im Editor und versuchen Sie es erneut.",
-    "es": "{0} no confirmó la apertura de la sesión. Revisa las solicitudes de permisos en el editor y vuelve a intentarlo.",
-    "fr": "{0} n’a pas confirmé l’ouverture de la session. Vérifiez les demandes d’autorisation dans l’éditeur et réessayez.",
-    "zh-Hans": "{0} 未确认打开会话。请检查编辑器中的权限提示，然后重试。"
+  "{0} не ответил вовремя. Редактор может быть занят (например, индексацией) или ждать ответа в диалоге. Повторите переход через несколько секунд.": {
+    "en": "{0} did not answer in time. The editor may be busy (for example indexing) or waiting for a dialog. Try again in a few seconds.",
+    "de": "{0} hat nicht rechtzeitig geantwortet. Der Editor ist möglicherweise beschäftigt (zum Beispiel mit der Indizierung) oder wartet auf eine Antwort in einem Dialog. Versuchen Sie es in einigen Sekunden erneut.",
+    "es": "{0} no respondió a tiempo. Puede que el editor esté ocupado (por ejemplo, indexando) o esperando una respuesta en un diálogo. Vuelve a intentarlo en unos segundos.",
+    "fr": "{0} n’a pas répondu à temps. L’éditeur est peut-être occupé (par exemple par l’indexation) ou attend une réponse dans une boîte de dialogue. Réessayez dans quelques secondes.",
+    "zh-Hans": "{0} 未及时响应。编辑器可能正忙（例如正在建立索引）或正在等待对话框的回应。请几秒钟后重试。"
   },
   "Сессии в редакторах": {
     "en": "Sessions in editors",
@@ -5248,6 +5248,34 @@
     "es": "Complemento no conectado",
     "fr": "Module non connecté",
     "zh-Hans": "扩展未连接"
+  },
+  "Установлен {0}, доступен {1}: переустановите модуль": {
+    "en": "Installed {0}, available {1}: reinstall the companion",
+    "de": "Installiert {0}, verfügbar {1}: Installieren Sie die Erweiterung erneut",
+    "es": "Instalado {0}, disponible {1}: vuelve a instalar el complemento",
+    "fr": "Installé {0}, disponible {1} : réinstallez le module",
+    "zh-Hans": "已安装 {0}，可用 {1}：请重新安装扩展"
+  },
+  "0.1.1 или раньше": {
+    "en": "0.1.1 or earlier",
+    "de": "0.1.1 oder älter",
+    "es": "0.1.1 o anterior",
+    "fr": "0.1.1 ou antérieure",
+    "zh-Hans": "0.1.1 或更早"
+  },
+  "Модуль не отвечает: перезапустите окно редактора": {
+    "en": "Companion not responding: reload the editor window",
+    "de": "Erweiterung antwortet nicht: Laden Sie das Editorfenster neu",
+    "es": "El complemento no responde: recarga la ventana del editor",
+    "fr": "Le module ne répond pas : rechargez la fenêtre de l’éditeur",
+    "zh-Hans": "扩展没有响应：请重新加载编辑器窗口"
+  },
+  "Версия модуля не подходит: переустановите модуль": {
+    "en": "Companion version does not match: reinstall it",
+    "de": "Version der Erweiterung passt nicht: Installieren Sie sie erneut",
+    "es": "La versión del complemento no corresponde: vuelve a instalarlo",
+    "fr": "La version du module ne correspond pas : réinstallez-le",
+    "zh-Hans": "扩展版本不匹配：请重新安装"
   },
   "Показать модуль": {
     "en": "Show installer",

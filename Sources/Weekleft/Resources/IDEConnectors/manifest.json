@@ -3,6 +3,10 @@
     "lunavect-jetbrains.zip": "518ef4cf00486c3fffe36385d1cd952e6ec5d8444df4f9bf311ba91921edd1a5",
     "lunavect-vscode.vsix": "f6fbd4dee16ed64c2e2b613f6deec8ca835aae555aab50cf559fff782c545b0d"
   },
+  "companionVersion": {
+    "jetbrains": "0.1.1",
+    "vscode": "0.1.1"
+  },
   "jetbrainsSDK": "IU-262.10968.63",
   "jetbrainsVersion": "2026.2.3",
   "sources": {
