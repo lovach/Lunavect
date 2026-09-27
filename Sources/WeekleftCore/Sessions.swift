@@ -102,6 +102,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     public var failure: SessionFailure?
     /// The latest fact the hook helper could not report to the app directly.
     public var hookDiagnostic: HookDiagnostic?
+    /// SessionEnd's documented `reason` code (for example `prompt_input_exit`),
+    /// kept for diagnosis only. Cleared by any later event.
+    public var endReason: String?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -507,7 +510,11 @@ public struct SessionRecord: Codable, Sendable {
             record.session.backgroundWork = work
             record.session.awaitingBackground = waiting ? true : nil
             record.session.phase = asksForReply ? .input : waiting ? .running : .ready
-        case "SessionEnd": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
+        case "SessionEnd":
+            record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
+            record.session.endReason = (payload["reason"] as? String).flatMap {
+                $0.range(of: "^[a-z_]{1,40}$", options: .regularExpression) != nil ? $0 : nil
+            }
         case "Interrupt": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .interrupted
         case "StopFailure":
             record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .failed
@@ -518,6 +525,7 @@ public struct SessionRecord: Codable, Sendable {
         default: throw SessionError.invalidResponse
         }
         if name != "Stop" { record.session.responseRequestsInput = nil }
+        if name != "SessionEnd" { record.session.endReason = nil }
         if name != "StopFailure" { record.session.failure = nil }
         // Background tasks outlive prompts and tool calls; only a new or ended
         // session starts without them (compaction keeps them running).
