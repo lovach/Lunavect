@@ -18,11 +18,16 @@ Click an indicator to open the details panel with percentages, reset countdowns 
 
 **Show time until reset** is off by default. Explicitly saved choices survive upgrades. Countdown values come from the actual reset timestamp. Hiding the countdown preserves the bar layout's width and icon positions; numeric columns accommodate `100%*`, `0%` and unavailable values without shifting neighboring items.
 
-The indicator reads existing quota snapshots, without extra provider requests. A local timer updates countdowns and freshness every 30 seconds, including an immediate check after wake.
+The indicator reads existing quota snapshots, without extra provider requests. A local timer updates countdowns and freshness every 30 seconds, including an immediate check after wake. The panel's refresh button asks the providers at most once per 30 seconds; automatic requests follow [the refresh policy](connections.md#when-limits-are-refreshed).
 
-- Missing or expired data shows a dash or an unfilled dashed ring.
-- Saved, unexpired values older than 15 minutes, or values associated with a source error, show an asterisk or a faded dashed arc. The details panel identifies saved data.
-- A confirmed zero shows `0%` and an empty meter.
+The menu bar, the details panel, widgets and **Settings → Limits** use one state per window and the same sentence for it:
+
+- Missing data shows a dash or an unfilled dashed ring.
+- After the saved reset has passed without newer data: a dash and "Reset at HH:MM, waiting for the new window's first data". Neither the old value nor an assumed 100% is shown.
+- Saved values older than 15 minutes, or values associated with a source error, show an asterisk or a faded dashed arc. The details panel identifies saved data.
+- An exhausted window shows `0%`, an empty meter and its countdown without an asterisk: it cannot change before the reset.
+- A window that has not started (0% used and no reset yet, typically right after a weekly reset) shows `100%` and "Starts with the first request", without a countdown.
+- Codex without any rate-limit window shows `∞` and "No limits".
 - Disabled services are omitted even if their previous snapshots remain stored.
 
 ## Session status

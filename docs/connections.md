@@ -4,7 +4,7 @@ Connect either provider or both in **Settings → Connections**. Lunavect checks
 
 ## Requirements
 
-- **Claude:** Claude Code CLI. Claude Desktop alone cannot supply the CLI usage integration.
+- **Claude:** Claude Code CLI. Claude Desktop alone cannot supply the CLI usage integration. Sessions started from Claude Desktop run Claude Code without its terminal interface: hooks work, but the status line never runs there, so limits come only from `/usage` (see below).
 - **Codex:** the official Codex client and an available Codex CLI, either installed separately or bundled with the macOS app.
 - An account mode for which the official client exposes the requested allowances. A successful sign-in does not guarantee that weekly or five-hour limits are available.
 
@@ -28,7 +28,22 @@ The guide checks progress while open. If an external window was closed or setup 
 | Claude Code | The official CLI's `/usage` output and `rate_limits` delivered to the status-line command | Local lifecycle hooks, available client session information and title metadata |
 | Codex | `account/rateLimits/read` through the local Codex app-server | Available runtime state, lifecycle hooks and local session metadata; log-based fallback where needed |
 
-Claude status-line quotas have a receipt time but no server observation timestamp. They remain marked as saved observations; recent `/usage` results take precedence. Recognized repeated status-line payloads do not advance their receipt time, and a lower value for the same limit window from another session (an idle session's older response, re-sent when Claude re-runs its status line) does not replace a newer observation. Automatic refreshes after wake or network recovery reuse a current verified cache, while an explicit refresh can request new data.
+Claude status-line quotas have a receipt time but no server observation timestamp. They remain marked as saved observations; recent `/usage` results take precedence. Recognized repeated status-line payloads do not advance their receipt time, and a lower value for the same limit window from another session (an idle session's older response, re-sent when Claude re-runs its status line) does not replace a newer observation.
+
+## When limits are refreshed
+
+A Claude `/usage` probe starts Claude Code for a few seconds, and a Codex request starts its app-server, so Lunavect asks only when the window state calls for it. A five-minute timer only evaluates this policy:
+
+| State | Shown | Automatic request |
+| --- | --- | --- |
+| Current value | Remaining percentage and countdown; `*` after 15 minutes | After 15 minutes while sessions are active (an event within the last hour), otherwise after an hour |
+| 0 % remaining, reset ahead | `0%` and the countdown, without `*` | None before the saved reset |
+| Reset passed, no newer data | A dash and "Reset at HH:MM, waiting for the new window's first data" | One request at the reset plus a grace (90 s for `/usage`, which rounds to the minute; 5 s for exact status-line and Codex times) |
+| Window not started (0 % used, no reset) | 100 % and "Starts with the first request" | After session activity, otherwise hourly |
+| Codex without any window | ∞ and "No limits" | Hourly |
+| Last request failed | Last value with `*` and the specific reason | Backs off 5, 10, 20, 40, then 60 minutes |
+
+A finished response reported by the lifecycle hooks triggers a request 90 seconds after the last event of a burst when the data is older than two minutes; hooks also run for Claude Desktop sessions. After wake Lunavect waits four seconds and asks only if the network is up; wake and a restored connection restart the backoff. **Refresh limits** in the menu and the limits panel and **Refresh data** in Connections always ask, at most once per 30 seconds per provider. **Refresh sessions** in the session panel reads sessions only and never starts a quota probe.
 
 Local catalog entries and titles are not evidence that a session is working. Fallback readers depend on client file formats, so a client update can affect detection. See [sessions](sessions.md) for state handling and navigation limits.
 
@@ -46,6 +61,11 @@ For all storage paths, backups, permissions and network behavior, see [Privacy a
 - **Not signed in:** complete the official client's login step, then retry its status check.
 - **No session events:** check handler installation and, for Codex, handler approval. An already open client session may need to be reopened.
 - **Quota unavailable:** follow the selected provider's diagnostic action. Check whether the official client itself shows that allowance. Missing values remain unavailable.
+- **Claude asks to trust a folder:** Claude Code shows its workspace trust question for Lunavect's probe folder (`~/Library/Application Support/Weekleft/QuotaProbe`) until it is answered once. **Finish Claude Code setup** opens `/usage` in that folder in Terminal; Lunavect never answers the question itself.
+- **Subscription limits unavailable:** `/usage` shows only the session cost panel when Claude Code is not signed in with a subscription or bills through an API key. Sign in with the subscription account in Claude Code.
+- **Limit reached or usage data failed to load:** the saved values stay; Lunavect asks again after the reset or after the backoff.
+- **Claude Desktop only:** when recent Claude sessions all ran in Claude Desktop and the status line has not reported since, Connections and the Limits page note that limits refresh through `/usage`. This is expected, not a fault.
+- **Diagnosing the probe:** `Lunavect.app/Contents/MacOS/Lunavect --probe` prints the result of one real `/usage` probe (or its typed reason), the saved status line and Codex; `--usage-probe` prints the plain screen text first. With `LUNAVECT_PROBE_DUMP_DIR=<folder>` set, the plain text of a failed probe screen is saved there (mode 0600). Nothing is saved otherwise.
 - **Offline or stale:** the last observation keeps its original timestamp. When connectivity returns, Lunavect retries; network availability alone does not prove that the provider is responding.
 
 ## Disconnect

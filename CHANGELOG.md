@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Limits are requested by window state instead of every five minutes. A verified value is reused for 15 minutes during work and an hour when idle; an exhausted window is not requested before its reset; one confirming request follows each reset; failures back off from 5 to 60 minutes. Finished Claude and Codex responses reported by hooks trigger a debounced request. Wake waits for the network. The same policy applies to Codex.
+- A failed Claude `/usage` probe ends two seconds after its screen stops changing instead of keeping Claude Code open for 25 seconds, and reports a specific reason: limit reached, usage data failed to load, window not started, workspace trust required (previously shown as a sign-in problem) or subscription limits unavailable (API billing or no subscription sign-in).
+- After a weekly reset, an unstarted window is shown as 100% with "Starts with the first request" instead of "Unsupported response format". An exhausted window shows 0% with its countdown and no asterisk; after a passed reset without new data every surface shows the same "Reset at HH:MM, waiting for the new window's first data".
+- Codex plans without rate-limit windows show "No limits" instead of waiting forever; Codex's reached-limit flag counts as 100%.
+- Connections and Limits explain when Claude Desktop sessions cannot update limits through the status line.
+- `--probe` prints the result of a real `/usage` probe; `--usage-probe` prints its screen. `LUNAVECT_PROBE_DUMP_DIR` saves failed probe screens for diagnosis (opt-in).
+
 ## 0.2.4 — 2026-09-27
 
 - Terminal navigation stays responsive while macOS selects a tab. Slow or cancelled requests stop cleanly and retain specific permission and timeout messages.
