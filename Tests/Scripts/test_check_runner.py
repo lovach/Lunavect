@@ -210,6 +210,19 @@ class CheckRunnerTests(unittest.TestCase):
         for stage in MANUAL:
             self.assertEqual(report['checks'][stage]['status'], 'not-run', stage)
 
+    def assert_durations(self, report, completed):
+        # Each completed stage records its own elapsed time so CI timeouts can be
+        # set from evidence; stages that never started record none.
+        for stage, record in report['checks'].items():
+            if stage in completed:
+                self.assertIsInstance(record['duration_seconds'], (int, float), stage)
+                self.assertGreaterEqual(record['duration_seconds'], 0, stage)
+                self.assertRegex(record['started_at'], r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$', stage)
+            else:
+                self.assertNotIn('duration_seconds', record, stage)
+        self.assertGreaterEqual(report['duration_seconds'],
+                                sum(report['checks'][stage]['duration_seconds'] for stage in completed) - 1)
+
     def assert_success_evidence(self, repo, report, report_path):
         self.assertEqual(report['status'], 'passed')
         self.assertEqual(report['exit_code'], 0)
@@ -223,6 +236,7 @@ class CheckRunnerTests(unittest.TestCase):
         self.assertEqual(report['checks']['intent_resources']['counts'],
                          {'total': 1, 'passed': 1, 'skipped': 0, 'failures': 0})
         self.assert_manual_not_run(report)
+        self.assert_durations(report, STAGES)
         manifest_path = report_path.with_name('build-manifest.json')
         manifest = json.loads(manifest_path.read_text())
         commit = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'],
@@ -245,7 +259,10 @@ class CheckRunnerTests(unittest.TestCase):
             self.assertNotIn(str(self.base), path.read_text())
         summary = report_path.with_name('check-summary.md').read_text()
         self.assertIn('| widget_private_abi | skipped |', summary)
-        self.assertIn('| live_clients | not-run |', summary)
+        self.assertIn('| live_clients | not-run |  |', summary)
+        self.assertIn('| Check | Status | Duration | Test counts / scope |', summary)
+        self.assertRegex(summary, r'\| swift_tests \| passed \| \d+\.\d s \|')
+        self.assertRegex(summary, r'Overall: \*\*passed\*\* in \d+\.\d s')
 
     def test_parallel_checkouts_own_only_their_runs_on_success_and_build_failure(self):
         for override in (False, True):
@@ -303,6 +320,7 @@ class CheckRunnerTests(unittest.TestCase):
         for stage in STAGES[STAGES.index('swift_tests') + 1:]:
             self.assertEqual(report['checks'][stage]['status'], 'not-run', stage)
         self.assert_manual_not_run(report)
+        self.assert_durations(report, STAGES[:STAGES.index('swift_tests') + 1])
         self.assertFalse(list((self.runtime / 'Lunavect-Check.noindex').glob('run.*')))
         self.assertFalse(any(event['tool'] == 'clang' for event in self.read_trace(trace)))
         self.assertFalse(self.forbidden.exists())
@@ -357,6 +375,24 @@ class CheckRunnerTests(unittest.TestCase):
         self.assertEqual(value['checks']['swift_tests']['counts']['failures'], 5)
         self.assertEqual(value['checks']['unsigned_build']['status'], 'not-run')
         self.assertIn('unknown passed', report.with_name('check-summary.md').read_text())
+
+    def test_stage_duration_covers_the_command_and_interrupted_stages_keep_elapsed_time(self):
+        report = self.base / 'durations.json'
+        self.assertEqual(self.run_reporter('init', report).returncode, 0)
+        result = self.run_reporter('run', report, 'source_checkpoint', sys.executable, '-c', 'import time; time.sleep(0.3)')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(report.read_text())
+        # A lower bound only: the stage cannot finish before its command did.
+        self.assertGreaterEqual(value['checks']['source_checkpoint']['duration_seconds'], 0.3)
+        # A runner killed by a CI timeout leaves a running stage; finish keeps
+        # how long it had run instead of dropping the evidence.
+        value['checks']['swift_tests'].update(status='running', started_at='2000-01-01T00:00:00Z')
+        report.write_text(json.dumps(value))
+        self.assertEqual(self.run_reporter('finish', report, 143).returncode, 143)
+        interrupted = json.loads(report.read_text())['checks']['swift_tests']
+        self.assertEqual(interrupted['status'], 'failed')
+        self.assertGreater(interrupted['duration_seconds'], 3600)
+        self.assertNotIn('duration_seconds', json.loads(report.read_text())['checks']['unsigned_build'])
 
     def test_python_subtest_failures_are_not_counted_as_failed_test_cases(self):
         report = self.base / 'python-subtests.json'
