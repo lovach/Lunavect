@@ -282,4 +282,32 @@ import Combine
         XCTAssertTrue(sessions.currentSessions.isEmpty, "The stale row leaves the panel")
         XCTAssertEqual(sessions.hiddenCount, 0, "Unknown state is not archived")
     }
+
+    // Matrix S14: NTP moves the clock two hours forward while sessions are
+    // open and idle. Their inactivity did not grow by two hours.
+    func testClockCorrectionDoesNotHideEveryIdleSessionAtOnce() async throws {
+        var clock = instant
+        func rows() -> [AgentSession] {
+            (0..<3).map {
+                AgentSession(provider: .codex, sessionID: "open-\($0)", title: "Open \($0)", cwd: "/Users/fixture/Projects/\($0)", phase: .idle,
+                             updatedAt: self.instant.addingTimeInterval(-60), observedAt: clock, runtimeConfirmed: true)
+            }
+        }
+        let sessions = try store(.init(events: { _, _, _ in rows() }, schedulesTimers: true), now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.codex])
+        sessions.autoHideMinutes = 20
+        sessions.start(clientResolver: { ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { nil }) })
+        await sessions.refresh()
+        XCTAssertEqual(sessions.currentSessions.count, 3)
+        clock += 7200
+        NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
+        try await Task.sleep(for: .milliseconds(100))
+        await sessions.readEvents()
+        XCTAssertEqual(sessions.hiddenCount, 0, "A clock correction is not two hours of inactivity")
+        clock += 1199; await sessions.readEvents()
+        XCTAssertEqual(sessions.hiddenCount, 0)
+        clock += 1; await sessions.readEvents()
+        XCTAssertEqual(sessions.hiddenCount, 3, "The chosen interval still applies from the correction")
+    }
 }

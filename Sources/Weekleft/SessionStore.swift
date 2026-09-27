@@ -376,10 +376,20 @@ import WeekleftCore
         stopped = true; started = false
         invalidateWork()
         undoDismissTask?.cancel(); undoDismissTask = nil
+        if let clockObserver { NotificationCenter.default.removeObserver(clockObserver); self.clockObserver = nil }
     }
     isolated deinit {
         refreshTask?.cancel(); eventTask?.cancel(); undoDismissTask?.cancel()
         localTimer?.invalidate(); sourceTimer?.invalidate(); eventWatcher?.cancel()
+        if let clockObserver { NotificationCenter.default.removeObserver(clockObserver) }
+    }
+    private var clockObserver: NSObjectProtocol?
+    /// Inactivity is measured on the wall clock. A correction (NTP step, a
+    /// manual change) is not time without activity: running intervals restart
+    /// instead of hiding every idle session at once (matrix S14).
+    func systemClockChanged() {
+        let now = now()
+        for id in inactiveSince.keys { inactiveSince[id] = now }
     }
     private var desktopTitles: [String: String] = [:]
     private var titlesCheckedAt = Date.distantPast
@@ -399,6 +409,11 @@ import WeekleftCore
         beginRefresh()
         updatePollingTimers()
         watchEvents()
+        if dependencies.schedulesTimers, clockObserver == nil {
+            clockObserver = NotificationCenter.default.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in self?.systemClockChanged() }
+            }
+        }
     }
     private func watchEvents() {
         guard started, !stopped, dependencies.watchesEvents, eventWatcher == nil else { return }
