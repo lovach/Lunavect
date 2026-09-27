@@ -103,7 +103,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         XCTAssertEqual(view.currentCounts(at: now).total, 3)
         XCTAssertEqual(view.currentCounts(at: now).working, 1)
 
-        var live = raw[1]; live["pid"] = 123; live["status"] = "waiting"; live["waitingFor"] = "input needed"
+        var live = raw[1]; live["pid"] = 123; live["status"] = "waiting"
         retained[1] = try XCTUnwrap(SessionParser.claude(JSONSerialization.data(withJSONObject: [live]), now: now).first)
         store.acceptSessions(retained + codex, now: now)
         XCTAssertEqual(view.currentCounts(at: now).total, 4)
@@ -125,7 +125,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         let store = SessionStore(directory: root, defaults: defaults, isolated: true, now: { now }, dependencies: .init(catalog: { _, _, _, _ in
             let rows: [[String: Any]] = ids.map { id in
                 var row: [String: Any] = ["sessionId": id, "id": id, "kind": "background", "state": id == workID ? "working" : "blocked", "startedAt": 1_783_332_137_673]
-                if id == liveID { row["pid"] = 123; row["status"] = "waiting"; row["waitingFor"] = "input needed" }
+                if id == liveID { row["pid"] = 123; row["status"] = "waiting" }
                 return row
             }
             return (try SessionParser.claude(JSONSerialization.data(withJSONObject: rows), now: now), false)

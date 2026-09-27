@@ -234,13 +234,19 @@ public enum SessionParser {
                               terminal: (Int32) -> TerminalLocation.Target? = { _ in nil },
                               ide: (Int32) -> IDESessionLocation? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
-        return rows.compactMap { row in
+        // The JSON listing is not a documented contract. When no row carries a
+        // session identifier, report the changed shape instead of an empty list.
+        var recognized = 0
+        let sessions: [AgentSession] = rows.compactMap { row in
             guard let id = (row["sessionId"] ?? row["id"]) as? String, validID(id) else { return nil }
+            recognized += 1
             let cwd = row["cwd"] as? String ?? ""
             let rowPID = (row["pid"] as? Int).flatMap { $0 > 1 ? Int32(exactly: $0) : nil }
             guard !isInternal(cwd, rowPID) else { return nil }
             let background = row["kind"] as? String == "background"
             let status = row["status"] as? String
+            // Claude Code 2.1.280 emits neither `waitingFor` nor `updatedAt`; both are
+            // read only if a later version adds them. Every wait is then input.
             let waiting = row["waitingFor"] as? String
             let waitingPhase: SessionPhase = ["permission prompt", "sandbox request"].contains(waiting) ? .permission : .input
             let phase: SessionPhase
@@ -284,6 +290,10 @@ public enum SessionParser {
             session.catalogHistory = background && ["blocked", "done", "failed", "stopped"].contains(row["state"] as? String) && !livePresence
             return session
         }
+        if !rows.isEmpty && recognized == 0 {
+            throw ClientIntegrationIssue(provider: .claude, capability: .sessionCatalog, reason: .unsupportedResponse)
+        }
+        return sessions
     }
 }
 public enum SessionList {

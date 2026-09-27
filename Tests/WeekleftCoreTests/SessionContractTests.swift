@@ -8,6 +8,8 @@ final class SessionContractTests: XCTestCase {
         payload.merge(extra) { _, new in new }
         return try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: .claude, previous: previous, now: at ?? now)
     }
+    /// Rows with `waitingFor` describe a hypothetical richer catalog: Claude Code
+    /// 2.1.280 does not emit it (live check 2026-09-28), so there every wait is input.
     private func catalog(_ extra: [String: Any], at: Date? = nil) throws -> AgentSession {
         var row: [String: Any] = ["sessionId": "fixture", "kind": "interactive", "startedAt": 1_700_000_000_000]
         row.merge(extra) { _, new in new }
