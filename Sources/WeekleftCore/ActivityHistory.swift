@@ -166,8 +166,17 @@ public struct ActivitySummary: Sendable {
     }
 }
 
+/// Gaps between two live observations of a running session that were too long
+/// to count as work. Aggregate diagnostics only; restarted after 35 days.
+public struct ActivityObservationGaps: Codable, Equatable, Sendable {
+    public var count: Int
+    public var seconds: TimeInterval
+    public var since: Date
+}
+
 public struct ActivityHistory: Codable, Equatable, Sendable {
     public private(set) var intervals: [ActivityInterval] = []
+    public private(set) var observationGaps: ActivityObservationGaps?
     public private(set) var importCutoff: Date?
     public private(set) var importedAt: Date?
     public private(set) var importWasLimited: Bool?
@@ -200,6 +209,12 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
         if !intervals.isEmpty, intervals[0].start < cutoff { intervals[0].start = cutoff }
         // Bound storage even when state changes every second for weeks.
         if intervals.count > 50_000 { intervals.removeFirst(intervals.count - 50_000) }
+    }
+    public mutating func recordObservationGap(seconds: TimeInterval, at date: Date) {
+        guard seconds.isFinite, seconds > 0 else { return }
+        if var gaps = observationGaps, date.timeIntervalSince(gaps.since) <= 35 * 86400 {
+            gaps.count += 1; gaps.seconds += seconds; observationGaps = gaps
+        } else { observationGaps = ActivityObservationGaps(count: 1, seconds: seconds, since: date) }
     }
     public mutating func prepareImport(now: Date) -> Date {
         if importCutoff == nil { importCutoff = min(now, intervals.first?.start ?? now) }

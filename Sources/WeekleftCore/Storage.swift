@@ -152,7 +152,9 @@ public enum LocalStateRecovery {
         guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
         return data
     }
-    public static func write(_ data: Data, to url: URL) throws {
+    /// `synchronize: false` skips fsync for private state that is rewritten
+    /// periodically; a crash then loses at most that cadence, never the old file.
+    public static func write(_ data: Data, to url: URL, synchronize: Bool = true) throws {
         let target = url.resolvingSymlinksInPath()
         let tmp = target.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
         // The private temporary is created exclusively and has restrictive mode
@@ -162,7 +164,7 @@ public enum LocalStateRecovery {
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
         try handle.write(contentsOf: data)
-        try handle.synchronize()
+        if synchronize { try handle.synchronize() }
         try handle.close()
         guard rename(tmp.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
