@@ -1,0 +1,238 @@
+[
+  {
+    "test": "WeekleftUITests.ActivityAccessibilityTests testRenderLongActivityLabels",
+    "reason": "Opt-in isolated activity accessibility rendering"
+  },
+  {
+    "test": "WeekleftCoreTests.ActivityImportTests testReadAvailableLocalTimingMetadata",
+    "reason": "Opt-in local metadata read; writes no user data"
+  },
+  {
+    "test": "WeekleftUITests.ActivityWidgetIntentLocalizationTests testBuiltAppAndWidgetContainResolvableIntentMetadata",
+    "reason": "Set LUNAVECT_INTENT_BUNDLE_PATHS to a JSON array of built app and widget paths"
+  },
+  {
+    "test": "WeekleftUITests.ActivityWidgetRenderingTests testRenderCleanContourAndSeparateCurrentHour",
+    "reason": "Opt-in native gap preview"
+  },
+  {
+    "test": "WeekleftUITests.ActivityWidgetRenderingTests testRenderEveryWidgetLayout",
+    "reason": "Opt-in native rendering"
+  },
+  {
+    "test": "WeekleftUITests.ActivityWidgetRenderingTests testRenderLimitsOnLightAndDarkBackgrounds",
+    "reason": "Opt-in native contrast rendering"
+  },
+  {
+    "test": "WeekleftUITests.ActivityWidgetRenderingTests testRenderSharedChartStates",
+    "reason": "Opt-in native rendering"
+  },
+  {
+    "test": "AwakeServiceTests.AwakeLeaseTests testSystemSettingReadOnlyProbe",
+    "reason": "Opt-in real pmset read; never mutates sleep"
+  },
+  {
+    "test": "WeekleftCoreTests.ClaudeUsageProbeTests testLiveUsageCommandWithoutModelRequest",
+    "reason": "Opt-in /usage through installed Claude Code"
+  },
+  {
+    "test": "WeekleftCoreTests.ClientConnectionTests testInstalledClientsConfirmExistingSignInWithoutReadingOutput",
+    "reason": "Opt-in check of existing official-client sign-in"
+  },
+  {
+    "test": "WeekleftCoreTests.CodexActivityTests testLiveCodexTimerRecovery",
+    "reason": "Opt-in read-only timer recovery for a named running Codex session"
+  },
+  {
+    "test": "WeekleftCoreTests.CodexActivityTests testLiveCodexWriterCanBridgeSilentReasoning",
+    "reason": "Opt-in read-only check against a running local Codex task"
+  },
+  {
+    "test": "WeekleftUITests.ConnectionSetupRenderingTests testRenderConnectionSteps",
+    "reason": "Set LUNAVECT_RENDER_CONNECTION to inspect native connection steps"
+  },
+  {
+    "test": "WeekleftUITests.ConnectionSetupRenderingTests testRenderLocalRecoveryStatesWithoutClients",
+    "reason": "Set LUNAVECT_RENDER_LOCAL_RECOVERY to inspect isolated local recovery states"
+  },
+  {
+    "test": "WeekleftUITests.ConnectionSetupRenderingTests testRenderUnsupportedDiagnosticsWithoutClients",
+    "reason": "Set LUNAVECT_RENDER_CAPABILITY to inspect isolated unsupported-client diagnostics"
+  },
+  {
+    "test": "WeekleftUITests.HiddenSessionsRenderingTests testRenderHiddenAndCompactPanels",
+    "reason": "Opt-in native rendering"
+  },
+  {
+    "test": "WeekleftUITests.InterfaceAuditTests testNativeAuditScreens",
+    "reason": "Opt-in native UI inspection"
+  },
+  {
+    "test": "WeekleftUITests.InterfaceIconRenderingTests testRenderCompleteControlAlphabet",
+    "reason": "Opt-in native icon inspection"
+  },
+  {
+    "test": "WeekleftUITests.KeepAwakeTests testRenderAutomaticControls",
+    "reason": "Opt-in native rendering"
+  },
+  {
+    "test": "WeekleftUITests.KeepAwakeTests testRenderNativeButtonInPanel",
+    "reason": "Opt-in native rendering"
+  },
+  {
+    "test": "WeekleftUITests.LegacyRenderIsolationTests testPreviewCompositionInsideProvenSandbox",
+    "reason": "Legacy export requires the sandbox launcher and a process-only language"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarArtworkTests testRenderAnimation",
+    "reason": "Opt-in animation rendering"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarArtworkTests testRenderClaudePhasesAtCurrentSize",
+    "reason": "Opt-in Claude phase rendering"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarCompactTests testRenderCompactIndicatorAndSettings",
+    "reason": "Opt-in offscreen compact limits rendering"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarLimitsTests testNativeItemUpdatesExpiresOpensAndRemoves",
+    "reason": "The status item was not visible, so opening the popover was not checked"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarLimitsTests testRenderIndependentColors",
+    "reason": "Opt-in native color rendering"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarLimitsTests testRenderLimitsPopover",
+    "reason": "Opt-in native limits popover rendering"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarLimitsTests testRenderLimitsSettings",
+    "reason": "Opt-in native settings rendering"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarLimitsTests testRenderNativeLimits",
+    "reason": "Opt-in native menu bar rendering"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarStatusTests testChangingCharacterDoesNotInheritRestDeadline",
+    "reason": "A visible status-item window is required to check native frame scheduling"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarStatusTests testRenderNativeStylesAndLanguages",
+    "reason": "Opt-in native menu status rendering"
+  },
+  {
+    "test": "WeekleftUITests.MenuBarStatusTests testRenderReadableSummaryOnWallpapers",
+    "reason": "Opt-in native wallpaper rendering"
+  },
+  {
+    "test": "WeekleftUITests.NativeRenderSmokeTests testRenderSyntheticStates",
+    "reason": "Opt-in isolated render: use scripts/check-native-renders.py --run"
+  },
+  {
+    "test": "WeekleftUITests.ProductImprovementsTests testRenderLimitsStatisticsAndUpdates",
+    "reason": "Opt-in native render"
+  },
+  {
+    "test": "WeekleftUITests.ProductImprovementsTests testRenderMenuBarSections",
+    "reason": "Opt-in native render"
+  },
+  {
+    "test": "WeekleftUITests.ProductImprovementsTests testRenderStatisticsControls",
+    "reason": "Opt-in native render"
+  },
+  {
+    "test": "WeekleftUITests.ReleaseFeaturesRenderingTests testLiveConnectionDiagnostics",
+    "reason": "Opt-in installed client checks"
+  },
+  {
+    "test": "WeekleftUITests.ReleaseFeaturesRenderingTests testNativeReleaseFeatures",
+    "reason": "Opt-in native render"
+  },
+  {
+    "test": "WeekleftUITests.ReleaseFeaturesRenderingTests testNativeSimplifiedFlows",
+    "reason": "Opt-in native render"
+  },
+  {
+    "test": "WeekleftUITests.ReleaseScreenshots testRenderPublicScreenshots",
+    "reason": "Opt-in public screenshots using fictional data"
+  },
+  {
+    "test": "WeekleftCoreTests.SessionContractTests testPortableQuotingRoundTripsThroughFish",
+    "reason": "fish is not installed; real sh and zsh round trips are covered separately"
+  },
+  {
+    "test": "WeekleftUITests.SessionDormantCatalogTests testNativeHeaderWaitingLabelUsesCurrentCount",
+    "reason": "This AppKit test host does not expose SwiftUI header accessibility children"
+  },
+  {
+    "test": "WeekleftUITests.SessionNavigationIntegrationTests testExplicitDetachedHookAndCatalogOpenRealTerminal",
+    "reason": "Explicit opt-in required: focuses an operator-owned Terminal fixture"
+  },
+  {
+    "test": "WeekleftUITests.SessionNavigationIntegrationTests testExplicitIDEFixtureFromProcessOriginThroughNativeFocus",
+    "reason": "Explicit opt-in required: focuses operator-owned IDE terminal fixtures"
+  },
+  {
+    "test": "WeekleftUITests.SessionNavigationIntegrationTests testExplicitLocalSessionOpen",
+    "reason": "Explicit opt-in required: opens an existing session in its real app"
+  },
+  {
+    "test": "WeekleftUITests.SessionRowRenderingTests testRenderActualRowsAtPartialSwipeOffsets",
+    "reason": "Set LUNAVECT_RENDER_SWIPE to export native rows for visual inspection"
+  },
+  {
+    "test": "WeekleftUITests.SessionsUXRenderingTests testNativeSessionsAndHiddenScreens",
+    "reason": "Opt-in isolated native rendering"
+  },
+  {
+    "test": "WeekleftUITests.SettingsPreferencesTests testRenderPreferencePages",
+    "reason": "Opt-in native rendering"
+  },
+  {
+    "test": "WeekleftUITests.SettingsRenderingTests testRenderActivityImportReport",
+    "reason": "Opt-in import report rendering"
+  },
+  {
+    "test": "WeekleftUITests.SettingsRenderingTests testRenderSettingsPages",
+    "reason": "Set LUNAVECT_RENDER_SETTINGS to inspect native settings pages"
+  },
+  {
+    "test": "WeekleftUITests.SettingsUXRenderingTests testNativeSettingsUXMatrix",
+    "reason": "Opt-in isolated production settings rendering"
+  },
+  {
+    "test": "WeekleftUITests.SingleProviderTests testNativeSingleProviderScreens",
+    "reason": "Opt-in native render"
+  },
+  {
+    "test": "WeekleftUITests.SubscriptionCalendarRenderingTests testNativeCalendarPreview",
+    "reason": "Set LUNAVECT_RENDER_CALENDAR for visual verification"
+  },
+  {
+    "test": "WeekleftCoreTests.SyntheticPerformanceTests testRunSyntheticWorkload",
+    "reason": "Use scripts/measure-performance.py --run for explicit synthetic measurements"
+  },
+  {
+    "test": "WeekleftUITests.WidgetDesignRenderingTests testRenderActivityWidgetDesigns",
+    "reason": "Opt-in native widget design comparison"
+  },
+  {
+    "test": "WeekleftUITests.WidgetFreshnessRenderingTests testRenderStaleClaudeAlongsideFreshCodex",
+    "reason": "Opt-in native widget rendering"
+  },
+  {
+    "test": "WeekleftUITests.WidgetGalleryTests testNativePlacementGuide",
+    "reason": "Opt-in native render"
+  },
+  {
+    "test": "WeekleftUITests.WidgetTransparencyTests testExportIncreasedContrastComparison",
+    "reason": "Opt-in native contrast comparison"
+  },
+  {
+    "test": "WeekleftUITests.WidgetTransparencyTests testExportTransparencyComparison",
+    "reason": "Opt-in native transparency comparison"
+  }
+]

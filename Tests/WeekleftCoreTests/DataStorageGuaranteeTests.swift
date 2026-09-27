@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import WeekleftCore
 
 final class DataStorageGuaranteeTests: XCTestCase {
@@ -17,6 +18,40 @@ final class DataStorageGuaranteeTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: target), Data("replacement".utf8))
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: target.path)[.posixPermissions] as? Int, 0o600)
         XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.hasSuffix(".tmp") })
+    }
+    func testSharedStateRejectsPipesWithoutWaitingForAWriter() throws {
+        let file = try root().appendingPathComponent("snapshot.json")
+        XCTAssertEqual(mkfifo(file.path, 0o600), 0)
+        XCTAssertThrowsError(try SnapshotStore.loadRecovering(from: file))
+        XCTAssertThrowsError(try ActivityHistory.load(from: file))
+        XCTAssertThrowsError(try ActivityDetails.load(from: file))
+        var info = stat()
+        XCTAssertEqual(lstat(file.path, &info), 0)
+        XCTAssertEqual(info.st_mode & S_IFMT, S_IFIFO,
+                       "An unreadable special file is neither overwritten nor treated as recoverable JSON")
+    }
+    func testOversizedSharedHistoryIsRejectedWithoutDiscardingTheFile() throws {
+        let file = try root().appendingPathComponent("activity.json")
+        var bytes = Data("{\"intervals\":[]}".utf8)
+        bytes.append(Data(repeating: 32, count: 32_000_001))
+        try bytes.write(to: file)
+        XCTAssertThrowsError(try LocalStateRecovery.load(from: file, empty: ActivityHistory(), read: { try ActivityHistory.load(from: $0) }))
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int, bytes.count)
+    }
+    func testBoundedReaderKeepsMigrationLinksAndRejectsOversizedSnapshots() throws {
+        let root = try root(), target = root.appendingPathComponent("target.json"), link = root.appendingPathComponent("legacy.json")
+        let valid = try JSONEncoder().encode(SharedState())
+        try valid.write(to: target)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        XCTAssertEqual(try LocalStateRecovery.read(from: link, maximumBytes: valid.count), valid)
+        XCTAssertThrowsError(try LocalStateRecovery.read(from: link, maximumBytes: valid.count - 1))
+        XCTAssertNil(try SnapshotStore.loadRecovering(from: link).backupURL)
+        var oversized = valid; oversized.append(Data(repeating: 32, count: 1_048_577))
+        try oversized.write(to: target)
+        XCTAssertThrowsError(try SnapshotStore.loadRecovering(from: link))
+        XCTAssertEqual(try Data(contentsOf: target), oversized)
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), target.path)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).count, 2)
     }
     func testFailedReplacementPreservesDestinationAndCleansTemporary() throws {
         let root = try root(), destination = root.appendingPathComponent("occupied")

@@ -1,7 +1,71 @@
 import XCTest
+import Darwin
 @testable import WeekleftCore
 
 final class IDEBridgeTests: XCTestCase {
+    private func withSocket(timeout: TimeInterval = 0.2, _ body: (IDEBridge.Connection, Int32) throws -> Void) throws {
+        // A real private Unix socket, without an editor, provider or user session.
+        let root = URL(fileURLWithPath: "/tmp/lunavect-test-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("peer.sock").path
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard listener >= 0 else { throw POSIXError(.EIO) }
+        defer { Darwin.close(listener) }
+        var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
+        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: Array(path.utf8) + [0]) }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard bound == 0, listen(listener, 1) == 0 else { throw POSIXError(.EIO) }
+        let client = try IDEBridge.Connection(path: path, timeout: timeout)
+        let peer = accept(listener, nil, nil)
+        guard peer >= 0 else { throw POSIXError(.EIO) }
+        defer { Darwin.close(peer) }
+        // Oversize-frame fixtures must not block their writer before the client
+        // can read. A fixture failure is reported instead of hanging the suite.
+        var bufferSize: Int32 = 65_536
+        guard setsockopt(peer, SOL_SOCKET, SO_SNDBUF, &bufferSize, socklen_t(MemoryLayout<Int32>.size)) == 0,
+              fcntl(peer, F_SETFL, O_NONBLOCK) == 0 else { throw POSIXError(.EIO) }
+        try body(client, peer)
+    }
+    private func write(_ bytes: Data, to peer: Int32) throws {
+        let sent = bytes.withUnsafeBytes { Darwin.write(peer, $0.baseAddress, bytes.count) }
+        guard sent == bytes.count else { throw POSIXError(.EIO) }
+    }
+    func testRealSocketKeepsReplyBoundariesAndReportsPeerExit() throws {
+        try withSocket { client, peer in
+            try write(Data("{\"status\":\"matched\",\"shellPID\":42}\n{\"status\":\"focused\"}\n".utf8), to: peer)
+            let first = try client.receive()
+            XCTAssertEqual(first.status, "matched"); XCTAssertEqual(first.shellPID, 42)
+            XCTAssertEqual(try client.receive().status, "focused")
+            let request = Data("{\"action\":\"probe\"}".utf8)
+            try client.send(request)
+            var bytes = [UInt8](repeating: 0, count: 256)
+            let received = Darwin.read(peer, &bytes, bytes.count)
+            XCTAssertGreaterThan(received, 0)
+            XCTAssertEqual(Data(bytes.prefix(max(0, received))), request + Data([10]))
+            shutdown(peer, SHUT_RDWR)
+            XCTAssertThrowsError(try client.receive())
+        }
+    }
+    func testRealSocketRejectsMalformedOversizedAndUnfinishedReplies() throws {
+        for bytes in [Data("not-json\n".utf8), Data("{\"shellPID\":42}\n".utf8), Data([0xff, 10]),
+                      Data(repeating: 65, count: 20_000), Data(("{\"status\":\"" + String(repeating: "a", count: 20_000) + "\"}\n").utf8)] {
+            try withSocket { client, peer in
+                try write(bytes, to: peer)
+                XCTAssertThrowsError(try client.receive())
+            }
+        }
+        try withSocket(timeout: 0.05) { client, peer in
+            try write(Data("{\"status\":\"matched\"}".utf8), to: peer) // no frame terminator
+            let before = ProcessInfo.processInfo.systemUptime
+            XCTAssertThrowsError(try client.receive()) { XCTAssertEqual($0 as? SessionError, .timeout) }
+            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - before, 2, "An unfinished reply must not hold navigation indefinitely")
+        }
+    }
+
     func testLegacyEditorLabelCannotGuessTerminalVersusProviderPanel() async throws {
         for provider in ProviderID.allCases {
             let row = AgentSession(provider: provider, sessionID: UUID().uuidString, title: "Fixture", cwd: "/tmp",

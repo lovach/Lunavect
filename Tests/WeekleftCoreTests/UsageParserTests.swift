@@ -33,6 +33,28 @@ final class UsageParserTests: XCTestCase {
         }
         XCTAssertThrowsError(try UsageParser.claude(["seven_day": ["resets_at": 1_900_000_000]]))
     }
+    func testJSONBooleansAndMalformedResetValuesCannotBecomeQuotas() throws {
+        // Exercise Foundation's JSON bridging: a JSON Boolean is an NSNumber,
+        // but is not a measured percentage, duration or reset timestamp.
+        let reset = Date().addingTimeInterval(3600).timeIntervalSince1970
+        func decoded(_ value: [String: Any]) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: value)) as? [String: Any])
+        }
+        for invalid in [true, false, "25", NSNull()] as [Any] {
+            XCTAssertThrowsError(try UsageParser.codex(decoded(["rateLimits": ["primary": ["usedPercent": invalid, "windowDurationMins": 300, "resetsAt": reset]]])))
+            XCTAssertThrowsError(try UsageParser.claude(decoded(["five_hour": ["used_percentage": invalid, "resets_at": reset]])))
+        }
+        for invalid in [true, false, "tomorrow", [1], ["time": reset]] as [Any] {
+            XCTAssertThrowsError(try UsageParser.codex(decoded(["rateLimits": ["primary": ["usedPercent": 25, "windowDurationMins": 300, "resetsAt": invalid]]])))
+            XCTAssertThrowsError(try UsageParser.claude(decoded(["five_hour": ["used_percentage": 25, "resets_at": invalid]])))
+        }
+        for invalid in [true, false, 300.5, "300"] as [Any] {
+            XCTAssertThrowsError(try UsageParser.codex(decoded(["rateLimits": ["primary": ["usedPercent": 25, "windowDurationMins": invalid, "resetsAt": reset]]])))
+        }
+        let unknownReset = try UsageParser.codex(decoded(["rateLimits": ["primary": ["usedPercent": 0, "windowDurationMins": 300, "resetsAt": NSNull()]]]))
+        XCTAssertEqual(unknownReset.fiveHour?.remaining, 100)
+        XCTAssertNil(unknownReset.fiveHour?.resetsAt)
+    }
     func testQuotaDecodeUsesTheSameValidationAsDirectInitialization() throws {
         let decoder = JSONDecoder()
         decoder.nonConformingFloatDecodingStrategy = .convertFromString(positiveInfinity: "Infinity", negativeInfinity: "-Infinity", nan: "NaN")

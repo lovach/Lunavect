@@ -32,6 +32,24 @@ final class ClaudeBackgroundWorkTests: XCTestCase {
         XCTAssertNil(prompted.awaitingBackground)
         XCTAssertEqual(prompted.activityTitle, L("Думает"))
     }
+    func testCorruptBackgroundCountsCannotReachTheSessionBadge() throws {
+        let record = try hook("Stop", ["background_tasks": [render, monitor]], after: try hook("UserPromptSubmit", after: nil, at: 0), at: 5)
+        let original = try JSONEncoder().encode(record)
+        for counts in [
+            ["commands": -1, "agents": 0, "monitors": 0, "other": 0],
+            ["commands": Int.max, "agents": 1, "monitors": 0, "other": 0]
+        ] {
+            var root = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
+            var session = try XCTUnwrap(root["session"] as? [String: Any])
+            session["backgroundWork"] = counts; root["session"] = session
+            let bytes = try JSONSerialization.data(withJSONObject: root)
+            XCTAssertThrowsError(try JSONDecoder().decode(SessionRecord.self, from: bytes), "Invalid counters must be rejected before a badge adds them")
+        }
+        XCTAssertEqual(try JSONDecoder().decode(SessionRecord.self, from: original).session.backgroundWork?.total, 2)
+        var boundary = BackgroundWork(commands: Int.max)
+        boundary.add(BackgroundWork(commands: 1, agents: 1))
+        XCTAssertEqual(boundary.total, Int.max, "A later hook cannot overflow a previously representable count")
+    }
 
     func testOneNoticeAfterTheLastTaskInsteadOfOnePerTaskEvent() throws {
         var tracker = SessionNoticeTracker()

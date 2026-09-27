@@ -32,7 +32,6 @@ public struct LimitAlertState: Codable, Equatable, Sendable {
 public struct LimitAlertTracker {
     /// Sources round the same reset differently (statusLine, `/usage`, Codex).
     static let sameCycle: TimeInterval = 900
-    static let freshness: TimeInterval = 900
     /// A reset learned much later (the app was not running) is closed silently.
     static let lateReset: TimeInterval = 3600
     public private(set) var state: LimitAlertState
@@ -45,12 +44,10 @@ public struct LimitAlertTracker {
     public mutating func update(_ snapshots: [UsageSnapshot], threshold: Int, now: Date,
                                 announce: Bool = true, providers: Set<ProviderID>? = nil) -> [LimitAlert] {
         var alerts: [LimitAlert] = []
-        for snapshot in snapshots where snapshot.issue == nil {
-            guard let fetchedAt = snapshot.fetchedAt else { continue }
-            let age = now.timeIntervalSince(fetchedAt)
-            guard age >= -60, age <= Self.freshness else { continue }
+        for snapshot in snapshots where providers?.contains(snapshot.provider) ?? true {
             for (kind, window) in [(LimitWindowKind.fiveHour, snapshot.fiveHour), (.weekly, snapshot.weekly)] {
-                guard let window, let resetsAt = window.resetsAt, resetsAt > now else { continue }
+                guard let window, !snapshot.isStale(window: window, now: now),
+                      let resetsAt = window.resetsAt, resetsAt > now else { continue }
                 let index = state.cycles.firstIndex {
                     $0.provider == snapshot.provider && $0.window == kind && abs($0.resetsAt.timeIntervalSince(resetsAt)) <= Self.sameCycle
                 } ?? {

@@ -58,6 +58,34 @@ final class AppStoreLifecycleTests: XCTestCase {
         XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 80)
     }
 
+    @MainActor func testChangingCodexPathRejectsLateResponseEvenWhenChangedBack() async throws {
+        var preferences = WidgetPreferences(); preferences.enabledProviders = [.codex]
+        let old = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: nil), fetchedAt: Date())
+        let started = expectation(description: "Old executable request started")
+        var resume: CheckedContinuation<Void, Never>?
+        var paths: [String] = []
+        let store = AppStore(state: SharedState(snapshots: [old], preferences: preferences), quotaFetcher: { id, path in
+            paths.append(path)
+            if paths.count == 1 {
+                await withCheckedContinuation { continuation in resume = continuation; started.fulfill() }
+            }
+            return try UsageSnapshot(provider: id, weekly: QuotaWindow(usedPercent: 80, durationMinutes: 10080, resetsAt: nil), fetchedAt: Date())
+        }, isolated: true)
+        store.codexPath = "/fixture/original-codex"
+        let request = Task { await store.refresh() }
+        await fulfillment(of: [started], timeout: 2)
+        store.codexPath = "/fixture/new-codex"
+        store.codexPath = "/fixture/original-codex"
+        resume?.resume()
+        await request.value
+        XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 40, "A response started before a connection change is obsolete")
+        XCTAssertFalse(store.refreshing)
+        store.codexPath = "/fixture/new-codex"
+        await store.refresh()
+        XCTAssertEqual(paths, ["/fixture/original-codex", "/fixture/new-codex"])
+        XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 80)
+    }
+
     @MainActor func testPreferenceBurstFlushesOnlyFinalEditAndDoesNotWriteAgain() async throws {
         let scheduler = DeferredWrite(delay: .milliseconds(20))
         var values: [Int] = []

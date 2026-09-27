@@ -552,9 +552,30 @@ public struct BackgroundWork: Codable, Equatable, Sendable {
     public init(commands: Int = 0, agents: Int = 0, monitors: Int = 0, other: Int = 0) {
         self.commands = commands; self.agents = agents; self.monitors = monitors; self.other = other
     }
-    public var total: Int { commands + agents + monitors + other }
+    private enum CodingKeys: String, CodingKey { case commands, agents, monitors, other }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        commands = try values.decode(Int.self, forKey: .commands)
+        agents = try values.decode(Int.self, forKey: .agents)
+        monitors = try values.decode(Int.self, forKey: .monitors)
+        other = try values.decode(Int.self, forKey: .other)
+        var sum = 0
+        for count in [commands, agents, monitors, other] {
+            let (next, overflow) = sum.addingReportingOverflow(count)
+            guard count >= 0, !overflow else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid background task counts"))
+            }
+            sum = next
+        }
+    }
+    private static func adding(_ first: Int, _ second: Int) -> Int {
+        let (sum, overflow) = first.addingReportingOverflow(second)
+        return overflow ? Int.max : sum
+    }
+    public var total: Int { [commands, agents, monitors, other].reduce(0, Self.adding) }
     public mutating func add(_ other: BackgroundWork) {
-        commands += other.commands; agents += other.agents; monitors += other.monitors; self.other += other.other
+        commands = Self.adding(commands, other.commands); agents = Self.adding(agents, other.agents)
+        monitors = Self.adding(monitors, other.monitors); self.other = Self.adding(self.other, other.other)
     }
 }
 

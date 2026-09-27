@@ -39,6 +39,22 @@ final class LimitAlertTrackerTests: XCTestCase {
         XCTAssertTrue(tracker.update([try snapshot(weeklyUsed: 85)], threshold: 25, now: now).isEmpty)
         XCTAssertTrue(tracker.update([try snapshot(weeklyUsed: 95)], threshold: 10, now: now).isEmpty)
     }
+    func testWarningUsesTheSamePerWindowFreshnessAsTheDisplayedQuota() throws {
+        var unverified = try snapshot(fiveHourUsed: 99)
+        unverified.source = "Claude Code statusLine"
+        for value in [unverified, try snapshot(fiveHourUsed: 99, fetched: 1),
+                      try snapshot(fiveHourUsed: 99, fiveHourReset: 301 * 60 + 121)] {
+            var tracker = LimitAlertTracker()
+            XCTAssertTrue(value.isStale(window: value.fiveHour, now: now))
+            XCTAssertTrue(tracker.update([value], threshold: 10, now: now).isEmpty)
+            XCTAssertNil(tracker.nextDeadline(now: now))
+        }
+        var tracker = LimitAlertTracker()
+        let mixed = try snapshot(fiveHourUsed: 99, weeklyUsed: 99, fiveHourReset: -1)
+        XCTAssertEqual(tracker.update([mixed], threshold: 10, now: now).map(\.window), [.weekly], "An expired five-hour quota must not suppress the independently fresh week")
+        var disabled = LimitAlertTracker()
+        XCTAssertTrue(disabled.update([try snapshot(fiveHourUsed: 99)], threshold: 10, now: now, providers: [.codex]).isEmpty)
+    }
 
     func testRestoredOnlyAfterAWarningAndOnlyWhenOnTime() throws {
         var tracker = LimitAlertTracker()

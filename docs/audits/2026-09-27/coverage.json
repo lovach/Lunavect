@@ -1,0 +1,1718 @@
+[
+  {
+    "path": ".github/CONTRIBUTING.md",
+    "lines": 35,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": ".github/ISSUE_TEMPLATE/bug.yml",
+    "lines": 44,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": ".github/ISSUE_TEMPLATE/config.yml",
+    "lines": 8,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": ".github/ISSUE_TEMPLATE/feature.yml",
+    "lines": 28,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": ".github/PULL_REQUEST_TEMPLATE.md",
+    "lines": 11,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": ".github/SECURITY.md",
+    "lines": 22,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": ".github/workflows/ci.yml",
+    "lines": 131,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "CHANGELOG.md",
+    "lines": 137,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "Config/App-Info.plist",
+    "lines": 63,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "Config/App.entitlements",
+    "lines": 12,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "Config/Distribution.xcconfig",
+    "lines": 8,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "Config/Signing.xcconfig",
+    "lines": 2,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "Config/Updates.xcconfig",
+    "lines": 3,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "Config/Widget-Info.plist",
+    "lines": 37,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "Config/Widget.entitlements",
+    "lines": 12,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "Config/com.weekleft.awake-helper.plist",
+    "lines": 12,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "Package.swift",
+    "lines": 14,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "README.md",
+    "lines": 159,
+    "review": "targeted documentation review against implementation and verification boundaries",
+    "evidence": "REPORT.md; FINDINGS.md"
+  },
+  {
+    "path": "Sources/AwakeService/AwakeLease.swift",
+    "lines": 133,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/AwakeService/AwakeProtocol.swift",
+    "lines": 85,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/AwakeService/SystemSleepSetting.swift",
+    "lines": 99,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/LunavectAwakeHelper/main.swift",
+    "lines": 96,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/LunavectHook/main.swift",
+    "lines": 16,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/LunavectWidget/WeekleftWidget.swift",
+    "lines": 162,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/LunavectWidget/WidgetBackground.h",
+    "lines": 4,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/LunavectWidget/WidgetBackground.m",
+    "lines": 108,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/ActivityBreakdownView.swift",
+    "lines": 174,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/ActivityPersistence.swift",
+    "lines": 153,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/ActivityService.swift",
+    "lines": 193,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/ActivityStatisticsView.swift",
+    "lines": 314,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/ActivityWidgetIntents.swift",
+    "lines": 42,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/ActivityWidgetView.swift",
+    "lines": 653,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/AppEnvironment.swift",
+    "lines": 175,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/AppFeatures.swift",
+    "lines": 670,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/AppStore.swift",
+    "lines": 408,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/AppUpdates.swift",
+    "lines": 155,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/AwakeServiceClient.swift",
+    "lines": 277,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/ClawdAnimation.swift",
+    "lines": 298,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/CodexAnimation.swift",
+    "lines": 53,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/ConnectionDiagnosticsView.swift",
+    "lines": 196,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/ConnectionSetupView.swift",
+    "lines": 358,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/ConnectionsView.swift",
+    "lines": 213,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/HiddenSessionsView.swift",
+    "lines": 159,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/IDEConnectionsView.swift",
+    "lines": 49,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/InterfaceIcon.swift",
+    "lines": 160,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/InterfaceMetrics.swift",
+    "lines": 11,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/KeepAwake.swift",
+    "lines": 442,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/LanguageSettings.swift",
+    "lines": 62,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/Main.swift",
+    "lines": 639,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/MenuBarAppearance.swift",
+    "lines": 931,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/MenuBarLimits.swift",
+    "lines": 559,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/MenuBarScenes.swift",
+    "lines": 38,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/Resources/IDEConnectors/manifest.json",
+    "lines": 20,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/Resources/IconSources.md",
+    "lines": 48,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/Resources/clawd-laptop.json",
+    "lines": 1,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/SessionInteractions.swift",
+    "lines": 233,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/SessionPanelContent.swift",
+    "lines": 284,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/SessionStore.swift",
+    "lines": 835,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/SessionSwipeView.swift",
+    "lines": 99,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/SessionsView.swift",
+    "lines": 759,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/SettingsDefaults.swift",
+    "lines": 152,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/SettingsView.swift",
+    "lines": 681,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/Weekleft/SnapshotPersistence.swift",
+    "lines": 223,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/SubscriptionDatePicker.swift",
+    "lines": 101,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/WelcomeView.swift",
+    "lines": 186,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/WidgetGallery.swift",
+    "lines": 38,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/Weekleft/WidgetRegistration.swift",
+    "lines": 176,
+    "review": "source boundary and lifecycle review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; selected TSan run"
+  },
+  {
+    "path": "Sources/Weekleft/WidgetView.swift",
+    "lines": 230,
+    "review": "focused source review; automated checks and selected native fixtures",
+    "evidence": "SCENARIOS.md; verification.json"
+  },
+  {
+    "path": "Sources/WeekleftCore/ActivityDetails.swift",
+    "lines": 104,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ActivityHistory.swift",
+    "lines": 371,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ActivityHistoryImporter.swift",
+    "lines": 362,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ActivityPresentation.swift",
+    "lines": 155,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ActivityTracker.swift",
+    "lines": 60,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ClaudeSessionMetadata.swift",
+    "lines": 66,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ClaudeUsageProbe.swift",
+    "lines": 176,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ClientConnection.swift",
+    "lines": 209,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/CodexActivity.swift",
+    "lines": 588,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/CodexSessionMetadata.swift",
+    "lines": 121,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ConnectionDiagnostics.swift",
+    "lines": 281,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/IDEBridge.swift",
+    "lines": 247,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/IDESessionLocation.swift",
+    "lines": 119,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/LimitAlerts.swift",
+    "lines": 84,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/LocalFileCache.swift",
+    "lines": 59,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/Localization.swift",
+    "lines": 113,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/Models.swift",
+    "lines": 206,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/Providers.swift",
+    "lines": 333,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/ReleaseConfiguration.swift",
+    "lines": 23,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/Resources/Translations.json",
+    "lines": 5238,
+    "review": "automated build/resource checks; selected native render coverage",
+    "evidence": "verification.json; not a line-by-line or all-state visual review"
+  },
+  {
+    "path": "Sources/WeekleftCore/SessionArrangement.swift",
+    "lines": 117,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/SessionDestination.swift",
+    "lines": 259,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/SessionHooks.swift",
+    "lines": 304,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/SessionNoticeTracker.swift",
+    "lines": 66,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/SessionPolling.swift",
+    "lines": 18,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/SessionSources.swift",
+    "lines": 650,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/SessionVisibility.swift",
+    "lines": 192,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/Sessions.swift",
+    "lines": 690,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/Storage.swift",
+    "lines": 199,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Sources/WeekleftCore/SubscriptionCalendar.swift",
+    "lines": 21,
+    "review": "source boundary and failure-path review; automated checks",
+    "evidence": "SCENARIOS.md; final full check; targeted regressions where listed"
+  },
+  {
+    "path": "Tests/AwakeServiceTests/AwakeLeaseTests.swift",
+    "lines": 210,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/AwakeServiceTests/AwakeRequirementTests.swift",
+    "lines": 51,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_awake_policy.py",
+    "lines": 24,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_build_manifest.py",
+    "lines": 216,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_build_script.py",
+    "lines": 62,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_check_runner.py",
+    "lines": 423,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_distribution_registration.py",
+    "lines": 75,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_github_metrics.py",
+    "lines": 27,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_group_migration.py",
+    "lines": 73,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_ide_connectors.py",
+    "lines": 28,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_install_transaction.py",
+    "lines": 159,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_native_renders.py",
+    "lines": 245,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_performance_tools.py",
+    "lines": 156,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_product_resources.py",
+    "lines": 115,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_project_parity.py",
+    "lines": 37,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_reassert_installed_widget.py",
+    "lines": 98,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/Scripts/test_release_preflight.py",
+    "lines": 192,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ActivityCalendarBoundaryTests.swift",
+    "lines": 29,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ActivityDetailsTests.swift",
+    "lines": 77,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ActivityImportTests.swift",
+    "lines": 403,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ActivityPresentationTests.swift",
+    "lines": 139,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ActivityProvenanceTests.swift",
+    "lines": 112,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ActivityTests.swift",
+    "lines": 147,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/AuditFixRegressionTests.swift",
+    "lines": 114,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ClaudeBackgroundWorkTests.swift",
+    "lines": 237,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ClaudeUsageProbeTests.swift",
+    "lines": 159,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ClientConnectionTests.swift",
+    "lines": 423,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ClientExecutableResolverTests.swift",
+    "lines": 72,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ClientLaunchEnvironmentTests.swift",
+    "lines": 57,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/CodexActivityCancellationTests.swift",
+    "lines": 80,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/CodexActivityTests.swift",
+    "lines": 501,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/CodexLauncherRuntimeTests.swift",
+    "lines": 121,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/CodexSessionDiscoveryTests.swift",
+    "lines": 194,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/CodexSessionPaginationTests.swift",
+    "lines": 326,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/DataFreshnessTests.swift",
+    "lines": 143,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/DataStorageGuaranteeTests.swift",
+    "lines": 171,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/HiddenSessionManagementTests.swift",
+    "lines": 144,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/HiddenSessionRestartTests.swift",
+    "lines": 74,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/IDEBridgeTests.swift",
+    "lines": 129,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/IDESessionLocationTests.swift",
+    "lines": 111,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/LimitAlertTrackerTests.swift",
+    "lines": 108,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/LocalFileCacheTests.swift",
+    "lines": 108,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/LocalProcessCancellationTests.swift",
+    "lines": 165,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/LocalizationTests.swift",
+    "lines": 139,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ReleaseFeaturesTests.swift",
+    "lines": 78,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/ReleaseRecoveryTests.swift",
+    "lines": 285,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/SessionActionsTests.swift",
+    "lines": 109,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/SessionContractTests.swift",
+    "lines": 351,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/SessionConvenienceTests.swift",
+    "lines": 237,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/SessionFailureTests.swift",
+    "lines": 79,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/SessionOrganizationTests.swift",
+    "lines": 183,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/SessionTests.swift",
+    "lines": 326,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/SubscriptionCalendarTests.swift",
+    "lines": 31,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/SyntheticPerformanceTests.swift",
+    "lines": 123,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/TerminalLocationTests.swift",
+    "lines": 155,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftCoreTests/UsageParserTests.swift",
+    "lines": 242,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ActivityAccessibilityTests.swift",
+    "lines": 138,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ActivityInteractionTests.swift",
+    "lines": 116,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ActivityPersistenceTests.swift",
+    "lines": 221,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ActivityServiceTests.swift",
+    "lines": 190,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ActivityStatisticsSelectionTests.swift",
+    "lines": 195,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ActivityWidgetIntentLocalizationTests.swift",
+    "lines": 147,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ActivityWidgetRenderingTests.swift",
+    "lines": 296,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/AppEnvironmentTests.swift",
+    "lines": 144,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/AppFeatureRefreshRegressionTests.swift",
+    "lines": 98,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/AppStoreDataServicesTests.swift",
+    "lines": 106,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/AppStoreLifecycleTests.swift",
+    "lines": 126,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/AuditFixStoreRegressionTests.swift",
+    "lines": 124,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/AwakeMaintenanceTests.swift",
+    "lines": 267,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ConnectionSetupRenderingTests.swift",
+    "lines": 166,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/DataLifecycleRegressionTests.swift",
+    "lines": 220,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/FailureNoticeTests.swift",
+    "lines": 109,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/HiddenSessionUndoTests.swift",
+    "lines": 145,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/HiddenSessionsRenderingTests.swift",
+    "lines": 225,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/InterfaceAuditTests.swift",
+    "lines": 159,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/InterfaceIconRenderingTests.swift",
+    "lines": 22,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/KeepAwakeTests.swift",
+    "lines": 400,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/LegacyRenderIsolation.swift",
+    "lines": 81,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/LegacyRenderIsolationTests.swift",
+    "lines": 30,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/LimitNoticeTests.swift",
+    "lines": 53,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/MenuBarArtworkTests.swift",
+    "lines": 181,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/MenuBarAutomaticIconTests.swift",
+    "lines": 73,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/MenuBarCompactTests.swift",
+    "lines": 108,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/MenuBarLimitsTests.swift",
+    "lines": 463,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/MenuBarStatusTests.swift",
+    "lines": 925,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/NativeRenderSmokeTests.swift",
+    "lines": 147,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/OfflineRowTests.swift",
+    "lines": 29,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/PresentationFixture.swift",
+    "lines": 87,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/PresentationFixtureTests.swift",
+    "lines": 49,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ProductImprovementsTests.swift",
+    "lines": 272,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ReleaseFeaturesRenderingTests.swift",
+    "lines": 220,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/ReleaseScreenshots.swift",
+    "lines": 121,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionAutoHideTests.swift",
+    "lines": 274,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionDormantCatalogTests.swift",
+    "lines": 178,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionDragSnapshotTests.swift",
+    "lines": 116,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionEfficiencyTests.swift",
+    "lines": 164,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionFeatureIssueTests.swift",
+    "lines": 55,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionGeometryTests.swift",
+    "lines": 23,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionNavigationIntegrationTests.swift",
+    "lines": 145,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionRowRenderingTests.swift",
+    "lines": 40,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionStoreLifecycleTests.swift",
+    "lines": 660,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionStoreRecoveryTests.swift",
+    "lines": 117,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionsUXRenderingTests.swift",
+    "lines": 278,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SessionsUXTests.swift",
+    "lines": 335,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SettingsConcurrencyTests.swift",
+    "lines": 145,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SettingsPreferencesTests.swift",
+    "lines": 260,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SettingsRenderingTests.swift",
+    "lines": 60,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SettingsUXRenderingTests.swift",
+    "lines": 114,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SingleProviderTests.swift",
+    "lines": 139,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SnapshotPersistenceTests.swift",
+    "lines": 206,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/SubscriptionCalendarRenderingTests.swift",
+    "lines": 25,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/UXRegressionTests.swift",
+    "lines": 509,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/WidgetDesignRenderingTests.swift",
+    "lines": 77,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/WidgetFreshnessRenderingTests.swift",
+    "lines": 29,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/WidgetGalleryTests.swift",
+    "lines": 21,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/WidgetRegistrationTests.swift",
+    "lines": 185,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WeekleftUITests/WidgetTransparencyTests.swift",
+    "lines": 158,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "Tests/WidgetRuntime/BackgroundDescriptorCheck.m",
+    "lines": 73,
+    "review": "test inventory and automated execution; opt-in omissions retained",
+    "evidence": "final full check; skips.json; additional runs in verification.json"
+  },
+  {
+    "path": "design/providers/SOURCES.md",
+    "lines": 9,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "design/selected/selection.json",
+    "lines": 15,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/README.md",
+    "lines": 40,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/_config.yml",
+    "lines": 124,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/_includes/head-custom.html",
+    "lines": 2,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/activity.md",
+    "lines": 69,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/architecture.md",
+    "lines": 97,
+    "review": "targeted documentation review against implementation and verification boundaries",
+    "evidence": "REPORT.md; FINDINGS.md"
+  },
+  {
+    "path": "docs/checks-and-release-gates.md",
+    "lines": 86,
+    "review": "targeted documentation review against implementation and verification boundaries",
+    "evidence": "REPORT.md; FINDINGS.md"
+  },
+  {
+    "path": "docs/connections.md",
+    "lines": 66,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/development.md",
+    "lines": 172,
+    "review": "targeted documentation review against implementation and verification boundaries",
+    "evidence": "REPORT.md; FINDINGS.md"
+  },
+  {
+    "path": "docs/download-statistics.md",
+    "lines": 40,
+    "review": "targeted documentation review against implementation and verification boundaries",
+    "evidence": "REPORT.md; FINDINGS.md"
+  },
+  {
+    "path": "docs/faq.md",
+    "lines": 65,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/first-install-check.md",
+    "lines": 15,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/google57e5ceebfc51505b.html",
+    "lines": 1,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/guides/claude-code-codex-notifications-mac.md",
+    "lines": 28,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/guides/claude-code-usage-limits-mac.md",
+    "lines": 35,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/guides/codex-usage-limits-mac.md",
+    "lines": 28,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/guides/monitor-claude-code-codex-sessions-mac.md",
+    "lines": 24,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/ide-sessions.md",
+    "lines": 52,
+    "review": "targeted documentation review against implementation and verification boundaries",
+    "evidence": "REPORT.md; FINDINGS.md"
+  },
+  {
+    "path": "docs/index.html",
+    "lines": 211,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/installation.md",
+    "lines": 84,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/keep-awake.md",
+    "lines": 36,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/localization.md",
+    "lines": 36,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/menu-bar-limits.md",
+    "lines": 36,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/notifications.md",
+    "lines": 19,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/privacy.md",
+    "lines": 86,
+    "review": "targeted documentation review against implementation and verification boundaries",
+    "evidence": "REPORT.md; FINDINGS.md"
+  },
+  {
+    "path": "docs/public-screenshots.md",
+    "lines": 42,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/sessions.md",
+    "lines": 116,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/settings.md",
+    "lines": 65,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/thinking-phrases.md",
+    "lines": 80,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/updates.md",
+    "lines": 148,
+    "review": "inventory and relevance triage only",
+    "evidence": "not a full editorial, license or every-link audit"
+  },
+  {
+    "path": "docs/verification.md",
+    "lines": 297,
+    "review": "targeted documentation review against implementation and verification boundaries",
+    "evidence": "REPORT.md; FINDINGS.md"
+  },
+  {
+    "path": "integrations/jetbrains/src/com/lunavect/sessions/BridgeService.java",
+    "lines": 222,
+    "review": "source/protocol review and package provenance checks",
+    "evidence": "Node protocol/routing tests; IDEBridge tests; no new live editor focus"
+  },
+  {
+    "path": "integrations/jetbrains/src/com/lunavect/sessions/BridgeStartup.java",
+    "lines": 12,
+    "review": "source/protocol review and package provenance checks",
+    "evidence": "Node protocol/routing tests; IDEBridge tests; no new live editor focus"
+  },
+  {
+    "path": "integrations/vscode/README.md",
+    "lines": 9,
+    "review": "source/protocol review and package provenance checks",
+    "evidence": "Node protocol/routing tests; IDEBridge tests; no new live editor focus"
+  },
+  {
+    "path": "integrations/vscode/extension.js",
+    "lines": 110,
+    "review": "source/protocol review and package provenance checks",
+    "evidence": "Node protocol/routing tests; IDEBridge tests; no new live editor focus"
+  },
+  {
+    "path": "integrations/vscode/package.json",
+    "lines": 14,
+    "review": "source/protocol review and package provenance checks",
+    "evidence": "Node protocol/routing tests; IDEBridge tests; no new live editor focus"
+  },
+  {
+    "path": "integrations/vscode/protocol.test.js",
+    "lines": 63,
+    "review": "source/protocol review and package provenance checks",
+    "evidence": "Node protocol/routing tests; IDEBridge tests; no new live editor focus"
+  },
+  {
+    "path": "integrations/vscode/routing.js",
+    "lines": 84,
+    "review": "source/protocol review and package provenance checks",
+    "evidence": "Node protocol/routing tests; IDEBridge tests; no new live editor focus"
+  },
+  {
+    "path": "integrations/vscode/routing.test.js",
+    "lines": 90,
+    "review": "source/protocol review and package provenance checks",
+    "evidence": "Node protocol/routing tests; IDEBridge tests; no new live editor focus"
+  },
+  {
+    "path": "project.yml",
+    "lines": 146,
+    "review": "configuration/dependency/build-path review and canonical parity",
+    "evidence": "check-project-parity; unsigned build; privacy source audit"
+  },
+  {
+    "path": "scripts/artwork/package-lock.json",
+    "lines": 228,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/artwork/package.json",
+    "lines": 6,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/build-icon.sh",
+    "lines": 25,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/build-manifest.py",
+    "lines": 294,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/build.sh",
+    "lines": 49,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/check-native-renders.py",
+    "lines": 382,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/check-project-parity.py",
+    "lines": 48,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/check-report.py",
+    "lines": 149,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/check.sh",
+    "lines": 78,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/collect-github-metrics.py",
+    "lines": 113,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/distribute.sh",
+    "lines": 143,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/dmg/layout.json",
+    "lines": 9,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/dmg/render-background.swift",
+    "lines": 84,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/generate-notification-sound.py",
+    "lines": 57,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/install.sh",
+    "lines": 150,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/measure-performance.py",
+    "lines": 136,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/migrate-app-group.py",
+    "lines": 97,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/package-dmg.py",
+    "lines": 135,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/package-ide-connectors.py",
+    "lines": 74,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/package-update.py",
+    "lines": 102,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/performance/mach-time.h",
+    "lines": 16,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/reassert-installed-widget.py",
+    "lines": 93,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/release-preflight.py",
+    "lines": 106,
+    "review": "source boundary review plus script tests",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/sample-process.py",
+    "lines": 107,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/verify-app-groups.py",
+    "lines": 43,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/verify-awake-policy.py",
+    "lines": 24,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/verify-hook-helper.py",
+    "lines": 20,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/verify-product-resources.py",
+    "lines": 139,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  },
+  {
+    "path": "scripts/verify-update-signature.swift",
+    "lines": 13,
+    "review": "automated script/resource coverage; focused inventory",
+    "evidence": "Python suite, build and parity checks; signed distribution not executed"
+  }
+]

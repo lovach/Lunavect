@@ -362,11 +362,13 @@ struct PanelShortcut: Codable, Equatable {
     /// When every exhausted window of this provider has reset, from fresh data only.
     func limitResetTime(for provider: ProviderID, now: Date) -> Date? {
         let windows = snapshots.filter { snapshot in
-            guard snapshot.provider == provider, snapshot.issue == nil, let fetchedAt = snapshot.fetchedAt else { return false }
+            guard snapshot.provider == provider, snapshot.freshnessVerified, snapshot.issue == nil,
+                  let fetchedAt = snapshot.fetchedAt else { return false }
             let age = now.timeIntervalSince(fetchedAt)
-            return age >= -60 && age <= 900
+            return age >= 0 && age <= 900
         }.flatMap { snapshot in
-            [snapshot.fiveHour, snapshot.weekly].compactMap { $0 } + (snapshot.modelQuotas ?? []).map(\.window)
+            [snapshot.fiveHour, snapshot.weekly].compactMap { $0 }.filter { !snapshot.isStale(window: $0, now: now) }
+                + (snapshot.modelQuotas ?? []).filter { !$0.isStale(now: now) }.map(\.window)
         }
         return windows.filter { $0.remaining < 1 }.compactMap(\.resetsAt).filter { $0 > now }.max()
     }
