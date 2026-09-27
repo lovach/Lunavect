@@ -102,6 +102,10 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     public var failure: SessionFailure?
     /// The latest fact the hook helper could not report to the app directly.
     public var hookDiagnostic: HookDiagnostic?
+    /// The Claude runtime process that ran this session's latest hook (the hook's
+    /// nearest non-shell ancestor). Only a PID: used to notice a client that
+    /// exited without SessionEnd (kill, crash, closed terminal).
+    public var runtimePID: Int32?
     /// SessionEnd's documented `reason` code (for example `prompt_input_exit`),
     /// kept for diagnosis only. Cleared by any later event.
     public var endReason: String?
@@ -385,6 +389,23 @@ public enum SessionList {
             if a != b { return a < b }
             if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
             return $0.id < $1.id
+        }
+    }
+    /// S-13 / A-02: a Claude turn that was working or waiting when its client
+    /// died without SessionEnd. Applies only when the complete Claude catalog
+    /// (`completeCatalog`, nil after a failed or partial read) no longer lists
+    /// the session and the recorded runtime process is gone.
+    public static func endingDeadClaudeRuntimes(_ rows: [AgentSession], completeCatalog: Set<String>?,
+                                                isAlive: (Int32) -> Bool) -> [AgentSession] {
+        guard let completeCatalog else { return rows }
+        return rows.map { row in
+            guard row.provider == .claude, row.evidence == .hook, row.phase.isActive, let pid = row.runtimePID,
+                  !completeCatalog.contains(row.id), !isAlive(pid) else { return row }
+            // Not a completion (no Stop): the turn stopped with its client.
+            var row = row
+            row.phase = .interrupted; row.tool = nil
+            row.awaitingBackground = nil; row.backgroundWork = nil
+            return row
         }
     }
     public static func filter(_ sessions: [AgentSession], query: String, provider: ProviderID?, activeOnly: Bool, now: Date = Date(), includeHistory: Bool = false) -> [AgentSession] {

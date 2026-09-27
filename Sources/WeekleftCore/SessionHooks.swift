@@ -196,6 +196,7 @@ public enum SessionHooks {
     /// `isInternal` identifies Lunavect's own quota probe by its folder. `--safe-mode`
     /// currently disables hooks there; this keeps a future client from recording it.
     public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil,
+                               runtimePID: Int32? = nil,
                                isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) }) throws {
         let now = Date()
         let initial = try SessionRecord.event(data, provider: provider, previous: nil, now: now, client: client)
@@ -219,6 +220,8 @@ public enum SessionHooks {
         // An ignored notice for a session without a record carries no lifecycle.
         if previous == nil, record.session.phase == .unknown { return }
         if provider == .claude, let nestedClaudeRuntime { record.session.isNestedClaudeSession = nestedClaudeRuntime }
+        // Replaced on every event: a resumed session runs in a new process.
+        if provider == .claude { record.session.runtimePID = runtimePID }
         if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
         if let ide {
             record.session.ideLocation = ide; record.session.client = ide.editor.client

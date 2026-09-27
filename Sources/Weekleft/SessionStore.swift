@@ -15,6 +15,8 @@ import WeekleftCore
         var titles: ([AgentSession], [String], [ProviderID]) async throws -> [String: String] = { _, _, _ in [:] }
         var hooksState: @Sendable () -> [ProviderID: Bool] = { [:] }
         var initialEvents: (URL) -> [AgentSession] = { _ in [] }
+        /// Inert default: no process is ever declared gone.
+        var isProcessAlive: (Int32) -> Bool = { _ in true }
         var schedulesTimers = false
         var watchesEvents = false
         var allowsClientConfiguration = false
@@ -56,7 +58,8 @@ import WeekleftCore
                     return result
                 }
             }, hooksState: { Dictionary(uniqueKeysWithValues: ProviderID.allCases.map { ($0, SessionHooks.installed($0)) }) },
-                 initialEvents: { CodexSessionMetadata.markingSubagents(in: SessionHooks.load(at: $0)) }, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
+                 initialEvents: { CodexSessionMetadata.markingSubagents(in: SessionHooks.load(at: $0)) },
+                 isProcessAlive: SessionSources.isProcessAlive, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
                  configureRuntime: { resolver in
                      // Automatic discovery is already checked by the runtime reader itself.
                      await CodexActivityReader.shared.useExecutable(resolver.codexPath.isEmpty ? nil : resolver.codexPath)
@@ -543,6 +546,9 @@ import WeekleftCore
             let history = rows.filter { $0.catalogHistory == true && !eventIDs.contains($0.id) }
             let live = history.isEmpty ? rows : rows.filter { !($0.catalogHistory == true && !eventIDs.contains($0.id)) }
             var merged = SessionList.merge(catalog: live, events: currentEvents, now: date) + history
+            // S-13 / A-02: a client killed mid-turn sends no Stop or SessionEnd.
+            let completeClaude = providers.contains(.claude) && typedIssues[.claude] == nil ? catalog[.claude].map { Set($0.map(\.id)) } : nil
+            merged = SessionList.endingDeadClaudeRuntimes(merged, completeCatalog: completeClaude, isAlive: dependencies.isProcessAlive)
             if now().timeIntervalSince(titlesCheckedAt) >= (polling?.titles ?? 15) {
                 let titles = try await dependencies.titles(merged, hiddenIDs, providers)
                 guard isCurrent(expected) else { return }

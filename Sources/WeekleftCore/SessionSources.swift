@@ -120,6 +120,8 @@ public enum SessionSources {
             return try SessionProcess.codexCatalog(path: path, proxy: false, prioritySessionIDs: prioritySessionIDs, timeout: remaining, discovery: discovery)
         }
     }
+    /// Whether a recorded client process still exists (kill(pid, 0) != ESRCH).
+    public static func isProcessAlive(_ pid: Int32) -> Bool { SessionProcess.isAlive(pid) }
     public static func legacyEvents(catalog: [AgentSession], now: Date = Date()) -> [AgentSession] {
         legacyEvents(catalog: catalog, now: now, directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d"),
                      isInternal: { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) })
@@ -532,6 +534,23 @@ enum SessionProcess {
         if name == "codex" { return .codex }
         return nil
     }
+    /// The client runtime that ran a hook: the nearest ancestor that is not a
+    /// shell or command wrapper. Hook runners may or may not exec the command.
+    static func hookClientPID(startPID: Int32, read: (Int32) -> RuntimeProcess? = runtimeProcess) -> Int32? {
+        let runners: Set<String> = ["sh", "bash", "zsh", "dash", "ksh", "fish", "tcsh", "csh", "env", "timeout", "gtimeout", "nohup", "nice"]
+        var pid = startPID, seen = Set<Int32>()
+        for _ in 0..<8 {
+            guard pid > 1, seen.insert(pid).inserted, let process = read(pid) else { return nil }
+            if !runners.contains(URL(fileURLWithPath: process.executable).lastPathComponent) { return pid }
+            pid = process.parentPID
+        }
+        return nil
+    }
+    /// ESRCH only: a process that exists but belongs to someone else is alive.
+    static func isAlive(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        return kill(pid, 0) == 0 || errno != ESRCH
+    }
     /// Only executable paths and parent PIDs: no commands, prompts or foreign environment.
     /// Missing/cyclic/truncated ancestry is unknown, not evidence of an independent task.
     static func nestedClaudeRuntime(startPID: Int32,
@@ -645,7 +664,8 @@ public extension SessionHooks {
         let client = ide?.editor.client ?? SessionProcess.client(parentPID: getppid(), entrypoint: env["CLAUDE_CODE_ENTRYPOINT"] ?? "", terminal: env["TERM_PROGRAM"] ?? "")
         let nested = provider == .claude ? SessionProcess.nestedClaudeRuntime(startPID: getppid()) : nil
         let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
-        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide)
+        let runtimePID = provider == .claude ? SessionProcess.hookClientPID(startPID: getppid()) : nil
+        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide, runtimePID: runtimePID)
         print("{}")
     }
 }

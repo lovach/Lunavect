@@ -239,4 +239,47 @@ import Combine
         XCTAssertEqual(sessions.diagnosticEntries.map(\.hook?.kind), [.unreadableRecord])
         XCTAssertNil(sessions.typedIssues[.claude])
     }
+
+    // S-13 / A-02 / §5.8: the menu-bar waiting count clears as soon as the
+    // complete catalog and the process table agree the client is gone.
+    func testKilledClientsWaitLeavesCountersActivityAndAwakeAtOnce() async throws {
+        var clock = instant, alive = true
+        var permission = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": "killed", "hook_event_name": "PermissionRequest", "tool_use_id": "t1", "cwd": "/Users/fixture/Projects/lunavect"]),
+            provider: .claude, previous: nil, now: clock).session
+        permission.runtimePID = 4242
+        var observed: [SessionPhase] = []
+        let sessions = try store(.init(catalog: { _, _, _, _ in ([], false) }, events: { _, _, _ in [permission] },
+                                       isProcessAlive: { _ in alive }), now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude])
+        sessions.onObservation = { rows, _ in observed.append(rows.first?.effectivePhase(now: clock) ?? .unknown) }
+        await sessions.refresh()
+        XCTAssertEqual(sessions.activeCount, 1, "Hooks-only wait of a live client")
+        clock += 20; alive = false
+        await sessions.refresh()
+        XCTAssertEqual(sessions.activeCount, 0, "Not ten minutes later")
+        XCTAssertEqual(observed.last, .interrupted)
+        XCTAssertEqual(sessions.sessions.first?.phase, .interrupted)
+    }
+
+    // Matrix S6: without a catalog PID (Codex CLI hooks) the freshness limits
+    // still end a lost SessionEnd within a bound.
+    func testHookOnlySessionWithoutSessionEndLeavesTheCountsWithinItsFreshnessLimit() throws {
+        var clock = instant
+        let sessions = try store(now: { clock })
+        defer { sessions.stop() }
+        sessions.autoHideMinutes = 5
+        let running = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": "codex-cli", "hook_event_name": "UserPromptSubmit", "cwd": "/Users/fixture/Projects/codex"]),
+            provider: .codex, previous: nil, now: clock).session
+        sessions.acceptSessions([running], now: clock)
+        XCTAssertEqual(sessions.activeCount, 1)
+        clock += 599; sessions.acceptSessions([running], now: clock)
+        XCTAssertEqual(sessions.activeCount, 1)
+        clock += 2; sessions.acceptSessions([running], now: clock)
+        XCTAssertEqual(sessions.activeCount, 0)
+        XCTAssertTrue(sessions.currentSessions.isEmpty, "The stale row leaves the panel")
+        XCTAssertEqual(sessions.hiddenCount, 0, "Unknown state is not archived")
+    }
 }
