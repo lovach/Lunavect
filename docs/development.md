@@ -58,6 +58,7 @@ swift test --jobs 2 --filter SessionDragSnapshotTests
 python3 -B -m unittest discover -s Tests/Scripts
 ```
 
+`--jobs 2` (here, in `check.sh`, the native render launcher and `measure-performance.py`) limits how many SwiftPM **build** jobs run at once; it does not change how tests execute. `swift test` runs tests serially unless `--parallel` is passed, and `--jobs` otherwise defaults to the number of CPU cores. The flag arrived in commit c02259d without a recorded reason, and no measurement shows that a higher value breaks the suite. Treat it as a precaution that bounds compiler memory and CPU load on the hosted runner and when several checkouts build on one Mac. Removing it can make builds faster; it does not make tests parallel. Measure build time and memory before changing it.
 
 `release-preflight.py` checks `~/Applications` and `/Applications` copies by default; `LUNAVECT_INSTALLED_APPS` (paths separated by `:`, empty for none) replaces that list so fixtures never depend on the host. `check.sh` strips inherited `LUNAVECT_*` variables from its child commands so a reused shell cannot accidentally enable native exporters, local-history reads, session navigation or live integrations. Direct `swift test` commands still honor their opt-in variables. XCTest skips are counted separately; a successful unsigned build does not prove live client integration or desktop WidgetKit behavior. See [check scopes and release gates](checks-and-release-gates.md) and [recorded verification](verification.md).
 
