@@ -109,8 +109,8 @@ final class TerminalLocationTests: XCTestCase {
         }
     }
 
-    /// Focus runs on the main thread: a busy or hung terminal must not hold it for
-    /// AppleScript's default two minutes per event, or for one timeout per tab.
+    /// The helper also bounds each Apple event and stops on its first timeout;
+    /// the process runner separately enforces the overall navigation budget.
     func testFocusScriptsBoundEveryAppleEventAndStopAtTheFirstTimeout() throws {
         XCTAssertLessThanOrEqual(TerminalLocation.focusTimeout, 10, "Stays well inside Keep Awake's 30 s lease")
         for app in ["Terminal", "iTerm2"] {

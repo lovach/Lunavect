@@ -81,9 +81,8 @@ public struct ActivityDetails: Codable, Equatable, Sendable {
     }
     public static func load(from url: URL = fileURL) throws -> ActivityDetails {
         guard FileManager.default.fileExists(atPath: url.path) else { return ActivityDetails() }
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        guard (attributes[.size] as? NSNumber)?.intValue ?? Int.max <= 32_000_000 else { throw CocoaError(.fileReadTooLarge) }
-        let result = try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+        let data = try LocalStateRecovery.read(from: url, maximumBytes: 32_000_000)
+        let result = try JSONDecoder().decode(Self.self, from: data)
         guard result.records.count <= 2000, result.records.values.reduce(0, { $0 + $1.intervals.count }) <= 100_000 else { throw CocoaError(.fileReadCorruptFile) }
         for (key, record) in result.records {
             guard key == record.id, !record.sessionID.isEmpty, record.sessionID.count <= 128,

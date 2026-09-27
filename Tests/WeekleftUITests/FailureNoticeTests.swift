@@ -5,6 +5,22 @@ import Carbon
 @testable import WeekleftCore
 
 final class FailureNoticeTests: XCTestCase {
+    @MainActor func testLimitFailureDoesNotPromiseAResetFromUnverifiedOrStaleModelData() throws {
+        let suite = "Lunavect.FailureFreshness." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000), reset = now.addingTimeInterval(3600)
+        let exhausted = try QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: reset)
+        let features = AppFeatures(defaults: defaults, isolated: true)
+        features.useSnapshots([UsageSnapshot(provider: .claude, weekly: exhausted, fetchedAt: now, source: "Claude Code statusLine")])
+        XCTAssertNil(features.limitResetTime(for: .claude, now: now))
+        features.useSnapshots([UsageSnapshot(provider: .claude, fetchedAt: now, source: "Claude Code /usage",
+            modelQuotas: [ModelQuota(name: "Model", window: exhausted, fetchedAt: now.addingTimeInterval(-901))])])
+        XCTAssertNil(features.limitResetTime(for: .claude, now: now), "A new account observation cannot refresh an old model bucket")
+        features.useSnapshots([UsageSnapshot(provider: .claude, fetchedAt: now, source: "Claude Code /usage",
+            modelQuotas: [ModelQuota(name: "Model", window: exhausted, fetchedAt: now)])])
+        XCTAssertEqual(features.limitResetTime(for: .claude, now: now), reset)
+    }
     @MainActor func testLimitFailureNoticeNamesTheKindAndWhenItReturns() throws {
         let suite = "Lunavect.FailureNotice." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

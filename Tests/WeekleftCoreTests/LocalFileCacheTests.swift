@@ -44,6 +44,52 @@ final class LocalFileCacheTests: XCTestCase {
         XCTAssertEqual(decodes, 3, "A forgotten file is decoded again")
     }
 
+    func testPermissionRecoveryInvalidatesCachedReadFailure() throws {
+        let file = root.appendingPathComponent("permissions.txt"), cache = LocalFileCache<String>()
+        try write(Data("first".utf8), to: file)
+        func read() throws -> String? {
+            let identity = try XCTUnwrap(LocalFileIdentity(path: file.path))
+            return cache.value(for: file.path, identity: identity) { try? String(contentsOf: file, encoding: .utf8) }
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+        XCTAssertNil(try read())
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        XCTAssertEqual(try read(), "first", "Restoring read access must recover without a content write")
+    }
+
+    func testSameSizeRewriteWithRestoredModificationTimeInvalidatesCache() throws {
+        let file = root.appendingPathComponent("restored-mtime.txt"), cache = LocalFileCache<String>()
+        try write(Data("first".utf8), to: file)
+        let modified = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date)
+        func read() throws -> String? {
+            let identity = try XCTUnwrap(LocalFileIdentity(path: file.path))
+            return cache.value(for: file.path, identity: identity) { try? String(contentsOf: file, encoding: .utf8) }
+        }
+        XCTAssertEqual(try read(), "first")
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.write(contentsOf: Data("other".utf8)); try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: file.path)
+        XCTAssertEqual(try read(), "other", "A same-size rewrite with restored mtime still changed the file")
+    }
+
+    func testUnchangedFileRecoversAfterTransientDecodeFailureAndClockRollback() throws {
+        let file = root.appendingPathComponent("temporary-failure.txt")
+        try write(Data("healthy".utf8), to: file)
+        let identity = try XCTUnwrap(LocalFileIdentity(path: file.path)), now = Date()
+        for recoveredAt in [now.addingTimeInterval(60), now.addingTimeInterval(-10)] {
+            let cache = LocalFileCache<String>()
+            var attempts = 0
+            XCTAssertNil(cache.value(for: file.path, identity: identity, now: now) { attempts += 1; return nil })
+            // Avoid retrying every poll, but never cache a transient read failure
+            // forever when filesystem metadata did not change.
+            XCTAssertNil(cache.value(for: file.path, identity: identity, now: now.addingTimeInterval(1)) { attempts += 1; return "healthy" })
+            XCTAssertEqual(attempts, 1)
+            XCTAssertEqual(cache.value(for: file.path, identity: identity, now: recoveredAt) { attempts += 1; return "healthy" }, "healthy")
+            XCTAssertEqual(attempts, 2)
+        }
+    }
+
     func testRecentlyModifiedFileIsNeverReused() throws {
         let file = root.appendingPathComponent("recent.txt")
         try Data("value".utf8).write(to: file)

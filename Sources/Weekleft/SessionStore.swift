@@ -728,13 +728,18 @@ final class SharedWorkDemand: Sendable {
 enum SessionNavigation {
     /// `focus` is the only step that scripts another application; tests replace it.
     @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver(),
-                                focus: @MainActor (AgentSession) throws -> Bool = { try focusTerminal($0) },
+                                focus: @MainActor (AgentSession) async throws -> Bool = { try await focusTerminal($0) },
                                 openIDE: @MainActor (AgentSession) async throws -> Void = { try await focusIDE($0) }) async throws {
+        try Task.checkCancellation()
         if session.ideLocation != nil || session.client == .vscode || session.client == .jetbrains {
             try await openIDE(session)
             return
         }
-        if session.terminalFocusCandidate, try focus(session) { return }
+        if session.terminalFocusCandidate {
+            let focused = try await focus(session)
+            try Task.checkCancellation()
+            if focused { return }
+        }
         if session.client == .terminal || session.client == .background {
             let script = try session.terminalScript(resolver: resolver)
             var directoryExists: ObjCBool = false
@@ -774,7 +779,7 @@ enum SessionNavigation {
         }
     }
     /// A live CLI session stays where it runs: bring its own tab to the front.
-    @MainActor static func focusTerminal(_ session: AgentSession) throws -> Bool {
+    @MainActor static func focusTerminal(_ session: AgentSession) async throws -> Bool {
         let log = Logger(subsystem: "com.weekleft.app", category: "navigation")
         guard let target = TerminalLocation.focusTarget(for: session) else {
             log.notice("terminal focus unavailable: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
@@ -784,17 +789,23 @@ enum SessionNavigation {
         // against running supported terminals; never launch an empty terminal.
         let apps = target.app.isEmpty ? ["Terminal", "iTerm2"] : [target.app]
         var failure: SessionOpeningError?
+        let deadline = ProcessInfo.processInfo.systemUptime + Double(TerminalLocation.focusTimeout)
         for app in apps {
+            try Task.checkCancellation()
             guard let bundle = TerminalLocation.bundleIdentifier(forApp: app),
                   !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty else { continue }
-            guard let source = TerminalLocation.focusScript(tty: target.tty, app: app),
-                  let script = NSAppleScript(source: source) else { throw SessionOpeningError.terminalFocusFailed(app) }
-            var error: NSDictionary?
-            let focused = script.executeAndReturnError(&error).booleanValue
-            let code = error?[NSAppleScript.errorNumber] as? Int
-            log.notice("terminal focus \(focused && error == nil ? "succeeded" : "failed", privacy: .public), code=\(code ?? 0)")
-            if error != nil { failure = failure ?? TerminalLocation.focusError(code: code, app: app) }
-            else if focused { return true }
+            do {
+                if try await TerminalLocation.focus(tty: target.tty, app: app,
+                                                    timeout: deadline - ProcessInfo.processInfo.systemUptime) {
+                    log.notice("terminal focus succeeded")
+                    return true
+                }
+            } catch {
+                try Task.checkCancellation()
+                if error is CancellationError { throw error }
+                log.notice("terminal focus failed")
+                failure = failure ?? (error as? SessionOpeningError) ?? .terminalFocusFailed(app)
+            }
         }
         throw failure ?? SessionOpeningError.terminalTabUnavailable
     }

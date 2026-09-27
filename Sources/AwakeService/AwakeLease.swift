@@ -23,6 +23,7 @@ public final class AwakeLease {
     private var owner: UUID?
     private var heartbeatDeadline: TimeInterval = 0
     private var endsAt: Date?
+    private var durationDeadline: TimeInterval?
     private var pendingRestore = false
     private var nextSettingCheck: TimeInterval = 0
     public var isIdle: Bool { owner == nil && !pendingRestore }
@@ -67,6 +68,8 @@ public final class AwakeLease {
         owner = requestedOwner
         heartbeatDeadline = uptime() + AwakeServiceID.leaseSeconds
         endsAt = seconds == 0 ? nil : now().addingTimeInterval(TimeInterval(seconds))
+        // Clock corrections must never lengthen an explicitly timed lease.
+        durationDeadline = seconds == 0 ? nil : uptime() + TimeInterval(seconds)
         lastFailure = nil
         nextSettingCheck = uptime() + 30
     }
@@ -104,7 +107,8 @@ public final class AwakeLease {
 
     private func validate(policy override: AwakeSafetyPolicy? = nil) throws {
         var failure: AwakeFailure?
-        if uptime() >= heartbeatDeadline || endsAt.map({ now() >= $0 }) == true { failure = .expired }
+        if uptime() >= heartbeatDeadline || endsAt.map({ now() >= $0 }) == true
+            || durationDeadline.map({ uptime() >= $0 }) == true { failure = .expired }
         else if let unsafe = safety(override ?? policy) { failure = unsafe }
         else if uptime() >= nextSettingCheck {
             nextSettingCheck = uptime() + 30
@@ -119,7 +123,7 @@ public final class AwakeLease {
 
     private func restore() throws {
         // Stop renewing even if restoration fails; tick keeps retrying.
-        owner = nil; endsAt = nil
+        owner = nil; endsAt = nil; durationDeadline = nil
         guard pendingRestore else { return }
         try setting.setDisabled(false)
         guard try !setting.isDisabled() else { throw AwakeFailure.recovery }

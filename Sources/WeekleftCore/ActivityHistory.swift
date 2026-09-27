@@ -349,7 +349,7 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
     }
     public static func load(from url: URL = fileURL) throws -> ActivityHistory {
         guard FileManager.default.fileExists(atPath: url.path) else { return ActivityHistory() }
-        let data = try Data(contentsOf: url)
+        let data = try LocalStateRecovery.read(from: url, maximumBytes: 32_000_000)
         let history = try JSONDecoder().decode(ActivityHistory.self, from: data)
         var previous = Date.distantPast
         for span in history.intervals {

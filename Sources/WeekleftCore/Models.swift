@@ -161,6 +161,11 @@ public enum UsageError: LocalizedError {
 }
 
 public enum UsageParser {
+    private static func number(_ value: Any?) -> NSNumber? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.isFinite else { return nil }
+        return number
+    }
     public static func codex(_ result: [String: Any], now: Date = Date()) throws -> UsageSnapshot {
         let buckets = result["rateLimitsByLimitId"] as? [String: Any]
         // Never substitute a model-specific (e.g. Spark) bucket for the main account limit.
@@ -170,8 +175,14 @@ public enum UsageParser {
         var weekly: QuotaWindow?, five: QuotaWindow?
         for key in ["primary", "secondary"] {
             guard let raw = bucket[key] as? [String: Any] else { continue }
-            guard let used = raw["usedPercent"] as? NSNumber, let minutes = raw["windowDurationMins"] as? Int else { throw UsageError.invalidResponse }
-            let window = try QuotaWindow(usedPercent: used.doubleValue, durationMinutes: minutes, resetsAt: (raw["resetsAt"] as? Double).map { Date(timeIntervalSince1970: $0) })
+            guard let used = number(raw["usedPercent"]), number(raw["windowDurationMins"]) != nil,
+                  let minutes = raw["windowDurationMins"] as? Int else { throw UsageError.invalidResponse }
+            var reset: Date?
+            if let value = raw["resetsAt"], !(value is NSNull) {
+                guard let epoch = number(value) else { throw UsageError.invalidResponse }
+                reset = Date(timeIntervalSince1970: epoch.doubleValue)
+            }
+            let window = try QuotaWindow(usedPercent: used.doubleValue, durationMinutes: minutes, resetsAt: reset)
             if minutes == 10080 { weekly = window }
             if minutes == 300 { five = window }
         }
@@ -180,8 +191,8 @@ public enum UsageParser {
     public static func claude(_ result: [String: Any], now: Date = Date()) throws -> UsageSnapshot {
         func window(_ key: String, _ minutes: Int) throws -> QuotaWindow? {
             guard let raw = result[key] as? [String: Any] else { return nil }
-            guard let used = raw["used_percentage"] as? NSNumber else { throw UsageError.invalidResponse }
-            guard let epoch = raw["resets_at"] as? NSNumber, epoch.doubleValue.isFinite, epoch.doubleValue > 0 else { throw UsageError.invalidResponse }
+            guard let used = number(raw["used_percentage"]) else { throw UsageError.invalidResponse }
+            guard let epoch = number(raw["resets_at"]), epoch.doubleValue > 0 else { throw UsageError.invalidResponse }
             let date = Date(timeIntervalSince1970: epoch.doubleValue)
             return try QuotaWindow(usedPercent: used.doubleValue, durationMinutes: minutes, resetsAt: date)
         }

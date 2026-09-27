@@ -1,7 +1,7 @@
 <idea-plugin>
   <id>com.lunavect.sessions</id>
   <name>Lunavect Sessions</name>
-  <version>0.1.0</version>
+  <version>0.1.1</version>
   <vendor url="https://github.com/lovach/Lunavect">Lunavect</vendor>
   <description>Focus an existing Claude or Codex terminal session from Lunavect.</description>
   <idea-version since-build="262" until-build="262.*"/>

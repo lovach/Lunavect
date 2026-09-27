@@ -77,4 +77,36 @@ final class ActivityProvenanceTests: XCTestCase {
         XCTAssertNil(history.summary(now: end, providers: [.codex]).lastLiveObservedAt)
         XCTAssertEqual(history.summary(now: end, providers: [.claude]).lastLiveObservedAt, end)
     }
+    func testSeededOverlapMatrixMatchesAnIndependentSecondBySecondOracle() {
+        var seed: UInt64 = 0x6C756E61
+        func next(_ limit: Int) -> Int {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int((seed >> 32) % UInt64(limit))
+        }
+        for sample in 0..<100 {
+            let spans = (0..<25).map { _ -> ActivityInterval in
+                let first = next(120), last = next(120), mask = next(4), observed = mask | next(4)
+                return ActivityInterval(start: start.addingTimeInterval(Double(first)), end: start.addingTimeInterval(Double(last)),
+                    providers: mask, recovered: next(2) == 0, observedProviders: observed)
+            }
+            let merged = ActivityHistory.union(spans)
+            XCTAssertEqual(ActivityHistory.union(Array(spans.reversed())), merged, "Input order, sample \(sample)")
+            XCTAssertEqual(ActivityHistory.union(merged + spans), merged, "Retry cannot double count, sample \(sample)")
+            for second in 0..<120 {
+                let date = start.addingTimeInterval(Double(second) + 0.5)
+                let covering = spans.filter { $0.start <= date && date < $0.end }
+                let result = merged.filter { $0.start <= date && date < $0.end }
+                XCTAssertEqual(result.count, covering.isEmpty ? 0 : 1, "At most one result for each real second")
+                guard let actual = result.first else { continue }
+                let active = covering.reduce(0) { $0 | $1.providers }
+                let live = covering.filter { $0.recovered != true }.reduce(0) { $0 | $1.providers }
+                let observed = covering.reduce(0) { $0 | ($1.observedProviders ?? 0) }
+                let liveObserved = covering.filter { $0.recovered != true }.reduce(0) { $0 | ($1.observedProviders ?? 0) }
+                XCTAssertEqual(actual.providers, active)
+                XCTAssertEqual(actual.knownProviders, observed)
+                XCTAssertEqual(actual.recoveredProviderMask, active & ~live)
+                XCTAssertEqual(actual.liveObservedProviderMask, liveObserved)
+            }
+        }
+    }
 }

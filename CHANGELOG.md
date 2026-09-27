@@ -1,10 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.2.4 — 2026-09-27
 
-- Removed the unreleased app and website analytics integration, including consent UI, event delivery and configuration. Lunavect sends no session data or app usage statistics to its developer.
-- Kept only the separate maintainer tool for GitHub release download counters and repository traffic reports. Clarified this scope in the README and privacy documentation.
-- Public 0.2.3 downloads are unchanged and contain no product analytics.
+- Terminal navigation stays responsive while macOS selects a tab. Slow or cancelled requests stop cleanly and retain specific permission and timeout messages.
+- VS Code and JetBrains companions clean up connections reliably when they close. VS Code cancels delayed focus requests, enforces bounded waits and handles workspace/path boundaries consistently. Bundled companions are version 0.1.1; reinstall them from Settings → Connections to receive these fixes.
+- Local session metadata recovers after temporary read failures or restored file permissions. Shared state and editor connection files use bounded reads and reject invalid inputs without discarding the original files.
+- Quota resets remain accurate near midnight, New Year and daylight-saving changes. Old replies cannot overwrite quotas after changing the Codex executable, and limit notifications use the same freshness rules as the display.
+- Corrupt background-work counts cannot overflow session badges. Timed Keep Awake leases cannot be prolonged by moving the system clock backward.
+- Removed the unreleased analytics experiment from source and website. Lunavect sends no session data or app usage statistics to its developer; download and repository statistics come only from GitHub.
+
+Validation and remaining compatibility limits are recorded in [verification](docs/verification.md).
 
 ## 0.2.3 — 2026-09-26
 

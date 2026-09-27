@@ -57,7 +57,7 @@ public enum SnapshotStore {
     }
     public static func load(from url: URL = directory.appendingPathComponent("snapshot.json")) -> SharedState {
         do {
-            let data = try Data(contentsOf: url)
+            let data = try LocalStateRecovery.read(from: url, maximumBytes: 1_048_576)
             let state: SharedState
             do { state = try JSONDecoder().decode(SharedState.self, from: data) }
             catch is DecodingError { state = salvage(data) }
@@ -71,9 +71,9 @@ public enum SnapshotStore {
     /// Only the app repairs shared files. Widget readers remain read-only.
     public static func loadRecovering(from url: URL = directory.appendingPathComponent("snapshot.json")) throws -> RecoveredLocalState<SharedState> {
         var result = try LocalStateRecovery.load(from: url, empty: SharedState()) { file in
-            try JSONDecoder().decode(SharedState.self, from: Data(contentsOf: file))
+            try JSONDecoder().decode(SharedState.self, from: LocalStateRecovery.read(from: file, maximumBytes: 1_048_576))
         }
-        if let backup = result.backupURL, let data = try? Data(contentsOf: backup) {
+        if let backup = result.backupURL, let data = try? LocalStateRecovery.read(from: backup, maximumBytes: 1_048_576) {
             result.value = salvage(data)
         }
         return result
@@ -130,6 +130,28 @@ public enum WidgetTimelineSchedule {
 /// Preserve invalid bytes before allowing a fresh state to be saved. Permission,
 /// I/O and backup failures propagate, so callers cannot overwrite unreadable data.
 public enum LocalStateRecovery {
+    /// Bound the actual read, not only a prior path stat: another process can
+    /// replace or grow shared state while an app or widget opens it. Keep legacy
+    /// migration symlinks, then validate the opened descriptor without following
+    /// a replacement symlink or blocking on a special file.
+    public static func read(from url: URL, maximumBytes: Int) throws -> Data {
+        let target = url.resolvingSymlinksInPath()
+        let descriptor = open(target.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else {
+            if errno == ENOENT { throw CocoaError(.fileReadNoSuchFile) }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else { throw POSIXError(.EIO) }
+        guard info.st_mode & S_IFMT == S_IFREG else { throw POSIXError(.EINVAL) }
+        guard maximumBytes >= 0, maximumBytes < Int.max,
+              info.st_size >= 0, info.st_size <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
+        guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        return data
+    }
     public static func write(_ data: Data, to url: URL) throws {
         let target = url.resolvingSymlinksInPath()
         let tmp = target.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")

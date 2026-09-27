@@ -138,7 +138,7 @@ public enum ClaudeUsageText {
         var candidates: [Date] = []
         for format in formats {
             formatter.dateFormat = "yyyy " + format
-            for candidateYear in [year, year + 1] {
+            for candidateYear in [year - 1, year, year + 1] {
                 if let date = formatter.date(from: "\(candidateYear) " + text) { candidates.append(date) }
             }
         }
@@ -146,18 +146,23 @@ public enum ClaudeUsageText {
             formatter.dateFormat = format
             guard let clock = formatter.date(from: text) else { continue }
             let parts = calendar.dateComponents([.hour, .minute], from: clock)
-            for day in 0...1 {
-                guard let base = calendar.date(byAdding: .day, value: day, to: now),
-                      let date = calendar.date(bySettingHour: parts.hour ?? 0, minute: parts.minute ?? 0, second: 0, of: base)
-                else { continue }
-                candidates.append(date)
+            for day in -1...1 {
+                guard let base = calendar.date(byAdding: .day, value: day, to: now) else { continue }
+                // A repeated local hour has two possible instants. A skipped
+                // hour has none; never normalize it to a different clock time.
+                for repetition in [Calendar.RepeatedTimePolicy.first, .last] {
+                    guard let date = calendar.date(bySettingHour: parts.hour ?? 0, minute: parts.minute ?? 0,
+                                                   second: 0, of: base, matchingPolicy: .strict, repeatedTimePolicy: repetition),
+                          calendar.isDate(date, inSameDayAs: base) else { continue }
+                    candidates.append(date)
+                }
             }
         }
         // The CLI formats to whole minutes and can still show a reset that has
         // just passed. Keep that elapsed time (an expired window, never shown as
         // current) rather than failing the probe or inventing an extra day/week.
-        return candidates.first { plausible($0, now: now, minutes: durationMinutes) }
-            ?? candidates.first { justElapsed($0, now: now) }
+        return candidates.first { justElapsed($0, now: now) }
+            ?? candidates.first { plausible($0, now: now, minutes: durationMinutes) }
     }
     private static func plausible(_ date: Date, now: Date, minutes: Int) -> Bool {
         // Never accept a misread past window or a reset beyond the window length.

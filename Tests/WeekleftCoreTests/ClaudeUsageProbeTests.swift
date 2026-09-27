@@ -75,6 +75,23 @@ final class ClaudeUsageProbeTests: XCTestCase {
         XCTAssertTrue(result.isStale(window: result.fiveHour, now: now), "An elapsed window is never shown as current")
         XCTAssertFalse(result.isStale(window: result.weekly, now: now))
     }
+    func testJustElapsedResetSurvivesMidnightAndYearRollover() throws {
+        let utc = TimeZone(secondsFromGMT: 0)!
+        let cases = [
+            ("2026-09-11T00:00:20Z", "11:59pm (UTC)", 300, "2026-09-10T23:59:00Z"),
+            ("2027-01-01T00:00:20Z", "Dec 31 at 11:59pm (UTC)", 10080, "2026-12-31T23:59:00Z"),
+            ("2026-09-10T15:00:20Z", "3pm (UTC)", 10080, "2026-09-10T15:00:00Z")
+        ]
+        for (timestamp, reset, minutes, expected) in cases {
+            let now = try XCTUnwrap(ISO8601DateFormatter().date(from: timestamp))
+            let elapsed = try XCTUnwrap(ISO8601DateFormatter().date(from: expected))
+            XCTAssertEqual(ClaudeUsageText.resetDate(reset, now: now, durationMinutes: minutes, timeZone: utc), elapsed, reset)
+            let screen = "Current week (all models)\n31% used\nResets \(reset)\nEsc to cancel"
+            let result = try ClaudeUsageText.parse(screen, now: now)
+            XCTAssertEqual(result.weekly?.resetsAt, elapsed, reset)
+            XCTAssertTrue(result.isStale(window: result.weekly, now: now), "A rounded past reset must not become tomorrow's fresh quota")
+        }
+    }
     func testNewestObservationWinsAndOldStatusLineCannotOverwriteUsageProbe() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -96,6 +113,17 @@ final class ClaudeUsageProbeTests: XCTestCase {
         let withoutModel = text.replacingOccurrences(of: "Current week (Fable)\n46% 46% used\nResets Sep 13 at 11:59pm (Europe/Vienna)\n", with: "")
         try ClaudeProvider.saveUsage(ClaudeUsageText.parse(withoutModel, now: now.addingTimeInterval(40)), destination: usage)
         XCTAssertEqual(try ClaudeProvider.latest(statusLineURL: status, usageURL: usage, now: now.addingTimeInterval(40)).modelQuotas, [])
+    }
+    func testClockOnlyResetHandlesRepeatedAndSkippedDaylightSavingHours() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Vienna"))
+        let autumn = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-25T00:45:00Z"))
+        XCTAssertEqual(ClaudeUsageText.resetDate("2:30am (Europe/Vienna)", now: autumn, durationMinutes: 300, timeZone: zone),
+                       ISO8601DateFormatter().date(from: "2026-10-25T01:30:00Z"), "The second 02:30 is still ahead after the first has passed")
+        let spring = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-29T00:30:00Z"))
+        XCTAssertNil(ClaudeUsageText.resetDate("2:30am (Europe/Vienna)", now: spring, durationMinutes: 300, timeZone: zone),
+                     "A nonexistent 02:30 cannot silently turn into 03:00")
+        XCTAssertEqual(ClaudeUsageText.resetDate("3:30am (Europe/Vienna)", now: spring, durationMinutes: 300, timeZone: zone),
+                       ISO8601DateFormatter().date(from: "2026-03-29T01:30:00Z"))
     }
     func testOptionalModelQuotaDoesNotBreakOtherWindowsOrLegacySnapshots() throws {
         let invalidModel = text.replacingOccurrences(of: "46% 46% used", with: "140% used")

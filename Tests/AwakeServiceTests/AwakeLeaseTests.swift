@@ -164,6 +164,30 @@ final class AwakeLeaseTests: XCTestCase {
         XCTAssertThrowsError(try lease.keepAlive(owner: owner))
         XCTAssertFalse(setting.disabled); XCTAssertFalse(journal.pending)
     }
+    func testClockRollbackCannotExtendTimedLeaseWhileHeartbeatsContinue() throws {
+        let setting = Setting(), journal = Journal(), owner = UUID()
+        let start = Date(timeIntervalSince1970: 1_900_000_000)
+        var now = start, uptime: TimeInterval = 0
+        let lease = try AwakeLease(setting: setting, journal: journal, now: { now }, uptime: { uptime })
+        try lease.begin(owner: owner, seconds: 900)
+        for elapsed in stride(from: 10, through: 890, by: 10) {
+            uptime = Double(elapsed)
+            now = start.addingTimeInterval(uptime - 3600)
+            try lease.keepAlive(owner: owner)
+        }
+        XCTAssertTrue(setting.disabled)
+        uptime = 900
+        lease.tick()
+        XCTAssertFalse(setting.disabled, "The 15-minute choice must expire after 15 elapsed minutes despite a clock correction")
+        XCTAssertFalse(journal.pending)
+        XCTAssertEqual(lease.lastFailure, .expired)
+        XCTAssertThrowsError(try lease.keepAlive(owner: owner))
+        // A later untimed lease must not inherit the previous duration deadline.
+        try lease.begin(owner: owner, seconds: 0)
+        uptime = 910; try lease.keepAlive(owner: owner)
+        XCTAssertTrue(setting.disabled)
+        try lease.end(owner: owner)
+    }
     func testHeartbeatsDoNotSpawnSystemQueryOnEveryTick() throws {
         let setting = Setting(), journal = Journal(), owner = UUID()
         var uptime: TimeInterval = 0

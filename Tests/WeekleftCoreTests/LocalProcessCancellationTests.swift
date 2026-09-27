@@ -127,6 +127,69 @@ import Darwin
         XCTAssertEqual(cacheWrites, 0)
     }
 
+    func testTerminalAutomationRunsRealScriptsAndKeepsNumericErrors() async throws {
+        for (script, expected) in [("return true", true), ("return false", false)] {
+            let result = try await TerminalLocation.executeFocusScript(script, app: "Terminal", timeout: 3)
+            XCTAssertEqual(result, expected)
+        }
+        for (script, expected) in [
+            ("error \"localized message\" number -1743", SessionOpeningError.terminalAutomationDenied("Terminal")),
+            ("error \"localized message\" number -1712", .terminalFocusTimedOut("Terminal")),
+            ("return \"unexpected\"", .terminalFocusFailed("Terminal")),
+            ("this is not valid AppleScript {{{", .terminalFocusFailed("Terminal"))
+        ] {
+            do {
+                _ = try await TerminalLocation.executeFocusScript(script, app: "Terminal", timeout: 3)
+                XCTFail("Expected specific automation failure")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, expected) }
+        }
+    }
+
+    func testHungTerminalHelperTimesOutWithoutBlockingMainActor() async throws {
+        let root = try directory(), marker = root.appendingPathComponent("pid")
+        let script = try sleepingFixture(in: root, marker: marker)
+        let task = Task {
+            try await TerminalLocation.executeFocusScript("return true", app: "Terminal", timeout: 1) { _, timeout in
+                try SessionProcess.run(path: script.path, arguments: [], timeout: timeout)
+            }
+        }
+        defer { task.cancel() }
+        // The test itself is MainActor-isolated: it must resume while the helper
+        // is still alive, then observe the helper reaped when timeout returns.
+        let pid = try await waitForPID(marker)
+        XCTAssertEqual(kill(pid, 0), 0)
+        let start = ProcessInfo.processInfo.systemUptime
+        do { _ = try await task.value; XCTFail("Expected timeout") }
+        catch { XCTAssertEqual(error as? SessionOpeningError, .terminalFocusTimedOut("Terminal")) }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 2)
+        XCTAssertEqual(kill(pid, 0), -1)
+    }
+
+    func testCancelledTerminalHelperStopsItsChildAndPreservesCancellation() async throws {
+        let root = try directory(), marker = root.appendingPathComponent("pid")
+        let script = try sleepingFixture(in: root, marker: marker)
+        let task = Task {
+            try await TerminalLocation.executeFocusScript("return true", app: "iTerm2", timeout: 30) { _, timeout in
+                try SessionProcess.run(path: script.path, arguments: [], timeout: timeout)
+            }
+        }
+        defer { task.cancel() }
+        let pid = try await waitForPID(marker)
+        let start = ProcessInfo.processInfo.systemUptime
+        task.cancel()
+        await assertCancelled(task)
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+        XCTAssertEqual(kill(pid, 0), -1)
+        let alreadyCancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await TerminalLocation.executeFocusScript("return true", app: "Terminal", timeout: 30) { _, _ in
+                XCTFail("Cancelled navigation must never launch a helper")
+                return Data()
+            }
+        }
+        await assertCancelled(alreadyCancelled)
+    }
+
     private func assertCancelled<T>(_ task: Task<T, Error>, file: StaticString = #filePath, line: UInt = #line) async {
         do { _ = try await task.value; XCTFail("Expected cancellation", file: file, line: line) }
         catch { XCTAssertTrue(error is CancellationError, "Cancellation became \(error)", file: file, line: line) }

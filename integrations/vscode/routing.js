@@ -2,6 +2,7 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function validateTarget(target) {
@@ -11,7 +12,7 @@ function validateTarget(target) {
       target.ancestors.every(pid => Number.isInteger(pid) && pid > 1 && pid <= 2147483647);
   }
   return typeof target.sessionID === 'string' && UUID.test(target.sessionID) &&
-    typeof target.cwd === 'string' && target.cwd.length <= 4096 && path.isAbsolute(target.cwd) && !/[\x00-\x1f]/.test(target.cwd);
+    typeof target.cwd === 'string' && Buffer.byteLength(target.cwd, 'utf8') <= 4096 && path.isAbsolute(target.cwd) && !/[\x00-\x1f\x7f-\x9f]/.test(target.cwd);
 }
 
 async function resolveTarget(vscode, target, realpath = fs.realpath) {
@@ -28,20 +29,28 @@ async function resolveTarget(vscode, target, realpath = fs.realpath) {
     if (folder.uri.scheme !== 'file') return null;
     try { return await realpath(folder.uri.fsPath); } catch { return null; }
   }));
-  if (!roots.some(root => root && (cwd === root || cwd.startsWith(root + path.sep)))) return { status: 'notFound' };
+  if (!roots.some(root => {
+    if (!root) return false;
+    const relative = path.relative(root, cwd);
+    return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep));
+  })) return { status: 'notFound' };
   const extensionID = target.kind === 'claude' ? 'anthropic.claude-code' : 'openai.chatgpt';
   if (!vscode.extensions.getExtension(extensionID)) return { status: 'missingProvider' };
   return { status: 'matched' };
 }
 
-async function focusTarget(vscode, target) {
+async function focusTarget(vscode, target, signal) {
+  const cancelled = () => signal?.aborted === true;
+  if (cancelled()) return { status: 'cancelled' };
   // Re-resolve when the callback arrives: tabs may close after the initial probe.
   const resolved = await resolveTarget(vscode, target);
+  if (cancelled()) return { status: 'cancelled' };
   if (resolved.status !== 'matched') return resolved;
   if (target.kind === 'terminal') {
     resolved.terminal.show(false);
-    const deadline = Date.now() + 2500;
-    while (Date.now() < deadline) {
+    const deadline = performance.now() + 2500;
+    while (performance.now() < deadline) {
+      if (cancelled()) return { status: 'cancelled' };
       if (vscode.window.activeTerminal === resolved.terminal && vscode.window.state.focused) {
         return { status: 'focused', shellPID: resolved.shellPID };
       }
@@ -52,9 +61,12 @@ async function focusTarget(vscode, target) {
   }
   const extensionID = target.kind === 'claude' ? 'anthropic.claude-code' : 'openai.chatgpt';
   await vscode.extensions.getExtension(extensionID).activate();
+  if (cancelled()) return { status: 'cancelled' };
   if (target.kind === 'claude') {
     const command = 'claude-vscode.primaryEditor.open';
-    if (!(await vscode.commands.getCommands()).includes(command)) return { status: 'unsupportedProvider' };
+    const commands = await vscode.commands.getCommands();
+    if (cancelled()) return { status: 'cancelled' };
+    if (!commands.includes(command)) return { status: 'unsupportedProvider' };
     await vscode.commands.executeCommand(command, target.sessionID);
   } else {
     // The official Codex extension registers this custom editor and URI shape.
@@ -68,8 +80,9 @@ async function focusTarget(vscode, target) {
     await vscode.commands.executeCommand('vscode.openWith', uri, 'chatgpt.conversationEditor',
       { viewColumn: group?.viewColumn ?? vscode.ViewColumn.Active, preserveFocus: false, preview: false });
   }
-  const deadline = Date.now() + 2500;
-  while (Date.now() < deadline) {
+  const deadline = performance.now() + 2500;
+  while (performance.now() < deadline) {
+    if (cancelled()) return { status: 'cancelled' };
     const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
     const selected = target.kind === 'claude'
       ? input instanceof vscode.TabInputWebview && input.viewType === 'claudeVSCodePanel'

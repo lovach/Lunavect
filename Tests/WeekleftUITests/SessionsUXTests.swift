@@ -164,8 +164,8 @@ final class SessionsUXTests: XCTestCase {
             window.isReleasedWhenClosed = false; window.contentView = host
             window.makeKeyAndOrderFront(nil)
             defer { window.contentView = nil; window.close() }
-            func settle() { for _ in 0..<4 { RunLoop.main.run(until: Date().addingTimeInterval(0.06)) } }
-            func press(_ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws {
+            @MainActor func settle() { for _ in 0..<4 { RunLoop.main.run(until: Date().addingTimeInterval(0.06)) } }
+            @MainActor func press(_ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws {
                 NSApp.sendEvent(try XCTUnwrap(NSEvent.keyEvent(
                     with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: window.windowNumber, context: nil, characters: characters,

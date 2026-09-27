@@ -59,7 +59,13 @@ import WeekleftCore
     var importingActivity: Bool { activityService.importing }
     var activityUnavailable: Bool { activityService.unavailable }
     @Published var codexPath: String {
-        didSet { if !isolated, codexPath != oldValue { defaults.set(codexPath, forKey: "codexPath") } }
+        didSet {
+            guard codexPath != oldValue else { return }
+            // A response from the previous executable is no longer an observation
+            // of this connection, even if the user switches back before it arrives.
+            providerGenerations[.codex, default: 0] += 1
+            if !isolated { defaults.set(codexPath, forKey: "codexPath") }
+        }
     }
     private let snapshotPersistence: SnapshotPersistence?
     private let activityService: ActivityService
