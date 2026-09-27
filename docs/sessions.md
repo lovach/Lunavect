@@ -13,7 +13,7 @@ Click Lunavect in the macOS menu bar to open the session panel. It brings Claude
 | Thinking or a tool + task count | Claude is still working and has already started background tasks. |
 | Compacting context | Claude's compaction lifecycle reports work. Manual compaction has its own timer; automatic compaction retains the running response's start. |
 | Permission needed | The client is waiting for approval. Return to the client to respond. |
-| Input needed | The client is waiting for input, including an MCP form or a request to open a link in the browser. |
+| Input needed | The client is waiting for input, including an MCP form, a request to open a link in the browser or a background agent that asks for input. An answered form returns the session to working. |
 | Response ready | A response finished; the session may still be open in its client. |
 | Idle | A session is open without confirmed current work. |
 | Error reason | Claude's turn ended with an API error: limit reached, can't reach Claude, service error, sign in again, account issue or error. See [Notifications](notifications.md#errors). |

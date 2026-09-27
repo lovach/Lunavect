@@ -462,7 +462,11 @@ public struct SessionRecord: Codable, Sendable {
             else { record.pendingApprovals.insert(toolID) }
             record.session.phase = .permission
         case "Notification":
-            guard let type = payload["notification_type"] as? String, ["permission_prompt", "idle_prompt", "elicitation_dialog", "elicitation_url_dialog"].contains(type) else { throw SessionError.invalidResponse }
+            guard let type = payload["notification_type"] as? String else { throw SessionError.invalidResponse }
+            // Types without a lifecycle meaning here (agent_completed,
+            // quota_auto_resume_*, future ones) change nothing, not even freshness.
+            guard ["permission_prompt", "idle_prompt", "elicitation_dialog", "elicitation_url_dialog",
+                   "elicitation_complete", "elicitation_response", "agent_needs_input"].contains(type) else { return previous ?? record }
             if type == "permission_prompt" {
                 if record.pendingApprovals.isEmpty { record.unidentifiedApproval = true }
                 record.session.phase = .permission
@@ -472,6 +476,9 @@ public struct SessionRecord: Codable, Sendable {
                 // Do not refresh stale work evidence from a delayed notification.
                 if previous != nil { return record }
                 record.session.phase = .idle
+            } else if type == "elicitation_complete" || type == "elicitation_response" {
+                // The MCP form or link was answered; the same reply continues.
+                record.session.phase = .running
             } else { record.session.phase = .input }
         case "PreToolUse", "PostToolUse", "PostToolUseFailure":
             if name != "PreToolUse" {

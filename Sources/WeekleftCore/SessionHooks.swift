@@ -208,6 +208,8 @@ public enum SessionHooks {
         guard flock(lock, LOCK_EX) == 0 else { throw SessionError.unavailable }
         let previous = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(SessionRecord.self, from: $0) }
         var record = try SessionRecord.event(data, provider: provider, previous: previous, now: now, client: client)
+        // An ignored notice for a session without a record carries no lifecycle.
+        if previous == nil, record.session.phase == .unknown { return }
         if provider == .claude, let nestedClaudeRuntime { record.session.isNestedClaudeSession = nestedClaudeRuntime }
         if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
         if let ide {
