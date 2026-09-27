@@ -102,6 +102,7 @@ import WeekleftCore
         self.providers = providers
         allSessions = allSessions.filter { providers.contains($0.provider) }
         catalog = catalog.filter { providers.contains($0.key) }
+        catalogSettled.formIntersection(providers)
         issues = issues.filter { providers.contains($0.key) }
         typedIssues = typedIssues.filter { providers.contains($0.key) }
         if let row = lastHidden, !providers.contains(row.provider) { lastHidden = nil }
@@ -133,6 +134,9 @@ import WeekleftCore
     // Retain observed inactivity beyond the source's status freshness window.
     // Poll timestamps are deliberately not activity timestamps.
     private var organizationCheckedAt: Date?
+    /// Providers whose catalog read has answered at least once, successfully or not.
+    /// The daily organization check waits for all of them (S-05).
+    private var catalogSettled: Set<ProviderID> = []
     private var inactiveSince: [String: Date] = [:]
     private var arrangementURL: URL?
     private var arrangementLoadError: Error?
@@ -442,6 +446,8 @@ import WeekleftCore
         for (provider, result) in await [(ProviderID.codex, codex), (.claude, claude)] {
             guard isCurrent(expected) else { return }
             guard providers.contains(provider), let result else { continue }
+            if case .failure(let error) = result, error is CancellationError { return }
+            catalogSettled.insert(provider)
             switch result {
             case .success(let result):
                 catalog[provider] = result.rows
@@ -609,7 +615,10 @@ import WeekleftCore
         onObservation?(taskRows.filter { $0.catalogHistory != true }, now)
         do {
             try removeHiddenInternalSessions()
-            if organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
+            // The local event timer usually delivers the first rows before the
+            // catalogs; checking then would stamp the day without any evidence.
+            if providers.allSatisfy(catalogSettled.contains),
+               organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
                 try visibility?.pruneRemoved(now: now)
                 // Only a provider whose current catalog arrived complete can prove absence.
                 // Re-listed history is not presence: it must not keep a hidden entry

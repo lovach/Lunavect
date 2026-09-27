@@ -173,4 +173,31 @@ import Combine
         await sessions.refresh()
         XCTAssertEqual(sessions.currentSessions.count, 2)
     }
+
+    // S-05 / §5.17: the local event timer (every 1-5 s) usually delivers the
+    // first acceptSessions before the catalogs (up to 12 + 3 s for Codex).
+    func testDailyOrganizationWaitsForEveryCatalogInsteadOfTheFirstTimerTick() async throws {
+        let root = try directory()
+        var visibility = try SessionVisibility(url: root.appendingPathComponent("hidden-sessions.json"), now: instant)
+        let old = instant.addingTimeInterval(-40 * 86400)
+        for id in ["gone-claude", "gone-codex"] {
+            let provider: ProviderID = id.hasSuffix("claude") ? .claude : .codex
+            try visibility.hide(AgentSession(provider: provider, sessionID: id, title: id, cwd: "/Users/fixture", phase: .ready,
+                                             updatedAt: old, observedAt: old), now: old)
+        }
+        var clock = instant
+        let sessions = try store(.init(catalog: { provider, _, _, _ in
+            if provider == .codex { throw SessionError.timeout }
+            return ([], false)
+        }), directory: root, now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude, .codex])
+        XCTAssertEqual(sessions.hiddenIDs.count, 2)
+        sessions.acceptSessions([], now: clock)
+        XCTAssertEqual(sessions.hiddenIDs.count, 2, "Without any catalog nothing can prove absence")
+        clock += 10
+        await sessions.refresh()
+        XCTAssertEqual(sessions.hiddenIDs, ["codex:gone-codex"],
+                       "The check runs once the catalogs have answered; a failed Codex read proves nothing")
+    }
 }
