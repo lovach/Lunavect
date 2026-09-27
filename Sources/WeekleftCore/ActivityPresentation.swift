@@ -101,7 +101,9 @@ public struct ActivityChartData: Sendable {
     public var stale: Bool { series.contains { $0.summary.lastLiveObservedAt.map { now.timeIntervalSince($0) > staleAfter } ?? false } }
     public init(history: ActivityHistory, now: Date = Date(), period: ActivityPeriod = .week, providers: [ProviderID] = ProviderID.allCases,
                 calendar: Calendar = .current, staleAfter: TimeInterval = 300) {
-        self.now = now; limited = history.importWasLimited == true; self.staleAfter = staleAfter
+        // Before report version 4 any skipped record set the flag; a stored report
+        // tells whether coverage was actually lost.
+        self.now = now; limited = history.importWasLimited == true && (history.importReport?.limited ?? true); self.staleAfter = staleAfter
         summary = history.summary(now: now, calendar: calendar, period: period, providers: providers)
         series = providers.map { ActivityChartSeries(provider: $0, summary: history.summary(now: now, calendar: calendar, period: period, providers: [$0])) }
     }

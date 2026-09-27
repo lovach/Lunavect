@@ -14,6 +14,12 @@ public struct ActivityImportResult: Sendable {
 /// Reads only local journal timing. Historical durations remain approximate wall time.
 public enum ActivityHistoryImporter {
     public static let version = ActivityImportReport.currentVersion
+    /// Claude turns are rebuilt from message timestamps, like Codex tasks: they
+    /// include tool runs and model latency. A silence longer than this inside a
+    /// turn (typically an unanswered permission request) is not counted as work.
+    public static let claudeTurnIdleGap: TimeInterval = 30 * 60
+    /// Upper bound for one recovered Claude turn segment; longer ones keep their final part.
+    public static let claudeMaximumTurn: TimeInterval = 2 * 3600
     public struct Source: Sendable {
         public let directory: URL
         public let provider: ProviderID
@@ -37,7 +43,8 @@ public enum ActivityHistoryImporter {
         let fractional = ISO8601DateFormatter(), whole = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let codexMarkers = ["task_complete", "task_started", "turn_aborted"].map { Data($0.utf8) }
-        let claudeMarkers = ["turn_duration", "tool_use", "totalDurationMs", "durationMs", "durationSeconds"].map { Data($0.utf8) }
+        let claudeMarkers = ["turn_duration", "stop_hook_summary", "tool_use", "totalDurationMs", "durationMs", "durationSeconds",
+                             "\"user\"", "\"assistant\""].map { Data($0.utf8) }
         var reports = Dictionary(uniqueKeysWithValues: Set(sources.map(\.provider)).map { ($0, ActivityImportReport.Provider(id: $0)) })
         func issue(_ reason: ActivityImportIssue, _ provider: ProviderID, count: Int = 1) { reports[provider]!.issues[reason, default: 0] += count }
         func cancelledResult() -> ActivityImportResult {
@@ -131,6 +138,40 @@ public enum ActivityHistoryImporter {
                 if provider == .claude, UUID(uuidString: file.deletingPathExtension().lastPathComponent) != nil { sessionID = file.deletingPathExtension().lastPathComponent }
                 var pending: [String: Date] = [:], calls: [String: (String, Date?)] = [:], completedTools = Set<String>()
                 var hadTiming = false, reachedEOF = false
+                // Current Claude turn segment: prompt (or first row after a long
+                // silence), latest main-chain row and latest answer/Stop hook row.
+                var turnStart: Date?, turnLastRow: Date?, turnEnd: Date?
+                func closeTurn() {
+                    if let start = turnStart, let end = turnEnd, end > start {
+                        hadTiming = true
+                        append(start: max(start, end.addingTimeInterval(-claudeMaximumTurn)), end: end, provider: provider, kind: 0)
+                    }
+                    turnStart = nil; turnLastRow = nil; turnEnd = nil
+                }
+                /// A typed prompt, not a tool result, compaction summary or local meta row.
+                func isPrompt(_ record: [String: Any]) -> Bool {
+                    guard record["isMeta"] as? Bool != true, record["isCompactSummary"] as? Bool != true, record["toolUseResult"] == nil else { return false }
+                    let content = (record["message"] as? [String: Any])?["content"]
+                    if content is String { return true }
+                    guard let blocks = content as? [[String: Any]] else { return false }
+                    return blocks.contains { $0["type"] as? String != "tool_result" }
+                }
+                func observeTurn(_ record: [String: Any], type: String?, stamp: Date?) {
+                    // Subagent (sidechain) rows run inside the parent's Agent tool call.
+                    guard let stamp, let type, ["user", "assistant", "system"].contains(type), record["isSidechain"] as? Bool != true else { return }
+                    if type == "user", isPrompt(record) {
+                        closeTurn(); turnStart = stamp; turnLastRow = stamp
+                        return
+                    }
+                    guard let start = turnStart, let last = turnLastRow, stamp >= start else { return }
+                    if stamp.timeIntervalSince(last) > claudeTurnIdleGap {
+                        closeTurn(); turnStart = stamp; turnLastRow = stamp
+                    } else if stamp > last { turnLastRow = stamp }
+                    let subtype = record["subtype"] as? String ?? ""
+                    if type == "assistant" || (type == "system" && ["stop_hook_summary", "turn_duration"].contains(subtype)) {
+                        turnEnd = max(turnEnd ?? stamp, stamp)
+                    }
+                }
                 // Read a fixed snapshot: a running client's later appends are picked up on retry.
                 var remaining = max(0, Int(info.st_size))
                 func consume(_ line: Data, failure: TimingJSONLReader.Failure?, omitted: Int) {
@@ -156,6 +197,7 @@ public enum ActivityHistoryImporter {
                         else { cwd = path }
                     }
                     if type == "custom-title", let name = record["customTitle"] as? String { title = String(SessionParser.text(name).prefix(240)) }
+                    if provider == .claude { observeTurn(record, type: type, stamp: stamp) }
                     if provider == .codex {
                         guard type == "event_msg", let payload = record["payload"] as? [String: Any] else { return }
                         let kind = payload["type"] as? String, id = identifier(payload["turn_id"])
@@ -246,6 +288,9 @@ public enum ActivityHistoryImporter {
                     else { issue(exhausted() ? .budget : .unreadable, provider) }
                 } catch { issue(.unreadable, provider) }
                 if Task.isCancelled { return cancelledResult() }
+                // The last answered turn ends at its latest answer, also when the
+                // client is still running or the read stopped at a budget.
+                if provider == .claude { closeTurn() }
                 let unfinished = pending.values.filter { $0 < boundary && $0 >= cutoff }.count
                 if reachedEOF, unfinished > 0 { issue(.incompleteTask, provider, count: unfinished) }
                 if !hadTiming { reports[provider]!.filesWithoutTiming += 1 }

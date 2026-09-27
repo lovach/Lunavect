@@ -15,6 +15,9 @@ public enum ActivityImportIssue: String, Codable, CaseIterable, Sendable {
         case .symlink: return L("Пропущены символические ссылки")
         }
     }
+    /// Only lost coverage (unread files, budget, missing sources) makes an import
+    /// partial. Skipped or inconsistent individual records are information.
+    public var limitsCoverage: Bool { [.budget, .unreadable, .missingSource, .symlink].contains(self) }
 }
 
 /// Aggregate diagnostics only; never paths, session IDs, tool arguments or messages.
@@ -35,6 +38,7 @@ public struct ActivityImportReport: Codable, Equatable, Sendable {
         public var lastRecovered: Date?
         public var issues: [ActivityImportIssue: Int] = [:]
         public init(id: ProviderID) { self.id = id }
+        public var limited: Bool { issues.contains { $0.key.limitsCoverage && $0.value > 0 } }
         private enum CodingKeys: String, CodingKey {
             case id, filesRead, filesWithoutTiming, recordsRecovered, taskRecords, agentRecords, toolRecords, bytesRead,
                 longStringsOmitted, recoveredSeconds, daysRecovered, firstRecovered, lastRecovered, issues
@@ -57,7 +61,8 @@ public struct ActivityImportReport: Codable, Equatable, Sendable {
             issues = try c.decodeIfPresent([ActivityImportIssue: Int].self, forKey: .issues) ?? [:]
         }
     }
-    public static let currentVersion = 3
+    /// 4: Claude turns from message timestamps; only coverage loss limits an import.
+    public static let currentVersion = 4
     public var version = Self.currentVersion
     public var providers: [Provider] = []
     public init() {}
@@ -67,7 +72,7 @@ public struct ActivityImportReport: Codable, Equatable, Sendable {
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
         providers = try c.decodeIfPresent([Provider].self, forKey: .providers) ?? []
     }
-    public var limited: Bool { providers.contains { !$0.issues.isEmpty } }
+    public var limited: Bool { providers.contains(where: \.limited) }
 }
 
 
