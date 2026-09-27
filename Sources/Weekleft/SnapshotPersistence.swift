@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 #if SWIFT_PACKAGE
 import WeekleftCore
 #endif
@@ -32,8 +33,11 @@ final class SnapshotPersistence: @unchecked Sendable {
     private let write: @Sendable (SharedState, URL) throws -> Void
     private let exists: @Sendable (URL) -> Bool
     private let reload: @Sendable () -> Void
+    private let reloadActivity: @Sendable () -> Void
     private let clock: @Sendable () -> Date
     private let completionQueue: DispatchQueue
+    private let flushTimeout: TimeInterval
+    private let logger = Logger(subsystem: "com.weekleft.storage", category: "snapshot")
     private let queue = DispatchQueue(label: "com.weekleft.snapshot-persistence", qos: .utility)
     // Protect submission order and counters independently of potentially slow I/O.
     private let submissionLock = NSLock()
@@ -46,6 +50,7 @@ final class SnapshotPersistence: @unchecked Sendable {
     private var lastReload: WidgetQuotaFingerprint?
     private var lastReloadState: SharedState?
     private var lastReloadAt: Date?
+    private var lastActivityReload: ActivityWidgetInputs?
 
     init(url: URL = SnapshotStore.directory.appendingPathComponent("snapshot.json"),
          read: @escaping @Sendable (URL) -> SharedState = { SnapshotStore.load(from: $0) },
@@ -57,10 +62,12 @@ final class SnapshotPersistence: @unchecked Sendable {
          },
          exists: @escaping @Sendable (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
          reload: @escaping @Sendable () -> Void = {},
+         reloadActivity: @escaping @Sendable () -> Void = {},
          clock: @escaping @Sendable () -> Date = { Date() },
-         completionQueue: DispatchQueue = .main) {
+         completionQueue: DispatchQueue = .main, flushTimeout: TimeInterval = 3) {
         self.url = url; self.read = read; self.recover = recover; self.write = write
-        self.exists = exists; self.reload = reload; self.clock = clock; self.completionQueue = completionQueue
+        self.exists = exists; self.reload = reload; self.reloadActivity = reloadActivity; self.clock = clock; self.completionQueue = completionQueue
+        self.flushTimeout = flushTimeout
     }
 
     var counters: PersistenceCounters { submissionLock.withLock { counts } }
@@ -73,6 +80,8 @@ final class SnapshotPersistence: @unchecked Sendable {
             if readOnly || self.readFailed {
                 return LoadResult(state: self.read(self.url), writable: false, issue: self.recoveryIssue)
             }
+            // Only the writing app repairs the shared directory; widgets stay read-only.
+            _ = try? LocalStateRecovery.removeAbandonedTemporaries(in: self.url.resolvingSymlinksInPath().deletingLastPathComponent(), now: self.clock())
             do {
                 let result = try self.recover(self.url)
                 if result.backupURL != nil {
@@ -110,20 +119,25 @@ final class SnapshotPersistence: @unchecked Sendable {
     /// Enqueues behind every prior submission and waits for the final write.
     /// async + semaphore deliberately avoids DispatchQueue.sync's ability to run
     /// disk work on the calling (main) thread. Earlier callbacks are not awaited.
+    /// Termination waits at most `flushTimeout`; the write itself stays queued.
     @discardableResult func flush(_ state: SharedState) -> WriteResult {
         dispatchPrecondition(condition: .notOnQueue(queue))
         let result = WaitingResult<WriteResult>()
         let finished = DispatchSemaphore(value: 0)
-        submissionLock.withLock {
+        let sequence = submissionLock.withLock { () -> Int in
             counts.submitted += 1
             let sequence = counts.submitted
             queue.async {
                 result.value = self.save(state, sequence: sequence)
                 finished.signal()
             }
+            return sequence
         }
-        finished.wait()
-        return result.value!
+        guard finished.wait(timeout: .now() + max(0, flushTimeout)) == .success, let value = result.value else {
+            logger.error("Snapshot flush exceeded \(self.flushTimeout, privacy: .public) s; quitting without waiting")
+            return WriteResult(disposition: .failed, issue: "Не удалось сохранить данные виджета.", sequence: sequence, counters: counters)
+        }
+        return value
     }
 
     private func save(_ state: SharedState, sequence: Int) -> WriteResult {
@@ -173,6 +187,9 @@ final class SnapshotPersistence: @unchecked Sendable {
         lastReloadState = state
         lastReloadAt = now
         reload()
+        // The activity widget shows no quota; only shared preferences change it (C-01).
+        let activity = ActivityWidgetInputs(state.preferences)
+        if activity != lastActivityReload { lastActivityReload = activity; reloadActivity() }
     }
 
     private func waitForOperation<Value: Sendable>(_ operation: @escaping @Sendable () -> Value) -> Value {
@@ -184,6 +201,18 @@ final class SnapshotPersistence: @unchecked Sendable {
         }
         finished.wait()
         return result.value!
+    }
+}
+
+/// Snapshot values the activity widget renders: its sources and appearance.
+private struct ActivityWidgetInputs: Equatable {
+    let providers: [ProviderID]
+    let showFiveHour: Bool
+    let transparency: Double
+    let transparentBackground: Bool
+    init(_ preferences: WidgetPreferences) {
+        providers = preferences.providers; showFiveHour = preferences.showFiveHour
+        transparency = preferences.transparency; transparentBackground = preferences.transparentBackground
     }
 }
 
@@ -217,7 +246,44 @@ private struct WidgetQuotaFingerprint: Equatable {
     }
 }
 
-/// The semaphore establishes visibility before the caller reads the value.
+/// A timed-out flush may read while the queue still writes; the lock keeps both sides safe.
 private final class WaitingResult<Value: Sendable>: @unchecked Sendable {
-    var value: Value?
+    private let lock = NSLock(); private var stored: Value?
+    var value: Value? { get { lock.withLock { stored } } set { lock.withLock { stored = newValue } } }
+}
+
+/// Copies left by earlier installations after the App Group migration (B-06,
+/// decision 24): the previous group container's shared folder and the
+/// Application Support fallback files. The app no longer reads them and never
+/// removes them on its own; the user can check and move them to the Trash.
+/// Probing starts only on that request, because another group container may be
+/// protected by macOS.
+enum LegacySharedData {
+    static let previousGroup = "group.com.weekleft.shared"
+    static func find(group: String? = Bundle.main.object(forInfoDictionaryKey: "WeekleftAppGroup") as? String,
+                     current: URL = SnapshotStore.directory,
+                     home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
+        // Without an App Group, Application Support is the live location, not a leftover.
+        guard let group, !group.isEmpty else { return [] }
+        let live = current.standardizedFileURL.path
+        var candidates: [URL] = []
+        if group != previousGroup {
+            candidates.append(home.appendingPathComponent("Library/Group Containers/\(previousGroup)/Weekleft", isDirectory: true))
+        }
+        let support = home.appendingPathComponent("Library/Application Support/Weekleft", isDirectory: true)
+        if support.standardizedFileURL.path != live {
+            // Only shared-state names; session records and activity-details.json stay live there.
+            candidates += ["snapshot.json", "activity.json", "ActivitySelection"].map { support.appendingPathComponent($0) }
+        }
+        return candidates.filter { url in
+            let path = url.standardizedFileURL.path
+            guard path != live, !live.hasPrefix(path + "/"),
+                  let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]), values.isSymbolicLink != true else { return false }
+            return FileManager.default.fileExists(atPath: url.path)
+        }
+    }
+    /// Returns what could not be moved; the Trash keeps everything recoverable.
+    static func moveToTrash(_ urls: [URL], trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) -> [URL] {
+        urls.filter { url in (try? trash(url)) == nil }
+    }
 }

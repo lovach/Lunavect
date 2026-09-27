@@ -475,8 +475,8 @@ struct ActivityImportReportView: View {
                     })) {
                         diagnosticDetails(provider)
                     } label: {
-                        Text(provider.issues.isEmpty ? L("Подробности импорта") : L("Подробности импорта — есть пропуски"))
-                            .foregroundStyle(provider.issues.isEmpty ? Color.secondary : Color.orange)
+                        Text(provider.limited ? L("Подробности импорта — есть пропуски") : L("Подробности импорта"))
+                            .foregroundStyle(provider.limited ? Color.orange : Color.secondary)
                     }
                 }
             }
@@ -493,7 +493,8 @@ struct ActivityImportReportView: View {
             Text(L("Прочитано журналов: {0}. Без записей длительности: {1}.", String(provider.filesRead), String(provider.filesWithoutTiming)))
             Text(L("Записи времени: задачи — {0}, подзадачи — {1}, инструменты — {2}.", String(provider.taskRecords), String(provider.agentRecords), String(provider.toolRecords)))
             ForEach(ActivityImportIssue.allCases.filter { provider.issues[$0, default: 0] > 0 }, id: \.self) { issue in
-                Text(issue.title + ": " + String(provider.issues[issue, default: 0])).foregroundStyle(.orange)
+                // Skipped individual records are information; lost coverage is a warning.
+                Text(issue.title + ": " + String(provider.issues[issue, default: 0])).foregroundStyle(issue.limitsCoverage ? Color.orange : Color.secondary)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
     }

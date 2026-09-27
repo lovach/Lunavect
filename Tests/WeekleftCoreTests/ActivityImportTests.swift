@@ -66,7 +66,9 @@ final class ActivityImportTests: XCTestCase {
                 ],
             ], to: root.appendingPathComponent("log.jsonl"))
         let codexResult = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)], before: now, now: now)
-        XCTAssertTrue(codexResult.intervals.isEmpty); XCTAssertTrue(codexResult.limited)
+        // Decision 22: a rejected record is reported, but does not make the import partial.
+        XCTAssertTrue(codexResult.intervals.isEmpty); XCTAssertFalse(codexResult.limited)
+        XCTAssertEqual(codexResult.report.providers.first?.issues[.invalidTiming], 1)
         XCTAssertTrue(ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .claude)], before: now, now: now).intervals.isEmpty)
     }
     func testImportPreservesLiveObservationsAndRetryIsIdempotent() throws {
@@ -211,7 +213,7 @@ extension ActivityImportTests {
             ["type": "cost-state", "totalDuration": 9999999]
         ], to: root.appendingPathComponent("claude.jsonl"))
         let result = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .claude)], before: now, now: now)
-        XCTAssertTrue(result.intervals.isEmpty); XCTAssertTrue(result.limited)
+        XCTAssertTrue(result.intervals.isEmpty); XCTAssertFalse(result.limited, "Skipped records are information, not lost coverage")
         XCTAssertEqual(result.report.providers.first?.issues[.invalidTiming], 2)
         XCTAssertEqual(result.report.providers.first?.issues[.unmatchedTool], 2)
         XCTAssertEqual(result.report.providers.first?.issues[.incompleteTask], 1)

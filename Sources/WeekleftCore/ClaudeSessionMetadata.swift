@@ -46,7 +46,8 @@ public enum ClaudeSessionMetadata {
                     guard let info = try? file.resourceValues(forKeys: keys), info.isSymbolicLink != true,
                           (info.fileSize ?? Int.max) < 2_000_000, let identity = LocalFileIdentity(path: file.path),
                           let entry = decodedEntries.value(for: file.path, identity: identity, decode: {
-                              (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Entry.self, from: $0) }
+                              // Bounded like the size check above, which cannot stop a later growth.
+                              (try? LocalStateRecovery.read(from: file, maximumBytes: 1_999_999)).flatMap { try? JSONDecoder().decode(Entry.self, from: $0) }
                           }),
                           let id = entry.cliSessionId, ids.contains(id), entry.isArchived != true else { continue }
                     let title = self.title(from: entry, sessionID: id) ?? ""

@@ -342,11 +342,12 @@ struct ActivityCard: View {
                 .font(.system(size: 10)).foregroundStyle(WidgetInk(0.55)).frame(height: 24)
         }
     }
+    /// Only staleness is marked on the desktop; import coverage is explained in the app (decision 22).
     @ViewBuilder private var status: some View {
-        if data.stale || data.limited {
-            Image(systemName: data.stale ? "clock.badge.exclamationmark" : "info.circle")
+        if data.stale {
+            Image(systemName: "clock.badge.exclamationmark")
                 .font(.system(size: 10)).foregroundStyle(WidgetInk(0.65))
-                .accessibilityLabel(L(data.stale ? "Данные устарели" : "По доступным записям"))
+                .accessibilityLabel(L("Данные устарели"))
         }
     }
 }

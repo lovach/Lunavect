@@ -115,8 +115,10 @@ import WeekleftCore
         codexDiscovery = dataServices?.discoverCodex ?? Self.discoverCodex
         snapshotPersistence = isolated ? nil : dataServices?.snapshots ?? SnapshotPersistence(reload: {
             WidgetCenter.shared.reloadTimelines(ofKind: "WeekleftWidget")
-            WidgetCenter.shared.reloadTimelines(ofKind: "LunavectActivityWidget")
             WidgetCenter.shared.reloadTimelines(ofKind: "LunavectOverviewWidget")
+        }, reloadActivity: {
+            // Quota receipts do not change activity; its history saves reload it.
+            WidgetCenter.shared.reloadTimelines(ofKind: "LunavectActivityWidget")
         })
         if isolated {
             activityService = ActivityService(history: activityHistory, details: activityDetails, isolated: true, clock: clock)

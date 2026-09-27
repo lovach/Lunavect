@@ -2561,6 +2561,76 @@
     "fr": "D’après les données disponibles",
     "zh-Hans": "根据可用记录"
   },
+  "Найти данные прежней установки": {
+    "de": "Daten einer früheren Installation suchen",
+    "en": "Find data from a previous installation",
+    "es": "Buscar datos de una instalación anterior",
+    "fr": "Rechercher les données d’une installation précédente",
+    "zh-Hans": "查找之前安装留下的数据"
+  },
+  "Данные прежней установки не найдены.": {
+    "de": "Keine Daten einer früheren Installation gefunden.",
+    "en": "No data from a previous installation was found.",
+    "es": "No se encontraron datos de una instalación anterior.",
+    "fr": "Aucune donnée d’une installation précédente n’a été trouvée.",
+    "zh-Hans": "未找到之前安装留下的数据。"
+  },
+  "Прежняя установка оставила копии, которые Lunavect не читает: {0}.": {
+    "de": "Eine frühere Installation hat Kopien hinterlassen, die Lunavect nicht mehr liest: {0}.",
+    "en": "A previous installation left copies that Lunavect no longer reads: {0}.",
+    "es": "Una instalación anterior dejó copias que Lunavect ya no lee: {0}.",
+    "fr": "Une installation précédente a laissé des copies que Lunavect ne lit plus : {0}.",
+    "zh-Hans": "之前的安装留下了 Lunavect 不再读取的副本：{0}。"
+  },
+  "Переместить в Корзину": {
+    "de": "In den Papierkorb legen",
+    "en": "Move to Trash",
+    "es": "Mover a la Papelera",
+    "fr": "Placer dans la corbeille",
+    "zh-Hans": "移到废纸篓"
+  },
+  "Перемещено в Корзину: {0}.": {
+    "de": "In den Papierkorb gelegt: {0}.",
+    "en": "Moved to Trash: {0}.",
+    "es": "Movido a la Papelera: {0}.",
+    "fr": "Placé dans la corbeille : {0}.",
+    "zh-Hans": "已移到废纸篓：{0}。"
+  },
+  "Не засчитано разрывов наблюдения: {0}, всего {1}, с {2}.": {
+    "de": "Nicht als Arbeit gezählte Beobachtungslücken: {0}, insgesamt {1}, seit {2}.",
+    "en": "Observation gaps not counted as work: {0}, {1} in total, since {2}.",
+    "es": "Pausas de observación no contadas como trabajo: {0}, {1} en total, desde {2}.",
+    "fr": "Interruptions d’observation non comptées comme travail : {0}, {1} au total, depuis {2}.",
+    "zh-Hans": "未计为工作的观察间隔：{0} 次，共 {1}，自 {2} 起。"
+  },
+  "Сохранить копию и начать заново": {
+    "de": "Kopie behalten und neu beginnen",
+    "en": "Keep a copy and start over",
+    "es": "Guardar una copia y empezar de nuevo",
+    "fr": "Garder une copie et recommencer",
+    "zh-Hans": "保留副本并重新开始"
+  },
+  "Файл статистики не читается. Lunavect сохранит его копию рядом и начнёт новую историю, восстановив недавние журналы.": {
+    "de": "Die Statistikdatei kann nicht gelesen werden. Lunavect behält eine Kopie daneben und beginnt einen neuen Verlauf mit den letzten Protokollen.",
+    "en": "The statistics file cannot be read. Lunavect keeps a copy next to it and starts a new history, recovering recent logs.",
+    "es": "No se puede leer el archivo de estadísticas. Lunavect guarda una copia junto a él y empieza un historial nuevo, recuperando los registros recientes.",
+    "fr": "Le fichier de statistiques est illisible. Lunavect en garde une copie à côté et commence un nouvel historique en récupérant les journaux récents.",
+    "zh-Hans": "无法读取统计文件。Lunavect 会在旁边保留一份副本，并开始新的历史记录，同时恢复最近的日志。"
+  },
+  "Прежний файл статистики сохранён отдельно. Сбор начат заново.": {
+    "de": "Die bisherige Statistikdatei wurde separat aufbewahrt. Die Erfassung beginnt neu.",
+    "en": "The previous statistics file was kept separately. Collection started over.",
+    "es": "El archivo de estadísticas anterior se guardó aparte. La recopilación empezó de nuevo.",
+    "fr": "L’ancien fichier de statistiques a été conservé à part. La collecte recommence.",
+    "zh-Hans": "之前的统计文件已单独保留。已重新开始收集。"
+  },
+  "Не удалось сохранить копию файла статистики.": {
+    "de": "Die Kopie der Statistikdatei konnte nicht gesichert werden.",
+    "en": "Could not keep a copy of the statistics file.",
+    "es": "No se pudo guardar una copia del archivo de estadísticas.",
+    "fr": "Impossible de conserver une copie du fichier de statistiques.",
+    "zh-Hans": "无法保留统计文件的副本。"
+  },
   "По кнопке откроется Terminal и запустит установщик с сайта {0}. Команды вводить не нужно.": {
     "de": "Die Schaltfläche öffnet Terminal und startet das Installationsprogramm von {0}. Sie müssen keine Befehle eingeben.",
     "en": "The button opens Terminal and runs the installer from {0}. No commands to type.",

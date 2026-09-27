@@ -12,7 +12,8 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-PHASES = ('fixture-generation', 'archive-import', 'history-merge-summary-roundtrip', 'session-arrangement')
+PHASES = ('fixture-generation', 'archive-import', 'claude-fixture-generation', 'claude-archive-import',
+          'history-merge-summary-roundtrip', 'session-arrangement')
 
 
 def aggregate(samples):

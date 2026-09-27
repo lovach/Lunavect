@@ -15,6 +15,9 @@ public enum ActivityImportIssue: String, Codable, CaseIterable, Sendable {
         case .symlink: return L("Пропущены символические ссылки")
         }
     }
+    /// Only lost coverage (unread files, budget, missing sources) makes an import
+    /// partial. Skipped or inconsistent individual records are information.
+    public var limitsCoverage: Bool { [.budget, .unreadable, .missingSource, .symlink].contains(self) }
 }
 
 /// Aggregate diagnostics only; never paths, session IDs, tool arguments or messages.
@@ -35,6 +38,7 @@ public struct ActivityImportReport: Codable, Equatable, Sendable {
         public var lastRecovered: Date?
         public var issues: [ActivityImportIssue: Int] = [:]
         public init(id: ProviderID) { self.id = id }
+        public var limited: Bool { issues.contains { $0.key.limitsCoverage && $0.value > 0 } }
         private enum CodingKeys: String, CodingKey {
             case id, filesRead, filesWithoutTiming, recordsRecovered, taskRecords, agentRecords, toolRecords, bytesRead,
                 longStringsOmitted, recoveredSeconds, daysRecovered, firstRecovered, lastRecovered, issues
@@ -57,7 +61,8 @@ public struct ActivityImportReport: Codable, Equatable, Sendable {
             issues = try c.decodeIfPresent([ActivityImportIssue: Int].self, forKey: .issues) ?? [:]
         }
     }
-    public static let currentVersion = 3
+    /// 4: Claude turns from message timestamps; only coverage loss limits an import.
+    public static let currentVersion = 4
     public var version = Self.currentVersion
     public var providers: [Provider] = []
     public init() {}
@@ -67,7 +72,7 @@ public struct ActivityImportReport: Codable, Equatable, Sendable {
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
         providers = try c.decodeIfPresent([Provider].self, forKey: .providers) ?? []
     }
-    public var limited: Bool { providers.contains { !$0.issues.isEmpty } }
+    public var limited: Bool { providers.contains(where: \.limited) }
 }
 
 
@@ -161,8 +166,17 @@ public struct ActivitySummary: Sendable {
     }
 }
 
+/// Gaps between two live observations of a running session that were too long
+/// to count as work. Aggregate diagnostics only; restarted after 35 days.
+public struct ActivityObservationGaps: Codable, Equatable, Sendable {
+    public var count: Int
+    public var seconds: TimeInterval
+    public var since: Date
+}
+
 public struct ActivityHistory: Codable, Equatable, Sendable {
     public private(set) var intervals: [ActivityInterval] = []
+    public private(set) var observationGaps: ActivityObservationGaps?
     public private(set) var importCutoff: Date?
     public private(set) var importedAt: Date?
     public private(set) var importWasLimited: Bool?
@@ -195,6 +209,12 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
         if !intervals.isEmpty, intervals[0].start < cutoff { intervals[0].start = cutoff }
         // Bound storage even when state changes every second for weeks.
         if intervals.count > 50_000 { intervals.removeFirst(intervals.count - 50_000) }
+    }
+    public mutating func recordObservationGap(seconds: TimeInterval, at date: Date) {
+        guard seconds.isFinite, seconds > 0 else { return }
+        if var gaps = observationGaps, date.timeIntervalSince(gaps.since) <= 35 * 86400 {
+            gaps.count += 1; gaps.seconds += seconds; observationGaps = gaps
+        } else { observationGaps = ActivityObservationGaps(count: 1, seconds: seconds, since: date) }
     }
     public mutating func prepareImport(now: Date) -> Date {
         if importCutoff == nil { importCutoff = min(now, intervals.first?.start ?? now) }
