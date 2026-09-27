@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Activity, storage and widgets
+
+- Recovered Claude history is rebuilt from message timestamps: a prompt starts a turn and the last answer or Stop hook ends it, like Codex tasks. Tool results, subagent, meta and compaction rows never start a turn, unanswered prompts and silences over 30 minutes are not counted, and one turn segment is capped at two hours. Recovered time keeps its `≈` mark. The import version changes, so existing history is re-imported automatically once.
+- "From available records" appears only when coverage was actually lost (read budget, unreadable or missing logs, symbolic links). Skipped individual records stay in the import report as information, and widgets no longer show the info badge.
+- Live collection tolerates a slow observation of up to three poll steps plus 5 seconds. Sleep and wake always start a new measurement. Longer gaps in running work are counted under History and data accuracy instead of disappearing silently.
+- Activity is written less often: history once a minute while work runs, project/session details every five minutes without a forced disk flush and at quit, and phase changes after a 15-second quiet period. Changes that do not affect measured activity no longer rewrite files. Quitting waits at most 3 seconds for an unresponsive disk.
+- An unreadable statistics file no longer stops collection for good: **Keep a copy and start over** keeps it beside the original and starts a new history. Details stay below the read limit by dropping the oldest records first, overlapping detail intervals are repaired instead of discarding the breakdown, and abandoned temporary files are removed at launch.
+- Quota updates no longer reload the activity widget; it reloads when its history or its shared settings change. The installed app re-confirms its widget registration 5 seconds and 2 minutes after launch, and skips this while another copy of Lunavect is registered.
+- **Find data from a previous installation** lists copies left by the App Group migration and can move them to the Trash. The privacy page lists these copies, recovery backups and the IDE bridge files.
+- The glass widget background can be turned off without a rebuild through a hidden setting; it relies on a private macOS interface and blocks Mac App Store distribution.
+
 ## 0.2.4 — 2026-09-27
 
 - Terminal navigation stays responsive while macOS selects a tab. Slow or cancelled requests stop cleanly and retain specific permission and timeout messages.

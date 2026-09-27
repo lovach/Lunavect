@@ -44,15 +44,21 @@ including the trailing quota fetcher closure.
    invalidates its comparison baseline because the writer may have changed the
    destination before failing. A missing or recovered file also requires a first
    write. Only successful history writes reload activity/overview widgets;
-   private detail changes alone do not. Snapshot changes reload the three known
-   widget kinds, since preferences can affect each of them.
+   private detail changes alone do not. Snapshot changes reload the limits and
+   overview widgets; the activity widget is reloaded only when the preferences
+   it renders change, since it shows no quota.
 3. **Startup and termination remain synchronous boundaries.** The existing
    initializer returns loaded values and recovery status; termination waits for
    the latest requested state. Both dispatch actual I/O onto utility queues, but
-   the caller still waits at those two boundaries. This preserves initialization
-   and shutdown contracts; it does not claim nonblocking startup or a bounded
-   shutdown time on an unresponsive disk. Periodic activity writes, quota writes
-   and import-boundary writes run asynchronously during normal operation.
+   the caller still waits at those two boundaries. Startup still waits for its
+   read; each termination flush waits at most 3 s, then logs and lets the app
+   quit while the queued write completes if it can. Loading as the writer also
+   removes the store's own abandoned `.UUID.tmp` files older than an hour.
+   Periodic activity writes, quota writes and import-boundary writes run
+   asynchronously during normal operation. Activity saves follow measured
+   changes (running sessions and observed sources, debounced by 15 s) plus the
+   minute/five-minute checkpoints; private details are submitted at most every
+   five minutes, at import and at the final flush, without fsync.
 4. **Import cancellation governs publication as well as execution.** The import
    boundary is saved before the worker starts. If that write fails, importing
    stops and an explicit retry uses the same boundary. Stop and provider changes
