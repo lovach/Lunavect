@@ -155,6 +155,7 @@ struct SessionOverflowPosition {
     @Published private(set) var openingIDs: Set<String> = []
     /// A failure that arrives after the panel closed brings it back with the message.
     var onHiddenIssue: (() -> Void)?
+    var onNavigationResult: ((ProviderID, SessionClient, Bool) -> Void)?
 
     /// Every route (click, menu, Return, swipe, notification) opens through here:
     /// one attempt per session at a time, the panel steps aside after success and
@@ -166,10 +167,12 @@ struct SessionOverflowPosition {
         defer { openingIDs.remove(row.id) }
         do {
             try await open(row)
+            onNavigationResult?(row.provider, row.client, true)
             issue = nil
             NotificationCenter.default.post(name: .lunavectSessionOpened, object: nil)
             return true
         } catch {
+            onNavigationResult?(row.provider, row.client, false)
             report((error as? LocalizedError)?.errorDescription ?? L(
                 "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."))
             return false

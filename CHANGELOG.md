@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Prepared optional technical statistics with explicit consent in welcome and Settings → General. The limited events cover launches and session-navigation results, without session content, project paths or persistent user IDs.
+- Prepared separate consent for website download-link counters and coarse source categories. Added a local GitHub download/traffic snapshot collector.
+- Statistics remain inactive until the PostHog EU project is configured and its ingestion, IP handling and retention are verified. Public 0.2.3 downloads are unchanged.
+
 ## 0.2.3 — 2026-09-26
 
 - Added exact navigation to existing Claude Code and Codex terminal sessions in local VS Code and JetBrains 2026.2, including the Classic and Reworked JetBrains terminals.

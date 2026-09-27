@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import plistlib
+import re
 
 
 # Explicit per-bundle resource contract. Retain approved source artwork unchanged.
@@ -68,6 +69,15 @@ def icon_path(bundle, info):
     return path
 
 
+def verify_analytics_configuration(info):
+    token = info.get('LunavectAnalyticsToken', '')
+    host = info.get('LunavectAnalyticsHost', '')
+    if token and (not isinstance(token, str) or not re.fullmatch(r'phc_[A-Za-z0-9]{16,160}', token)):
+        raise ValueError('Analytics requires a public capture token, never a personal key or unresolved setting')
+    if (token or host) and host != 'https://eu.i.posthog.com':
+        raise ValueError('Analytics host must resolve to the EU HTTPS capture endpoint')
+
+
 def verify(app, source_root=None):
     widget = app / 'Contents/PlugIns/LunavectWidget.appex'
     bundles = (app, widget)
@@ -78,6 +88,7 @@ def verify(app, source_root=None):
     for key in ('CFBundleVersion', 'CFBundleShortVersionString', 'WeekleftAppGroup', 'CFBundleLocalizations'):
         if not infos[0].get(key) or infos[0].get(key) != infos[1].get(key):
             raise ValueError(f'App/widget {key} differs or is missing')
+    verify_analytics_configuration(infos[0])
     icons = [icon_path(bundle, info) for bundle, info in zip(bundles, infos)]
     if digest(icons[0]) != digest(icons[1]):
         raise ValueError('App and widget contain different icon artwork')

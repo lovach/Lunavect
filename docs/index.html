@@ -61,7 +61,7 @@ sitemap: true
     {"@type": "Question", "name": "Do I need an account or an API key?", "acceptedAnswer": {"@type": "Answer", "text": "No Lunavect account or pasted API key is required. Sign-in stays with the official clients, and the available allowances depend on your plan."}},
     {"@type": "Question", "name": "Why is a usage limit unavailable or a widget behind the app?", "acceptedAnswer": {"@type": "Answer", "text": "Limits need fresh data from the client, and missing or expired values are shown as unavailable. Widgets read saved data and refresh when macOS schedules them."}},
     {"@type": "Question", "name": "Is activity the same as token usage?", "acceptedAnswer": {"@type": "Answer", "text": "No. It measures working intervals. Recovered history is marked as approximate, and overlapping sessions are counted once in the combined total."}},
-    {"@type": "Question", "name": "Does Lunavect send my sessions anywhere?", "acceptedAnswer": {"@type": "Answer", "text": "No. Session titles, project paths and activity history stay on your Mac. There is no account system or analytics backend; update checks go to GitHub without session data."}}
+    {"@type": "Question", "name": "Does Lunavect send my sessions anywhere?", "acceptedAnswer": {"@type": "Answer", "text": "No. Session titles, project paths and activity history stay on your Mac. There is no Lunavect account. Optional technical statistics require your consent and exclude session content and persistent user IDs; update checks go to GitHub without session data."}}
   ]
 }
 </script>
@@ -128,6 +128,8 @@ footer a:hover { color: var(--text); }
   .hero { padding-top: 28px; }
 }
 </style>
+<script defer src="{{ '/assets/analytics/config.js' | relative_url }}"></script>
+<script defer src="{{ '/assets/analytics/analytics.js' | relative_url }}"></script>
 </head>
 <body>
 <header class="top wrap">
@@ -196,7 +198,7 @@ brew install --cask lovach/lunavect/lunavect</pre>
   <details><summary>Do I need an account or an API key?</summary><p>No Lunavect account or pasted API key is required. Sign-in stays with the official clients, and the available allowances depend on your plan.</p></details>
   <details><summary>Why is a limit unavailable or a widget behind the app?</summary><p>Limits need fresh data from the client, and missing or expired values are shown as unavailable. Widgets read saved data and refresh when macOS schedules them.</p></details>
   <details><summary>Is activity the same as token usage?</summary><p>No. It measures working intervals. Recovered history is marked ≈, and overlapping sessions are counted once in the combined total.</p></details>
-  <details><summary>Does Lunavect send my sessions anywhere?</summary><p>No. Session titles, project paths and activity history stay on your Mac. There is no account system or analytics backend; update checks go to GitHub without session data. <a href="privacy.html">Privacy and permissions</a></p></details>
+  <details><summary>Does Lunavect send my sessions anywhere?</summary><p>No. Session titles, project paths and activity history stay on your Mac. There is no Lunavect account. Optional technical statistics require your consent and exclude session content and persistent user IDs; update checks go to GitHub without session data. <a href="privacy.html">Privacy and permissions</a></p></details>
   <p class="also" style="padding-top:32px">Guides: <a href="guides/claude-code-usage-limits-mac.html">Claude Code usage limits</a> · <a href="guides/codex-usage-limits-mac.html">Codex usage limits</a> · <a href="guides/claude-code-codex-notifications-mac.html">notifications when an agent finishes</a> · <a href="guides/monitor-claude-code-codex-sessions-mac.html">monitoring many sessions</a></p>
 </section>
 </main>

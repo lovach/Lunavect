@@ -1,5 +1,6 @@
 // Distribution for the official Lunavect releases; local development uses Signing.xcconfig.
 #include "Updates.xcconfig"
+#include "Analytics.xcconfig"
 DEVELOPMENT_TEAM = 6HB4FY98PU
 CODE_SIGN_STYLE = Automatic
 // macOS-only team-scoped group: no provisioning profile or App ID transfer.

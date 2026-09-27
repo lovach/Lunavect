@@ -95,6 +95,9 @@ enum StatusItemClick {
     private var openedFromURL = false
     private var widgetRegistration: WidgetRegistration?
     func applicationDidFinishLaunching(_ notification: Notification) {
+        sessionPanelState.onNavigationResult = { [weak self] provider, client, succeeded in
+            self?.environment.analytics.record(.sessionNavigation(provider, client, succeeded ? .success : .failed))
+        }
         configureMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let icon = AppArtwork.icon { NSApp.applicationIconImage = icon }
@@ -172,6 +175,7 @@ enum StatusItemClick {
             widgetRegistration = registration
             registration.start()
             environment.updates.start()
+            environment.analytics.launch()
             noticeObserver = sessions.observations.sink { observation in
                 features.observe(observation.rows, at: observation.date)
             }
@@ -343,6 +347,7 @@ enum StatusItemClick {
                              updates: environment.updates, awake: environment.awake, features: environment.features, language: environment.language,
                              onShowSessions: { [weak self] in self?.backToSessionsFromSettings() },
                              onShowWelcome: { [weak self] in self?.showWelcome() })
+                    .environment(\.usageAnalytics, environment.analytics)
                     .disabled(environment.isPreview)
             }.defaultAppStorage(environment.defaults))
             // The window is released on close; reopen it where the user left it.
@@ -384,6 +389,7 @@ enum StatusItemClick {
                     self?.updateActivationPolicy()
                     self?.showSessions()
                 }, widgetSetup: environment.isPreview ? WidgetSetupStatus(fetch: { [] }) : nil)
+                    .environment(\.usageAnalytics, environment.analytics)
                     .disabled(environment.isPreview)
             }.defaultAppStorage(environment.defaults))
             welcome.center(); welcomeWindow = welcome
