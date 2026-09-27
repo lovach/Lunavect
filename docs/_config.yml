@@ -57,7 +57,7 @@ defaults:
   - scope:
       path: "installation.md"
     values:
-      description: "Install Lunavect with Homebrew or the signed DMG, update it, troubleshoot connections and uninstall it completely."
+      description: "Install Lunavect with Homebrew or the DMG, update it, troubleshoot connections and uninstall it completely."
   - scope:
       path: "keep-awake.md"
     values:

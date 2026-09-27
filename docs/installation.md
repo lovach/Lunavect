@@ -18,7 +18,7 @@ brew install --cask lovach/lunavect/lunavect
 open -a Lunavect
 ```
 
-The cask downloads the signed release DMG and checks its SHA-256 checksum.
+The cask downloads the release DMG and checks its SHA-256 checksum. The app inside is Developer ID signed and notarized by Apple; the disk image itself is not separately signed.
 
 ## Direct download
 
