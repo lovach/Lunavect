@@ -756,16 +756,15 @@ enum SessionNavigation {
             catch { throw SessionOpeningError.launchFailed(session.client) }
             return
         }
+        // Editor sessions returned above: every VS Code or JetBrains row uses its companion.
         let url: URL?
         if session.provider == .codex { url = session.codexURL }
-        else if session.client == .vscode { url = session.vscodeURL }
         else {
             let records = await Task.detached { ClaudeSessionMetadata.records(for: [session.sessionID]) }.value
             url = records[session.sessionID].flatMap { session.claudeDesktopURL(desktopID: $0.desktopID) }
         }
-        guard let url else { throw session.provider == .claude && session.client != .vscode ? SessionOpeningError.missingDesktopLink : SessionOpeningError.invalidID }
-        let clientName = session.client == .vscode ? "VS Code" : session.provider.title
-        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { throw SessionOpeningError.missingClient(clientName) }
+        guard let url else { throw session.provider == .claude ? SessionOpeningError.missingDesktopLink : SessionOpeningError.invalidID }
+        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { throw SessionOpeningError.missingClient(session.provider.title) }
         guard NSWorkspace.shared.open(url) else { throw SessionOpeningError.launchFailed(session.client) }
     }
     @MainActor static func focusIDE(_ session: AgentSession) async throws {

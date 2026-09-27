@@ -46,12 +46,6 @@ public extension AgentSession {
         guard !parts.isEmpty else { return "/" }
         return (parts.count > 2 ? "…/" : "/") + parts.suffix(2).joined(separator: "/")
     }
-    var vscodeURL: URL? {
-        guard provider == .claude, UUID(uuidString: sessionID) != nil else { return nil }
-        var url = URLComponents(string: "vscode://anthropic.claude-code/open")!
-        url.queryItems = [URLQueryItem(name: "session", value: sessionID)]
-        return url.url
-    }
     func claudeDesktopURL(desktopID: String) -> URL? {
         guard provider == .claude, desktopID.range(of: "^local_[A-Za-z0-9-]{1,64}$", options: .regularExpression) != nil else { return nil }
         // The installed desktop client accepts its local-session route directly.
@@ -71,9 +65,12 @@ public extension AgentSession {
         !canLaunchTerminalSession && (client == .terminal || terminalTTY.map(TerminalLocation.valid) == true)
     }
     /// Background attach is safe; foreground resume requires recorded exit.
+    /// A session that may still be open is reported as such before the CLI is
+    /// resolved: a missing or moving client (for example during an update) is
+    /// irrelevant when nothing will be launched.
     func terminalScript(resolver: ClientExecutableResolver) throws -> String {
-        let executable = try resolver.resolve(provider)
         guard canLaunchTerminalSession else { throw SessionOpeningError.sessionMayBeOpen }
+        let executable = try resolver.resolve(provider)
         guard let script = terminalScript(executable: executable) else { throw SessionOpeningError.invalidID }
         return script
     }
@@ -132,7 +129,6 @@ public enum SessionOpeningError: LocalizedError, Equatable {
                 "Claude не передал ссылку на эту сессию. Откройте её в Claude и обновите список. Для локальной сессии также можно скопировать команду продолжения через «…»."
             )
         case .missingClient(let name): return L("Приложение {0} не найдено. Установите или откройте его, затем повторите переход.", name)
-        case .launchFailed(.vscode): return L("VS Code не принял переход. Откройте папку проекта в VS Code, проверьте расширение Claude Code и повторите попытку.")
         case .launchFailed(.terminal), .launchFailed(.background): return L("Не удалось запустить Terminal. Откройте терминал вручную и вставьте команду продолжения из меню «…».")
         case .launchFailed: return L("Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…».")
         }
