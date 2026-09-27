@@ -78,8 +78,11 @@ public enum SessionSources {
     }
     static func claude(path: String, isInternal: @escaping @Sendable (String, Int32?) -> Bool) async throws -> [AgentSession] {
         try await SessionProcess.detached {
+            // The listing describes the moment the command started. A hook event
+            // written while it runs (0.1-0.5 s) must remain the newer observation.
+            let observedAt = Date()
             let data = try SessionProcess.run(path: path, arguments: ["agents", "--json", "--all"])
-            return try SessionParser.claude(data, isInternal: isInternal, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
+            return try SessionParser.claude(data, now: observedAt, isInternal: isInternal, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
                 SessionProcess.terminalLocation(parentPID: $0, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
             }, ide: {
                 IDEProcessLocation.locate(parentPID: $0, provider: .claude)
@@ -419,6 +422,7 @@ enum SessionProcess {
     static func readCodexCatalog(prioritySessionIDs: [String] = [], maxPages: Int = 8, maxPriorityReads: Int = 16,
                                  discovery: CodexSessionDiscovery.Result = .empty, maxDiscoveryReads: Int = 32,
                                  deadline: TimeInterval, uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                                 clock: () -> Date = Date.init,
                                  request: (String, [String: Any], TimeInterval) throws -> [String: Any]) throws -> CodexSessionCatalog {
         var sessions: [AgentSession] = [], indices: [String: Int] = [:], pagesRead = 0
         try Task.checkCancellation()
@@ -438,10 +442,12 @@ enum SessionProcess {
                 try Task.checkCancellation()
                 guard index < max(0, maxDiscoveryReads), uptime() < discoveryDeadline else { discoveryLimited = true; break }
                 do {
+                    // Each summary describes the moment its request started (S-07).
+                    let requestedAt = clock()
                     let reply = try request("thread/read", ["threadId": id, "includeTurns": false], min(discoveryDeadline, uptime() + 1))
                     guard let row = reply["thread"] as? [String: Any], row["id"] as? String == id else { discoveryLimited = true; continue }
                     try ClientResponseContract.validateCodexThreadList(["data": [row]])
-                    let parsed = try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]))
+                    let parsed = try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]), now: requestedAt)
                     guard parsed.count == 1, parsed.first?.sessionID == id else { discoveryLimited = true; continue }
                     append(parsed)
                 } catch is CancellationError { throw CancellationError() }
@@ -459,9 +465,10 @@ enum SessionProcess {
             try Task.checkCancellation()
             guard uptime() < priorityDeadline else { break }
             do {
+                let requestedAt = clock()
                 let reply = try request("thread/read", ["threadId": id, "includeTurns": false], min(priorityDeadline, uptime() + 1))
                 guard let row = reply["thread"] as? [String: Any], row["id"] as? String == id else { continue }
-                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]])))
+                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]), now: requestedAt))
             } catch is CancellationError { throw CancellationError() }
             catch { try Task.checkCancellation(); continue }
         }
@@ -477,8 +484,9 @@ enum SessionProcess {
                                          "sourceKinds": ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]]
             if let cursor { params["cursor"] = cursor }
             do {
+                let requestedAt = clock()
                 let reply = try request("thread/list", params, deadline)
-                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: reply)))
+                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: reply), now: requestedAt))
                 try ClientResponseContract.validateCodexThreadList(reply)
                 pagesRead += 1
                 if reply["nextCursor"] is NSNull { return try result() }
