@@ -122,7 +122,7 @@ public struct RecoveredLocalState<Value> {
 }
 
 /// The glass widget background replaces private ChronoServices implementations
-/// (see RELEASE.md). `defaults write` of `disablePrivateWidgetBackground` in the
+/// (see docs/checks-and-release-gates.md). `defaults write` of `disablePrivateWidgetBackground` in the
 /// shared App Group domain turns it off without a rebuild.
 public enum WidgetBackgroundPolicy {
     public static let disableKey = "disablePrivateWidgetBackground"
