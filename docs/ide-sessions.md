@@ -21,6 +21,8 @@ The JetBrains terminal companion supports both providers in the **Terminal tool 
 4. Reload/restart the editor if it asks. Open your local project, return to Lunavect and choose **Refresh connection**. The status should say **Companion connected**.
 5. Restart sessions which were already running before you enabled local events, so their next events carry the editor identity.
 
+Lunavect 0.2.4 bundles companion version **0.1.1** for both editors. If you installed 0.1.0 previously, repeat step 3 with the new installer and reload/restart the editor; replacing the app does not automatically replace editor plugins.
+
 The installers are included in the app. No Marketplace login, provider login, Accessibility permission or terminal input is needed for the companion. Provider sign-in and model usage remain in the provider's own application.
 
 If multiple windows contain the same provider workspace, Lunavect reports the ambiguity rather than choosing an arbitrary window. Keep that project in one window and retry. A closed terminal, exited process or missing companion produces an editor-specific message. The app does not fall back to Apple Terminal or Codex Desktop for an identified IDE session.
