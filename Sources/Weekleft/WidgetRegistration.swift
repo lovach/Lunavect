@@ -33,12 +33,14 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
 /// copy can leave the widget host unable to resolve the extension: it then shows
 /// placeholders although timelines succeed, until the next registration change.
 /// A registration change during that cleanup can itself cause the loss, while
-/// one made in a quiet period has always restored it. The early checks follow
-/// the restart; the checks after 2 and 10 minutes make the last change a quiet one.
+/// one made in a quiet period has always restored it. The first check follows
+/// the restart; the check after 2 minutes makes the last change a quiet one.
+/// With other registered copies of the bundle a reassertion is the trigger of
+/// that loss, so the host then leaves the registration alone and logs why.
 @MainActor final class WidgetRegistration {
     static let stampKey = "widgetRegistrationStamp"
-    /// Waits before each check: at 5 s, 30 s, 2 min and 10 min after start.
-    static let checkDelays: [Duration] = [.seconds(5), .seconds(25), .seconds(90), .seconds(480)]
+    /// Waits before each check: at 5 s and 2 min after start.
+    static let checkDelays: [Duration] = [.seconds(5), .seconds(115)]
     private let defaults: UserDefaults
     private let target: WidgetRegistrationTarget?
     private let repair: @Sendable (WidgetRegistrationTarget) async -> Bool
@@ -46,6 +48,7 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
     private let reload: () -> Void
     private let pause: () async throws -> Void
     private let settle: (Duration) async throws -> Void
+    private let registeredCopies: @Sendable () -> [URL]
     private var task: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.weekleft.app", category: "widget-registration")
 
@@ -57,9 +60,10 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
                  WidgetCenter.shared.reloadTimelines(ofKind: kind)
              }
          }, pause: @escaping () async throws -> Void = { try await Task.sleep(for: .seconds(3)) },
-         settle: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+         settle: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         registeredCopies: @escaping @Sendable () -> [URL] = { WidgetRegistrationSystem.registeredCopies() }) {
         self.defaults = defaults; self.target = target; self.repair = repair; self.reassert = reassert
-        self.reload = reload; self.pause = pause; self.settle = settle
+        self.reload = reload; self.pause = pause; self.settle = settle; self.registeredCopies = registeredCopies
     }
 
     func start() {
@@ -74,6 +78,13 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
             for delay in Self.checkDelays {
                 do { try await self.settle(delay) } catch { return }
                 guard !Task.isCancelled else { return }
+                let lookup = self.registeredCopies
+                let others = await Task.detached(priority: .utility) { WidgetRegistrationSystem.others(lookup(), than: target) }.value
+                guard !Task.isCancelled else { return }
+                guard others == 0 else {
+                    self.logger.warning("Widget registration left unchanged: \(others, privacy: .public) other registered copies of Lunavect")
+                    return
+                }
                 // Registration only; the running extension keeps serving timelines.
                 guard await self.reassert(target), !Task.isCancelled else {
                     if !Task.isCancelled { self.logger.error("Widget registration check failed; will retry on next launch") }
@@ -112,6 +123,15 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
 }
 
 enum WidgetRegistrationSystem {
+    /// Every application LaunchServices knows under the host's bundle identifier.
+    static func registeredCopies() -> [URL] {
+        (LSCopyApplicationURLsForBundleIdentifier("com.weekleft.app" as CFString, nil)?.takeRetainedValue() as? [URL]) ?? []
+    }
+    static func others(_ copies: [URL], than target: WidgetRegistrationTarget) -> Int {
+        let installed = target.app.resolvingSymlinksInPath().standardizedFileURL.path
+        return Set(copies.map { $0.resolvingSymlinksInPath().standardizedFileURL.path }).subtracting([installed]).count
+    }
+
     static func repair(_ target: WidgetRegistrationTarget) async -> Bool {
         let worker = Task.detached(priority: .utility) { !Task.isCancelled && stopExtension(target) && register(target) }
         return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }

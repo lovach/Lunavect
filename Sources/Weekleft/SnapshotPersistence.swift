@@ -33,6 +33,7 @@ final class SnapshotPersistence: @unchecked Sendable {
     private let write: @Sendable (SharedState, URL) throws -> Void
     private let exists: @Sendable (URL) -> Bool
     private let reload: @Sendable () -> Void
+    private let reloadActivity: @Sendable () -> Void
     private let clock: @Sendable () -> Date
     private let completionQueue: DispatchQueue
     private let flushTimeout: TimeInterval
@@ -49,6 +50,7 @@ final class SnapshotPersistence: @unchecked Sendable {
     private var lastReload: WidgetQuotaFingerprint?
     private var lastReloadState: SharedState?
     private var lastReloadAt: Date?
+    private var lastActivityReload: ActivityWidgetInputs?
 
     init(url: URL = SnapshotStore.directory.appendingPathComponent("snapshot.json"),
          read: @escaping @Sendable (URL) -> SharedState = { SnapshotStore.load(from: $0) },
@@ -60,10 +62,11 @@ final class SnapshotPersistence: @unchecked Sendable {
          },
          exists: @escaping @Sendable (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
          reload: @escaping @Sendable () -> Void = {},
+         reloadActivity: @escaping @Sendable () -> Void = {},
          clock: @escaping @Sendable () -> Date = { Date() },
          completionQueue: DispatchQueue = .main, flushTimeout: TimeInterval = 3) {
         self.url = url; self.read = read; self.recover = recover; self.write = write
-        self.exists = exists; self.reload = reload; self.clock = clock; self.completionQueue = completionQueue
+        self.exists = exists; self.reload = reload; self.reloadActivity = reloadActivity; self.clock = clock; self.completionQueue = completionQueue
         self.flushTimeout = flushTimeout
     }
 
@@ -184,6 +187,9 @@ final class SnapshotPersistence: @unchecked Sendable {
         lastReloadState = state
         lastReloadAt = now
         reload()
+        // The activity widget shows no quota; only shared preferences change it (C-01).
+        let activity = ActivityWidgetInputs(state.preferences)
+        if activity != lastActivityReload { lastActivityReload = activity; reloadActivity() }
     }
 
     private func waitForOperation<Value: Sendable>(_ operation: @escaping @Sendable () -> Value) -> Value {
@@ -195,6 +201,18 @@ final class SnapshotPersistence: @unchecked Sendable {
         }
         finished.wait()
         return result.value!
+    }
+}
+
+/// Snapshot values the activity widget renders: its sources and appearance.
+private struct ActivityWidgetInputs: Equatable {
+    let providers: [ProviderID]
+    let showFiveHour: Bool
+    let transparency: Double
+    let transparentBackground: Bool
+    init(_ preferences: WidgetPreferences) {
+        providers = preferences.providers; showFiveHour = preferences.showFiveHour
+        transparency = preferences.transparency; transparentBackground = preferences.transparentBackground
     }
 }
 

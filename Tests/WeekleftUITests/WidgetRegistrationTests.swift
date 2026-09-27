@@ -18,19 +18,19 @@ import Darwin
         var reloads = 0
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in await calls.record(); return true }, reassert: { _ in await checks.record(); return true },
-            reload: { reloads += 1 }, pause: {}, settle: { _ in })
+            reload: { reloads += 1 }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         service.start(); service.start()
         await service.waitUntilFinished()
         service.start(); await service.waitUntilFinished()
         let firstCalls = await calls.count, firstChecks = await checks.count
         XCTAssertEqual(firstCalls, 1, "A known build is repaired once")
-        XCTAssertEqual(firstChecks, 8, "Every launch reasserts registration on the full schedule")
-        XCTAssertEqual(reloads, 10)
+        XCTAssertEqual(firstChecks, 4, "Every launch reasserts registration on the full schedule")
+        XCTAssertEqual(reloads, 6)
         XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
         XCTAssertFalse(defaults.bool(forKey: "SUEnableAutomaticChecks"))
         let relocated = WidgetRegistrationTarget(app: URL(fileURLWithPath: "/Users/fixture/Applications/Lunavect.app"), version: "158")
         let moved = WidgetRegistration(defaults: defaults, target: relocated,
-            repair: { _ in await calls.record(); return true }, reassert: { _ in true }, reload: {}, pause: {}, settle: { _ in })
+            repair: { _ in await calls.record(); return true }, reassert: { _ in true }, reload: {}, pause: {}, settle: { _ in }, registeredCopies: { [] })
         moved.start(); await moved.waitUntilFinished()
         let totalCalls = await calls.count
         XCTAssertEqual(totalCalls, 2)
@@ -41,11 +41,11 @@ import Darwin
         let defaults = defaults(), calls = Attempts()
         var reloads = 0
         let service = WidgetRegistration(defaults: defaults, target: target,
-            repair: { _ in await calls.record() > 1 }, reassert: { _ in true }, reload: { reloads += 1 }, pause: {}, settle: { _ in })
+            repair: { _ in await calls.record() > 1 }, reassert: { _ in true }, reload: { reloads += 1 }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         service.start(); await service.waitUntilFinished()
         let count = await calls.count
         XCTAssertEqual(count, 2)
-        XCTAssertEqual(reloads, 6)
+        XCTAssertEqual(reloads, 4)
         XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
     }
 
@@ -54,7 +54,7 @@ import Darwin
         for _ in 0..<2 {
             let service = WidgetRegistration(defaults: defaults, target: target,
                 repair: { _ in await calls.record(); return false }, reassert: { _ in XCTFail("Unrepaired build"); return false },
-                reload: { XCTFail("Failed registration") }, pause: {}, settle: { _ in })
+                reload: { XCTFail("Failed registration") }, pause: {}, settle: { _ in }, registeredCopies: { [] })
             service.start(); await service.waitUntilFinished()
             XCTAssertNil(defaults.string(forKey: WidgetRegistration.stampKey))
         }
@@ -69,7 +69,7 @@ import Darwin
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in started.fulfill(); try? await Task.sleep(for: .seconds(60)); return true },
             reassert: { _ in XCTFail("Cancelled registration"); return false },
-            reload: { XCTFail("Cancelled registration") }, pause: {}, settle: { _ in })
+            reload: { XCTFail("Cancelled registration") }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         service.start()
         await fulfillment(of: [started], timeout: 3)
         service.stop()
@@ -84,17 +84,17 @@ import Darwin
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build restarts no extension"); return false },
             reassert: { _ in await checks.record(); return true }, reload: { reloads += 1 }, pause: {},
-            settle: { delays.append($0) })
+            settle: { delays.append($0) }, registeredCopies: { [] })
         service.start(); await service.waitUntilFinished()
         let count = await checks.count
-        XCTAssertEqual(delays, [.seconds(5), .seconds(25), .seconds(90), .seconds(480)],
-                       "Early checks follow the restart; the last ones fall in a quiet period")
-        XCTAssertEqual(count, 4)
-        XCTAssertEqual(reloads, 4)
+        XCTAssertEqual(delays, [.seconds(5), .seconds(115)],
+                       "The first check follows the restart; the last one falls in a quiet period")
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(reloads, 2)
         let failures = Attempts()
         let failing = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build restarts no extension"); return false },
-            reassert: { _ in await failures.record(); return false }, reload: { XCTFail("Failed check") }, pause: {}, settle: { _ in })
+            reassert: { _ in await failures.record(); return false }, reload: { XCTFail("Failed check") }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         failing.start(); await failing.waitUntilFinished()
         let failed = await failures.count
         XCTAssertEqual(failed, 1, "A failed check is retried on the next launch, not in a loop")
@@ -109,7 +109,7 @@ import Darwin
             repair: { _ in XCTFail("Current build"); return false },
             reassert: { _ in XCTFail("Stopped before the check"); return false },
             reload: { XCTFail("Stopped before the check") }, pause: {},
-            settle: { _ in settling.fulfill(); try await Task.sleep(for: .seconds(60)) })
+            settle: { _ in settling.fulfill(); try await Task.sleep(for: .seconds(60)) }, registeredCopies: { [] })
         service.start()
         await fulfillment(of: [settling], timeout: 3)
         service.stop()
@@ -119,7 +119,7 @@ import Darwin
     func testUninstalledBundleCannotStartRepair() async {
         let service = WidgetRegistration(defaults: defaults(), target: nil,
             repair: { _ in XCTFail("Not installed"); return false }, reassert: { _ in XCTFail("Not installed"); return false },
-            reload: { XCTFail("Not installed") }, settle: { _ in })
+            reload: { XCTFail("Not installed") }, settle: { _ in }, registeredCopies: { [] })
         service.start(); await service.waitUntilFinished()
         XCTAssertNil(WidgetRegistrationTarget.installed(bundle: Bundle(for: Self.self)))
     }
