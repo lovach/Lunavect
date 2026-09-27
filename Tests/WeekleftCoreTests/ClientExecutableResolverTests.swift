@@ -39,13 +39,23 @@ final class ClientExecutableResolverTests: XCTestCase {
                                    client: .terminal, phase: .finished, updatedAt: .distantPast, observedAt: .distantPast, evidence: .hook)
         let launcher = directory.appendingPathComponent("resume.command")
         try session.terminalScript(resolver: resolver).write(to: launcher, atomically: true, encoding: .utf8)
+        // The launcher runs with -f and a system-only PATH, so the host's zsh
+        // startup files cannot change the result. The probe below stands in for
+        // such dotfiles: a .zshenv that changes directory and aborts.
+        let dotfiles = directory.appendingPathComponent("dotfiles")
+        let dotfilesRead = directory.appendingPathComponent("dotfiles-read")
+        try FileManager.default.createDirectory(at: dotfiles, withIntermediateDirectories: true)
+        try ("touch " + SessionHooks.quote(dotfilesRead.path) + "\ncd /\nexit 7\n")
+            .write(to: dotfiles.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [launcher.path]
+        process.arguments = ["-f", launcher.path]
+        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "ZDOTDIR": dotfiles.path]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run(); process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dotfilesRead.path), "The launcher read startup files")
         XCTAssertEqual(try String(contentsOf: arguments), directory.resolvingSymlinksInPath().path + "\nresume\n" + id + "\n")
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("unexpected").path))
     }
