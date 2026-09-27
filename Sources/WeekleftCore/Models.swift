@@ -91,10 +91,14 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     public var issue: String?
     /// Optional for compatibility with snapshots written before model quotas were supported.
     public var modelQuotas: [ModelQuota]?
-    public init(provider: ProviderID, weekly: QuotaWindow? = nil, fiveHour: QuotaWindow? = nil, fetchedAt: Date? = nil, source: String = "", issue: String? = nil, modelQuotas: [ModelQuota]? = nil) {
+    /// The provider confirmed that no rate-limit window applies (a Codex plan with
+    /// unlimited credits or without windows). Absent in older snapshots.
+    public var unlimited: Bool?
+    public init(provider: ProviderID, weekly: QuotaWindow? = nil, fiveHour: QuotaWindow? = nil, fetchedAt: Date? = nil, source: String = "", issue: String? = nil, modelQuotas: [ModelQuota]? = nil, unlimited: Bool? = nil) {
         self.provider = provider; self.weekly = weekly; self.fiveHour = fiveHour; self.fetchedAt = fetchedAt; self.source = source; self.issue = issue; self.modelQuotas = modelQuotas
+        self.unlimited = unlimited
     }
-    private enum CodingKeys: String, CodingKey { case provider, weekly, fiveHour, fetchedAt, source, issue, modelQuotas }
+    private enum CodingKeys: String, CodingKey { case provider, weekly, fiveHour, fetchedAt, source, issue, modelQuotas, unlimited }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         provider = try values.decode(ProviderID.self, forKey: .provider)
@@ -104,6 +108,7 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         source = try values.decode(String.self, forKey: .source)
         issue = try values.decodeIfPresent(String.self, forKey: .issue)
         modelQuotas = try values.decodeIfPresent([ModelQuota].self, forKey: .modelQuotas)
+        unlimited = try values.decodeIfPresent(Bool.self, forKey: .unlimited)
         guard weekly.map({ $0.durationMinutes == 10080 }) ?? true else {
             throw DecodingError.dataCorruptedError(forKey: .weekly, in: values, debugDescription: "Invalid weekly duration")
         }
@@ -136,6 +141,9 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     /// statusLine supplies cached session quotas, without their server observation
     /// time. Receipt (even after an API response) cannot certify quota freshness.
     public var freshnessVerified: Bool { source != "Claude Code statusLine" }
+    /// The CLI's /usage screen rounds resets to the minute; statusLine and Codex
+    /// report exact epochs. New data is expected only after this grace.
+    public var resetGrace: TimeInterval { source == "Claude Code /usage" ? 90 : 5 }
     public var hasQuota: Bool { weekly != nil || fiveHour != nil }
     public func connectionQuotaTitle(now: Date = Date()) -> String {
         guard hasQuota else { return "Ждём лимиты" }

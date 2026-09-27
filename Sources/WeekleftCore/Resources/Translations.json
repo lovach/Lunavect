@@ -27,6 +27,13 @@
     "fr": "La limite est épuisée. Les données enregistrées sont conservées ; Lunavect les mettra à jour après la réinitialisation.",
     "zh-Hans": "额度已用完。已保存的数据保持不变；Lunavect 会在重置后更新。"
   },
+  "Лимиты обновляются автоматически: после ответов Claude, каждые 15 минут во время работы, раз в час в простое и после сброса. Исчерпанный лимит до сброса не запрашивается. Запускать задачу в терминале не нужно.": {
+    "de": "Limits werden automatisch aktualisiert: nach Antworten von Claude, alle 15 Minuten während der Arbeit, stündlich im Leerlauf und nach dem Zurücksetzen. Ein ausgeschöpftes Limit wird vor dem Zurücksetzen nicht abgefragt. Sie müssen keine Aufgabe im Terminal starten.",
+    "en": "Limits refresh automatically: after Claude's replies, every 15 minutes while you work, hourly when idle and after a reset. A used-up limit is not requested before its reset. You don't need to run a task in Terminal.",
+    "es": "Los límites se actualizan automáticamente: tras las respuestas de Claude, cada 15 minutos mientras trabaja, cada hora en reposo y después de un reinicio. Un límite agotado no se consulta antes de su reinicio. No hace falta ejecutar ninguna tarea en Terminal.",
+    "fr": "Les limites se mettent à jour automatiquement : après les réponses de Claude, toutes les 15 minutes pendant le travail, toutes les heures au repos et après une réinitialisation. Une limite épuisée n’est pas interrogée avant sa réinitialisation. Inutile de lancer une tâche dans Terminal.",
+    "zh-Hans": "额度会自动更新：在 Claude 回复后、工作期间每 15 分钟、空闲时每小时以及重置之后。已用完的额度在重置前不会查询。无需在终端中运行任务。"
+  },
   "Лимиты подписки недоступны": {
     "de": "Abo-Limits nicht verfügbar",
     "en": "Subscription limits unavailable",
@@ -1524,13 +1531,6 @@
     "es": "Límites y ajustes — Lunavect",
     "fr": "Quotas et réglages — Lunavect",
     "zh-Hans": "额度与设置 — Lunavect"
-  },
-  "Лимиты обновляются автоматически каждые 5 минут и после пробуждения Mac. Claude Code запрашивает квоты аккаунта, включая работу в Desktop. Запускать задачу в терминале не нужно.": {
-    "de": "Die Limits werden alle 5 Minuten und nach dem Aufwachen des Mac automatisch aktualisiert. Claude Code fragt die Kontonutzung einschließlich Desktop ab. Dafür ist keine Aufgabe im Terminal nötig.",
-    "en": "Limits update automatically every 5 minutes and when your Mac wakes. Claude Code reads account usage, including Desktop activity. No terminal task is needed.",
-    "es": "Los límites se actualizan automáticamente cada 5 minutos y al activar el Mac. Claude Code consulta el uso de la cuenta, incluido Desktop. No hace falta iniciar una tarea en Terminal.",
-    "fr": "Les limites sont actualisées automatiquement toutes les 5 minutes et au réveil du Mac. Claude Code consulte l’utilisation du compte, y compris dans Desktop. Aucune tâche dans Terminal n’est nécessaire.",
-    "zh-Hans": "用量限制每 5 分钟自动更新一次，Mac 唤醒后也会更新。Claude Code 会查询整个账户的用量，包括 Desktop。无需在终端中启动任务。"
   },
   "Лимиты получены": {
     "de": "Limits empfangen",

@@ -82,16 +82,31 @@ final class DataFreshnessTests: XCTestCase {
         XCTAssertEqual(fallback.fetchedAt, now.addingTimeInterval(20))
         XCTAssertTrue(fallback.isStale(now: now.addingTimeInterval(1000)))
     }
+    /// Rewritten for the refresh policy (01-quota.md §3): the five-minute timer is an
+    /// evaluation tick, not the probe period. A verified observation is reused for
+    /// the idle interval; an explicit refresh always asks the client.
     func testAutomaticRefreshUsesCurrentCacheAndManualRefreshInvokesProbe() async throws {
         let cached = try UsageSnapshot(
             provider: .claude,
             weekly: QuotaWindow(usedPercent: 55, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
             fetchedAt: now, source: ClaudeUsageProbe.source)
-        var probes = 0
-        for force in [false, false, true, false] {
-            _ = try await ClaudeProvider.refresh(force: force, now: now.addingTimeInterval(20), cached: { cached }, probe: { probes += 1; return cached }, save: { _ in })
+        func probes(force: Bool, after age: TimeInterval) async throws -> Int {
+            var count = 0
+            _ = try await ClaudeProvider.refresh(force: force, now: now.addingTimeInterval(age), cached: { cached },
+                                                 probe: { count += 1; return cached }, save: { _ in })
+            return count
         }
-        XCTAssertEqual(probes, 1)
+        var total = 0
+        for force in [false, false, true, false] { total += try await probes(force: force, after: 20) }
+        XCTAssertEqual(total, 1)
+        let tick = try await probes(force: false, after: 600)
+        XCTAssertEqual(tick, 0, "The timer period is not the probe period")
+        let idle = try await probes(force: false, after: 20 * 60)
+        XCTAssertEqual(idle, 0, "Without session activity the idle interval applies")
+        let due = try await probes(force: false, after: 61 * 60)
+        XCTAssertEqual(due, 1)
+        let future = try await probes(force: false, after: -60)
+        XCTAssertEqual(future, 1, "An observation from the future (clock moved back) is re-observed")
     }
     func testFreshnessOfOneWindowDoesNotDependOnOtherWindowsReset() throws {
         let weekly = try QuotaWindow(usedPercent: 28, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400))

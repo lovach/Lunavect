@@ -184,6 +184,7 @@ enum StatusItemClick {
         if !environment.isPreview {
             sessions.onObservation = { [weak self] rows, now in
                 self?.store.observeActivity(rows, now: now)
+                self?.store.observeSessionEvents(rows, now: now)
                 self?.environment.awake.observe(rows)
                 self?.environment.observeActivityContinuity(rows, now: now)
             }

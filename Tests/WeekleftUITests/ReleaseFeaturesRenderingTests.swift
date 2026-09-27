@@ -63,7 +63,8 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("/fixture/codex", forKey: "codexPath")
         var preferences = WidgetPreferences(); preferences.enabledProviders = [.codex]
-        let old = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: nil), fetchedAt: Date())
+        // Older than the refresh interval, so the restored connection is due to ask (QuotaRefreshPolicy).
+        let old = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: nil), fetchedAt: Date().addingTimeInterval(-7200))
         let finished = expectation(description: "Network restored")
         var calls = 0, restored = 0
         let store = AppStore(state: SharedState(snapshots: [old], preferences: preferences), savesChanges: false, quotaFetcher: { id, _ in

@@ -63,6 +63,107 @@ public enum CodexProvider {
     }
 }
 
+/// When Lunavect asks a client for new quota data. A Claude probe starts the
+/// interactive CLI (visible to the user as a short session) and Codex starts its
+/// app-server, so both run when the window state calls for it, never on a fixed
+/// cadence (docs/connections.md, "When limits are refreshed").
+///
+/// - An exhausted window with a future reset is not asked about before the reset.
+/// - After a reset one confirming request runs once the grace has passed.
+/// - A verified observation is reused for 15 minutes while sessions are active
+///   (an event in the last hour) and for an hour otherwise.
+/// - A finished response (session event) asks after a quiet debounce when the
+///   observation is older than two minutes.
+/// - Failures back off 5, 10, 20, 40, then 60 minutes; wake and a restored
+///   network start over. An explicit refresh asks at most once per 30 seconds.
+public struct QuotaRefreshPolicy: Sendable {
+    public enum Trigger: String, Sendable { case launch, timer, sessionEvent, wake, networkRestored, resetDue, manual }
+    public struct Timing: Sendable, Equatable {
+        public var activeInterval: TimeInterval = 900
+        public var idleInterval: TimeInterval = 3600
+        public var activityWindow: TimeInterval = 3600
+        public var eventMinimumAge: TimeInterval = 120
+        public var eventDebounce: TimeInterval = 90
+        public var wakeSettle: TimeInterval = 4
+        public var manualMinimumInterval: TimeInterval = 30
+        public var backoff: [TimeInterval] = [300, 600, 1200, 2400, 3600]
+        public init() {}
+    }
+    struct ProviderState: Sendable {
+        var lastCompleted: Date?
+        var lastVerified: Date?
+        var lastEvent: Date?
+        var failures = 0
+        var lastFailure: Date?
+    }
+    public let timing: Timing
+    private var states: [ProviderID: ProviderState] = [:]
+    public init(timing: Timing = Timing()) { self.timing = timing }
+
+    public func shouldFetch(_ provider: ProviderID, snapshot: UsageSnapshot?, trigger: Trigger, now: Date) -> Bool {
+        let state = states[provider] ?? ProviderState()
+        if trigger == .manual {
+            guard let last = state.lastCompleted else { return true }
+            let since = now.timeIntervalSince(last)
+            return since < 0 || since >= timing.manualMinimumInterval
+        }
+        if state.failures > 0, let failed = state.lastFailure, !timing.backoff.isEmpty {
+            let since = now.timeIntervalSince(failed)
+            if since >= 0 && since < timing.backoff[min(state.failures, timing.backoff.count) - 1] { return false }
+        }
+        guard let snapshot, let fetchedAt = snapshot.fetchedAt, snapshot.hasQuota || snapshot.unlimited == true else { return true }
+        let windows = [snapshot.weekly, snapshot.fiveHour].compactMap { $0 }
+        let grace = snapshot.resetGrace
+        // A reset passed after the observation: confirm the new window once the
+        // grace (minute rounding of the CLI) has passed; failures then back off.
+        if let reset = windows.compactMap(\.resetsAt).filter({ $0 <= now && fetchedAt < $0.addingTimeInterval(grace) }).min() {
+            return now.timeIntervalSince(reset) >= grace
+        }
+        // Usage within a window never decreases: 0 % remains until the reset.
+        if windows.contains(where: { $0.remaining < 1 && ($0.resetsAt.map { $0 > now } ?? false) }) { return false }
+        // statusLine has no server observation time; only a probe verifies the value.
+        guard let verified = snapshot.freshnessVerified ? fetchedAt : state.lastVerified else { return true }
+        let age = now.timeIntervalSince(verified)
+        if age < 0 { return true }
+        if trigger == .sessionEvent { return age > timing.eventMinimumAge }
+        return age >= interval(state, snapshot: snapshot, now: now)
+    }
+    private func interval(_ state: ProviderState, snapshot: UsageSnapshot, now: Date) -> TimeInterval {
+        // An unstarted window changes only with a request, reported by a session event.
+        let unstarted = snapshot.weekly.map { $0.resetsAt == nil && $0.usedPercent == 0 } ?? false
+        let active = state.lastEvent.map { let since = now.timeIntervalSince($0); return since >= 0 && since <= timing.activityWindow } ?? false
+        return active && !unstarted && snapshot.unlimited != true ? timing.activeInterval : timing.idleInterval
+    }
+    public mutating func noteEvent(_ provider: ProviderID, at date: Date) {
+        let previous = states[provider]?.lastEvent ?? .distantPast
+        states[provider, default: ProviderState()].lastEvent = max(previous, date)
+    }
+    /// A request finished. A snapshot carrying an issue is a failure that keeps the old values.
+    public mutating func record(_ provider: ProviderID, snapshot: UsageSnapshot?, succeeded: Bool, at now: Date) {
+        var state = states[provider] ?? ProviderState()
+        state.lastCompleted = now
+        if succeeded {
+            state.failures = 0; state.lastFailure = nil
+            if let snapshot, snapshot.freshnessVerified, let fetchedAt = snapshot.fetchedAt { state.lastVerified = fetchedAt }
+        } else {
+            state.failures += 1; state.lastFailure = now
+        }
+        states[provider] = state
+    }
+    /// Wake or a restored network may have removed the cause of earlier failures.
+    public mutating func resetBackoff() {
+        for provider in states.keys { states[provider]?.failures = 0; states[provider]?.lastFailure = nil }
+    }
+    /// A changed client path or connection: earlier results are not about it.
+    public mutating func forget(_ provider: ProviderID) { states[provider] = nil }
+    /// The earliest future reset plus its grace, for a one-shot confirming request.
+    public static func nextResetCheck(_ snapshots: [UsageSnapshot], now: Date) -> Date? {
+        snapshots.flatMap { snapshot in
+            [snapshot.weekly, snapshot.fiveHour].compactMap { $0?.resetsAt }.map { $0.addingTimeInterval(snapshot.resetGrace) }
+        }.filter { $0 > now }.min()
+    }
+}
+
 public enum ClaudeProvider {
     public static let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Weekleft/ClaudeStatusLine")
     public static var cacheURL: URL { directory.appendingPathComponent("quota.json") }
@@ -120,13 +221,6 @@ public enum ClaudeProvider {
             ($0.fetchedAt ?? .distantPast) < ($1.fetchedAt ?? .distantPast)
         }
     }
-    static func cacheIsCurrent(_ snapshot: UsageSnapshot, now: Date = Date()) -> Bool {
-        guard !snapshot.isStale(now: now), let fetchedAt = snapshot.fetchedAt,
-              now.timeIntervalSince(fetchedAt) >= 0, now.timeIntervalSince(fetchedAt) < 300,
-              let weekly = snapshot.weekly, weekly.resetsAt.map({ $0 > now }) ?? false else { return false }
-        if let fiveHour = snapshot.fiveHour, fiveHour.resetsAt.map({ $0 <= now }) ?? true { return false }
-        return (snapshot.modelQuotas ?? []).allSatisfy { !$0.isStale(now: now) }
-    }
     public static func refresh(force: Bool = true) async throws -> UsageSnapshot {
         try await refresh(force: force, cached: { try latest() }, probe: {
             try Task.checkCancellation()
@@ -137,7 +231,9 @@ public enum ClaudeProvider {
     static func refresh(force: Bool, now: Date = Date(), cached: () throws -> UsageSnapshot,
                         probe: () async throws -> UsageSnapshot, save: (UsageSnapshot) throws -> Void) async throws -> UsageSnapshot {
         try Task.checkCancellation()
-        if !force, let snapshot = try? cached(), cacheIsCurrent(snapshot, now: now) {
+        // Without the app's trigger history this is the timer rule: no session
+        // activity, no failures yet (QuotaRefreshPolicy).
+        if !force, let snapshot = try? cached(), !QuotaRefreshPolicy().shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now) {
             try Task.checkCancellation()
             return snapshot
         }
