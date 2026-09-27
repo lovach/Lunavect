@@ -2,11 +2,11 @@
 """Prepare a signed GitHub Release update locally; never upload or publish."""
 import argparse
 import base64
-import os
 from pathlib import Path
 import plistlib
 import re
 import subprocess
+import sys
 import tempfile
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
@@ -38,6 +38,18 @@ def inspect_app(app):
     return info, repo, version, build
 
 
+class CleanupFailed(Exception):
+    """Preparing the update failed and retiring its source app failed as well."""
+
+    def __init__(self, original, cleanup):
+        super().__init__(f'{original}\nRegistration cleanup also failed: {cleanup}')
+
+
+def retire_exported(app):
+    subprocess.run([sys.executable, str(Path(__file__).with_name('reassert-installed-widget.py')),
+                    '--retire-app', str(app)], check=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app', type=Path, required=True)
@@ -46,11 +58,17 @@ def main():
     parser.add_argument('--tools', type=Path, default=Path('.build/artifacts/sparkle/Sparkle/bin'))
     parser.add_argument('--previous-appcast', type=Path, required=True, help='Fresh published appcast used for the archive preflight')
     args = parser.parse_args()
+    # Retire the source app after success and failure alike; a cleanup failure
+    # must not replace the reason preparation stopped.
     try:
         prepare(args)
-    finally:
-        subprocess.run([os.sys.executable, str(Path(__file__).with_name('reassert-installed-widget.py')),
-                        '--retire-app', str(args.app)], check=True)
+    except BaseException as original:
+        try:
+            retire_exported(args.app)
+        except Exception as cleanup:
+            raise CleanupFailed(original, cleanup) from original
+        raise
+    retire_exported(args.app)
 
 
 def prepare(args):
@@ -69,7 +87,7 @@ def prepare(args):
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
     subprocess.run(['/usr/sbin/spctl', '--assess', '--type', 'execute', str(app)], check=True)
     subprocess.run(['/usr/bin/xcrun', 'stapler', 'validate', str(app)], check=True)
-    subprocess.run([os.sys.executable, str(project / 'scripts/verify-awake-policy.py'), str(app), '--policy', 'developer-id'], check=True)
+    subprocess.run([sys.executable, str(project / 'scripts/verify-awake-policy.py'), str(app), '--policy', 'developer-id'], check=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.lunavect-update-', dir=output.parent) as staging:
         staging = Path(staging)
@@ -95,8 +113,12 @@ def prepare(args):
     print(f'Prepared {archive.name} and appcast.xml for GitHub tag v{version}. Nothing uploaded.')
 
 
-if __name__ == '__main__':
+def entry():
     try:
         main()
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (CleanupFailed, ValueError, OSError, subprocess.CalledProcessError) as error:
         raise SystemExit(str(error))
+
+
+if __name__ == '__main__':
+    entry()

@@ -1,7 +1,11 @@
 """The installed widget is reasserted only for a matching Lunavect copy."""
+import contextlib
 import importlib.util
+import io
+import os
 import plistlib
 import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -79,6 +83,112 @@ class ReassertInstalledWidgetTests(unittest.TestCase):
             retired = reassert.retire_temporary([installed, alias, foreign, missing], [installed],
                                                 run=lambda argv, check: calls.append(argv))
             self.assertEqual(retired, []); self.assertEqual(calls, [])
+
+    def two_copies(self, root, global_build='182'):
+        home, system = root / 'home/Applications/Lunavect.app', root / 'global/Lunavect.app'
+        self.bundle(home); self.bundle(system, build=global_build, widget_build=global_build)
+        return home, system
+
+    def reassert_quietly(self, copies, running):
+        calls, warnings = [], io.StringIO()
+        with contextlib.redirect_stderr(warnings):
+            restored = reassert.reassert(copies, run=lambda argv, check: calls.append(argv),
+                                         list_processes=lambda: running)
+        return restored, calls, warnings.getvalue()
+
+    def test_running_copy_is_reasserted_and_the_other_never_registered(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home, system = self.two_copies(Path(temporary))
+            for running, other in ((system, home), (home, system)):
+                with self.subTest(running=running.parent.name):
+                    # ps reports the executable path the app was launched from.
+                    processes = [(4242, str(running / 'Contents/MacOS/Lunavect')), (7, '/usr/libexec/other')]
+                    restored, calls, warning = self.reassert_quietly([home, system], processes)
+                    self.assertEqual(restored, running)
+                    self.assertEqual(calls, [[reassert.LSREGISTER, '-f', str(running)],
+                                             [reassert.PLUGINKIT, '-a', str(running / 'Contents/PlugIns/LunavectWidget.appex')]])
+                    self.assertFalse(any(str(other) in arg for argv in calls for arg in argv), calls)
+                    self.assertIn(str(home), warning); self.assertIn(str(system), warning)
+                    self.assertIn('running copy ' + str(running), warning)
+
+    def test_no_running_copy_falls_back_to_documented_order_with_warning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home, system = self.two_copies(Path(temporary))
+            restored, calls, warning = self.reassert_quietly([home, system], [])
+            self.assertEqual(restored, home)
+            self.assertEqual([argv[-1] for argv in calls], [str(home), str(home / 'Contents/PlugIns/LunavectWidget.appex')])
+            self.assertIn('Two Lunavect copies', warning)
+            self.assertIn('neither is running', warning)
+
+    def test_running_copy_that_fails_validation_blocks_the_other_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, system = root / 'home/Applications/Lunavect.app', root / 'global/Lunavect.app'
+            self.bundle(home); self.bundle(system, widget_build='181')
+            restored, calls, warning = self.reassert_quietly([home, system], [(9, str(system / 'Contents/MacOS/Lunavect'))])
+            self.assertIsNone(restored)
+            self.assertEqual(calls, [])
+            self.assertIn('not reasserting ' + str(home), warning)
+
+    def test_single_copy_is_reasserted_without_warning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / 'Applications/Lunavect.app'; self.bundle(home)
+            restored, calls, warning = self.reassert_quietly([home, Path(temporary) / 'missing/Lunavect.app'], [])
+            self.assertEqual(restored, home)
+            self.assertEqual(warning, '')
+
+    def test_running_copy_is_matched_through_the_legacy_link_and_exact_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home, system = self.two_copies(Path(temporary))
+            legacy = home.with_name('Weekleft.app'); legacy.symlink_to('Lunavect.app')
+            near_misses = [(1, str(system) + '-old/Contents/MacOS/Lunavect'),
+                           (2, str(system / 'Contents/PlugIns/LunavectWidget.appex/Contents/MacOS/LunavectWidget')),
+                           (3, str(legacy / 'Contents/MacOS/Lunavect'))]
+            restored, calls, warning = self.reassert_quietly([home, system], near_misses)
+            self.assertEqual(restored, home)
+            self.assertIn('running copy ' + str(home), warning)
+
+    def test_process_listing_parses_paths_with_spaces_and_tolerates_ps_failure(self):
+        listing = ' 123 /Users/a b/Applications/Lunavect.app/Contents/MacOS/Lunavect\n  9 launchd\n\n'
+        run = lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, stdout=listing)
+        self.assertEqual(reassert.list_processes(run=run),
+                         [(123, '/Users/a b/Applications/Lunavect.app/Contents/MacOS/Lunavect'), (9, 'launchd')])
+        def failing(argv, **kwargs):
+            raise OSError('ps unavailable')
+        self.assertEqual(reassert.list_processes(run=failing), [])
+
+    def test_tools_and_installed_copies_follow_environment_overrides(self):
+        environment = {'LUNAVECT_LSREGISTER': '/fixture/lsregister', 'LUNAVECT_PLUGINKIT': '/fixture/pluginkit'}
+        self.assertEqual(reassert.tool_paths(environment), ('/fixture/lsregister', '/fixture/pluginkit'))
+        self.assertEqual(reassert.tool_paths({}), (reassert.DEFAULT_LSREGISTER, 'pluginkit'))
+        self.assertEqual(reassert.default_installed_copies({}), reassert.installed_copies())
+        self.assertEqual(reassert.default_installed_copies({'LUNAVECT_INSTALLED_APPS': ''}), [])
+        joined = os.pathsep.join(['/tmp/a b/Lunavect.app', '', '/tmp/c/Lunavect.app'])
+        self.assertEqual(reassert.default_installed_copies({'LUNAVECT_INSTALLED_APPS': joined}),
+                         [Path('/tmp/a b/Lunavect.app'), Path('/tmp/c/Lunavect.app')])
+
+    def test_command_line_uses_only_injected_tools_and_prefers_running_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home, system = self.two_copies(root)
+            bin_dir, trace = root / 'bin', root / 'trace'
+            bin_dir.mkdir()
+            for name in ('lsregister', 'pluginkit', 'ps'):
+                tool = bin_dir / name
+                tool.write_text('#!/bin/sh\nprintf "%s %s\\n" "$(basename "$0")" "$*" >> "$FIXTURE_TRACE"\n'
+                                'if [ "$(basename "$0")" = ps ]; then printf "  77 %s\\n" "$FIXTURE_RUNNING"; fi\n')
+                tool.chmod(0o755)
+            environment = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ['PATH'], FIXTURE_TRACE=str(trace),
+                               FIXTURE_RUNNING=str(system / 'Contents/MacOS/Lunavect'),
+                               LUNAVECT_LSREGISTER=str(bin_dir / 'lsregister'), LUNAVECT_PLUGINKIT=str(bin_dir / 'pluginkit'),
+                               LUNAVECT_INSTALLED_APPS=os.pathsep.join([str(home), str(system)]))
+            result = subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/reassert-installed-widget.py')],
+                                    env=environment, capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(trace.read_text().splitlines(), [
+                'ps -axo pid=,comm=', 'lsregister -f ' + str(system),
+                'pluginkit -a ' + str(system / 'Contents/PlugIns/LunavectWidget.appex')])
+            self.assertIn('Two Lunavect copies', result.stderr)
 
     def test_failed_retirement_still_reasserts_installed_host(self):
         with tempfile.TemporaryDirectory() as temporary:

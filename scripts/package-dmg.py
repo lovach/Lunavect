@@ -54,16 +54,34 @@ def verify_layout(mount, layout):
         raise ValueError(f'Unexpected visible installer files: {visible}')
 
 
+class CleanupFailed(Exception):
+    """Packaging failed and retiring its exported source failed as well."""
+
+    def __init__(self, original, cleanup):
+        super().__init__(f'{original}\nRegistration cleanup also failed: {cleanup}')
+
+
+def retire_exported(app):
+    checked(sys.executable, str(Path(__file__).with_name('reassert-installed-widget.py')),
+            '--retire-app', str(app))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    # Retire the exported source after success and failure alike; a cleanup
+    # failure must not replace the reason packaging stopped.
     try:
         prepare(args)
-    finally:
-        checked(sys.executable, str(Path(__file__).with_name('reassert-installed-widget.py')),
-                '--retire-app', str(args.app))
+    except BaseException as original:
+        try:
+            retire_exported(args.app)
+        except Exception as cleanup:
+            raise CleanupFailed(original, cleanup) from original
+        raise
+    retire_exported(args.app)
 
 
 def prepare(args):
@@ -128,8 +146,12 @@ def prepare(args):
     print(f'Verified DMG containing the notarized app: {output.name}\nSHA-256: {digest}')
 
 
-if __name__ == '__main__':
+def entry():
     try:
         main()
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (CleanupFailed, ValueError, OSError, subprocess.CalledProcessError) as error:
         raise SystemExit(str(error))
+
+
+if __name__ == '__main__':
+    entry()
