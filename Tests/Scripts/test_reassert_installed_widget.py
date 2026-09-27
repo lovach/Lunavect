@@ -47,6 +47,21 @@ class ReassertInstalledWidgetTests(unittest.TestCase):
         self.assertEqual(restored, app)
         self.assertEqual(calls, [[reassert.LSREGISTER, '-f', str(app)], ['pluginkit', '-a', str(app / 'Contents/PlugIns/LunavectWidget.appex')]])
 
+    def test_two_installed_copies_register_only_the_canonical_one(self):
+        """Matrix W8: with ~/Applications and /Applications both valid, only the
+        canonical user copy is registered; the other copy is never switched in."""
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            copies = reassert.installed_copies(home=home, system=home / 'global')
+            for app in copies:
+                self.bundle(app)
+            calls = []
+            restored = reassert.reassert(copies, run=lambda argv, check: calls.append(argv))
+            self.assertEqual(restored, home / 'Applications/Lunavect.app')
+            registered = [argv[-1] for argv in calls]
+            self.assertEqual(registered, [str(copies[0]), str(copies[0] / 'Contents/PlugIns/LunavectWidget.appex')])
+            self.assertFalse(any(str(copies[1]) in argument for argv in calls for argument in argv))
+
     def test_foreign_or_mismatched_copies_are_left_alone(self):
         for kwargs in [dict(host='other.app'), dict(widget_build='181'), dict(widget='other.widget')]:
             restored, calls, _ = self.run_case(**kwargs)
