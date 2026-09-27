@@ -71,6 +71,39 @@ final class IDESessionLocationTests: XCTestCase {
         XCTAssertNil(SessionIDE.identify(bundleIdentifier: "com.jetbrains.unrelated-service"))
     }
 
+    /// N-08 / §4 item 10: every JetBrains IDE product and its EAP build, not a fixed list;
+    /// JetBrains apps that cannot host the companion are not editors.
+    func testJetBrainsProductsAndEAPBuildsAreRecognizedByPrefix() {
+        for identifier in ["com.jetbrains.intellij", "com.jetbrains.intellij.ce", "com.jetbrains.intellij-EAP", "com.jetbrains.pycharm.ce",
+                           "com.jetbrains.WebStorm-EAP", "com.jetbrains.CLion", "com.jetbrains.dataspell", "com.jetbrains.aqua",
+                           "com.jetbrains.writerside", "com.jetbrains.rustrover-EAP"] {
+            XCTAssertEqual(SessionIDE.identify(bundleIdentifier: identifier), .jetbrains, identifier)
+        }
+        for identifier in ["com.jetbrains.toolbox", "com.jetbrains.gateway", "com.jetbrains.fleet", "com.jetbrains.unrelated-service",
+                           "com.jetbrains.", "com.jetbrains.intellij-EAP-helper", "com.google.android.studio", "com.todesktop.230313mzl4w4u92"] {
+            XCTAssertNil(SessionIDE.identify(bundleIdentifier: identifier), identifier)
+        }
+        XCTAssertEqual(SessionIDE.identify(bundleIdentifier: "com.microsoft.VSCodeInsiders"), .vscode)
+    }
+
+    /// Messages name the actual JetBrains product from its bundle, not the vendor.
+    func testEditorMessagesNameTheProductFromItsBundle() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = root.appendingPathComponent("PyCharm CE.app")
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.jetbrains.pycharm.ce", "CFBundleName": "PyCharm CE"],
+                                                       format: .xml, options: 0)
+        try plist.write(to: app.appendingPathComponent("Contents/Info.plist"))
+        let jetbrains = IDESessionLocation(editor: .jetbrains, bundleIdentifier: "com.jetbrains.pycharm.ce", appPath: app.path,
+                                           runtime: .init(pid: 42, startedAtMicroseconds: 1), usesTerminal: true)
+        XCTAssertEqual(IDEBridge.Environment.live.displayName(jetbrains), "PyCharm CE")
+        let missing = IDESessionLocation(editor: .jetbrains, bundleIdentifier: "com.jetbrains.goland", appPath: root.appendingPathComponent("GoLand.app").path,
+                                         runtime: .init(pid: 42, startedAtMicroseconds: 1), usesTerminal: true)
+        XCTAssertEqual(IDEBridge.Environment.live.displayName(missing), "GoLand", "Without Info.plist the bundle folder names the product")
+        XCTAssertEqual(IDEBridge.Environment.live.displayName(location(.vscode)), "VS Code")
+    }
+
     func testReusedProcessIdentityCannotSelectAnotherTerminal() {
         let original = SessionProcessIdentity(pid: 42, startedAtMicroseconds: 123)
         let replacement = process(42, parent: 30, path: "/usr/local/bin/claude", tty: true, birth: 999)

@@ -429,7 +429,7 @@ public enum TerminalLocation {
             let tty = "/dev/" + String(cString: dev)
             guard valid(tty) else { continue }
             // The ancestry can stop at Terminal's root-owned login process.
-            let app = SessionProcess.terminalLocation(parentPID: pid, termProgram: "")?.app ?? "Terminal"
+            let app = SessionProcess.terminalLocation(parentPID: pid, termProgram: "")?.app ?? ""
             targets.insert(Target(tty: tty, app: app))
         }
         // Several tasks may share one project. Never jump to an arbitrary task.

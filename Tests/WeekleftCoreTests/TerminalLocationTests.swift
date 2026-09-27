@@ -160,6 +160,130 @@ final class TerminalLocationTests: XCTestCase {
                        "/dev/ttys009", "An invalid recorded device falls back to the process search")
     }
 
+    // MARK: Process tables (no live processes)
+
+    private typealias Table = [Int32: SessionProcess.TerminalProcess]
+    private static let terminalApp = "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"
+    private func proc(_ parent: Int32?, _ executable: String?, tty: String? = nil) -> SessionProcess.TerminalProcess {
+        .init(parentPID: parent, tty: tty, executable: executable)
+    }
+    private func bundles(_ path: String) -> String? {
+        ["/Applications/Ghostty.app": "com.mitchellh.ghostty", "/Applications/kitty.app": "net.kovidgoyal.kitty",
+         "/Applications/Cursor.app": "com.todesktop.230313mzl4w4u92", "/Applications/Visual Studio Code.app": "com.microsoft.VSCode",
+         "/Applications/Warp.app": "dev.warp.Warp-Stable", "/Applications/PyCharm.app": "com.jetbrains.pycharm"][path]
+    }
+    private func locate(_ table: Table, from pid: Int32 = 40, termProgram: String = "") -> (tty: String, app: String)? {
+        SessionProcess.terminalLocation(parentPID: pid, termProgram: termProgram, read: { table[$0] }, bundle: bundles)
+    }
+
+    /// §4 item 5: both Terminal profiles, with and without a root-owned login.
+    func testLoginAndNonLoginShellProfilesBothReachTheirTerminal() {
+        let shell: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: "/dev/ttys004"),
+                            30: proc(20, "/bin/zsh", tty: "/dev/ttys004"), 20: proc(1, Self.terminalApp)]
+        XCTAssertEqual(locate(shell)?.tty, "/dev/ttys004")
+        XCTAssertEqual(locate(shell)?.app, "Terminal", "A non-login shell is a direct child of Terminal")
+        var login = shell
+        login[30] = proc(25, "/bin/zsh", tty: "/dev/ttys004")
+        login[25] = proc(20, "/usr/bin/login", tty: "/dev/ttys004")
+        XCTAssertEqual(locate(login)?.app, "Terminal", "An inspectable login is walked through")
+        login[25] = proc(20, nil, tty: "/dev/ttys004")
+        XCTAssertEqual(locate(login, termProgram: "Apple_Terminal")?.app, "Terminal", "Hooks know the host from TERM_PROGRAM")
+        XCTAssertEqual(locate(login)?.tty, "/dev/ttys004")
+        XCTAssertEqual(locate(login)?.app, "", "The catalog cannot name a host hidden by login; the device is kept")
+        login[25] = nil
+        XCTAssertEqual(locate(login)?.app, "", "Unreadable login")
+        XCTAssertEqual(locate(login, termProgram: "iTerm.app")?.app, "iTerm2")
+    }
+
+    /// N-07 / §4 items 6 and 8: the device survives to launchd and the actual host is named.
+    func testUnsupportedHostsKeepTheirDeviceAndName() {
+        let tty = "/dev/ttys010"
+        let ghostty: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                              20: proc(1, "/Applications/Ghostty.app/Contents/MacOS/ghostty")]
+        XCTAssertEqual(locate(ghostty)?.tty, tty)
+        XCTAssertEqual(locate(ghostty)?.app, "Ghostty")
+        XCTAssertEqual(locate(ghostty, termProgram: "ghostty")?.app, "Ghostty")
+        let kitty: Table = [40: proc(30, "/Users/u/.local/bin/codex", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                            20: proc(1, "/Applications/kitty.app/Contents/MacOS/kitty")]
+        XCTAssertEqual(locate(kitty)?.app, "kitty", "kitty sets no TERM_PROGRAM")
+        let tmux: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                           20: proc(1, "/opt/homebrew/bin/tmux")]
+        XCTAssertEqual(locate(tmux, termProgram: "tmux")?.app, "tmux")
+        XCTAssertEqual(locate(tmux)?.app, "tmux")
+        let screen: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                             20: proc(1, "/opt/homebrew/bin/screen")]
+        XCTAssertEqual(locate(screen, termProgram: "Apple_Terminal")?.app, "screen",
+                       "screen inherits TERM_PROGRAM; its pane is not a Terminal tab")
+        let cursor: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                             20: proc(10, "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Plugin).app/Contents/MacOS/Cursor Helper (Plugin)"),
+                             10: proc(1, "/Applications/Cursor.app/Contents/MacOS/Cursor")]
+        XCTAssertEqual(locate(cursor, termProgram: "vscode")?.app, "Cursor")
+        let restored: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(25, "/bin/zsh", tty: tty),
+                               25: proc(20, "/usr/bin/login", tty: tty),
+                               20: proc(1, "/Users/u/Library/Application Support/iTerm2/iTermServer-3.5.10")]
+        XCTAssertEqual(locate(restored)?.app, "iTerm2", "iTerm2 session restoration hosts shells in iTermServer")
+        let nested: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                             20: proc(15, "/Applications/Alacritty.app/Contents/MacOS/alacritty", tty: "/dev/ttys002"),
+                             15: proc(12, "/bin/zsh", tty: "/dev/ttys002"), 12: proc(1, Self.terminalApp)]
+        XCTAssertEqual(locate(nested)?.app, "Alacritty", "The nearest terminal emulator owns the device, not the Terminal that started it")
+        let editor: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                             20: proc(1, "/Applications/PyCharm.app/Contents/MacOS/pycharm")]
+        XCTAssertNil(locate(editor), "Editor terminals use the IDE route")
+    }
+
+    /// N-08 / §4 items 7 and 8: forks, ssh and terminals without TERM_PROGRAM
+    /// are terminal sessions, not VS Code or Codex Desktop.
+    func testClientDetectionForForksRemoteShellsAndUnlabelledTerminals() {
+        let tty = "/dev/ttys010"
+        func client(_ table: Table, terminal: String = "", entrypoint: String = "") -> SessionClient {
+            SessionProcess.client(parentPID: 40, entrypoint: entrypoint, terminal: terminal, read: { table[$0] }, bundle: bundles)
+        }
+        let cursor: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                             20: proc(1, "/Applications/Cursor.app/Contents/MacOS/Cursor")]
+        XCTAssertEqual(client(cursor, terminal: "vscode"), .terminal, "A VS Code fork is not VS Code")
+        let official: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                               20: proc(1, "/Applications/Visual Studio Code.app/Contents/MacOS/Electron")]
+        XCTAssertEqual(client(official, terminal: "vscode"), .vscode)
+        let ssh: Table = [40: proc(30, "/Users/u/.local/bin/codex", tty: tty), 30: proc(20, "/bin/zsh", tty: tty), 20: proc(nil, nil)]
+        XCTAssertEqual(client(ssh), .terminal, "A Codex CLI over ssh must not open Codex Desktop")
+        let kitty: Table = [40: proc(30, "/Users/u/.local/bin/codex", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                            20: proc(1, "/Applications/kitty.app/Contents/MacOS/kitty")]
+        XCTAssertEqual(client(kitty), .terminal)
+        let desktop: Table = [40: proc(20, "/Applications/Codex.app/Contents/Resources/codex"),
+                              20: proc(1, "/Applications/Codex.app/Contents/MacOS/Codex")]
+        XCTAssertEqual(client(desktop), .desktop)
+        let agent: Table = [40: proc(1, "/Users/u/.local/bin/codex")]
+        XCTAssertEqual(client(agent), .unknown, "No terminal, no host: still unknown")
+    }
+
+    /// §4 item 14: the launcher for a finished session survives quotes, newlines
+    /// and non-ASCII project paths. Runs zsh directly, never Terminal.
+    func testResumeLauncherQuotesUnusualProjectPaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+        let project = root.appendingPathComponent("Wet Dog's \"проект\"\nnext $(touch pwned)")
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let output = root.appendingPathComponent("out.txt")
+        let fake = bin.appendingPathComponent("claude")
+        try "#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$@\" > \(SessionHooks.quote(output.path))\n".write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        var row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture",
+                               cwd: project.path, client: .terminal, phase: .finished, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        row.terminalTTY = nil
+        let script = try XCTUnwrap(row.terminalScript(executable: fake.path))
+        let launcher = root.appendingPathComponent("open.command")
+        try script.write(to: launcher, atomically: true, encoding: .utf8)
+        let zsh = Process(); zsh.executableURL = URL(fileURLWithPath: "/bin/zsh"); zsh.arguments = ["-f", launcher.path]
+        zsh.environment = ["PATH": "/usr/bin:/bin"]
+        try zsh.run(); zsh.waitUntilExit()
+        XCTAssertEqual(zsh.terminationStatus, 0)
+        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), project.path + "\n--resume\n01234567-89ab-cdef-0123-456789abcdef\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("pwned").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("pwned").path))
+    }
+
     func testRuntimeClassificationIgnoresInterpreters() {
         XCTAssertEqual(SessionProcess.runtimeProvider(ofExecutable: "/Users/test/.local/share/claude/versions/2.1.280"), .claude)
         XCTAssertEqual(SessionProcess.runtimeProvider(ofExecutable: "/opt/homebrew/bin/claude"), .claude)

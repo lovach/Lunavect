@@ -575,10 +575,12 @@ enum SessionProcess {
                        bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> SessionClient {
         // Query executable paths and parent PIDs directly. Never spawn ps, read
         // arguments, or inspect environment variables of another process.
-        var pid = parentPID
+        var pid = parentPID, device: String?, otherHost = false
         for _ in 0..<16 {
-            let process = read(pid)
-            guard let name = process?.executable else { break }
+            guard let process = read(pid) else { break }
+            let outsideSession = device != nil && process.tty != device
+            if device == nil, let candidate = process.tty, TerminalLocation.valid(candidate) { device = candidate }
+            guard let name = process.executable else { break }
             // A CLI binary bundled in an app's Resources (for example ChatGPT.app's
             // codex) says nothing about the host; its parent decides.
             let bundledCLI = name.contains("/Contents/Resources/")
@@ -587,16 +589,38 @@ enum SessionProcess {
                let identifier = bundle(String(name[..<range.lowerBound]) + ".app"),
                let editor = SessionIDE.identify(bundleIdentifier: identifier) { return editor.client }
             if name.contains("/Terminal.app/") || name.contains("/iTerm.app/") { return .terminal }
-            guard let parent = process?.parentPID, parent > 1, parent != pid else { break }
+            // Another application owning the session's device (a VS Code fork, Ghostty,
+            // kitty…) hosts a terminal, whatever TERM_PROGRAM it passed on.
+            if outsideSession, terminalHostApp(name) != nil { otherHost = true; break }
+            guard let parent = process.parentPID, parent > 1, parent != pid else { break }
             pid = parent
         }
         if entrypoint.contains("desktop") { return .desktop }
+        if otherHost { return .terminal }
         if terminal.lowercased().contains("vscode") { return .vscode }
-        if !terminal.isEmpty || entrypoint == "cli" { return .terminal }
+        // A controlling terminal is a terminal session even without TERM_PROGRAM
+        // (ssh, kitty): never treat it as a Desktop task.
+        if !terminal.isEmpty || entrypoint == "cli" || device != nil { return .terminal }
         return .unknown
+    }
+    /// Multiplexers and remote shells own their panes' devices; a pane is not a tab
+    /// of the terminal that displays it.
+    static let terminalMultiplexers = ["tmux": "tmux", "screen": "screen", "zellij": "Zellij", "mosh-server": "mosh",
+                                       "sshd": "SSH", "sshd-session": "SSH"]
+    /// The application of an app's own executable (or its helper app), such as a
+    /// terminal emulator. Bundled CLIs, developer tools and agent runtimes are not hosts.
+    static func terminalHostApp(_ path: String) -> String? {
+        guard !path.contains("/Contents/Resources/"), runtimeProvider(ofExecutable: path) == nil,
+              let range = path.range(of: ".app/Contents/") else { return nil }
+        let inside = path[range.upperBound...]
+        guard inside.hasPrefix("MacOS/") || (inside.hasPrefix("Frameworks/") && inside.contains(".app/Contents/MacOS/")) else { return nil }
+        let name = URL(fileURLWithPath: String(path[..<range.lowerBound]) + ".app").deletingPathExtension().lastPathComponent
+        return name.isEmpty ? nil : name
     }
     /// The controlling terminal device of the client process and the terminal
     /// application that owns it. Reads only process metadata, never arguments or environment.
+    /// The app is "Terminal" or "iTerm2", the name of another host (which has no
+    /// navigation route), or empty when a root-owned login hides the host.
     static func terminalLocation(parentPID: Int32, termProgram: String,
                                  read: (Int32) -> TerminalProcess? = terminalProcess,
                                  bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> (tty: String, app: String)? {
@@ -605,28 +629,41 @@ enum SessionProcess {
         // Read only process metadata; never arguments, environment or terminal text.
         var tty: String?, pid = parentPID, seen = Set<Int32>()
         let markedApp = termProgram == "Apple_Terminal" ? "Terminal" : termProgram == "iTerm.app" ? "iTerm2" : nil
+        func isEditorOrDesktop(_ path: String) -> Bool {
+            guard !path.contains("/Contents/Resources/") else { return false }
+            if ["/Claude.app/", "/ChatGPT.app/", "/Codex.app/", "/Visual Studio Code.app/"].contains(where: path.contains) { return true }
+            guard let range = path.range(of: ".app/Contents/"), let identifier = bundle(String(path[..<range.lowerBound]) + ".app") else { return false }
+            return SessionIDE.identify(bundleIdentifier: identifier) != nil
+        }
         for _ in 0..<16 {
-            guard pid > 1, seen.insert(pid).inserted else { return nil }
-            let process = read(pid)
-            guard let parent = process?.parentPID else { break }
-            if tty == nil, let candidate = process?.tty, TerminalLocation.valid(candidate) { tty = candidate }
-            // Terminal's root-owned login can block further process inspection.
-            if let tty, let markedApp { return (tty, markedApp) }
-            guard let path = process?.executable else { break }
+            // launchd, a cycle or an unreadable process ends the walk; the device is kept.
+            guard pid > 1, seen.insert(pid).inserted, let process = read(pid), let parent = process.parentPID else { break }
+            if let tty, process.tty != tty {
+                // The first ancestor outside the session's device hosts it: the terminal
+                // application, a multiplexer or another emulator. Anything else (a
+                // launcher that detached, a process macOS hides) leaves TERM_PROGRAM to decide.
+                guard let path = process.executable else { break }
+                let name = URL(fileURLWithPath: path).lastPathComponent
+                if path.contains("/Terminal.app/") { return (tty, "Terminal") }
+                // iTerm2 session restoration hosts shells in iTermServer, outside the app bundle.
+                if path.contains("/iTerm.app/") || name.hasPrefix("iTermServer") { return (tty, "iTerm2") }
+                // A Desktop/editor runtime must not inherit an ancestor shell's tab.
+                if isEditorOrDesktop(path) { return nil }
+                if let host = terminalMultiplexers[name] ?? terminalHostApp(path) { return (tty, host) }
+                break
+            }
+            if tty == nil, let candidate = process.tty, TerminalLocation.valid(candidate) { tty = candidate }
+            // Terminal's root-owned login can hide its path; TERM_PROGRAM then names the host.
+            guard let path = process.executable else { break }
             if let tty, path.contains("/Terminal.app/") { return (tty, "Terminal") }
             if let tty, path.contains("/iTerm.app/") { return (tty, "iTerm2") }
-            // A Desktop/editor runtime must not inherit an ancestor shell's tab.
-            if !path.contains("/Contents/Resources/"),
-               ["/Claude.app/", "/ChatGPT.app/", "/Codex.app/", "/Visual Studio Code.app/"].contains(where: path.contains) { return nil }
-            if !path.contains("/Contents/Resources/"), let range = path.range(of: ".app/Contents/"),
-               let identifier = bundle(String(path[..<range.lowerBound]) + ".app"),
-               SessionIDE.identify(bundleIdentifier: identifier) != nil { return nil }
+            if isEditorOrDesktop(path) { return nil }
             pid = parent
         }
         // A root-owned login process can hide the terminal app's ancestry while
         // the client's TTY remains known. The navigation layer can match that
         // exact device against running supported terminals without guessing a tab.
-        return tty.map { ($0, termProgram) }
+        return tty.map { ($0, markedApp ?? termProgram) }
     }
 }
 

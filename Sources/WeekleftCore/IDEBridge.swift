@@ -86,7 +86,7 @@ public enum IDEBridge {
             endpoints: { IDEBridge.descriptors().map(Endpoint.init(live:)) },
             ancestry: { IDEProcessLocation.liveAncestry(of: $0) },
             exchange: { try await IDEBridge.exchange($0, action: $1, target: $2, timeout: $3, openURL: $4) },
-            displayName: { $0.editor.client.title })
+            displayName: { IDEProcessLocation.displayName($0) })
     }
 
     public static var directory: URL {
