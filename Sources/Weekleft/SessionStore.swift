@@ -527,7 +527,13 @@ import WeekleftCore
             guard isCurrent(expected) else { return }
             let date = now()
             let currentEvents = suppressResolvedClaudeQuestions(events.filter { providers.contains($0.provider) }, catalog: rows, now: date)
-            var merged = SessionList.merge(catalog: rows, events: currentEvents, now: date)
+            // `--all` re-lists finished and dormant background tasks on every poll.
+            // Such history joins the merge only when a hook event names it; otherwise
+            // it is passed through unchanged for completion notices (S-12).
+            let eventIDs = Set(currentEvents.map(\.id))
+            let history = rows.filter { $0.catalogHistory == true && !eventIDs.contains($0.id) }
+            let live = history.isEmpty ? rows : rows.filter { !($0.catalogHistory == true && !eventIDs.contains($0.id)) }
+            var merged = SessionList.merge(catalog: live, events: currentEvents, now: date) + history
             if now().timeIntervalSince(titlesCheckedAt) >= (polling?.titles ?? 15) {
                 let titles = try await dependencies.titles(merged, hiddenIDs, providers)
                 guard isCurrent(expected) else { return }
@@ -606,10 +612,12 @@ import WeekleftCore
             if organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
                 try visibility?.pruneRemoved(now: now)
                 // Only a provider whose current catalog arrived complete can prove absence.
+                // Re-listed history is not presence: it must not keep a hidden entry
+                // or an arrangement slot alive indefinitely (S-12).
                 let complete = Set(providers.filter { catalog[$0] != nil && typedIssues[$0] == nil })
-                try visibility?.observe(Set(rows.map(\.id)), completeProviders: complete, now: now)
+                try visibility?.observe(Set(rows.filter { $0.catalogHistory != true }.map(\.id)), completeProviders: complete, now: now)
                 var next = arrangement
-                if next.observe(Set(taskRows.map(\.id)), now: now) { try saveArrangement(next) }
+                if next.observe(Set(taskRows.filter { $0.catalogHistory != true }.map(\.id)), now: now) { try saveArrangement(next) }
                 organizationCheckedAt = now
             }
             try visibility?.removeUnstartedClaudeLifecycles(rows)
@@ -634,14 +642,16 @@ import WeekleftCore
         for row in visible {
             // Never hide ongoing work, requests for input/permission, or an
             // unconfirmed state merely because its latest event is old.
-            guard !row.phase.isActive, row.phase != .unknown, row.runtimeConfirmed != false,
+            // Retained catalog history is never shown as current; it is not archived.
+            guard row.catalogHistory != true, !row.phase.isActive, row.phase != .unknown, row.runtimeConfirmed != false,
                   !row.isUnstartedClaudeLifecycle else {
                 inactiveSince.removeValue(forKey: row.id)
                 continue
             }
             if inactiveSince[row.id] == nil {
-                // Historical catalog entries must not flood the hidden list.
-                guard row.effectivePhase(now: now) != .unknown else { continue }
+                // Only a row the panel shows as current starts an interval: history,
+                // stale entries and sessions that ended unseen do not fill the list.
+                guard row.isCurrent(now: now) else { continue }
                 inactiveSince[row.id] = min(row.updatedAt, now)
             }
             let since = max(inactiveSince[row.id]!, min(row.updatedAt, now))

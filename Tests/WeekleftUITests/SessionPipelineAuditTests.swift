@@ -44,4 +44,100 @@ import Combine
         XCTAssertEqual(sessions.diagnosticEntries.last?.issue.code, "claude.sessionCatalog.unsupportedResponse")
         XCTAssertEqual(sessions.currentSessions.map(\.title), ["Fix widgets"], "The last listing remains until it expires")
     }
+
+    // S-02 / §5.2 / matrix S2: retained background history on the owner's Mac:
+    // done/stopped/failed rows 30 minutes old, blocked rows from July.
+    private func historyCatalog(at date: Date) throws -> [AgentSession] {
+        let recent = date.addingTimeInterval(-1800).timeIntervalSince1970 * 1000
+        let july = date.addingTimeInterval(-80 * 86400).timeIntervalSince1970 * 1000
+        var rows: [[String: Any]] = ["done", "stopped", "failed", "done"].enumerated().map { index, state in
+            ["id": "bg-\(index)", "cwd": "/Users/fixture/Projects/lunavect", "kind": "background", "name": "Task \(index)",
+             "sessionId": "history-\(index)", "startedAt": recent, "state": state]
+        }
+        rows += (0..<3).map { index in
+            ["id": "old-\(index)", "cwd": "/Users/fixture/Projects/lunavect", "kind": "background", "name": "July \(index)",
+             "sessionId": "july-\(index)", "startedAt": july, "state": "blocked"]
+        }
+        return try claudeRows(rows, at: date)
+    }
+
+    func testRetainedBackgroundHistoryIsNeverAutoHidden() async throws {
+        for minutes in [5, 10, 20] {
+            var clock = instant
+            let sessions = try store(.init(catalog: { _, _, _, _ in (try self.historyCatalog(at: clock), false) }), now: { clock })
+            sessions.useProviders([.claude])
+            sessions.autoHideMinutes = minutes
+            for _ in 0..<8 {
+                await sessions.refresh()
+                XCTAssertEqual(sessions.hiddenCount, 0, "\(minutes) min: history never enters hidden-sessions.json")
+                XCTAssertTrue(sessions.currentSessions.isEmpty, "History is not a current session")
+                XCTAssertEqual(sessions.activeCount, 0, "July blocked rows are not waiting")
+                clock += 300
+            }
+            sessions.stop()
+        }
+    }
+
+    func testHiddenHistoryIsNotKeptAliveByTheCatalogListingIt() async throws {
+        var clock = instant
+        let root = try directory()
+        let sessions = try store(.init(catalog: { _, _, _, _ in (try self.historyCatalog(at: clock), false) }), directory: root, now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude])
+        await sessions.refresh()
+        let done = try XCTUnwrap(sessions.sessions.first { $0.sessionID == "history-0" })
+        try sessions.hide(done)
+        XCTAssertEqual(sessions.hiddenIDs, [done.id], "An explicit hide of history stays manageable")
+        for _ in 0..<37 { clock += 86400; await sessions.refresh() }
+        XCTAssertEqual(sessions.hiddenIDs, [], "Re-listed history does not refresh seenAt; the entry expires after 35 days")
+        XCTAssertEqual(try SessionVisibility(url: root.appendingPathComponent("hidden-sessions.json"), now: clock).hidden, [])
+    }
+
+    // Decision 11: only a row shown as current starts an inactivity interval.
+    func testSessionThatEndedBeforeItWasShownIsNotArchived() throws {
+        var clock = instant
+        let sessions = try store(now: { clock })
+        defer { sessions.stop() }
+        sessions.autoHideMinutes = 5
+        let prompt = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": "ended", "hook_event_name": "UserPromptSubmit", "cwd": "/Users/fixture/Projects/lunavect"]),
+            provider: .claude, previous: nil, now: clock.addingTimeInterval(-60))
+        let ended = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": "ended", "hook_event_name": "SessionEnd", "cwd": "/Users/fixture/Projects/lunavect", "reason": "prompt_input_exit"]),
+            provider: .claude, previous: prompt, now: clock.addingTimeInterval(-50))
+        for _ in 0..<3 {
+            sessions.acceptSessions([ended.session], now: clock)
+            clock += 600
+        }
+        XCTAssertEqual(sessions.hiddenCount, 0, "A finished session is not in the panel, so it is not archived either")
+        XCTAssertTrue(sessions.currentSessions.isEmpty)
+    }
+
+    /// Decision 11 keeps `--all` for one reason: a background task observed
+    /// working still announces its completion once it becomes history.
+    func testBackgroundCompletionIsStillAnnouncedAfterHistoryLeftTheMerge() async throws {
+        var clock = instant, state = "working"
+        let sessions = try store(.init(catalog: { _, _, _, _ in
+            (try self.claudeRows([["id": "bg-1", "cwd": "/Users/fixture/Projects/lunavect", "kind": "background", "name": "Render",
+                                   "sessionId": "render-1", "startedAt": 1_795_000_000_000, "state": state]], at: clock), false)
+        }), now: { clock })
+        let suite = "SessionPipelineAudit.Features." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        var played: [SessionNoticeKind] = []
+        let features = AppFeatures(defaults: defaults, now: { clock }, playSound: { played.append($0) })
+        features.sounds = true; features.banners = false
+        let notices = sessions.observations.sink { features.observe($0.rows, at: $0.date) }
+        defer { notices.cancel(); features.stop(); sessions.stop(); defaults.removePersistentDomain(forName: suite) }
+        sessions.useProviders([.claude])
+        sessions.autoHideMinutes = 5
+        await sessions.refresh()
+        XCTAssertEqual(sessions.activeCount, 1)
+        clock += 15; state = "done"
+        await sessions.refresh()
+        XCTAssertEqual(played, [.completed])
+        XCTAssertTrue(sessions.currentSessions.isEmpty)
+        clock += 900; await sessions.refresh()
+        XCTAssertEqual(played, [.completed], "Re-listing the finished task does not replay it")
+        XCTAssertEqual(sessions.hiddenCount, 0)
+    }
 }
