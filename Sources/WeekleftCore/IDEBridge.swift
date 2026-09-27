@@ -72,10 +72,6 @@ public enum IDEBridge {
             self.editor = editor; self.bundleIdentifier = bundleIdentifier; self.appPath = appPath
             self.companion = companion; self.state = state; self.descriptor = descriptor
         }
-        init(live descriptor: Descriptor) {
-            self.init(editor: descriptor.editor, bundleIdentifier: descriptor.bundleIdentifier, appPath: descriptor.appPath,
-                      companion: nil, state: .live, descriptor: descriptor)
-        }
     }
 
     /// Everything `open` asks of the system; tests replace it with fixtures.
