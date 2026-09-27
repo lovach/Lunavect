@@ -84,14 +84,19 @@ public enum ClaudeProvider {
         snapshot.provider == .claude && ["Claude Code statusLine", ClaudeUsageProbe.source].contains(snapshot.source)
             && snapshot.fetchedAt != nil && snapshot.hasQuota
             && [snapshot.weekly, snapshot.fiveHour].compactMap({ $0 }).allSatisfy {
-                $0.resetsAt != nil && $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
+                hasResetOrIsInactive($0) && $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
             }
             && (snapshot.modelQuotas ?? []).count <= 20
             && (snapshot.modelQuotas ?? []).allSatisfy {
                 !$0.name.isEmpty && $0.name.count <= 60 && !$0.name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
-                    && $0.window.durationMinutes == 10080 && $0.window.resetsAt != nil
+                    && $0.window.durationMinutes == 10080 && hasResetOrIsInactive($0.window)
                     && $0.window.usedPercent.isFinite && (0...100).contains($0.window.usedPercent)
             }
+    }
+    /// A window reports its reset once it has started. Before the first request
+    /// it is a confirmed 0% with no reset time (never an invented one).
+    private static func hasResetOrIsInactive(_ window: QuotaWindow) -> Bool {
+        window.resetsAt != nil || window.usedPercent == 0
     }
     public static func latest(statusLineURL: URL = cacheURL, usageURL: URL = usageCacheURL, now: Date = Date()) throws -> UsageSnapshot {
         let observations = [statusLineURL, usageURL].compactMap { url -> UsageSnapshot? in

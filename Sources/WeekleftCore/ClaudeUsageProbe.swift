@@ -8,11 +8,23 @@ public enum ClaudeUsageProbe {
     public static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Weekleft/QuotaProbe", isDirectory: true)
 
-    public static func fetch(cliPath: String, timeout: TimeInterval = 25, directory: URL = ClaudeUsageProbe.directory) async throws -> UsageSnapshot {
-        try await SessionProcess.detached { try read(cliPath: cliPath, timeout: timeout, directory: directory) }
+    /// Opt-in diagnostics: the plain text of a failed screen is saved here (0600).
+    public static let dumpDirectoryVariable = "LUNAVECT_PROBE_DUMP_DIR"
+
+    /// - Parameters:
+    ///   - settle: how long a fully drawn but unparsed screen may stay unchanged
+    ///     before the probe ends with a typed reason instead of waiting for `timeout`.
+    ///   - screen: receives the final plain screen text (diagnostic `--usage-probe`).
+    public static func fetch(cliPath: String, timeout: TimeInterval = 25, directory: URL = ClaudeUsageProbe.directory,
+                             settle: TimeInterval = 2, screen: (@Sendable (String) -> Void)? = nil) async throws -> UsageSnapshot {
+        let dump = getenv(dumpDirectoryVariable).map { String(cString: $0) }.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+        return try await SessionProcess.detached {
+            try read(cliPath: cliPath, timeout: timeout, directory: directory, settle: settle, dumpDirectory: dump, screen: screen)
+        }
     }
 
-    private static func read(cliPath: String, timeout: TimeInterval, directory: URL) throws -> UsageSnapshot {
+    private static func read(cliPath: String, timeout: TimeInterval, directory: URL, settle: TimeInterval,
+                             dumpDirectory: URL?, screen: (@Sendable (String) -> Void)?) throws -> UsageSnapshot {
         try Task.checkCancellation()
         guard FileManager.default.isExecutableFile(atPath: cliPath) else { throw UsageError.claudeCLIUnavailable }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -40,6 +52,16 @@ public enum ClaudeUsageProbe {
         return try SessionProcess.withRunningProcess(process) {
             let deadline = ProcessInfo.processInfo.systemUptime + timeout
             var output = Data(), bytes = [UInt8](repeating: 0, count: 16384)
+            var text = "", lastOutput = ProcessInfo.processInfo.systemUptime
+            // A screen with a window that has no reset yet is accepted only once
+            // it stops changing: a partial render must not look like an inactive window.
+            var tentative: UsageSnapshot?
+            var settles = false
+            func finish(_ error: Error) -> Error {
+                screen?(text)
+                if !(error is CancellationError) { ClaudeUsageText.dump(text, to: dumpDirectory) }
+                return error
+            }
             while ProcessInfo.processInfo.systemUptime < deadline {
                 try Task.checkCancellation()
                 var descriptor = pollfd(fd: master, events: Int16(POLLIN), revents: 0)
@@ -48,28 +70,37 @@ public enum ClaudeUsageProbe {
                     let count = Darwin.read(master, &bytes, bytes.count)
                     if count > 0 {
                         output.append(contentsOf: bytes.prefix(count))
-                        guard output.count < 512_000 else { throw UsageError.claudeUsageUnavailable }
-                        let text = ClaudeUsageText.plain(String(decoding: output, as: UTF8.self))
-                        if let snapshot = try? ClaudeUsageText.parse(text) { return snapshot }
-                        if text.contains("Enter y/n:") || text.contains("Select login method") || text.contains("Please run /login") || text.contains("Not logged in") {
-                            throw UsageError.claudeSignInRequired
+                        guard output.count < 512_000 else { throw finish(UsageError.claudeUsageUnavailable) }
+                        text = ClaudeUsageText.plain(String(decoding: output, as: UTF8.self))
+                        lastOutput = ProcessInfo.processInfo.systemUptime
+                        tentative = nil
+                        if let snapshot = try? ClaudeUsageText.parse(text) {
+                            guard ClaudeUsageText.awaitsReset(snapshot) else { screen?(text); return snapshot }
+                            tentative = snapshot
                         }
+                        // Prompts wait for an answer that only the user may give.
+                        if let prompt = ClaudeUsageText.blockingPrompt(in: text) { throw finish(prompt) }
+                        settles = ClaudeUsageText.isDrawn(text) || ClaudeUsageText.state(in: text) != nil
                     } else if !process.isRunning { break }
                 }
                 if !process.isRunning { break }
+                // The CLI stays open after drawing /usage. Once a complete or
+                // conclusive screen stops changing, nothing more will arrive.
+                if settles && ProcessInfo.processInfo.systemUptime - lastOutput >= settle { break }
             }
             try Task.checkCancellation()
-            let finalText = ClaudeUsageText.plain(String(decoding: output, as: UTF8.self))
-            let completeScreen = finalText.contains("Esc to cancel") || finalText.contains("Escape to cancel")
+            if let tentative { screen?(text); return tentative }
+            if let failure = ClaudeUsageText.failure(in: text) { throw finish(failure) }
+            let completeScreen = ClaudeUsageText.isDrawn(text)
             let cleanOutput = !process.isRunning && process.terminationReason == .exit && process.terminationStatus == 0
-                && !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             if completeScreen || cleanOutput {
-                throw ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse)
+                throw finish(ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse))
             }
             if ProcessInfo.processInfo.systemUptime >= deadline {
-                throw ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .timedOut)
+                throw finish(ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .timedOut))
             }
-            throw UsageError.claudeUsageUnavailable
+            throw finish(UsageError.claudeUsageUnavailable)
         }
     }
 }
@@ -99,7 +130,12 @@ public enum ClaudeUsageText {
                    let range = Range(match.range(at: 1), in: line) { percentage = Double(line[range]); break }
             }
             guard let used = percentage else { return nil }
-            guard let resetLine = section.first(where: { $0.hasPrefix("Resets ") }) else { return nil }
+            guard let resetLine = section.first(where: { $0.hasPrefix("Resets ") }) else {
+                // A window that has not started (after a reset, before the first
+                // request) is a confirmed 0% without a reset time. A used window
+                // without its reset stays unknown.
+                return used == 0 ? try QuotaWindow(usedPercent: 0, durationMinutes: minutes, resetsAt: nil) : nil
+            }
             guard let reset = resetDate(String(resetLine.dropFirst(7)), now: now, durationMinutes: minutes, timeZone: timeZone)
             else { throw UsageError.claudeUsageUnavailable }
             return try QuotaWindow(usedPercent: used, durationMinutes: minutes, resetsAt: reset)
@@ -172,5 +208,66 @@ public enum ClaudeUsageText {
     private static func justElapsed(_ date: Date, now: Date) -> Bool {
         let interval = date.timeIntervalSince(now)
         return interval <= 0 && interval > -120
+    }
+}
+
+/// Screens that are not a subscription quota. Each is conclusive on its own, so the
+/// probe ends shortly after it is drawn instead of holding the client until the deadline.
+extension ClaudeUsageText {
+    private static func issue(_ reason: ClientIntegrationIssue.Reason) -> ClientIntegrationIssue {
+        ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: reason)
+    }
+    /// The footer is drawn last; a loading indicator means more is coming.
+    static func isDrawn(_ text: String) -> Bool {
+        guard text.contains("Esc to cancel") || text.contains("Escape to cancel") else { return false }
+        return !text.components(separatedBy: .newlines).suffix(6).contains { $0.contains("Loading") }
+    }
+    static func awaitsReset(_ snapshot: UsageSnapshot) -> Bool {
+        [snapshot.weekly, snapshot.fiveHour].contains { $0 != nil && $0?.resetsAt == nil }
+            || (snapshot.modelQuotas ?? []).contains { $0.window.resetsAt == nil }
+    }
+    /// Questions Claude Code asks before it runs `/usage`. Lunavect never answers them.
+    static func blockingPrompt(in text: String) -> Error? {
+        if ["Quick safety check", "trust this folder", "Accessing workspace"].contains(where: { text.contains($0) }) {
+            return issue(.workspaceTrustRequired)
+        }
+        if text.contains("Enter y/n:") || text.contains("Select login method") || text.contains("Please run /login") || text.contains("Not logged in") {
+            return UsageError.claudeSignInRequired
+        }
+        return nil
+    }
+    /// Known states of a drawn `/usage` screen that carry no subscription quota.
+    static func state(in text: String) -> ClientIntegrationIssue.Reason? {
+        if text.contains("Failed to load usage data") || text.contains("Could not refresh usage data") { return .usageFetchFailed }
+        if text.contains("Usage limit reached") || text.contains("You've hit your") || text.contains("You\u{2019}ve hit your") { return .limitReached }
+        // Header of a CLI without a subscription sign-in or with API-key billing:
+        // `/usage` then shows only the session cost panel.
+        if text.contains("API Usage Billing") { return .subscriptionUnavailable }
+        return nil
+    }
+    /// Why a finished screen produced no quota; nil when nothing on it is recognized.
+    static func failure(in text: String) -> Error? {
+        if let prompt = blockingPrompt(in: text) { return prompt }
+        if let reason = state(in: text) { return issue(reason) }
+        let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+        if let start = lines.lastIndex(of: "Current week (all models)") {
+            let section = lines[(start + 1)..<min(lines.count, start + 6)].prefix { !$0.hasPrefix("Current ") && !$0.hasPrefix("Usage credits") }
+            let empty = !section.contains { $0.range(of: #"\d%\s*used"#, options: .regularExpression) != nil || $0.hasPrefix("Resets") }
+            if empty { return issue(.windowInactive) }
+        }
+        return nil
+    }
+    /// Saves the plain screen of a failed probe for diagnosis, only when the user
+    /// opted in with `LUNAVECT_PROBE_DUMP_DIR`. The file is private to the user.
+    static func dump(_ text: String, to directory: URL?, now: Date = Date()) {
+        guard let directory, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let stamp = Int(now.timeIntervalSince1970)
+            let file = directory.appendingPathComponent("usage-probe-\(stamp)-\(UUID().uuidString.prefix(8)).txt")
+            try LocalStateRecovery.write(Data(text.utf8), to: file)
+        } catch {
+            // Diagnostics must never change the probe's result.
+        }
     }
 }

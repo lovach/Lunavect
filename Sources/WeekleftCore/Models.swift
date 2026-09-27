@@ -144,6 +144,10 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
 }
 public enum UsageError: LocalizedError {
     case invalidResponse, missingCLI, timeout, notSignedIn, waitingForClaude, statusLineDisabled, claudeQuotaStale, claudeCLIUnavailable, claudeSignInRequired, claudeUsageUnavailable
+    /// Earlier wording still stored in saved snapshots, recognized by diagnostics.
+    static let retiredMessages: [String: UsageError] = [
+        "Claude Code не передал свежие лимиты. Проверьте подключение и доступность команды /usage. Повторим автоматически через 5 минут.": .claudeUsageUnavailable
+    ]
     public var errorDescription: String? {
         switch self {
         case .invalidResponse: return "Источник вернул неподдерживаемые данные."
@@ -154,7 +158,7 @@ public enum UsageError: LocalizedError {
         case .claudeQuotaStale: return "Лимиты Claude устарели. Lunavect автоматически запросит новые данные через Claude Code."
         case .claudeCLIUnavailable: return "Для автоматического обновления лимитов установите Claude Code и войдите в свой аккаунт."
         case .claudeSignInRequired: return "Откройте Claude Code в терминале и завершите его настройку или вход. Lunavect повторит запрос автоматически."
-        case .claudeUsageUnavailable: return "Claude Code не передал свежие лимиты. Проверьте подключение и доступность команды /usage. Повторим автоматически через 5 минут."
+        case .claudeUsageUnavailable: return "Claude Code не передал свежие лимиты. Сохранённые данные остаются на месте; Lunavect повторит запрос позже."
         case .statusLineDisabled: return "Строка состояния отключена настройкой disableAllHooks в Claude Code."
         }
     }

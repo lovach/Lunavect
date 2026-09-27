@@ -10,6 +10,13 @@ public struct ClientIntegrationIssue: Error, Codable, Equatable, Sendable, Local
         case unsupportedResponse, unsupportedOperation, missingClient, clientPathUnavailable
         case timedOut, signInRequired, setupRequired, disabled, configurationChanged
         case waitingForData, staleData, sourceUnavailable, incompleteCatalog
+        /// Quota screen states that are not a format problem: the account limit is used up,
+        /// a window has not started yet, or the client could not load its own usage data.
+        case limitReached, windowInactive, usageFetchFailed
+        /// Claude Code asks whether it may trust the probe folder; Lunavect never answers for the user.
+        case workspaceTrustRequired
+        /// The client is not signed in with a subscription or bills through an API key.
+        case subscriptionUnavailable
     }
     public let provider: ProviderID
     public let capability: Capability
@@ -34,19 +41,14 @@ public struct ClientIntegrationIssue: Error, Codable, Equatable, Sendable, Local
         case .staleData: return "Сохранённые данные устарели. Повторите проверку."
         case .incompleteCatalog: return "Каталог сессий получен не полностью"
         case .sourceUnavailable: return "Источник временно недоступен. Сохранённые данные остаются на месте."
+        case .limitReached: return "Лимит исчерпан. Сохранённые данные остаются на месте; Lunavect обновит их после сброса."
+        case .windowInactive: return "Окно лимита ещё не началось: оно начнётся с первым запросом."
+        case .usageFetchFailed: return "Клиент не смог загрузить данные об использовании. Сохранённые данные остаются на месте; Lunavect повторит запрос позже."
+        case .workspaceTrustRequired: return "Claude Code ждёт подтверждения доверия к папке проверки лимитов. Откройте проверку в терминале и подтвердите один раз."
+        case .subscriptionUnavailable: return "Лимиты подписки недоступны: Claude Code не вошёл в аккаунт с подпиской или использует оплату через API."
         }
     }
-    public var repair: ConnectionDiagnostic.Repair {
-        switch reason {
-        case .unsupportedResponse, .unsupportedOperation: return .reviewClient
-        case .missingClient: return .install
-        case .clientPathUnavailable: return .chooseClient
-        case .signInRequired: return .signIn
-        case .setupRequired: return .reviewUsage
-        case .disabled, .configurationChanged: return .events
-        case .timedOut, .waitingForData, .staleData, .sourceUnavailable, .incompleteCatalog: return .refresh
-        }
-    }
+    public var repair: ConnectionDiagnostic.Repair { reason.repair }
     public static func classify(_ error: Error, provider: ProviderID, capability: Capability) -> Self? {
         if error is CancellationError { return nil }
         if let issue = error as? Self { return issue }
@@ -73,13 +75,43 @@ public struct ClientIntegrationIssue: Error, Codable, Equatable, Sendable, Local
         guard let text else { return nil }
         let known: [UsageError] = [.invalidResponse, .missingCLI, .timeout, .notSignedIn, .waitingForClaude,
             .statusLineDisabled, .claudeQuotaStale, .claudeCLIUnavailable, .claudeSignInRequired, .claudeUsageUnavailable]
-        if let error = known.first(where: { $0.errorDescription == text }) { return classify(error, provider: provider, capability: capability) }
+        if let error = known.first(where: { $0.errorDescription == text }) ?? UsageError.retiredMessages[text] {
+            return classify(error, provider: provider, capability: capability)
+        }
         // Typed messages contain only fixed strings and can be recognized when an
         // older snapshot surface still persists its issue as a string.
         let reasons: [Reason] = [.unsupportedResponse, .unsupportedOperation, .missingClient, .clientPathUnavailable,
-            .timedOut, .signInRequired, .setupRequired, .disabled, .configurationChanged, .waitingForData, .staleData, .sourceUnavailable, .incompleteCatalog]
+            .timedOut, .signInRequired, .setupRequired, .disabled, .configurationChanged, .waitingForData, .staleData, .sourceUnavailable, .incompleteCatalog,
+            .limitReached, .windowInactive, .usageFetchFailed, .workspaceTrustRequired, .subscriptionUnavailable]
         return reasons.first { Self(provider: provider, capability: capability, reason: $0).message == text }
             .map { Self(provider: provider, capability: capability, reason: $0) }
+    }
+}
+
+extension ClientIntegrationIssue.Reason {
+    public var repair: ConnectionDiagnostic.Repair {
+        switch self {
+        case .unsupportedResponse, .unsupportedOperation: return .reviewClient
+        case .missingClient: return .install
+        case .clientPathUnavailable: return .chooseClient
+        case .signInRequired: return .signIn
+        case .setupRequired, .workspaceTrustRequired: return .reviewUsage
+        case .subscriptionUnavailable: return .signIn
+        case .disabled, .configurationChanged: return .events
+        case .timedOut, .waitingForData, .staleData, .sourceUnavailable, .incompleteCatalog,
+             .limitReached, .windowInactive, .usageFetchFailed: return .refresh
+        }
+    }
+
+    /// A specific diagnostic heading for quota states that are not a connection fault.
+    var diagnosticTitle: String? {
+        switch self {
+        case .limitReached: return "Лимит исчерпан"
+        case .windowInactive: return "Окно лимита ещё не началось"
+        case .workspaceTrustRequired: return "Нужно подтвердить доверие к папке"
+        case .subscriptionUnavailable: return "Лимиты подписки недоступны"
+        default: return nil
+        }
     }
 }
 
@@ -166,6 +198,8 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
     public let quotaAgeMinutes: Int?
     public let errorCode: String?
     public let sourceIssue: ClientIntegrationIssue?
+    /// Typed reason of the shown issue, including one recognized from a saved message.
+    public let issueReason: ClientIntegrationIssue.Reason?
     public var id: ProviderID { provider }
 
     public init(provider: ProviderID, clientFound: Bool, signIn: ClientConnection.SignInState,
@@ -185,7 +219,8 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         let compatibilityIssue = ClientIntegrationIssue.legacy(issue, provider: provider, capability: provider == .codex ? .rateLimits : .usageProbe)
             ?? ClientIntegrationIssue.legacy(sessionIssue, provider: provider, capability: .sessionCatalog)
         let effectiveIssue = typed ?? compatibilityIssue
-        errorCode = typed?.code ?? issue.map { value in known.first { $0.0.errorDescription == value }?.1 ?? "source_error" }
+        issueReason = effectiveIssue?.reason
+        errorCode = typed?.code ?? issue.map { value in known.first { $0.0.errorDescription == value }?.1 ?? compatibilityIssue?.code ?? "source_error" }
             ?? (sessionIssue == nil ? nil : "session_source_error")
         if effectiveIssue?.reason == .clientPathUnavailable { state = .clientPathUnavailable }
         else if !clientFound { state = .missingClient }
@@ -204,6 +239,7 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         else { state = .ready }
     }
     public var title: String {
+        if state == .sourceError, let title = issueReason?.diagnosticTitle { return title }
         switch state {
         case .unsupportedResponse: return "Формат ответа клиента пока не поддерживается"
         case .unsupportedOperation: return "Операция недоступна в этом клиенте"
@@ -229,6 +265,7 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         case .eventsMissing: return eventsConfigured ? .refresh : .events
         case .sourceError:
             if let sourceIssue { return sourceIssue.repair }
+            if let issueReason { return issueReason.repair }
             if errorCode == "claude_setup_required" { return .reviewUsage }
             if errorCode == "sign_in_required" { return .signIn }
             if errorCode == "events_disabled" { return .events }
@@ -238,6 +275,10 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         }
     }
     public var guidance: String {
+        if state == .sourceError, let reason = issueReason,
+           [.limitReached, .windowInactive, .usageFetchFailed, .workspaceTrustRequired, .subscriptionUnavailable].contains(reason) {
+            return ClientIntegrationIssue(provider: provider, capability: .usageProbe, reason: reason).message
+        }
         switch state {
         case .unsupportedResponse, .unsupportedOperation:
             return "Проверьте обновления официального клиента и Lunavect. До поддержки этого формата сохранённые данные остаются на месте; повторный вход не требуется."

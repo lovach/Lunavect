@@ -1,4 +1,67 @@
 {
+  "Claude Code ждёт подтверждения доверия к папке проверки лимитов. Откройте проверку в терминале и подтвердите один раз.": {
+    "de": "Claude Code wartet darauf, dass Sie dem Ordner für die Limitprüfung vertrauen. Öffnen Sie die Prüfung im Terminal und bestätigen Sie einmal.",
+    "en": "Claude Code is waiting for you to trust the limit-check folder. Open the check in Terminal and confirm once.",
+    "es": "Claude Code espera que confíe en la carpeta de comprobación de límites. Abra la comprobación en Terminal y confírmelo una vez.",
+    "fr": "Claude Code attend que vous fassiez confiance au dossier de vérification des limites. Ouvrez la vérification dans Terminal et confirmez une fois.",
+    "zh-Hans": "Claude Code 正在等待您信任额度检查文件夹。请在终端中打开检查并确认一次。"
+  },
+  "Claude Code не передал свежие лимиты. Сохранённые данные остаются на месте; Lunavect повторит запрос позже.": {
+    "de": "Claude Code hat keine aktuellen Limits geliefert. Die gespeicherten Daten bleiben erhalten; Lunavect fragt später erneut an.",
+    "en": "Claude Code did not provide fresh limits. Saved data stays in place; Lunavect will ask again later.",
+    "es": "Claude Code no proporcionó límites actualizados. Los datos guardados se conservan; Lunavect volverá a solicitarlos más tarde.",
+    "fr": "Claude Code n’a pas fourni de limites à jour. Les données enregistrées sont conservées ; Lunavect réessaiera plus tard.",
+    "zh-Hans": "Claude Code 未提供最新额度。已保存的数据保持不变；Lunavect 稍后会再次请求。"
+  },
+  "Клиент не смог загрузить данные об использовании. Сохранённые данные остаются на месте; Lunavect повторит запрос позже.": {
+    "de": "Der Client konnte die Nutzungsdaten nicht laden. Die gespeicherten Daten bleiben erhalten; Lunavect fragt später erneut an.",
+    "en": "The client could not load its usage data. Saved data stays in place; Lunavect will ask again later.",
+    "es": "El cliente no pudo cargar los datos de uso. Los datos guardados se conservan; Lunavect volverá a solicitarlos más tarde.",
+    "fr": "Le client n’a pas pu charger les données d’utilisation. Les données enregistrées sont conservées ; Lunavect réessaiera plus tard.",
+    "zh-Hans": "客户端无法加载使用数据。已保存的数据保持不变；Lunavect 稍后会再次请求。"
+  },
+  "Лимит исчерпан. Сохранённые данные остаются на месте; Lunavect обновит их после сброса.": {
+    "de": "Das Limit ist ausgeschöpft. Die gespeicherten Daten bleiben erhalten; Lunavect aktualisiert sie nach dem Zurücksetzen.",
+    "en": "The limit is used up. Saved data stays in place; Lunavect will update it after the reset.",
+    "es": "El límite está agotado. Los datos guardados se conservan; Lunavect los actualizará después del reinicio.",
+    "fr": "La limite est épuisée. Les données enregistrées sont conservées ; Lunavect les mettra à jour après la réinitialisation.",
+    "zh-Hans": "额度已用完。已保存的数据保持不变；Lunavect 会在重置后更新。"
+  },
+  "Лимиты подписки недоступны": {
+    "de": "Abo-Limits nicht verfügbar",
+    "en": "Subscription limits unavailable",
+    "es": "Límites de suscripción no disponibles",
+    "fr": "Limites de l’abonnement indisponibles",
+    "zh-Hans": "订阅额度不可用"
+  },
+  "Лимиты подписки недоступны: Claude Code не вошёл в аккаунт с подпиской или использует оплату через API.": {
+    "de": "Abo-Limits sind nicht verfügbar: Claude Code ist nicht mit einem Abo-Konto angemeldet oder rechnet über die API ab.",
+    "en": "Subscription limits are unavailable: Claude Code is not signed in with a subscription account or uses API billing.",
+    "es": "Los límites de la suscripción no están disponibles: Claude Code no ha iniciado sesión con una cuenta de suscripción o usa facturación por API.",
+    "fr": "Les limites de l’abonnement ne sont pas disponibles : Claude Code n’est pas connecté avec un compte d’abonnement ou utilise la facturation par API.",
+    "zh-Hans": "订阅额度不可用：Claude Code 未使用订阅账户登录，或正在使用 API 计费。"
+  },
+  "Нужно подтвердить доверие к папке": {
+    "de": "Ordner muss als vertrauenswürdig bestätigt werden",
+    "en": "Folder trust needs confirmation",
+    "es": "Hay que confirmar la confianza en la carpeta",
+    "fr": "La confiance dans le dossier doit être confirmée",
+    "zh-Hans": "需要确认信任该文件夹"
+  },
+  "Окно лимита ещё не началось": {
+    "de": "Limitfenster hat noch nicht begonnen",
+    "en": "Limit window has not started",
+    "es": "La ventana del límite no ha empezado",
+    "fr": "La fenêtre de limite n’a pas commencé",
+    "zh-Hans": "额度窗口尚未开始"
+  },
+  "Окно лимита ещё не началось: оно начнётся с первым запросом.": {
+    "de": "Das Limitfenster hat noch nicht begonnen: Es beginnt mit der ersten Anfrage.",
+    "en": "The limit window has not started yet: it starts with the first request.",
+    "es": "La ventana del límite aún no ha empezado: empezará con la primera solicitud.",
+    "fr": "La fenêtre de limite n’a pas encore commencé : elle commencera avec la première requête.",
+    "zh-Hans": "额度窗口尚未开始：将在第一次请求时开始。"
+  },
   "Сжимает контекст": {
     "de": "Komprimiert Kontext",
     "en": "Compacting context",
@@ -4956,11 +5019,11 @@
     "zh-Hans": "0% 为实色底层，100% 仅保留系统玻璃效果。模糊和色调随墙纸及 macOS 设置调整。"
   },
   "Лимит исчерпан": {
-    "de": "Limit erreicht",
-    "en": "Limit reached",
-    "es": "Límite alcanzado",
-    "fr": "Limite atteinte",
-    "zh-Hans": "已达上限"
+    "de": "Limit ausgeschöpft",
+    "en": "Limit used up",
+    "es": "Límite agotado",
+    "fr": "Limite épuisée",
+    "zh-Hans": "额度已用完"
   },
   "Нет связи с Claude": {
     "de": "Keine Verbindung zu Claude",

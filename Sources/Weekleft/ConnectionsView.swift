@@ -165,11 +165,12 @@ struct ConnectionsView: View {
                     Text(L("Ждём соединение. Данные обновятся автоматически.")).font(.system(size: 12)).foregroundStyle(.secondary)
                 } else {
                     Text(L(issue)).font(.system(size: 12)).foregroundStyle(.orange)
-                    let needsLogin = issue == UsageError.notSignedIn.errorDescription
-                    let needsUsage = issue == UsageError.claudeSignInRequired.errorDescription
-                    if needsLogin || needsUsage {
-                        Button(L(needsLogin ? "Войти снова" : "Завершить настройку Claude Code")) {
-                            selectedRepair = needsLogin ? .signIn : .reviewUsage; selectedProvider = id
+                    // The saved message maps to its typed reason; sign-in, setup and the
+                    // probe folder's trust question each open their own Terminal step.
+                    let repair = ClientIntegrationIssue.legacy(issue, provider: id, capability: id == .codex ? .rateLimits : .usageProbe)?.repair
+                    if let repair, repair == .signIn || repair == .reviewUsage {
+                        Button(L(repair.title)) {
+                            selectedRepair = repair; selectedProvider = id
                         }.buttonStyle(.link)
                     }
                 }
