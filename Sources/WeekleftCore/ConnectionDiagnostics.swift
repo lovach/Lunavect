@@ -200,12 +200,15 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
     public let sourceIssue: ClientIntegrationIssue?
     /// Typed reason of the shown issue, including one recognized from a saved message.
     public let issueReason: ClientIntegrationIssue.Reason?
+    /// Recent Claude sessions ran only in Claude Desktop, where the status line does not run.
+    public let statusLineDesktopOnly: Bool
     public var id: ProviderID { provider }
 
     public init(provider: ProviderID, clientFound: Bool, signIn: ClientConnection.SignInState,
                 eventsConfigured: Bool, snapshot: UsageSnapshot?, sessionIssue: String?, now: Date = Date(),
-                sourceIssue: ClientIntegrationIssue? = nil) {
+                sourceIssue: ClientIntegrationIssue? = nil, statusLineDesktopOnly: Bool = false) {
         self.provider = provider; self.clientFound = clientFound; self.eventsConfigured = eventsConfigured
+        self.statusLineDesktopOnly = provider == .claude && statusLineDesktopOnly
         let typed = sourceIssue?.provider == provider ? sourceIssue : nil
         self.sourceIssue = typed
         quotaAgeMinutes = snapshot?.fetchedAt.map { max(0, Int(now.timeIntervalSince($0) / 60)) }
@@ -274,6 +277,10 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         case .ready: return nil
         }
     }
+    /// An explanation that accompanies any state; not an error.
+    public var note: String? {
+        statusLineDesktopOnly ? "Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage" : nil
+    }
     public var guidance: String {
         if state == .sourceError, let reason = issueReason,
            [.limitReached, .windowInactive, .usageFetchFailed, .workspaceTrustRequired, .subscriptionUnavailable].contains(reason) {
@@ -291,6 +298,23 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         case .eventsMissing: return "Восстановим обработчики Lunavect, сохранив остальные настройки. Codex может отдельно запросить доверие через /hooks."
         case .ready: return "Свежие лимиты получены, локальные обработчики настроены. События сессий появляются во время работы в клиенте."
         }
+    }
+}
+
+/// Claude Code runs the statusLine command only in its terminal interface. Sessions
+/// started from Claude Desktop run it headless: hooks work, the status line does not.
+public enum ClaudeStatusLineReach {
+    public static let lookback: TimeInterval = 6 * 3600
+    /// True when every Claude session of the last hours ran in Claude Desktop and the
+    /// status line has not reported since the newest of them.
+    public static func onlyDesktopSessions(_ rows: [AgentSession], statusLineObservedAt: Date?, now: Date,
+                                           lookback: TimeInterval = lookback) -> Bool {
+        let recent = rows.filter {
+            let age = now.timeIntervalSince($0.updatedAt)
+            return $0.provider == .claude && age <= lookback && age >= -60
+        }
+        guard let newest = recent.map(\.updatedAt).max(), recent.allSatisfy({ $0.client == .desktop }) else { return false }
+        return statusLineObservedAt.map { $0 < newest } ?? true
     }
 }
 

@@ -3723,6 +3723,13 @@
     "fr": "État des sessions",
     "zh-Hans": "会话状态"
   },
+  "Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage": {
+    "de": "Die Statuszeile läuft in Claude Desktop nicht; Limits werden über /usage aktualisiert",
+    "en": "The status line doesn't run in Claude Desktop; limits refresh through /usage",
+    "es": "La línea de estado no funciona en Claude Desktop; los límites se actualizan mediante /usage",
+    "fr": "La ligne d’état ne fonctionne pas dans Claude Desktop ; les limites sont actualisées via /usage",
+    "zh-Hans": "状态栏在 Claude Desktop 中不运行；额度通过 /usage 更新"
+  },
   "Строка меню": {
     "de": "Menüleiste",
     "en": "Menu Bar",

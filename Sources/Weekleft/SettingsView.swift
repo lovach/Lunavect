@@ -159,7 +159,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     @ViewBuilder private var page: some View {
         switch section {
         case .limits:
-            LimitsOverview(store: store) { section = .connections }
+            LimitsOverview(store: store, claudeNote: ClaudeStatusLineReach.onlyDesktopSessions(
+                sessions.sessions, statusLineObservedAt: ClaudeProvider.statusLineObservedAt(), now: Date())
+                ? L("Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage") : nil) { section = .connections }
         case .general:
             AppBehaviorSettings(features: features)
             GroupBox {
@@ -519,6 +521,8 @@ struct FullRowDisclosureStyle: DisclosureGroupStyle {
 
 struct LimitsOverview: View {
     @ObservedObject var store: AppStore
+    /// Why Claude's limits come only from /usage (Desktop sessions), shown under its card.
+    var claudeNote: String? = nil
     var onConnections: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -530,6 +534,10 @@ struct LimitsOverview: View {
                 ForEach(store.providers) { id in
                     LimitsProviderSummary(snapshot: store.snapshots.first { $0.provider == id } ?? UsageSnapshot(provider: id),
                                           showFiveHour: store.preferences.showFiveHour, now: context.date)
+                    if id == .claude, let claudeNote {
+                        InterfaceLabel(claudeNote, .info).font(.system(size: 12)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("claude-desktop-status-line")
+                    }
                 }
             }
             if !store.providers.isEmpty {
@@ -574,15 +582,17 @@ struct LimitsProviderSummary: View {
                         ForEach(quotas) { quota in
                             DetailedQuotaMeter(title: quota.name, window: quota.window, status: quota.status(now: now),
                                                tint: activityAccent(.claude, adaptive: true, scheme: scheme), now: now)
-                            if quota.isStale(now: now) {
+                            if quota.status(now: now).isStale {
                                 Text(L("Данные этого лимита устарели")).font(.system(size: 11)).foregroundStyle(.orange)
                             }
                         }
                     }.accessibilityIdentifier("claude-model-quotas")
                 }
-                if snapshot.isStale(now: now) || snapshot.issue != nil {
+                // Per shown window: 0 %, a passed reset and "no limits" carry their own sentence.
+                let savedValues = ([snapshot.weekly] + (showFiveHour ? [snapshot.fiveHour] : [])).contains { snapshot.status(of: $0, now: now).isStale }
+                if savedValues || snapshot.issue != nil || (!snapshot.hasQuota && snapshot.unlimited != true) {
                     VStack(alignment: .leading, spacing: 4) {
-                        InterfaceLabel(L(snapshot.hasQuota ? "Показаны последние полученные данные" : "Ждём первые данные"), .history)
+                        InterfaceLabel(L(snapshot.hasQuota || snapshot.unlimited == true ? "Показаны последние полученные данные" : "Ждём первые данные"), .history)
                             .foregroundStyle(.orange)
                         if let issue = snapshot.issue { Text(L(issue)).foregroundStyle(.secondary) }
                     }.font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)

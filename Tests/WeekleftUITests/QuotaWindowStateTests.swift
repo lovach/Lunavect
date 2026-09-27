@@ -149,6 +149,10 @@ final class QuotaWindowStateTests: XCTestCase {
                     try render(LimitsProviderSummary(snapshot: snapshot, showFiveHour: true, now: now).frame(width: 520).padding(12)
                         .background(Color(nsColor: .windowBackgroundColor)), size: nil, name: "\(language)-\(set)-settings-\(snapshot.provider.rawValue)")
                 }
+                var both = WidgetPreferences(); both.enabledProviders = [.claude, .codex]
+                let store = AppStore(state: SharedState(snapshots: data, preferences: both), savesChanges: false, isolated: true)
+                try render(LimitsOverview(store: store, claudeNote: L("Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage"), onConnections: {})
+                    .frame(width: 560).padding(12).background(Color(nsColor: .windowBackgroundColor)), size: nil, name: "\(language)-\(set)-limits-page")
                 let bar = MenuBarLimitsContent(frame: NSRect(x: 0, y: 0, width: 192, height: 24))
                 bar.entries = model.entries; bar.showsResetCountdown = true
                 bar.frame.size.width = bar.preferredWidth

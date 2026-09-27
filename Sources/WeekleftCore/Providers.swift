@@ -181,6 +181,13 @@ public enum ClaudeProvider {
         return snapshot
     }
     public static var usageCacheURL: URL { directory.appendingPathComponent("usage.json") }
+    /// When the status line last delivered quotas (its receipt time), if ever.
+    public static func statusLineObservedAt(url: URL = cacheURL) -> Date? {
+        guard let data = try? LocalStateRecovery.read(from: url, maximumBytes: 1_000_000),
+              let snapshot = try? JSONDecoder().decode(UsageSnapshot.self, from: data),
+              snapshot.source == "Claude Code statusLine" else { return nil }
+        return snapshot.fetchedAt
+    }
     public static func isTrustedSnapshot(_ snapshot: UsageSnapshot) -> Bool {
         snapshot.provider == .claude && ["Claude Code statusLine", ClaudeUsageProbe.source].contains(snapshot.source)
             && snapshot.fetchedAt != nil && snapshot.hasQuota

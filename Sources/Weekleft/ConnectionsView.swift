@@ -38,6 +38,7 @@ struct ConnectionsView: View {
     @State private var repairProvider: ProviderID?
     @State private var selectedRepair: ConnectionDiagnostic.Repair?
     @State private var claudeBridge = ClaudeProvider.statusLineInstalled()
+    @State private var statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
     @State private var disconnectedProvider: ProviderID?
     @State private var disconnectedEventsOnly = false
     /// The card the user refreshed; background polls do not show progress in every card.
@@ -102,7 +103,8 @@ struct ConnectionsView: View {
             }.padding(8).fixedSize(horizontal: false, vertical: true)
         }.onAppear { sessions.updateHookConfiguration() }
             .sheet(item: $selectedProvider, onDismiss: {
-                claudeBridge = ClaudeProvider.statusLineInstalled(); sessions.updateHookConfiguration()
+                claudeBridge = ClaudeProvider.statusLineInstalled(); statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
+                sessions.updateHookConfiguration()
             }) { id in
                 ConnectionSetupView(provider: id, store: store, sessions: sessions, repair: selectedRepair)
             }
@@ -159,6 +161,10 @@ struct ConnectionsView: View {
             if hasQuota && !freshQuota {
                 Text(L("Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            if id == .claude, ClaudeStatusLineReach.onlyDesktopSessions(sessions.sessions, statusLineObservedAt: statusLineObservedAt, now: Date()) {
+                InterfaceLabel(L("Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage"), .info)
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if let issue = snapshot?.issue, !(id == .claude && issue == UsageError.waitingForClaude.errorDescription) {
                 if store.network.isOffline {
