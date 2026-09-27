@@ -1,9 +1,10 @@
 import XCTest
 import Darwin
+import os
 @testable import WeekleftCore
 
 final class IDEBridgeTests: XCTestCase {
-    private func withSocket(timeout: TimeInterval = 0.2, _ body: (IDEBridge.Connection, Int32) throws -> Void) throws {
+    private func withSocket(timeout: TimeInterval = 0.2, uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }, _ body: (IDEBridge.Connection, Int32) throws -> Void) throws {
         // A real private Unix socket, without an editor, provider or user session.
         let root = URL(fileURLWithPath: "/tmp/lunavect-test-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -19,7 +20,7 @@ final class IDEBridgeTests: XCTestCase {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         guard bound == 0, listen(listener, 1) == 0 else { throw POSIXError(.EIO) }
-        let client = try IDEBridge.Connection(path: path, timeout: timeout)
+        let client = try IDEBridge.Connection(path: path, timeout: timeout, uptime: uptime)
         let peer = accept(listener, nil, nil)
         guard peer >= 0 else { throw POSIXError(.EIO) }
         defer { Darwin.close(peer) }
@@ -63,6 +64,118 @@ final class IDEBridgeTests: XCTestCase {
             let before = ProcessInfo.processInfo.systemUptime
             XCTAssertThrowsError(try client.receive()) { XCTAssertEqual($0 as? SessionError, .timeout) }
             XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - before, 2, "An unfinished reply must not hold navigation indefinitely")
+        }
+    }
+
+    func testConnectionUsesOneMonotonicBudgetEvenForBufferedReplies() throws {
+        let clock = OSAllocatedUnfairLock(initialState: TimeInterval(100))
+        try withSocket(timeout: 10, uptime: { clock.withLock { $0 } }) { client, peer in
+            try write(Data("{\"status\":\"ready\"}\n{\"status\":\"focused\"}\n".utf8), to: peer)
+            XCTAssertEqual(try client.receive().status, "ready")
+            clock.withLock { $0 = 111 }
+            XCTAssertThrowsError(try client.receive()) { XCTAssertEqual($0 as? SessionError, .timeout) }
+            XCTAssertThrowsError(try client.send(Data())) { XCTAssertEqual($0 as? SessionError, .timeout) }
+        }
+    }
+
+    func testCancelledSocketReadAndWriteStopBeforeTheLongDeadline() async throws {
+        for writing in [false, true] {
+            let ready = expectation(description: "Socket work started")
+            let task = Task {
+                try await SessionProcess.detached {
+                    try self.withSocket(timeout: 30) { client, _ in
+                        ready.fulfill()
+                        // No peer reads/replies: eventually fills the send buffer.
+                        if writing { while true { try client.send(Data(repeating: 65, count: 16_384)) } }
+                        else { _ = try client.receive() }
+                    }
+                }
+            }
+            defer { task.cancel() }
+            await fulfillment(of: [ready], timeout: 2)
+            try await Task.sleep(for: .milliseconds(100))
+            let start = ProcessInfo.processInfo.systemUptime
+            task.cancel()
+            do { try await task.value; XCTFail("Expected cancellation") }
+            catch { XCTAssertTrue(error is CancellationError, "Unexpected \(error)") }
+            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.8)
+        }
+    }
+
+    func testSocketPeerExitPreservesFinalReplyAndClosedConnectionFailsPromptly() throws {
+        try withSocket(timeout: 30) { client, peer in
+            try write(Data("{\"status\":\"focused\"}\n".utf8), to: peer)
+            shutdown(peer, SHUT_WR)
+            XCTAssertEqual(try client.receive().status, "focused")
+            let start = ProcessInfo.processInfo.systemUptime
+            XCTAssertThrowsError(try client.receive()) { XCTAssertEqual($0 as? SessionError, .unavailable) }
+            client.closeConnection()
+            XCTAssertThrowsError(try client.receive()) { XCTAssertEqual($0 as? SessionError, .unavailable) }
+            XCTAssertThrowsError(try client.send(Data())) { XCTAssertEqual($0 as? SessionError, .unavailable) }
+            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.2)
+        }
+    }
+
+    func testExchangeCancellationClosesPeerBeforeAndAfterEditorCallback() async throws {
+        for callback in [false, true] {
+            let root = URL(fileURLWithPath: "/tmp/lunavect-test-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            defer { try? FileManager.default.removeItem(at: root) }
+            let path = root.appendingPathComponent("exchange.sock").path
+            let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard listener >= 0 else { throw POSIXError(.EIO) }
+            defer { Darwin.close(listener) }
+            var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
+            address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: Array(path.utf8) + [0]) }
+            let bound = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+            }
+            guard bound == 0, listen(listener, 1) == 0, fcntl(listener, F_SETFL, O_NONBLOCK) == 0 else { throw POSIXError(.EIO) }
+            let received = expectation(description: "Peer received navigation request")
+            let server = Task {
+                try await SessionProcess.detached {
+                    func readable(_ fd: Int32) throws {
+                        var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                        guard poll(&descriptor, 1, 3000) > 0 else { throw SessionError.timeout }
+                    }
+                    try readable(listener)
+                    let peer = accept(listener, nil, nil)
+                    guard peer >= 0 else { throw POSIXError(.EIO) }
+                    defer { Darwin.close(peer) }
+                    var one: Int32 = 1
+                    guard setsockopt(peer, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size)) == 0 else { throw POSIXError(.EIO) }
+                    try readable(peer)
+                    var bytes = [UInt8](repeating: 0, count: 4096)
+                    guard Darwin.read(peer, &bytes, bytes.count) > 0 else { throw SessionError.invalidResponse }
+                    received.fulfill()
+                    if callback {
+                        let reply = "{\"status\":\"ready\",\"url\":\"vscode://lovach.lunavect/focus/\(UUID().uuidString)\"}\n"
+                        try self.write(Data(reply.utf8), to: peer)
+                    }
+                    try readable(peer)
+                    XCTAssertEqual(Darwin.read(peer, &bytes, bytes.count), 0, "Cancelled exchange must close its connection")
+                }
+            }
+            defer { server.cancel() }
+            let endpoint = IDEBridge.Descriptor(version: 1, id: UUID().uuidString, editor: .vscode, pid: 42,
+                                                appPath: "/Applications/Fixture.app", bundleIdentifier: "com.microsoft.VSCode",
+                                                socketPath: path, updatedAt: Date().timeIntervalSince1970)
+            let task = Task {
+                try await IDEBridge.exchange(endpoint, action: "open", target: .init(kind: "terminal", ancestors: [42]), timeout: 30) { _, _ in
+                    XCTAssertTrue(callback)
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    return false
+                }
+            }
+            defer { task.cancel() }
+            await fulfillment(of: [received], timeout: 2)
+            let start = ProcessInfo.processInfo.systemUptime
+            if !callback { task.cancel() }
+            do { _ = try await task.value; XCTFail("Expected cancellation") }
+            catch { XCTAssertTrue(error is CancellationError, "Unexpected \(error)") }
+            try await server.value
+            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.8)
         }
     }
 

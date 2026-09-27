@@ -450,6 +450,43 @@ final class UXRegressionTests: XCTestCase {
         XCTAssertEqual(reopened, 1, "A late failure brings the panel back instead of a detached alert")
     }
 
+    @MainActor func testCancelledNavigationReleasesPendingRowWithoutReportingOrHidingPanel() async throws {
+        let state = SessionPanelState()
+        let row = AgentSession(provider: .codex, sessionID: "fixture", title: "Example", cwd: "", phase: .ready, updatedAt: Date(), observedAt: Date())
+        let success = expectation(forNotification: .lunavectSessionOpened, object: nil)
+        success.isInverted = true
+        var reopened = 0
+        state.onHiddenIssue = { reopened += 1 }
+        for fail in [false, true] {
+            let task = Task {
+                await state.open(row) { _ in
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    if fail { throw CancellationError() }
+                }
+            }
+            let opened = await task.value
+            XCTAssertFalse(opened)
+            XCTAssertTrue(state.openingIDs.isEmpty)
+            XCTAssertNil(state.issue)
+        }
+        let cancelledBeforeOpen = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await state.open(row) { _ in XCTFail("Cancelled navigation must not start") }
+        }
+        let opened = await cancelledBeforeOpen.value
+        XCTAssertFalse(opened)
+        let cancelledRefresh = Task {
+            await state.openSession(id: "missing", rows: [], refresh: { withUnsafeCurrentTask { $0?.cancel() } }) { _ in
+                XCTFail("Cancelled refresh must not open a session")
+            }
+        }
+        let refreshed = await cancelledRefresh.value
+        XCTAssertFalse(refreshed)
+        XCTAssertNil(state.issue)
+        XCTAssertEqual(reopened, 0)
+        await fulfillment(of: [success], timeout: 0.1)
+    }
+
     @MainActor func testClosingThePanelEndsItsMessageAndHiddenSessionsPage() async throws {
         let state = SessionPanelState(isVisible: true)
         state.issue = "A failed notification open"

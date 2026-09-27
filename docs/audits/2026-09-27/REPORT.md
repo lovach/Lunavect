@@ -1,8 +1,8 @@
 # Full local audit — 2026-09-27
 
-The expanded local audit found and fixed **seven defect groups** that the baseline tests did not catch. **Fourteen behavior tests** were added: ten covering the reproduced defects and their adjacent boundaries, one existing FIFO behavior, one independent interval oracle, and two real Unix-socket protocol tests. The application design, compatibility identifiers, data locations and telemetry decision are preserved.
+The initial expanded local audit found and fixed **seven defect groups** that the baseline tests did not catch. **Fourteen behavior tests** were added: ten covering the reproduced defects and their adjacent boundaries, one existing FIFO behavior, one independent interval oracle, and two real Unix-socket protocol tests. The application design, compatibility identifiers, data locations and telemetry decision are preserved.
 
-This is a bounded, evidence-led audit of this checkout, not a guarantee that every possible runtime scenario works. The main remaining product risks concern live host integration and synchronous Terminal automation. See [findings](FINDINGS.md), [scenario matrix](SCENARIOS.md), [file coverage](coverage.json) and [verification metadata](verification.json).
+This is a bounded, evidence-led audit of this checkout, not a guarantee that every possible runtime scenario works. The subsequent [navigation hardening](NAVIGATION.md) corrects both recorded transport risks and adds nine behavior tests: the new full check passes 732 Swift tests (59 skips), 108 Python tests and 8 Node tests. The main remaining product risks concern live host integration, including Automation permissions in the signed app. See [findings](FINDINGS.md), [scenario matrix](SCENARIOS.md), [file coverage](coverage.json) and [verification metadata](verification.json).
 
 ## Source and repository
 
@@ -12,7 +12,7 @@ This is a bounded, evidence-led audit of this checkout, not a guarantee that eve
 - The untracked `Lunavect 2.xcodeproj` in the owner's checkout was preserved. Its project file is older and omits recent IDE integrations; audited scripts use the canonical project.
 - 286 source/config/test/script/document files were initially inventoried. The coverage ledger distinguishes boundary review, focused inspection, automated checks and inventory-only documentation. It does not claim a line-by-line review of every test, resource or document. 281 implementation/test/config/resource files are fingerprinted separately from the audit narrative.
 
-## Fresh verification
+## Initial audit verification
 
 | Check | Result |
 | --- | --- |
@@ -44,7 +44,7 @@ The current separation remains useful: `WeekleftCore` handles normalized values 
 
 The audit exposed duplicated freshness decisions between quota presentation and notification generation; F05 now uses the same window rules. Shared readers likewise now use one descriptor-based bounded read. Path-change invalidation extends existing lifecycle generations rather than introducing another refresh subsystem. No large architectural rewrite was justified by the evidence.
 
-Remaining concentration points are the large app/session stores, native automation on MainActor, wall-clock budgeting in the IDE transport, and external/local provider formats that can change. These require explicit contract/live checks; merely moving functions into more files would not resolve those risks.
+Remaining concentration points are the large app/session stores, signed-app automation, and external/local provider formats that can change. MainActor automation and wall-clock transport budgeting were addressed in the [continuation](NAVIGATION.md). These require explicit contract/live checks; merely moving functions into more files would not resolve those risks.
 
 ## Performance
 
@@ -66,7 +66,7 @@ No provider credential store, token or keychain item was read. No real session t
 
 ## Remaining validation before a release claim
 
-1. Resolve or explicitly accept the synchronous Terminal-navigation risk and verify actual focus/Automation permissions in the signed app.
+1. Verify the new helper-based Terminal navigation and actual focus/Automation permissions in the signed app; the synchronous automation path has been removed.
 2. Exercise authenticated provider panels separately from inert terminal fixtures, including closed/stale/ambiguous editor windows and supported JetBrains builds. Earlier September 26 live fixtures remain historical, not rerun evidence.
 3. Verify desktop WidgetKit placement/refresh through the intended update and restart cycle; test the signed distribution, helper lifecycle and required macOS/hardware targets.
 4. Complete native input/VoiceOver, physical keyboard focus and broader language/contrast/scale checks. Optional screenshot tests that were not run remain listed as such.
@@ -74,3 +74,5 @@ No provider credential store, token or keychain item was read. No real session t
 An early extra-render attempt rejected incorrect 2x expectations for the AppKit 1x fixture; the wrapper now declares the actual mixed scale and the fresh run passes. An initial socket fixture blocked its own oversized writer; its sampled stack identified the test writer, and the fixture now uses a bounded nonblocking peer buffer. Neither issue was classified as a product failure.
 
 All application changes were followed by a full check. The two final socket tests were followed by another full check. Native/performance runs used the same production code; later changes were test/audit files only. Final audit prose is written after verification; the implementation-file hashes are checked again to distinguish report edits from code changes.
+
+The navigation continuation has its own fresh full-check and TSan evidence in [NAVIGATION.md](NAVIGATION.md) and [navigation-verification.json](navigation-verification.json). Initial render/performance results above were not rerun or relabelled.

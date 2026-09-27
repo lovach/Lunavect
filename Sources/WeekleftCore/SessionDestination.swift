@@ -127,6 +127,39 @@ public enum SessionOpeningError: LocalizedError, Equatable {
 /// Brings an existing terminal tab to the front by its controlling device.
 /// The device path is validated before it is placed in the script.
 public enum TerminalLocation {
+    /// Run automation in an owned helper process, so a stuck Apple event cannot
+    /// block the app's main thread. Only validated device/app names enter the script.
+    public static func focus(tty: String, app: String, timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
+        try Task.checkCancellation()
+        guard let source = focusScript(tty: tty, app: app) else { throw SessionOpeningError.terminalFocusFailed(app) }
+        return try await executeFocusScript(source, app: app, timeout: timeout)
+    }
+
+    static func executeFocusScript(_ source: String, app: String, timeout: TimeInterval,
+                                   run: @escaping @Sendable (String, TimeInterval) throws -> Data = {
+                                       try SessionProcess.run(path: "/usr/bin/osascript", arguments: ["-e", $0], timeout: $1)
+                                   }) async throws -> Bool {
+        // Numeric errors survive localization; stderr may contain script details
+        // and is deliberately discarded by the process runner.
+        let script = "try\n" + source + "\non error errorMessage number errorNumber\nreturn \"error:\" & errorNumber\nend try"
+        do {
+            guard timeout.isFinite, timeout > 0 else { throw SessionError.timeout }
+            let data = try await SessionProcess.detached { try run(script, timeout) }
+            let reply = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if reply == "true" { return true }
+            if reply == "false" { return false }
+            if let reply, reply.hasPrefix("error:"), let code = Int(reply.dropFirst(6)) {
+                throw focusError(code: code, app: app)
+            }
+            throw SessionOpeningError.terminalFocusFailed(app)
+        } catch {
+            try Task.checkCancellation()
+            if error is CancellationError || error is SessionOpeningError { throw error }
+            if error as? SessionError == .timeout { throw SessionOpeningError.terminalFocusTimedOut(app) }
+            throw SessionOpeningError.terminalFocusFailed(app)
+        }
+    }
+
     public static func focusError(code: Int?, app: String) -> SessionOpeningError {
         switch code {
         case -1743: return .terminalAutomationDenied(app)

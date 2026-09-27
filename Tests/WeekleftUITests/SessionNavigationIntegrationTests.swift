@@ -88,6 +88,22 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         }
     }
 
+    @MainActor func testCancelledTerminalFocusDoesNotProceedToResume() async throws {
+        let row = AgentSession(provider: .claude, sessionID: UUID().uuidString, title: "Fixture", cwd: "/tmp",
+                               client: .terminal, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        let resolver = ClientExecutableResolver(discoverClaude: { XCTFail("Cancelled focus must not resolve or resume a client"); return nil })
+        for focused in [false, true] {
+            let task = Task {
+                try await SessionNavigation.open(row, resolver: resolver, focus: { _ in
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    return focused
+                })
+            }
+            do { try await task.value; XCTFail("Expected cancellation") }
+            catch { XCTAssertTrue(error is CancellationError) }
+        }
+    }
+
     @MainActor func testSelectedUnavailableClientFailsBeforeAnySystemNavigation() async throws {
         let session = AgentSession(provider: .codex, sessionID: "01234567-89ab-cdef-0123-456789abcdef",
                                    title: "Fixture", cwd: "/missing/fixture/project", client: .terminal,

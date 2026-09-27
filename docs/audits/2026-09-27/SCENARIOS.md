@@ -45,6 +45,21 @@
 | New: network/telemetry/dependency and companion source inspection | app/IDE sources, Package.swift, plist, privacy docs | No app telemetry integration found; updater/provider traffic remains documented |
 | New: concurrency instrumented run | TSan: lifecycle, persistence, LocalFileCache | 48 tests passed; no TSan warnings in this run, not exhaustive interleavings |
 
+## Navigation continuation: additional scenarios
+
+| Scenario | Fresh evidence | Boundary |
+| --- | --- | --- |
+| Valid/malformed AppleScript result, numeric permission/timeout error | Real inert `osascript` execution | Passed; no real Automation permission request |
+| Hung helper ignores TERM; UI actor remains responsive | Private process fixture and main-actor test | Passed; owned child gone at return |
+| Cancel before launch / during helper / before resume | Process and native routing tests | Passed; no second client launched |
+| Socket peer silent / send buffer full | Real private Unix sockets | Cancellation completes before long request deadline |
+| Peer closes after final frame; already-closed connection | Real private Unix sockets | Final frame retained; later operation fails promptly |
+| Monotonic budget expires while a second reply is buffered | Injected uptime and real socket | Late reply rejected; actual wall clock not modified |
+| Cancel before reply / inside editor callback | Actual async exchange and private peer | Cancellation retained, peer observes EOF |
+| Cancelled panel open / catalog refresh | Native panel-state tests | No false success, error, reopening or stuck pending row |
+
+These checks are recorded in [NAVIGATION.md](NAVIGATION.md). They add nine tests to the initial audit's fourteen new tests. None of the live boundaries below was relabelled as passed.
+
 ## Explicitly unverified live scenarios
 
 - A newly authenticated account in every Claude/Codex host, provider extension panel and remote workspace.

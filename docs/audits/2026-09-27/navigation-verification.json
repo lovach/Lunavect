@@ -1,0 +1,188 @@
+{
+  "date": "2026-09-27",
+  "base_commit": "e94078be3b858cd1c02194f2e6376cc8ea520b21",
+  "status": "local navigation hardening verified; signed Automation and live IDE validation remain open",
+  "new_behavior_tests": 9,
+  "full_check": {
+    "run": "run.Jwlb3wfU",
+    "status": "passed",
+    "checks": {
+      "source_checkpoint": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "python_tests": {
+        "status": "passed",
+        "exit_code": 0,
+        "counts": {
+          "total": 108,
+          "passed": 108,
+          "skipped": 0,
+          "failures": 0
+        }
+      },
+      "ide_connector_tests": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "swift_tests": {
+        "status": "passed",
+        "exit_code": 0,
+        "counts": {
+          "total": 791,
+          "passed": 732,
+          "skipped": 59,
+          "failures": 0
+        }
+      },
+      "widget_probe_build": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "widget_fallback": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "widget_private_abi": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "unsigned_build": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "hook_helper": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "product_resources": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "intent_resources": {
+        "status": "passed",
+        "exit_code": 0,
+        "counts": {
+          "total": 1,
+          "passed": 1,
+          "skipped": 0,
+          "failures": 0
+        }
+      },
+      "build_provenance": {
+        "status": "passed",
+        "exit_code": 0
+      },
+      "native_render": {
+        "status": "not-run",
+        "reason": "Separate opt-in scripts/check-native-renders.py command."
+      },
+      "live_clients": {
+        "status": "not-run",
+        "reason": "No account/client integration enabled by this command."
+      },
+      "desktop_widget": {
+        "status": "not-run",
+        "reason": "Requires actual desktop placement and refresh checks."
+      },
+      "signed_distribution": {
+        "status": "not-run",
+        "reason": "No signing, notarization, install or update performed."
+      },
+      "supported_macos_hardware": {
+        "status": "not-run",
+        "reason": "One host does not prove the supported OS/hardware matrix."
+      }
+    },
+    "node_tests_passed": 8,
+    "source_integrity": "observed-unchanged",
+    "toolchain": {
+      "architecture": "arm64",
+      "macos": "26.6.2",
+      "python": "3.14.6",
+      "swift": {
+        "compiler_build": "swiftlang-6.3.3.1.3",
+        "status": "recorded",
+        "version": "6.3.3"
+      },
+      "xcode": {
+        "build": "17F113",
+        "status": "recorded",
+        "version": "26.6"
+      }
+    }
+  },
+  "focused_tests": {
+    "passed": 56,
+    "skipped": 3,
+    "failed": 0
+  },
+  "thread_sanitizer": {
+    "passed": 49,
+    "skipped": 3,
+    "failed": 0,
+    "reports": 0
+  },
+  "source": {
+    "base_hash_inventory": "verification.json#/source/files",
+    "changed_files": {
+      "Sources/Weekleft/SessionPanelContent.swift": {
+        "checked_sha256": "0fe42e7fae5ac7433520ede401b057250218a6c6da0c0913fade5887c47a5f78",
+        "current_sha256": "0fe42e7fae5ac7433520ede401b057250218a6c6da0c0913fade5887c47a5f78"
+      },
+      "Sources/Weekleft/SessionStore.swift": {
+        "checked_sha256": "f5bce440314950364a432c95027b5037b78f9754e7d1a9a88a33a1a90b6d0359",
+        "current_sha256": "f5bce440314950364a432c95027b5037b78f9754e7d1a9a88a33a1a90b6d0359"
+      },
+      "Sources/WeekleftCore/IDEBridge.swift": {
+        "checked_sha256": "6221db2e13b0ba0cd20b3d2e743a3a5f076c9bd064aaf9541c83d23a06d47e28",
+        "current_sha256": "6221db2e13b0ba0cd20b3d2e743a3a5f076c9bd064aaf9541c83d23a06d47e28"
+      },
+      "Sources/WeekleftCore/SessionDestination.swift": {
+        "checked_sha256": "13b3b35e6e276592a8e43a50590ccd542c52c757b97941d529ed343377630c78",
+        "current_sha256": "13b3b35e6e276592a8e43a50590ccd542c52c757b97941d529ed343377630c78"
+      },
+      "Sources/WeekleftCore/SessionSources.swift": {
+        "checked_sha256": "0f4c2c72fcb362b976820980091de873b5e488a4e7223e0872a523eff8255a0f",
+        "current_sha256": "0f4c2c72fcb362b976820980091de873b5e488a4e7223e0872a523eff8255a0f"
+      },
+      "Tests/WeekleftCoreTests/IDEBridgeTests.swift": {
+        "checked_sha256": "3f8cb42aecdf8385f1d387039e58d0fa074ca4012f367fb2c2320f54993ba4e6",
+        "current_sha256": "3f8cb42aecdf8385f1d387039e58d0fa074ca4012f367fb2c2320f54993ba4e6"
+      },
+      "Tests/WeekleftCoreTests/LocalProcessCancellationTests.swift": {
+        "checked_sha256": "d3efaf1e99df0cce3e30854c3b5e1c8baa48f5657c686e16f64f056acd0c2632",
+        "current_sha256": "d3efaf1e99df0cce3e30854c3b5e1c8baa48f5657c686e16f64f056acd0c2632"
+      },
+      "Tests/WeekleftCoreTests/TerminalLocationTests.swift": {
+        "checked_sha256": "82340aaa8c22b2236d0dc7c2b8ba2bfc8e68ac85c57c8c1a7e694c55f5f0702f",
+        "current_sha256": "4c5583f6dcb84d3108092a4c33d0c6c39ace44f652a7f216e55ed474f2c3080b"
+      },
+      "Tests/WeekleftUITests/SessionNavigationIntegrationTests.swift": {
+        "checked_sha256": "1d518d50d658d95be6611f8162bc23d278b5120d87602f91bad42be6aa41b1de",
+        "current_sha256": "1d518d50d658d95be6611f8162bc23d278b5120d87602f91bad42be6aa41b1de"
+      },
+      "Tests/WeekleftUITests/UXRegressionTests.swift": {
+        "checked_sha256": "d9a05cc1e085247c178b575d4a06ba4f8a3e39c1cb9d9be682fd48827309b953",
+        "current_sha256": "d9a05cc1e085247c178b575d4a06ba4f8a3e39c1cb9d9be682fd48827309b953"
+      }
+    },
+    "post_check_changes": {
+      "Tests/WeekleftCoreTests/TerminalLocationTests.swift": "Only the obsolete two-line test comment was corrected; no executable code changed."
+    },
+    "implementation_file_count": 281,
+    "current_inventory_sha256": "f350ab08b47b7e1f3f0ab64feab2258dab3b33fa4f0393a161108cacf777729f"
+  },
+  "evidence_logs": [
+    "navigation-hardening-full-check.log",
+    "navigation-hardening-targeted-final.log",
+    "navigation-hardening-tsan.log"
+  ],
+  "limits": [
+    "No new signed installation or release",
+    "No actual Terminal/iTerm2 Automation attribution, denial or revocation exercise",
+    "No new real VS Code/JetBrains focus or authenticated provider panels",
+    "No clock change on this Mac",
+    "No new render, widget placement or hardware checks; initial evidence remains separate"
+  ]
+}

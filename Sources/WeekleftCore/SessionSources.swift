@@ -295,7 +295,8 @@ enum SessionProcess {
         process.currentDirectoryURL = FileManager.default.temporaryDirectory
         process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
         let fd = output.fileHandleForReading.fileDescriptor
-        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        let flags = fcntl(fd, F_GETFL)
+        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else { throw SessionError.unavailable }
         defer {
             try? input.fileHandleForWriting.close(); try? output.fileHandleForReading.close()
         }

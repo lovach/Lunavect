@@ -4,6 +4,12 @@ The current public release is **Lunavect 0.2.3 (189)**. These records distinguis
 
 [Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.3)
 
+## Unreleased local audit — September 27, 2026
+
+The [full audit](audits/2026-09-27/REPORT.md) corrected seven data/lifecycle/storage defect groups. Its [navigation continuation](audits/2026-09-27/NAVIGATION.md) then removed synchronous MainActor Terminal automation and made IDE socket waits monotonic and cancellable. The continuation's full check passed 732 Swift tests with 59 explicit skips, 108 Python tests and 8 Node tests; the unsigned app/widget build, resources and provenance passed. A focused TSan run passed 49 tests with 3 live-integration skips and no TSan reports.
+
+These are local, unreleased changes. Actual Automation attribution and permissions for the new Terminal helper still require a signed-app check; live editor/provider panels, desktop widget placement and the signed-update matrix were not newly exercised. Initial render/performance evidence is preserved separately rather than represented as a rerun.
+
 ## 0.2.3 release checks — September 26, 2026
 
 | Area | Result |

@@ -161,15 +161,17 @@ struct SessionOverflowPosition {
     /// a failure is shown on the panel, never on a popover that already closed.
     @discardableResult
     func open(_ row: AgentSession, using open: (AgentSession) async throws -> Void) async -> Bool {
-        guard !openingIDs.contains(row.id) else { return false }
+        guard !Task.isCancelled, !openingIDs.contains(row.id) else { return false }
         openingIDs.insert(row.id)
         defer { openingIDs.remove(row.id) }
         do {
             try await open(row)
+            try Task.checkCancellation()
             issue = nil
             NotificationCenter.default.post(name: .lunavectSessionOpened, object: nil)
             return true
         } catch {
+            guard !Task.isCancelled, !(error is CancellationError) else { return false }
             report((error as? LocalizedError)?.errorDescription ?? L(
                 "Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…»."))
             return false
@@ -182,9 +184,11 @@ struct SessionOverflowPosition {
     @discardableResult
     func openSession(id: String, rows: @autoclosure () -> [AgentSession], refresh: () async -> Void = {},
                      open: (AgentSession) async throws -> Void) async -> Bool {
+        guard !Task.isCancelled else { return false }
         var row = rows().first { $0.id == id }
         if row == nil {
             await refresh()
+            guard !Task.isCancelled else { return false }
             row = rows().first { $0.id == id }
         }
         guard let row else {

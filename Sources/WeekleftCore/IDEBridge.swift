@@ -95,6 +95,7 @@ public enum IDEBridge {
     public static func open(_ session: AgentSession,
                             activateApp: @escaping @Sendable (Int32) async -> Bool,
                             openURL: @escaping @Sendable (URL, URL) async -> Bool) async throws {
+        try Task.checkCancellation()
         // A legacy "vscode" label alone does not distinguish a terminal from
         // the provider extension. Require a captured origin before opening either.
         guard let location = session.ideLocation else { throw SessionOpeningError.ideSessionUnavailable(session.client.title) }
@@ -111,9 +112,9 @@ public enum IDEBridge {
             target = Target(kind: session.provider.rawValue, sessionID: session.sessionID, cwd: session.cwd)
         }
         guard target.valid else { throw SessionOpeningError.ideSessionUnavailable(name) }
-        let endpoints = await Task.detached { descriptors().filter { endpoint in
+        let endpoints = try await SessionProcess.detached { descriptors().filter { endpoint in
             endpoint.bundleIdentifier == location.bundleIdentifier && endpoint.appPath == location.appPath
-        } }.value
+        } }
         guard !endpoints.isEmpty else { throw SessionOpeningError.ideBridgeMissing(name) }
         var matches: [Descriptor] = [], unsupported = false
         let probes = await withTaskGroup(of: (Descriptor, Reply?).self, returning: [(Descriptor, Reply?)].self) { group in
@@ -124,6 +125,7 @@ public enum IDEBridge {
             for await result in group { results.append(result) }
             return results
         }
+        try Task.checkCancellation()
         for (endpoint, result) in probes {
             if result?.status == "matched" { matches.append(endpoint) }
             if result?.status == "ambiguous" { throw SessionOpeningError.ideAmbiguous(name) }
@@ -135,12 +137,20 @@ public enum IDEBridge {
         }
         // Swing's toFront selects an IDE project window, but macOS does not
         // grant a background Java application foreground focus from that alone.
-        if endpoint.editor == .jetbrains, !(await activateApp(endpoint.pid)) {
-            throw SessionOpeningError.ideSessionUnavailable(name)
+        if endpoint.editor == .jetbrains {
+            let activated = await activateApp(endpoint.pid)
+            try Task.checkCancellation()
+            guard activated else { throw SessionOpeningError.ideSessionUnavailable(name) }
         }
+        try Task.checkCancellation()
         let reply: Reply
         do { reply = try await exchange(endpoint, action: "open", target: target, timeout: 10, openURL: openURL) }
-        catch { throw SessionOpeningError.ideTimedOut(name) }
+        catch {
+            try Task.checkCancellation()
+            if error is CancellationError { throw error }
+            throw SessionOpeningError.ideTimedOut(name)
+        }
+        try Task.checkCancellation()
         switch reply.status {
         case "focused": return
         case "ambiguous": throw SessionOpeningError.ideAmbiguous(name)
@@ -152,15 +162,18 @@ public enum IDEBridge {
 
     static func exchange(_ descriptor: Descriptor, action: String, target: Target, timeout: TimeInterval,
                          openURL: @escaping @Sendable (URL, URL) async -> Bool) async throws -> Reply {
-        let connection = try await Task.detached { try Connection(path: descriptor.socketPath, timeout: timeout) }.value
+        let connection = try await SessionProcess.detached { try Connection(path: descriptor.socketPath, timeout: timeout) }
         defer { connection.closeConnection() }
-        try await Task.detached { try connection.send(JSONEncoder().encode(Request(action: action, target: target))) }.value
-        let first = try await Task.detached { try connection.receive() }.value
+        try await SessionProcess.detached { try connection.send(JSONEncoder().encode(Request(action: action, target: target))) }
+        let first = try await SessionProcess.detached { try connection.receive() }
         guard first.status == "ready" else { return first }
         guard action == "open", descriptor.editor == .vscode,
-              let text = first.url, let url = URL(string: text), validCallback(url),
-              await openURL(url, URL(fileURLWithPath: descriptor.appPath)) else { throw SessionError.invalidResponse }
-        return try await Task.detached { try connection.receive() }.value
+              let text = first.url, let url = URL(string: text), validCallback(url) else { throw SessionError.invalidResponse }
+        try Task.checkCancellation()
+        let opened = await openURL(url, URL(fileURLWithPath: descriptor.appPath))
+        try Task.checkCancellation()
+        guard opened else { throw SessionError.invalidResponse }
+        return try await SessionProcess.detached { try connection.receive() }
     }
 
     static func validCallback(_ url: URL) -> Bool {
@@ -172,16 +185,25 @@ public enum IDEBridge {
     /// One serial request per connection; no UI work or persistent polling thread.
     final class Connection: @unchecked Sendable {
         private var fd: Int32
-        private let deadline: Date
+        private let deadline: TimeInterval
+        private let uptime: @Sendable () -> TimeInterval
         private var buffer = Data()
 
-        init(path: String, timeout: TimeInterval) throws {
+        init(path: String, timeout: TimeInterval,
+             uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) throws {
+            try Task.checkCancellation()
+            guard timeout.isFinite, timeout > 0 else { throw SessionError.timeout }
+            self.uptime = uptime
+            deadline = uptime() + timeout
             fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            deadline = Date().addingTimeInterval(timeout)
             guard fd >= 0 else { throw SessionError.unavailable }
             var one: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout.size(ofValue: one)))
-            fcntl(fd, F_SETFL, O_NONBLOCK)
+            let flags = fcntl(fd, F_GETFL)
+            guard flags >= 0,
+                  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout.size(ofValue: one))) == 0,
+                  fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
+                closeConnection(); throw SessionError.unavailable
+            }
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
             let bytes = Array(path.utf8) + [0]
@@ -206,15 +228,35 @@ public enum IDEBridge {
         deinit { closeConnection() }
         func closeConnection() { if fd >= 0 { Darwin.close(fd); fd = -1 } }
 
-        private func wait(_ events: Int32) throws {
-            let remaining = deadline.timeIntervalSinceNow
+        private func checkActive() throws -> TimeInterval {
+            try Task.checkCancellation()
+            guard fd >= 0 else { throw SessionError.unavailable }
+            let remaining = deadline - uptime()
             guard remaining > 0 else { throw SessionError.timeout }
-            var descriptor = pollfd(fd: fd, events: Int16(events), revents: 0)
-            let result = poll(&descriptor, 1, Int32(min(remaining * 1000, 10000)))
-            guard result > 0, descriptor.revents & Int16(events) != 0 else { throw SessionError.timeout }
+            return remaining
+        }
+
+        private func wait(_ events: Int32) throws {
+            while true {
+                let remaining = try checkActive()
+                var descriptor = pollfd(fd: fd, events: Int16(events), revents: 0)
+                // Short polling slices let cancellation reach the owning worker;
+                // one monotonic deadline covers connect, writes and all replies.
+                let result = poll(&descriptor, 1, Int32(max(1, min(50, ceil(remaining * 1000)))))
+                let pollError = errno
+                _ = try checkActive()
+                if result < 0, pollError == EINTR { continue }
+                guard result >= 0 else { throw SessionError.unavailable }
+                if result == 0 { continue }
+                guard descriptor.revents & Int16(POLLNVAL) == 0 else { throw SessionError.unavailable }
+                // Drain a final frame even when the peer closed after writing it.
+                if descriptor.revents & Int16(events) != 0 { return }
+                if descriptor.revents & Int16(POLLERR | POLLHUP) != 0 { throw SessionError.unavailable }
+            }
         }
 
         func send(_ message: Data) throws {
+            _ = try checkActive()
             guard message.count <= 16384 else { throw SessionError.invalidResponse }
             let data = message + Data([10])
             var offset = 0
@@ -229,6 +271,7 @@ public enum IDEBridge {
 
         func receive() throws -> Reply {
             while true {
+                _ = try checkActive()
                 if let newline = buffer.firstIndex(of: 10) {
                     guard newline <= 16384 else { throw SessionError.invalidResponse }
                     let data = buffer[..<newline]; buffer.removeSubrange(...newline)

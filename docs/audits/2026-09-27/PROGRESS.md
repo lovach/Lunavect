@@ -17,3 +17,14 @@ Baseline: `1bba24c35674d9b7f6438c104c7811162991a02a`. Branch: `codex/full-audit-
 Completed scope: local source audit and available isolated checks. The remaining live, hardware, accessibility and signed-update matrix is explicitly unverified, not silently passed. See [REPORT.md](REPORT.md), [FINDINGS.md](FINDINGS.md) and [SCENARIOS.md](SCENARIOS.md).
 
 Private raw evidence is outside Git. No provider credentials, real session content, tokens, signing keys or personal settings are included.
+
+## Navigation continuation
+
+- [x] Replace MainActor Terminal automation with an owned, cancellable helper and shared ten-second budget.
+- [x] Make IDE socket budgets monotonic, validate setup, propagate cancellation and close connections safely.
+- [x] Keep cancelled panel requests silent and release pending rows; prevent resumed client launches after cancellation.
+- [x] Add nine behavior tests covering real inert scripts/processes, sockets and panel state.
+- [x] Complete fresh full check: 732 Swift passed, 59 skipped; 108 Python and 8 Node passed; unsigned app/widget and provenance passed.
+- [x] Complete focused TSan run: 49 passed, 3 live-integration skips, no TSan reports.
+- [x] Preserve initial audit evidence and record the follow-up separately in [NAVIGATION.md](NAVIGATION.md).
+- [ ] Signed-app Terminal/iTerm2 permissions and actual focus; new live editor/version matrix (not performed in this local continuation).
