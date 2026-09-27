@@ -1,16 +1,34 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.2.3 (189)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.2.4 (191)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.3)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.4)
 
-## Unreleased local audit — September 27, 2026
+## 0.2.4 release checks — September 27, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `6bd247109c967563d5ecd980f497512191bd5bbd`, tagged `v0.2.4`, merged through [PR #38](https://github.com/lovach/Lunavect/pull/38). Merge `b62752b68eafca2325944f34ea7008494a189f65` has exactly the archived source tree. Archive, signed export and provenance checks passed. |
+| Automated checks | The final local release check passed 736 Swift tests with 59 conditional skips, 110 Python tests with one optional SDK skip, 16 Node tests, and the additional built intent-resource test. The SDK-backed JetBrains lifecycle race passed separately. Universal app/widget/helper builds, resources, widget probes and pinned XcodeGen 2.46.0 parity passed. The final check and archive logs contain no compiler warnings. [Source CI](https://github.com/lovach/Lunavect/actions/runs/36291095256) passed. |
+| Native rendering | Fresh smoke, legacy and gallery runs produced 64, 12 and 12 native PNGs with isolation and source-provenance checks. Four representative images were visually inspected. This is not a manual review of every image, a pixel comparison or owner visual acceptance; existing public artwork is unchanged. |
+| Performance | Three fresh synthetic samples passed. Median import, history merge and session arrangement times were 0.596 s, 4.931 s and 0.224 s; the cumulative XCTest process maximum RSS was 135.23 MiB. These are fixture measurements, not a claim about prolonged real-app energy use. |
+| Distribution | Developer ID signed and Apple notarized, universal build 191. Anonymous downloads of all four release assets match packaged bytes, sizes and SHA-256 digests. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, resources, hook-helper, App Group and awake-policy checks. ZIP and feed signatures verify with the embedded public key; damaged copies are rejected. The latest feed points to 191. All 14 earlier releases retain their 58 asset identities, URLs, sizes and digests. |
+| Public-to-public update | Sparkle updated the installed public 0.2.3 (189) to public 0.2.4 (191). The actual app's Check for updates action was invoked; Sparkle verified the feed and ZIP signatures, extracted the update and relaunched build 191. The installed executable matches the notarized release app. No manual app replacement was used. |
+| Signed Terminal navigation | A row action in the installed build 191 selected the exact live Apple Terminal tab and restored its minimized window. The fixture used an inert native process and no model request. First-time Automation consent, actual denial and permission revocation were not exercised. |
+| Signed IDE navigation | Actual row actions in the installed build 191 selected the exact Claude and Codex fixture terminals and focused their window in VS Code. IntelliJ IDEA 2026.2.3 passed both Reworked terminal providers and a Classic terminal. The fixtures ran the bundled 0.1.1 companions with inert native processes and no provider credentials or model requests. Separate native/protocol checks also passed ambiguous and closed targets. |
+| Preferences and widgets | The 42-key application preference snapshot changed only the last update-check time, derived limit-notification state and build-specific widget registration. All six shared preference values were unchanged; the settings section used by the test was restored. Both existing widgets rendered LIVE after the Sparkle restart, and only the installed host's extension remained registered. Placements and preferences were not reset. This is system-renderer evidence, not a new owner visual acceptance. |
+| Companion installation | Both bundled companions are 0.1.1. The packaged VS Code extension was also installed into the normal local VS Code profile; JetBrains tests use an isolated IDE installation. Other users must reinstall their companion through Settings → Connections and reload/restart their editor. |
+| Remaining scope | Authenticated Claude/Codex provider panels, remote workspaces, other JetBrains versions/products, other macOS/CPU combinations, complete VoiceOver coverage and fresh macOS permission-denial/revocation flows were not verified. See [IDE setup and compatibility](ide-sessions.md). |
+
+The 0.2.4 DMG SHA-256 is `aea5d70043f193e7a22827e97e941a1659d987def29ddbda62d983df863abbbd`.
+
+## Audit phases included in 0.2.4 — September 27, 2026
 
 The [full audit](audits/2026-09-27/REPORT.md) corrected seven data/lifecycle/storage defect groups. Its [navigation continuation](audits/2026-09-27/NAVIGATION.md) removed synchronous MainActor Terminal automation and made IDE socket waits monotonic and cancellable. The latest [expanded pass](audits/2026-09-27/EXPANDED.md) corrected six further cache/companion groups and hardened opened descriptor reads. It added 15 behavior tests; the final full check passed **736 Swift tests with 59 explicit skips, 110 Python tests with one SDK skip, and 16 Node tests**. Unsigned universal app/widget/helper builds, resources and provenance passed. A focused TSan run passed 43 tests, zero skips, with no TSan reports.
 
 Fresh owned inert fixtures verified the actual Apple Terminal tab/window, restoring a minimized window, and the native Lunavect-to-VS-Code route for both fixture providers. VS Code also rejected ambiguous and closed targets. A separate SDK-backed run passed the JetBrains shutdown race that is skipped by the default suite; its live terminal UI was not rerun. The real system sleep-setting read also passed without changing power settings.
 
-These are local, unreleased changes. Automation attribution and permissions still require a signed-app check; authenticated provider panels, desktop widget placement and the signed-update matrix were not newly exercised. Both bundled companion packages were rebuilt as 0.1.1; installed app and companions were not replaced. Initial render/performance evidence is preserved separately rather than represented as a rerun.
+These paragraphs describe the earlier audit checkpoint, before packaging and installation. The changes are now included in 0.2.4. The release checks above supersede the earlier installed-app, live-navigation, render and update gaps only for the scenarios explicitly recorded there; they do not imply authenticated provider-panel coverage or the full IDE/hardware/OS matrix.
 
 ## 0.2.3 release checks — September 26, 2026
 
@@ -271,7 +289,7 @@ Test counts above belong to the release source, not subsequent documentation or 
 
 ## Homebrew and installer
 
-The cask points to the 0.1.9 DMG and the SHA-256 recorded in the 0.1.9 checks above. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
+The cask points to the 0.2.4 DMG and the SHA-256 recorded in the 0.2.4 checks above. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
 
 The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstall on September 12. That exercise preserved the existing application and validated the downloaded signature and notarization. A Homebrew upgrade between distinct versions is a separate scenario; the real Sparkle update above does not establish it.
 
@@ -283,15 +301,15 @@ The README and website showcase scenes are composed from 4× native renders with
 
 ## Compatibility and remaining checks
 
-The deployment minimum is macOS 14. Release checks were performed on macOS 26.5.2 with Apple silicon; the release source was built with Xcode 26.6 and Swift 6.3.3. A deployment target and universal binary slices express supported build targets, not proof of every runtime scenario.
+The deployment minimum is macOS 14. The 0.2.4 release checks were performed on macOS 26.6.2 with Apple silicon; the release source was built with Xcode 26.6 and Swift 6.3.3. A deployment target and universal binary slices express supported build targets, not proof of every runtime scenario.
 
 | Area | Remaining limit |
 | --- | --- |
 | Other Macs | Intel hardware, macOS 14/15 and every supported OS revision have not been exercised. |
 | First-time setup | Clean-Mac setup, different account plans and client versions, failed sign-in and retry need broader coverage. |
 | Session lifecycle | More real-client coverage is needed for prolonged tasks, cancellation, sleep/wake, offline periods and returning to the exact original session. |
-| Desktop widgets | Native layouts and the owner's glass setting were checked. Existing widgets stayed `LIVE` through installation of public build 181 and later timeline updates on the test Mac; placing and editing widgets with that build on the actual desktop, and other Macs, are not yet fully verified. WidgetKit schedules refreshes. |
-| Updates | A complete Sparkle upgrade between two public releases (most recently 0.1.8 (180) to 0.1.9 (181)), older 0.1.0 profiles, disabled automatic updates and offline/retry paths remain open. The recorded successful Sparkle upgrade started from development build 145. |
+| Desktop widgets | Both existing widgets rendered `LIVE` after the public Sparkle upgrade to build 191 on the test Mac. New placement/editing, other Macs and every future scheduling condition are not fully verified. WidgetKit schedules refreshes. |
+| Updates | The public 0.2.3 (189) → 0.2.4 (191) Sparkle upgrade passed. Older 0.1.0 profiles, disabled automatic updates, interrupted/offline/retry paths and Homebrew upgrades between distinct versions remain separate unverified scenarios. |
 | Accessibility | Full VoiceOver, keyboard navigation and widget appearance with increased contrast or reduced transparency need live verification. |
 | Battery use | Short process samples and synthetic benchmarks do not establish prolonged idle energy consumption. |
 | Experimental features | Optional glass and closed-lid Keep Awake are not guaranteed across Macs or future macOS releases. Glass is off by default. |

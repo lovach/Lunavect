@@ -1,5 +1,7 @@
 # Full local audit — 2026-09-27
 
+Release follow-through: these changes are included in **0.2.4**. See the [release verification record](../../verification.md) for publication, installation and current remaining limits; the evidence below describes the original local audit phases.
+
 The initial expanded local audit found and fixed **seven defect groups** that the baseline tests did not catch. **Fourteen behavior tests** were added: ten covering the reproduced defects and their adjacent boundaries, one existing FIFO behavior, one independent interval oracle, and two real Unix-socket protocol tests. The application design, compatibility identifiers, data locations and telemetry decision are preserved.
 
 The [navigation hardening](NAVIGATION.md) subsequently corrected both recorded transport risks and added nine behavior tests. The latest [expanded scenario pass](EXPANDED.md) reproduced and fixed **six further defect groups**, hardened descriptor reads and added **15 more tests**. Its final full check passes **736 Swift tests (59 skips), 110 Python tests (one SDK skip) and 16 Node tests**. A separate SDK run passes the skipped JetBrains lifecycle case; actual Terminal and VS Code navigation now have fresh inert-fixture evidence.
