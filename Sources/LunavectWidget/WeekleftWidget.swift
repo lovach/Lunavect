@@ -22,9 +22,9 @@ struct WeekleftTimeline: TimelineProvider {
     func placeholder(in context: Context) -> WeekleftEntry { WeekleftEntry(date: .now, state: SharedState()) }
     func entry(at date: Date) -> WeekleftEntry {
         let state = SnapshotStore.load()
-        LunavectSetWidgetBackgroundEnabled(state.preferences.transparentBackground)
-        do { return WeekleftEntry(date: date, state: state, activity: try ActivityHistory.load()) }
-        catch { return WeekleftEntry(date: date, state: state, activityUnavailable: true) }
+        LunavectSetWidgetBackgroundEnabled(WidgetBackgroundPolicy.usesPrivateBackground(state.preferences))
+        let activity = WidgetActivitySnapshot.load()
+        return WeekleftEntry(date: date, state: state, activity: activity.history, activityUnavailable: activity.unavailable)
     }
     func getSnapshot(in context: Context, completion: @escaping (WeekleftEntry) -> Void) {
         completion(entry(at: .now))
@@ -113,7 +113,8 @@ struct WeekleftWidgetView: View {
                               pointNavigation: { AnyView(navigation($0, date: $1)) }, drawsBackground: false)
         }
         .containerBackground(for: .widget) {
-            ActivityWidgetBackground(transparent: entry.state.preferences.transparentBackground,
+            // With the private background switched off the card keeps its opaque fill.
+            ActivityWidgetBackground(transparent: WidgetBackgroundPolicy.usesPrivateBackground(entry.state.preferences),
                                      transparency: entry.state.preferences.transparency)
         }
         .widgetURL(content == .limits ? URL(string: "lunavect://limits") : entry.source.widgetURL(period: entry.period))
@@ -153,7 +154,7 @@ struct LunavectOverviewWidget: Widget {
     }
 }
 @main struct LunavectWidgets: WidgetBundle {
-    init() { LunavectSetWidgetBackgroundEnabled(SnapshotStore.load().preferences.transparentBackground) }
+    init() { LunavectSetWidgetBackgroundEnabled(WidgetBackgroundPolicy.usesPrivateBackground(SnapshotStore.load().preferences)) }
     var body: some Widget {
         WeekleftWidget()
         LunavectActivityWidget()

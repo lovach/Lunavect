@@ -114,15 +114,16 @@ public enum SessionSources {
             return try SessionProcess.codexCatalog(path: path, proxy: false, prioritySessionIDs: prioritySessionIDs, timeout: remaining, discovery: discovery)
         }
     }
-    public static func legacyEvents(catalog: [AgentSession], now: Date = Date()) -> [AgentSession] {
+    public static func legacyEvents(catalog: [AgentSession], now: Date = Date(), directory: URL? = nil) -> [AgentSession] {
         guard !Task.isCancelled else { return [] }
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d")
+        let dir = directory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d")
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey, .isSymbolicLinkKey])) ?? []
         let codexIDs = Set(catalog.filter { $0.provider == .codex }.map(\.sessionID))
         return files.filter { $0.pathExtension == "json" }.compactMap { file in
             guard !Task.isCancelled else { return nil }
+            // The size check is advisory; the read itself is bounded (the file can change after stat).
             guard let size = try? file.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey]), size.isSymbolicLink != true, (size.fileSize ?? 0) < 65536,
-                  let data = try? Data(contentsOf: file), let row = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let data = try? LocalStateRecovery.read(from: file, maximumBytes: 65535), let row = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let id = row["sessionId"] as? String, SessionParser.validID(id), row["started"] as? Bool == true,
                   let ts = row["ts"] as? Double, now.timeIntervalSince1970 - ts < 86400,
                   let pid = row["pid"] as? Int32, pid > 1, kill(pid, 0) == 0 else { return nil }

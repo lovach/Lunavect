@@ -50,10 +50,21 @@ public struct SharedState: Codable, Sendable {
     }
 }
 public enum SnapshotStore {
-    public static var directory: URL {
-        if let group = Bundle.main.object(forInfoDictionaryKey: "WeekleftAppGroup") as? String, !group.isEmpty,
-           let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) { return url.appendingPathComponent("Weekleft", isDirectory: true) }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Weekleft", isDirectory: true)
+    public static var directory: URL { resolved.url }
+    /// A build that declares an App Group but cannot open its container stores
+    /// shared state in Application Support, where the sandboxed widget cannot read it.
+    public static var usesFallbackDirectory: Bool { resolved.fellBack }
+    private static var resolved: (url: URL, fellBack: Bool) {
+        resolveDirectory(group: Bundle.main.object(forInfoDictionaryKey: "WeekleftAppGroup") as? String,
+                         container: { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) },
+                         applicationSupport: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
+    }
+    public static func resolveDirectory(group: String?, container: (String) -> URL?, applicationSupport: URL) -> (url: URL, fellBack: Bool) {
+        if let group, !group.isEmpty {
+            if let url = container(group) { return (url.appendingPathComponent("Weekleft", isDirectory: true), false) }
+            return (applicationSupport.appendingPathComponent("Weekleft", isDirectory: true), true)
+        }
+        return (applicationSupport.appendingPathComponent("Weekleft", isDirectory: true), false)
     }
     public static func load(from url: URL = directory.appendingPathComponent("snapshot.json")) -> SharedState {
         do {
@@ -108,6 +119,16 @@ public enum SnapshotStore {
 public struct RecoveredLocalState<Value> {
     public var value: Value
     public let backupURL: URL?
+}
+
+/// The glass widget background replaces private ChronoServices implementations
+/// (see RELEASE.md). `defaults write` of `disablePrivateWidgetBackground` in the
+/// shared App Group domain turns it off without a rebuild.
+public enum WidgetBackgroundPolicy {
+    public static let disableKey = "disablePrivateWidgetBackground"
+    public static func usesPrivateBackground(_ preferences: WidgetPreferences, disabled: Bool = L10n.defaults.bool(forKey: disableKey)) -> Bool {
+        preferences.transparentBackground && !disabled
+    }
 }
 
 /// Future entries age the saved observation even when WidgetKit delays the next
