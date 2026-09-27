@@ -13,7 +13,17 @@ final class TerminalLocationTests: XCTestCase {
         #include <unistd.h>
         #include <stdio.h>
         #include <signal.h>
+        #include <fcntl.h>
+        #include <sys/ioctl.h>
         int main(void) {
+            /* Run from a Terminal tab, this launcher inherits the test host's
+               controlling terminal and is itself a `claude` process in the same
+               folder, so the folder fallback would rightly see two sessions.
+               Detach it; only the forkpty client may own a terminal. */
+            if (setsid() < 0) {
+                int tty = open("/dev/tty", O_RDWR | O_NOCTTY);
+                if (tty >= 0) { ioctl(tty, TIOCNOTTY); close(tty); }
+            }
             int master; pid_t client = forkpty(&master, NULL, NULL, NULL);
             if (client < 0) return 1;
             if (client == 0) {
@@ -38,6 +48,11 @@ final class TerminalLocationTests: XCTestCase {
         let line = String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let hook = try XCTUnwrap(Int32(line))
         defer { _ = kill(hook, SIGTERM) }
+        var launcher = proc_bsdinfo()
+        if proc_pidinfo(process.processIdentifier, PROC_PIDTBSDINFO, 0, &launcher, Int32(MemoryLayout<proc_bsdinfo>.size))
+            == Int32(MemoryLayout<proc_bsdinfo>.size), launcher.e_tdev != UInt32.max {
+            throw XCTSkip("The fixture launcher could not detach from the test host's terminal; the folder fallback cannot be isolated here")
+        }
         let client = try XCTUnwrap(SessionProcess.runtimeProcess(hook)).parentPID
         defer { _ = kill(client, SIGTERM) }
         let expected = try XCTUnwrap(SessionProcess.terminalLocation(parentPID: client, termProgram: "Apple_Terminal"))

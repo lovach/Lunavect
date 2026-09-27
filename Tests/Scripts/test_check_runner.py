@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 REPORTER = ROOT / 'scripts/check-report.py'
 STAGES = (
-    'source_checkpoint', 'python_tests', 'ide_connector_tests', 'swift_tests', 'widget_probe_build',
+    'source_checkpoint', 'source_hygiene', 'python_tests', 'ide_connector_tests', 'swift_tests', 'widget_probe_build',
     'widget_fallback', 'widget_private_abi', 'unsigned_build', 'hook_helper',
     'product_resources', 'intent_resources', 'build_provenance',
 )
@@ -152,7 +152,7 @@ class CheckRunnerTests(unittest.TestCase):
         repo = self.base / name
         (repo / 'scripts').mkdir(parents=True)
         (repo / 'Tests/Scripts').mkdir(parents=True)
-        for script in ('check.sh', 'check-report.py', 'build-manifest.py'):
+        for script in ('check.sh', 'check-report.py', 'build-manifest.py', 'check-source-hygiene.py'):
             shutil.copy2(ROOT / 'scripts' / script, repo / 'scripts' / script)
         # The real boundary has its own injected-runner tests. This fixture must
         # never change the developer's registered apps, even on a failed check.

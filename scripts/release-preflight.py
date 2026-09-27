@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate release identity against an explicitly supplied published appcast."""
 import argparse
+import os
 from pathlib import Path
 import plistlib
 import re
@@ -11,6 +12,15 @@ from xml.parsers.expat import ExpatError
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 # build.sh numbers local builds above these copies, so they can outrank a release.
 INSTALLED_APPS = (Path.home() / 'Applications/Lunavect.app', Path('/Applications/Lunavect.app'))
+
+
+def default_installed_apps(environment=None):
+    """LUNAVECT_INSTALLED_APPS replaces the standard copies (os.pathsep-separated;
+    empty checks none), so fixtures never depend on the host's installations."""
+    value = (os.environ if environment is None else environment).get('LUNAVECT_INSTALLED_APPS')
+    if value is None:
+        return (Path.home() / 'Applications/Lunavect.app', Path('/Applications/Lunavect.app'))
+    return tuple(Path(item) for item in value.split(os.pathsep) if item)
 
 
 def marketing_version(value):
@@ -89,13 +99,14 @@ def main():
                         help='Fresh downloaded published appcast; no automatic account/network access')
     parser.add_argument('--source-root', type=Path)
     parser.add_argument('--installed-app', type=Path, action='append',
-                        help='Installed copy whose build the release must exceed (default: ~/Applications and /Applications)')
+                        help='Installed copy whose build the release must exceed (default: ~/Applications and /Applications, '
+                             'or LUNAVECT_INSTALLED_APPS)')
     args = parser.parse_args()
     try:
         validate_previous(args.version, args.build, args.previous_appcast)
         if args.source_root:
             validate_source(args.source_root, args.version)
-        validate_installed(args.build, args.installed_app or INSTALLED_APPS)
+        validate_installed(args.build, args.installed_app or default_installed_apps())
     except (ValueError, OSError, ET.ParseError, subprocess.SubprocessError) as error:
         parser.exit(1, str(error) + '\n')
     print('Release identity verified against supplied appcast' + (' and clean source/tags' if args.source_root else '')

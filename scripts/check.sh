@@ -41,6 +41,8 @@ python3 "$REPORTER" init "$REPORT"
 run_check() { python3 "$REPORTER" run "$REPORT" "$@"; }
 
 run_check source_checkpoint python3 scripts/build-manifest.py begin --source-root "$PROJECT_ROOT" --output "$RESULT_DIR/build-manifest.json" --kind unsigned-check
+# SwiftPM and XcodeGen compile every file in a directory; name sync conflict copies first.
+run_check source_hygiene python3 scripts/check-source-hygiene.py --source-root "$PROJECT_ROOT"
 run_check python_tests python3 -B -m unittest discover -s Tests/Scripts
 run_check ide_connector_tests node --test integrations/vscode/protocol.test.js integrations/vscode/routing.test.js
 run_check swift_tests swift test --jobs 2

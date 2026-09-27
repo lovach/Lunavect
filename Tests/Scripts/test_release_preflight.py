@@ -36,7 +36,9 @@ class ReleasePreflightTests(unittest.TestCase):
         tool.write_text('#!/bin/sh\ntouch "$RELEASE_FIXTURE_TRACE"\nexit 42\n'); tool.chmod(0o755)
         # A private home keeps the owner's installed app out of these fixtures.
         self.home = self.root / 'home'
+        # HOME alone cannot hide /Applications/Lunavect.app on a developer Mac.
         self.env = dict(os.environ, HOME=str(self.home), LUNAVECT_RELEASE_ROOT=str(self.root / 'output'),
+                        LUNAVECT_INSTALLED_APPS=str(self.home / 'Applications/Lunavect.app'),
                         RELEASE_FIXTURE_TRACE=str(self.root / 'trace'), PATH=str(tool.parent) + os.pathsep + os.environ['PATH'])
 
     def git(self, *args):
@@ -54,6 +56,14 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.root / 'trace').exists(), 'Compiler reached before rejection')
         return result.stderr
+
+    def test_installed_copies_follow_the_environment_override(self):
+        self.assertEqual(GATE.default_installed_apps({}), (Path.home() / 'Applications/Lunavect.app',
+                                                           Path('/Applications/Lunavect.app')))
+        self.assertEqual(GATE.default_installed_apps({'LUNAVECT_INSTALLED_APPS': ''}), ())
+        joined = os.pathsep.join(['/tmp/a b/Lunavect.app', '', '/tmp/c/Lunavect.app'])
+        self.assertEqual(GATE.default_installed_apps({'LUNAVECT_INSTALLED_APPS': joined}),
+                         (Path('/tmp/a b/Lunavect.app'), Path('/tmp/c/Lunavect.app')))
 
     def test_dirty_source_fails_before_build(self):
         (self.root / 'new-source').write_text('dirty')
