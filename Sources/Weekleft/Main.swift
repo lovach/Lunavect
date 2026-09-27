@@ -510,20 +510,33 @@ enum StatusItemClick {
             catch { fputs("StatusLine setup failed: \(error.localizedDescription)\n", stderr); exit(1) }
             return
         }
+        // Diagnostics: runs one real /usage probe; results are printed, never saved.
+        // With LUNAVECT_PROBE_DUMP_DIR set, a failed probe's screen is also written there.
         if CommandLine.arguments.contains("--probe") {
             let resolver = diagnosticClientResolver()
             let signal = DispatchSemaphore(value: 0)
             Task.detached {
-                for id in ProviderID.allCases {
-                    do {
-                        let snapshot = try await (id == .codex ? CodexProvider.fetch(resolver: resolver) : ClaudeProvider.fetch())
-                        let data = try JSONEncoder().encode(snapshot)
-                        print(String(decoding: data, as: UTF8.self))
-                    } catch { print("\(id.title): \((error as? UsageError)?.errorDescription ?? "Не удалось получить данные")") }
-                }
+                let lines = await QuotaProbeReport.lines(
+                    claudeProbe: { try await ClaudeUsageProbe.fetch(cliPath: resolver.resolve(.claude)) },
+                    claudeStatusLine: { try await ClaudeProvider.fetch() },
+                    codex: { try await CodexProvider.fetch(resolver: resolver) })
+                lines.forEach { print($0) }
                 signal.signal()
             }
             _ = signal.wait(timeout: .now() + 60); return
+        }
+        // Prints the plain /usage screen text, then the parsed result or typed reason.
+        if CommandLine.arguments.contains("--usage-probe") {
+            let resolver = diagnosticClientResolver()
+            let signal = DispatchSemaphore(value: 0)
+            Task.detached {
+                do {
+                    let snapshot = try await ClaudeUsageProbe.fetch(cliPath: resolver.resolve(.claude), screen: { print($0) })
+                    print(String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self))
+                } catch { print(QuotaProbeReport.describe(error)) }
+                signal.signal()
+            }
+            _ = signal.wait(timeout: .now() + 40); return
         }
         let instance: AppInstanceLease
         do {

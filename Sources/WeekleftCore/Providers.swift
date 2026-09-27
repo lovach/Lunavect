@@ -164,6 +164,29 @@ public struct QuotaRefreshPolicy: Sendable {
     }
 }
 
+/// What `Lunavect --probe` prints: the result of a real /usage probe (or its typed
+/// failure), the saved status-line observation and Codex. Nothing is saved.
+public enum QuotaProbeReport {
+    public static func lines(claudeProbe: () async throws -> UsageSnapshot, claudeStatusLine: () async throws -> UsageSnapshot,
+                             codex: () async throws -> UsageSnapshot) async -> [String] {
+        var lines: [String] = []
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        func line(_ label: String, _ read: () async throws -> UsageSnapshot) async {
+            do { lines.append(label + ": " + String(decoding: try encoder.encode(try await read()), as: UTF8.self)) }
+            catch { lines.append(label + ": " + describe(error)) }
+        }
+        await line("Claude /usage", claudeProbe)
+        await line("Claude statusLine", claudeStatusLine)
+        await line("Codex", codex)
+        return lines
+    }
+    /// A typed code and fixed message; never a raw client error text.
+    public static func describe(_ error: Error) -> String {
+        if let issue = error as? ClientIntegrationIssue { return issue.code + " " + issue.message }
+        return (error as? UsageError)?.errorDescription ?? "Не удалось получить данные"
+    }
+}
+
 public enum ClaudeProvider {
     public static let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Weekleft/ClaudeStatusLine")
     public static var cacheURL: URL { directory.appendingPathComponent("quota.json") }
