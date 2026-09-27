@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Opening a terminal session no longer selects an unrelated tab that macOS gave the closed session's terminal device. Lunavect checks that Claude or Codex still runs there first; iTerm2 also restores a minimized window.
+- The first macOS permission prompt for controlling Terminal or iTerm2 can be answered without a false timeout: Lunavect asks before searching tabs and waits up to a minute. When both terminals run, they share the 10-second search.
+- Ghostty, Warp, kitty, WezTerm, Alacritty, tmux, screen, ssh sessions and VS Code forks such as Cursor are named as not supported instead of Lunavect searching Terminal tabs. A Codex CLI without `TERM_PROGRAM` no longer opens Codex Desktop.
+- A live session whose tab cannot be focused is reported as possibly open even while its CLI is missing or being updated.
+- Editor navigation distinguishes a busy editor, a companion that is installed but not answering, an incompatible companion and a window macOS refuses to activate from a missing session, and names the JetBrains product. Every JetBrains 2026.2 IDE and EAP build is recognized.
+- VS Code companion 0.1.2: reports its version, keeps its socket in your private temporary folder, recreates it after the folder is cleaned and warns when it cannot start. Settings → Connections shows when an installed companion is older than the bundled one. Reinstall the companion to receive these fixes. The JetBrains companion 0.1.2 is prepared in source; the bundled JetBrains installer stays 0.1.1 until it is rebuilt with the IntelliJ SDK.
+- Stale editor connection records left by forced quits are removed after a day. Installed 0.1.0 and 0.1.1 companions keep working.
+
 ## 0.2.4 — 2026-09-27
 
 - Terminal navigation stays responsive while macOS selects a tab. Slow or cancelled requests stop cleanly and retain specific permission and timeout messages.
