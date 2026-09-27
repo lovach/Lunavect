@@ -38,10 +38,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>SUFeedURL</key>
     <string>$(LUNAVECT_UPDATE_FEED_URL)</string>
-    <key>LunavectAnalyticsToken</key>
-    <string>$(LUNAVECT_ANALYTICS_TOKEN)</string>
-    <key>LunavectAnalyticsHost</key>
-    <string>$(LUNAVECT_ANALYTICS_HOST)</string>
     <key>SUPublicEDKey</key>
     <string>$(LUNAVECT_UPDATE_PUBLIC_KEY)</string>
     <key>SURequireSignedFeed</key><true/>

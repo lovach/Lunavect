@@ -42,13 +42,6 @@ class ProductResourceTests(unittest.TestCase):
         path.write_text(json.dumps({'actions': {name: {} for name in actions},
                                     'enums': [{'identifier': name} for name in enums]}))
 
-    def test_analytics_build_configuration_rejects_personal_keys_and_wrong_hosts(self):
-        RESOURCES.verify_analytics_configuration({})
-        RESOURCES.verify_analytics_configuration({'LunavectAnalyticsToken': '', 'LunavectAnalyticsHost': 'https://eu.i.posthog.com'})
-        for token, host in [('phx_personal_key', 'https://eu.i.posthog.com'), ('$(LUNAVECT_ANALYTICS_TOKEN)', 'https://eu.i.posthog.com'), ('phc_0123456789abcdefghijklmnop', 'https://us.i.posthog.com')]:
-            with self.assertRaises(ValueError):
-                RESOURCES.verify_analytics_configuration({'LunavectAnalyticsToken': token, 'LunavectAnalyticsHost': host})
-
     def test_missing_or_incomplete_intent_metadata_is_rejected(self):
         # Edit Widget and the interactive chart need the extracted metadata in both bundles.
         for bundle in (self.app, self.widget):

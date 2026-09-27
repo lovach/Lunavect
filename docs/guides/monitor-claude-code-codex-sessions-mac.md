@@ -13,7 +13,7 @@ Running several AI coding agents at once is fast until you lose track of them: w
 
 ![Lunavect session panel listing Claude Code and Codex sessions with their live states](../images/readme-sessions-light.png)
 
-Session content and activity history stay local: Lunavect reads the official clients' local data and event handlers without a Lunavect account or provider API key. Optional technical statistics require separate consent; see [Privacy](../privacy.md).
+Everything stays local: Lunavect reads the official clients' local data and event handlers, with no account, API key or backend.
 
 [Download Lunavect](https://github.com/lovach/Lunavect/releases/latest) · [Sessions](../sessions.md) · [Keep Awake](../keep-awake.md) · [FAQ](../faq.md)
 

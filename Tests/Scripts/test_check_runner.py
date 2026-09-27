@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 REPORTER = ROOT / 'scripts/check-report.py'
 STAGES = (
-    'source_checkpoint', 'python_tests', 'ide_connector_tests', 'website_analytics_tests', 'swift_tests', 'widget_probe_build',
+    'source_checkpoint', 'python_tests', 'ide_connector_tests', 'swift_tests', 'widget_probe_build',
     'widget_fallback', 'widget_private_abi', 'unsigned_build', 'hook_helper',
     'product_resources', 'intent_resources', 'build_provenance',
 )
@@ -45,7 +45,7 @@ elif event['opt_in']:
     raise SystemExit('Inherited opt-in flag reached a check command')
 failure = os.environ.get('CHECK_FIXTURE_FAIL')
 if name == 'node':
-    assert args in (['--test', 'integrations/vscode/protocol.test.js', 'integrations/vscode/routing.test.js'], ['--test', 'Tests/Website/analytics.test.js']), args
+    assert args == ['--test', 'integrations/vscode/protocol.test.js', 'integrations/vscode/routing.test.js'], args
     print('IDE connector fixture passed')
 elif name == 'swift':
     if args == ['--version']:

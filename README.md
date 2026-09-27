@@ -131,7 +131,7 @@ No. It measures working intervals. Recovered history is marked <code>≈</code>,
 <details>
 <summary><b>Does Lunavect send my sessions anywhere?</b></summary>
 <br>
-No. Session titles, project paths and activity history stay on your Mac. There is no Lunavect account. Optional technical statistics require your consent and exclude session content and persistent user IDs; update checks go to GitHub without session data.
+No. Lunavect sends no session data or app usage statistics to us. Session titles, project paths and activity history stay on your Mac. There is no telemetry or Lunavect account. We use only GitHub's download and repository traffic statistics; update checks go to GitHub without session data.
 </details>
 
 [All questions and answers](docs/faq.md) · [Installation and troubleshooting](docs/installation.md) · [How-to guides](docs/README.md#how-to-guides)
