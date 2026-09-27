@@ -64,6 +64,8 @@ Titles and project metadata are kept separate from activity evidence. Re-reading
 
 In the development build, each background event tick also re-evaluates the published session freshness before waiting for a source read. Menu-bar waiting and running counts therefore expire even if a read is blocked or fails repeatedly. This does not renew evidence, delete tasks or start duplicate reads. Fresh source observations can confirm the status again.
 
+Client catalogs are read every 15 seconds while the panel is open or a session works, otherwise every 45 seconds. A catalog observation counts from the moment its request started, so a hook event written while a slow read runs stays the newer evidence. It stays current for two minutes, two idle reads plus margin: one failed or late read does not empty the list, while a source that stays unavailable still expires its rows. If Claude's JSON listing changes shape so that no row can be read, **Settings → Connections** reports an unsupported response instead of showing an empty list.
+
 The panel updates timers while visible. Closing it stops its display timer, while background collection can continue. Freshness depends on the source; long work, sleep/wake and changes in client formats can affect what Lunavect can confirm.
 
 In the development build, restarting Lunavect also recovers a running response's exact start when it lies before the most recent 8 MB of a Codex log. Recovery searches older lifecycle metadata in bounded chunks and matches the current turn ID. It keeps the original event time, preserves a known start across large appends, and never borrows the start of another response. Very large logs can require several background polls before the timer returns.

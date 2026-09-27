@@ -136,6 +136,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         self.evidence = evidence; self.tool = tool; self.resumeID = resumeID
         self.runtimeConfirmed = runtimeConfirmed
     }
+    /// Two idle catalog polls plus the 12-second process timeout and timer
+    /// tolerance: one failed or late read cannot blank catalog-only rows (S-08).
+    public static let catalogLifetime: TimeInterval = 2 * SessionPolling.idleCatalogInterval + 30
     public func effectivePhase(now: Date = Date()) -> SessionPhase {
         let age = now.timeIntervalSince(observedAt)
         guard runtimeConfirmed != false else { return .unknown }
@@ -147,7 +150,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         // This is an observation, not a heartbeat or proof a process still exists.
         // A background pause has no events until a task finishes; allow long
         // renders, but still expire it if Claude never wakes (crash, lost hook).
-        let lifetime: TimeInterval = evidence == .catalog ? 60 : evidence == .localEvent && phase.isActive ? 120
+        let lifetime: TimeInterval = evidence == .catalog ? Self.catalogLifetime : evidence == .localEvent && phase.isActive ? 120
             : phase == .running && awaitingBackground == true ? 3600 : 600
         guard age >= -60, age < lifetime else { return .unknown }
         return phase

@@ -140,4 +140,37 @@ import Combine
         XCTAssertEqual(played, [.completed], "Re-listing the finished task does not replay it")
         XCTAssertEqual(sessions.hiddenCount, 0)
     }
+
+    // S-08: at the idle cadence (45 s) one failed or timed-out catalog read
+    // must not blank catalog-only rows before the next poll can confirm them.
+    func testOneFailedIdlePollDoesNotBlankCatalogOnlyRows() async throws {
+        var clock = instant, fails = false
+        let rows: [[String: Any]] = [
+            ["pid": 51_234, "cwd": "/Users/fixture/Projects/lunavect", "kind": "interactive", "name": "Idle task",
+             "sessionId": "5d7a4a33-1c1e-4b0c-8a60-6f2d7c1b9e01", "startedAt": 1_795_000_100_000, "status": "idle"],
+            ["pid": 51_300, "cwd": "/Users/fixture/Projects/site", "kind": "interactive", "name": "Waiting task",
+             "sessionId": "6e8b5b44-2d2f-4c1d-9b71-7a3e8d2c0f12", "startedAt": 1_795_000_200_000, "status": "waiting"],
+        ]
+        let sessions = try store(.init(catalog: { _, _, _, _ in
+            if fails { throw SessionError.timeout }
+            return (try self.claudeRows(rows, at: clock), false)
+        }), now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude])
+        await sessions.refresh()
+        XCTAssertEqual(sessions.currentSessions.count, 2)
+        clock += 45; fails = true
+        await sessions.refresh()
+        for seconds in [61.0, 90, 105] {
+            clock = instant.addingTimeInterval(seconds); await sessions.readEvents()
+            XCTAssertEqual(sessions.currentSessions.count, 2, "\(seconds) s: one failure is not evidence that sessions ended")
+            XCTAssertEqual(sessions.activeCount, 1)
+        }
+        XCTAssertEqual(AgentSession.catalogLifetime, 2 * SessionPolling.idleCatalogInterval + 30)
+        clock = instant.addingTimeInterval(AgentSession.catalogLifetime); await sessions.readEvents()
+        XCTAssertEqual(sessions.currentSessions.count, 0, "A source that stays unavailable still expires its rows")
+        clock += 1; fails = false
+        await sessions.refresh()
+        XCTAssertEqual(sessions.currentSessions.count, 2)
+    }
 }

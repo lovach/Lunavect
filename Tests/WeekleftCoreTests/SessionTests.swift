@@ -177,7 +177,7 @@ final class SessionTests: XCTestCase {
         var rows = try SessionParser.codex(data, now: now)
         rows.append(AgentSession(provider: .claude, sessionID: "ended", title: "Ended", cwd: "/app", phase: .finished, updatedAt: now, observedAt: now, evidence: .hook))
         XCTAssertEqual(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now).map(\.sessionID), ["open"])
-        XCTAssertTrue(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(61)).isEmpty)
+        XCTAssertTrue(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(AgentSession.catalogLifetime + 1)).isEmpty)
     }
     func testFreshLiveBackgroundCatalogSupersedesEarlierHookAndThenExpires() throws {
         let catalog = try SessionParser.claude(Data(#"[{"id":"old","sessionId":"old-session","kind":"background","state":"blocked","startedAt":1783332137673,"pid":123,"status":"waiting"}]"#.utf8), now: now)
@@ -185,7 +185,7 @@ final class SessionTests: XCTestCase {
         let rows = SessionList.merge(catalog: catalog, events: [event], now: now)
         XCTAssertEqual(rows.first?.effectivePhase(now: now), .input)
         XCTAssertEqual(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now).count, 1)
-        XCTAssertTrue(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(61)).isEmpty)
+        XCTAssertTrue(SessionList.filter(rows, query: "", provider: nil, activeOnly: false, now: now.addingTimeInterval(AgentSession.catalogLifetime + 1)).isEmpty)
     }
     func testOpeningOrIdleSessionDoesNotClaimCompletedAnswer() throws {
         let start = try SessionRecord.event(Data(#"{"session_id":"abc","hook_event_name":"SessionStart"}"#.utf8), provider: .codex, previous: nil, now: now)

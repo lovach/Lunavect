@@ -60,7 +60,8 @@ final class SessionContractTests: XCTestCase {
         let merged = SessionList.merge(catalog: [row], events: [running], now: now.addingTimeInterval(15))
         XCTAssertEqual(merged.first?.phase, .interrupted)
         XCTAssertFalse(try XCTUnwrap(merged.first).effectivePhase(now: now.addingTimeInterval(15)).isActive)
-        XCTAssertEqual(SessionList.merge(catalog: [row], events: [running], now: now.addingTimeInterval(90)).first?.effectivePhase(now: now.addingTimeInterval(90)), .unknown)
+        let expired = now.addingTimeInterval(15 + AgentSession.catalogLifetime)
+        XCTAssertEqual(SessionList.merge(catalog: [row], events: [running], now: expired).first?.effectivePhase(now: expired), .unknown)
         XCTAssertEqual(SessionList.merge(catalog: [], events: [running], now: now.addingTimeInterval(15)).first?.phase, .running, "An absent catalog row proves no completion")
         let newer = try event("UserPromptSubmit", at: now.addingTimeInterval(16)).session
         XCTAssertEqual(SessionList.merge(catalog: [row], events: [newer], now: now.addingTimeInterval(16)).first?.phase, .running)

@@ -111,7 +111,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         XCTAssertEqual(view.currentCounts(at: now).waiting, 1)
         XCTAssertEqual(waitingView.filteredSessions(at: now).map(\.id), [retained[1].id])
         XCTAssertEqual(claudeView.filteredSessions(at: now).count, 1)
-        XCTAssertEqual(view.currentCounts(at: now.addingTimeInterval(61)).waiting, 0, "Header counts use the display clock and expire stale live evidence")
+        XCTAssertEqual(view.currentCounts(at: now.addingTimeInterval(AgentSession.catalogLifetime + 1)).waiting, 0, "Header counts use the display clock and expire stale live evidence")
         XCTAssertEqual(store.hiddenCount, 2)
     }
     @MainActor func testRetainedWaitsStayOutOfCurrentCountsNoticesActivityAndAwakeUntilFreshEvidence() async throws {
