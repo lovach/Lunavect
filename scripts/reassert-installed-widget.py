@@ -115,7 +115,7 @@ def choose(candidates, list_processes=list_processes):
             print(f'{prefix} The running copy {running[0]} does not have a matching widget build; '
                   f'not reasserting {others} either. {advice}', file=sys.stderr)
             return None
-        print(f'{prefix} Reasserting only the running copy {running[0]}; {others} is left unregistered. {advice}',
+        print(f'{prefix} Reasserting only the running copy {running[0]}; {others} is not registered again. {advice}',
               file=sys.stderr)
         return running[0]
     state = 'neither is running' if not running else 'more than one is running'
