@@ -564,6 +564,8 @@ public struct HookDiagnostic: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         /// SubagentStop reported more background work than the session started.
         case backgroundCountRaised
+        /// The previous record did not decode; it was set aside and a new one started.
+        case unreadableRecord
     }
     public var kind: Kind
     public var at: Date

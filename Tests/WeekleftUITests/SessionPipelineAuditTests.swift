@@ -226,4 +226,17 @@ import Combine
         await sessions.readEvents()
         XCTAssertEqual(sessions.diagnosticEntries.count, 2, "A later rejected report is a new entry")
     }
+
+    // S-09: a record set aside by the hook helper becomes one diagnostic entry.
+    func testUnreadableRecordFactReachesDiagnostics() async throws {
+        var row = AgentSession(provider: .claude, sessionID: "damaged", title: "", cwd: "/Users/fixture", phase: .running,
+                               updatedAt: instant, observedAt: instant, evidence: .hook, runtimeConfirmed: true)
+        row.hookDiagnostic = HookDiagnostic(kind: .unreadableRecord, at: instant)
+        let sessions = try store(.init(events: { _, _, _ in [row] }), now: { self.instant })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude])
+        await sessions.readEvents(); await sessions.readEvents()
+        XCTAssertEqual(sessions.diagnosticEntries.map(\.hook?.kind), [.unreadableRecord])
+        XCTAssertNil(sessions.typedIssues[.claude])
+    }
 }
