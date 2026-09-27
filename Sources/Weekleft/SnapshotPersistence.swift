@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 #if SWIFT_PACKAGE
 import WeekleftCore
 #endif
@@ -34,6 +35,8 @@ final class SnapshotPersistence: @unchecked Sendable {
     private let reload: @Sendable () -> Void
     private let clock: @Sendable () -> Date
     private let completionQueue: DispatchQueue
+    private let flushTimeout: TimeInterval
+    private let logger = Logger(subsystem: "com.weekleft.storage", category: "snapshot")
     private let queue = DispatchQueue(label: "com.weekleft.snapshot-persistence", qos: .utility)
     // Protect submission order and counters independently of potentially slow I/O.
     private let submissionLock = NSLock()
@@ -58,9 +61,10 @@ final class SnapshotPersistence: @unchecked Sendable {
          exists: @escaping @Sendable (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
          reload: @escaping @Sendable () -> Void = {},
          clock: @escaping @Sendable () -> Date = { Date() },
-         completionQueue: DispatchQueue = .main) {
+         completionQueue: DispatchQueue = .main, flushTimeout: TimeInterval = 3) {
         self.url = url; self.read = read; self.recover = recover; self.write = write
         self.exists = exists; self.reload = reload; self.clock = clock; self.completionQueue = completionQueue
+        self.flushTimeout = flushTimeout
     }
 
     var counters: PersistenceCounters { submissionLock.withLock { counts } }
@@ -73,6 +77,8 @@ final class SnapshotPersistence: @unchecked Sendable {
             if readOnly || self.readFailed {
                 return LoadResult(state: self.read(self.url), writable: false, issue: self.recoveryIssue)
             }
+            // Only the writing app repairs the shared directory; widgets stay read-only.
+            _ = try? LocalStateRecovery.removeAbandonedTemporaries(in: self.url.resolvingSymlinksInPath().deletingLastPathComponent(), now: self.clock())
             do {
                 let result = try self.recover(self.url)
                 if result.backupURL != nil {
@@ -110,20 +116,25 @@ final class SnapshotPersistence: @unchecked Sendable {
     /// Enqueues behind every prior submission and waits for the final write.
     /// async + semaphore deliberately avoids DispatchQueue.sync's ability to run
     /// disk work on the calling (main) thread. Earlier callbacks are not awaited.
+    /// Termination waits at most `flushTimeout`; the write itself stays queued.
     @discardableResult func flush(_ state: SharedState) -> WriteResult {
         dispatchPrecondition(condition: .notOnQueue(queue))
         let result = WaitingResult<WriteResult>()
         let finished = DispatchSemaphore(value: 0)
-        submissionLock.withLock {
+        let sequence = submissionLock.withLock { () -> Int in
             counts.submitted += 1
             let sequence = counts.submitted
             queue.async {
                 result.value = self.save(state, sequence: sequence)
                 finished.signal()
             }
+            return sequence
         }
-        finished.wait()
-        return result.value!
+        guard finished.wait(timeout: .now() + max(0, flushTimeout)) == .success, let value = result.value else {
+            logger.error("Snapshot flush exceeded \(self.flushTimeout, privacy: .public) s; quitting without waiting")
+            return WriteResult(disposition: .failed, issue: "Не удалось сохранить данные виджета.", sequence: sequence, counters: counters)
+        }
+        return value
     }
 
     private func save(_ state: SharedState, sequence: Int) -> WriteResult {
@@ -217,7 +228,8 @@ private struct WidgetQuotaFingerprint: Equatable {
     }
 }
 
-/// The semaphore establishes visibility before the caller reads the value.
+/// A timed-out flush may read while the queue still writes; the lock keeps both sides safe.
 private final class WaitingResult<Value: Sendable>: @unchecked Sendable {
-    var value: Value?
+    private let lock = NSLock(); private var stored: Value?
+    var value: Value? { get { lock.withLock { stored } } set { lock.withLock { stored = newValue } } }
 }

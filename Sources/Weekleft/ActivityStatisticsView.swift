@@ -114,10 +114,22 @@ struct ActivityStatisticsView: View {
                     }
                 }
                 }
+                if let gaps = store.activityHistory.observationGaps, gaps.count > 0 {
+                    Text(L("Не засчитано разрывов наблюдения: {0}, всего {1}, с {2}.", String(gaps.count), ActivitySummary.duration(gaps.seconds),
+                           gaps.since.formatted(.dateTime.day().month().locale(L10n.locale))))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if store.activityUnavailable, !store.importingActivity {
+                    Text(L("Файл статистики не читается. Lunavect сохранит его копию рядом и начнёт новую историю, восстановив недавние журналы."))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack {
                     if store.importingActivity {
                         ProgressView().controlSize(.small)
                         Text(L("Восстанавливаем историю…"))
+                    } else if store.activityUnavailable {
+                        // The same service action keeps a copy of the unreadable file first.
+                        Button(L("Сохранить копию и начать заново")) { store.importActivityHistory() }
                     } else {
                         Button(L("Обновить историю")) { store.importActivityHistory() }
                         if store.activityHistory.importedAt != nil, store.activityHistory.importReport == nil {

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 #if SWIFT_PACKAGE
 import WeekleftCore
 #endif
@@ -37,6 +38,8 @@ final class ActivityPersistence: @unchecked Sendable {
     private var lastReloadAt: Date?
     private var lastReloadCoverage: Set<Int> = []
     private let completionQueue: DispatchQueue
+    private let flushTimeout: TimeInterval
+    private let logger = Logger(subsystem: "com.weekleft.storage", category: "activity")
     private var readOnly = false
     private var historyWritable = true, detailsWritable = true
     private var savedHistory: ActivityHistory?, savedDetails: ActivityDetails?
@@ -48,17 +51,26 @@ final class ActivityPersistence: @unchecked Sendable {
          readHistory: @escaping (URL) throws -> ActivityHistory = { try ActivityHistory.load(from: $0) },
          readDetails: @escaping (URL) throws -> ActivityDetails = { try ActivityDetails.load(from: $0) },
          writeHistory: @escaping (ActivityHistory, URL) throws -> Void = { try $0.save(to: $1) },
-         writeDetails: @escaping (ActivityDetails, URL) throws -> Void = { try $0.save(to: $1) },
+         // Private details are rewritten every few minutes and on quit (decision 23):
+         // no fsync; the shared history keeps it.
+         writeDetails: @escaping (ActivityDetails, URL) throws -> Void = { try $0.save(to: $1, synchronize: false) },
          reload: @escaping () -> Void = {}, clock: @escaping () -> Date = Date.init,
-         reloadInterval: TimeInterval = 900, completionQueue: DispatchQueue = .main) {
+         reloadInterval: TimeInterval = 900, completionQueue: DispatchQueue = .main, flushTimeout: TimeInterval = 3) {
         self.historyURL = historyURL; self.detailsURL = detailsURL
         self.readHistory = readHistory; self.readDetails = readDetails
         self.writeHistory = writeHistory; self.writeDetails = writeDetails; self.reload = reload; self.completionQueue = completionQueue
-        self.clock = clock; self.reloadInterval = reloadInterval
+        self.clock = clock; self.reloadInterval = reloadInterval; self.flushTimeout = flushTimeout
     }
     func load(history: ActivityHistory? = nil, details: ActivityDetails? = nil, readOnly: Bool = false) -> LoadResult {
         blocking {
             self.readOnly = self.readOnly || readOnly
+            if !self.readOnly {
+                // A write killed between its temporary and the rename leaves `.UUID.tmp`.
+                let now = self.clock()
+                for directory in Set([self.historyURL, self.detailsURL].map { $0.resolvingSymlinksInPath().deletingLastPathComponent() }) {
+                    _ = try? LocalStateRecovery.removeAbandonedTemporaries(in: directory, now: now)
+                }
+            }
             var state = State(history: history ?? ActivityHistory(), details: details ?? ActivityDetails())
             var historyLoaded = true, detailsLoaded = true
             if history == nil, self.historyWritable {
@@ -105,7 +117,43 @@ final class ActivityPersistence: @unchecked Sendable {
             self.completionQueue.async { completion(result) }
         }
     }
-    func flush(_ state: State) -> WriteResult { blocking { self.write(state) } }
+    /// Termination waits at most `flushTimeout` for the disk; an unresponsive
+    /// volume must not block quitting. A late write still completes in order.
+    func flush(_ state: State) -> WriteResult {
+        if let result = blocking(timeout: flushTimeout, { self.write(state) }) { return result }
+        logger.error("Activity flush exceeded \(self.flushTimeout, privacy: .public) s; quitting without waiting")
+        return WriteResult(sequence: 0, historyIssue: "Не удалось сохранить статистику активности.", detailsIssue: nil,
+                           historySaved: false, counters: PersistenceCounters())
+    }
+    enum StartOverResult: Sendable { case started(URL?), failed }
+    /// "Save a copy and start over" for a history that cannot be read (for example
+    /// larger than the read limit): the file is kept beside it, never deleted.
+    func startOverPreservingHistory(completion: @escaping @Sendable (StartOverResult) -> Void) {
+        queue.async {
+            let result: StartOverResult
+            if self.readOnly || self.historyWritable { result = .failed }
+            else {
+                let target = self.historyURL.resolvingSymlinksInPath()
+                do {
+                    var copy: URL?
+                    if FileManager.default.fileExists(atPath: target.path) {
+                        let backup = target.appendingPathExtension("unreadable-\(Int(self.clock().timeIntervalSince1970))-\(UUID().uuidString)")
+                        try FileManager.default.moveItem(at: target, to: backup)
+                        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+                        copy = backup
+                    }
+                    self.historyWritable = true; self.savedHistory = nil
+                    self.historyRecoveryIssue = "Прежний файл статистики сохранён отдельно. Сбор начат заново."
+                    self.logger.notice("Unreadable activity history kept aside; collection restarted")
+                    result = .started(copy)
+                } catch {
+                    self.logger.error("Unreadable activity history could not be moved aside: \((error as NSError).code, privacy: .public)")
+                    result = .failed
+                }
+            }
+            self.completionQueue.async { completion(result) }
+        }
+    }
 
     private func write(_ state: State) -> WriteResult {
         counts.submitted += 1
@@ -140,14 +188,21 @@ final class ActivityPersistence: @unchecked Sendable {
         return WriteResult(sequence: counts.submitted, historyIssue: historyIssue, detailsIssue: detailsIssue,
                            historySaved: historySaved, counters: counts)
     }
-    private final class ResultBox<Value>: @unchecked Sendable { var value: Value? }
+    private final class ResultBox<Value>: @unchecked Sendable {
+        private let lock = NSLock(); private var stored: Value?
+        var value: Value? { get { lock.withLock { stored } } set { lock.withLock { stored = newValue } } }
+    }
     private func blocking<Value>(_ operation: @escaping @Sendable () -> Value) -> Value {
+        blocking(timeout: nil, operation)!
+    }
+    private func blocking<Value>(timeout: TimeInterval?, _ operation: @escaping @Sendable () -> Value) -> Value? {
         // DispatchQueue.sync can execute on the caller; force I/O off the main
         // thread even for the intentionally blocking startup/termination boundary.
         dispatchPrecondition(condition: .notOnQueue(queue))
         let box = ResultBox<Value>(), completed = DispatchSemaphore(value: 0)
         queue.async { box.value = operation(); completed.signal() }
-        completed.wait()
-        return box.value!
+        if let timeout { guard completed.wait(timeout: .now() + max(0, timeout)) == .success else { return nil } }
+        else { completed.wait() }
+        return box.value
     }
 }
