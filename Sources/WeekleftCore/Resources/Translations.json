@@ -5137,6 +5137,27 @@
     "fr": "{0} n’a pas répondu à la demande de changement d’onglet. Fermez les boîtes de dialogue ouvertes dans le terminal, puis réessayez.",
     "zh-Hans": "{0} 未响应标签页切换请求。请关闭终端中打开的对话框，然后重试。"
   },
+  "Клиент этой сессии больше не работает в своей вкладке терминала. Продолжите сессию командой из меню «…» → «Копировать команду продолжения».": {
+    "en": "This session’s client is no longer running in its terminal tab. Resume the session with “…” → “Copy resume command”.",
+    "de": "Der Client dieser Sitzung läuft nicht mehr in seinem Terminal-Tab. Setzen Sie die Sitzung über „…“ → „Befehl zum Fortsetzen kopieren“ fort.",
+    "es": "El cliente de esta sesión ya no se ejecuta en su pestaña del terminal. Continúa la sesión con «…» → «Copiar comando para reanudar».",
+    "fr": "Le client de cette session ne s’exécute plus dans son onglet de terminal. Reprenez la session avec « … » → « Copier la commande de reprise ».",
+    "zh-Hans": "此会话的客户端已不在其终端标签页中运行。请通过“…”→“复制继续会话的命令”继续此会话。"
+  },
+  "Переход к вкладке в {0} пока не поддерживается. Вернитесь в окно терминала вручную. Через «…» можно открыть папку проекта или скопировать команду продолжения.": {
+    "en": "Switching to a tab in {0} is not supported yet. Return to the terminal window manually. Use “…” to open the project folder or copy the resume command.",
+    "de": "Der Wechsel zu einem Tab in {0} wird noch nicht unterstützt. Kehren Sie manuell zum Terminalfenster zurück. Über „…“ können Sie den Projektordner öffnen oder den Befehl zum Fortsetzen kopieren.",
+    "es": "Todavía no se admite cambiar a una pestaña de {0}. Vuelve manualmente a la ventana del terminal. Usa «…» para abrir la carpeta del proyecto o copiar el comando para reanudar.",
+    "fr": "Le passage à un onglet de {0} n’est pas encore pris en charge. Revenez manuellement à la fenêtre du terminal. Utilisez « … » pour ouvrir le dossier du projet ou copier la commande de reprise.",
+    "zh-Hans": "暂不支持切换到 {0} 中的标签页。请手动返回终端窗口。通过“…”可打开项目文件夹或复制继续会话的命令。"
+  },
+  "macOS ждёт вашего ответа на запрос об управлении {0}. Ответьте на системный запрос и повторите переход.": {
+    "en": "macOS is waiting for your answer to the request to control {0}. Answer the system prompt, then try again.",
+    "de": "macOS wartet auf Ihre Antwort auf die Anfrage, {0} zu steuern. Beantworten Sie die Systemabfrage und versuchen Sie es erneut.",
+    "es": "macOS está esperando tu respuesta a la solicitud para controlar {0}. Responde al aviso del sistema y vuelve a intentarlo.",
+    "fr": "macOS attend votre réponse à la demande de contrôle de {0}. Répondez à la demande du système, puis réessayez.",
+    "zh-Hans": "macOS 正在等待你回应控制 {0} 的请求。请回应系统提示，然后重试。"
+  },
   "Не удалось переключить вкладку в {0}. Откройте терминал и повторите переход.": {
     "en": "Could not switch tabs in {0}. Open the terminal, then try again.",
     "de": "Der Tab in {0} konnte nicht gewechselt werden. Öffnen Sie das Terminal und versuchen Sie es erneut.",
@@ -5150,6 +5171,27 @@
     "es": "Conecta {0} en los ajustes de Lunavect para abrir sesiones en el editor.",
     "fr": "Connectez {0} dans les réglages de Lunavect pour ouvrir les sessions dans l’éditeur.",
     "zh-Hans": "请在 Lunavect 设置中连接 {0}，以便在编辑器中打开会话。"
+  },
+  "Модуль Lunavect в {0} установлен, но не отвечает. Подождите полминуты или перезапустите окно редактора, затем повторите переход.": {
+    "en": "The Lunavect companion in {0} is installed but not responding. Wait half a minute or reload the editor window, then try again.",
+    "de": "Die Lunavect-Erweiterung in {0} ist installiert, antwortet aber nicht. Warten Sie eine halbe Minute oder laden Sie das Editorfenster neu und versuchen Sie es dann erneut.",
+    "es": "El complemento de Lunavect en {0} está instalado, pero no responde. Espera medio minuto o recarga la ventana del editor y vuelve a intentarlo.",
+    "fr": "Le module Lunavect dans {0} est installé mais ne répond pas. Patientez une demi-minute ou rechargez la fenêtre de l’éditeur, puis réessayez.",
+    "zh-Hans": "{0} 中的 Lunavect 扩展已安装，但没有响应。请等待半分钟或重新加载编辑器窗口，然后重试。"
+  },
+  "Версия модуля Lunavect в {0} не подходит к этой версии Lunavect. Переустановите модуль: Настройки → Подключения → Сессии в редакторах.": {
+    "en": "The Lunavect companion in {0} does not match this version of Lunavect. Reinstall it from Settings → Connections → Sessions in editors.",
+    "de": "Die Lunavect-Erweiterung in {0} passt nicht zu dieser Lunavect-Version. Installieren Sie sie erneut über Einstellungen → Verbindungen → Sitzungen in Editoren.",
+    "es": "El complemento de Lunavect en {0} no corresponde a esta versión de Lunavect. Vuelve a instalarlo desde Ajustes → Conexiones → Sesiones en editores.",
+    "fr": "Le module Lunavect dans {0} ne correspond pas à cette version de Lunavect. Réinstallez-le depuis Réglages → Connexions → Sessions dans les éditeurs.",
+    "zh-Hans": "{0} 中的 Lunavect 扩展与此版本的 Lunavect 不匹配。请在设置 → 连接 → 编辑器中的会话中重新安装。"
+  },
+  "Не удалось вывести {0} на передний план. Откройте окно редактора и повторите переход.": {
+    "en": "Could not bring {0} to the front. Open the editor window, then try again.",
+    "de": "{0} konnte nicht in den Vordergrund geholt werden. Öffnen Sie das Editorfenster und versuchen Sie es erneut.",
+    "es": "No se pudo traer {0} al frente. Abre la ventana del editor y vuelve a intentarlo.",
+    "fr": "Impossible d’amener {0} au premier plan. Ouvrez la fenêtre de l’éditeur, puis réessayez.",
+    "zh-Hans": "无法将 {0} 置于前台。请打开编辑器窗口，然后重试。"
   },
   "Не удалось найти эту сессию в {0}. Проверьте, что её проект и вкладка открыты, затем обновите список.": {
     "en": "Could not find this session in {0}. Make sure its project and tab are open, then refresh the list.",

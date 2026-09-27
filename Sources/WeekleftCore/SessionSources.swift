@@ -545,29 +545,50 @@ enum SessionProcess {
         return nil
     }
 
-    static func client(parentPID: Int32, entrypoint: String, terminal: String) -> SessionClient {
+    /// Metadata of one ancestor, read with libproc only: parent, controlling device and
+    /// executable path. A field is nil when macOS does not disclose it (for example the
+    /// path of Terminal's root-owned login); never arguments, environment or terminal text.
+    struct TerminalProcess: Sendable {
+        let parentPID: Int32?
+        let tty: String?
+        let executable: String?
+    }
+    static func terminalProcess(_ pid: Int32) -> TerminalProcess? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout.size(ofValue: info))
+        let hasInfo = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size
+        var tty: String?
+        if hasInfo, info.e_tdev != UInt32.max, let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) {
+            tty = "/dev/" + String(cString: name)
+        }
+        // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
+        // that expression macro is not imported into Swift.
+        var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let executable = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0
+            ? String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self) : nil
+        guard hasInfo || executable != nil else { return nil }
+        return TerminalProcess(parentPID: hasInfo ? Int32(info.pbi_ppid) : nil, tty: tty, executable: executable)
+    }
+
+    static func client(parentPID: Int32, entrypoint: String, terminal: String,
+                       read: (Int32) -> TerminalProcess? = terminalProcess,
+                       bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> SessionClient {
         // Query executable paths and parent PIDs directly. Never spawn ps, read
         // arguments, or inspect environment variables of another process.
         var pid = parentPID
         for _ in 0..<16 {
-            // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
-            // that expression macro is not imported into Swift.
-            var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
-            let name = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+            let process = read(pid)
+            guard let name = process?.executable else { break }
             // A CLI binary bundled in an app's Resources (for example ChatGPT.app's
             // codex) says nothing about the host; its parent decides.
             let bundledCLI = name.contains("/Contents/Resources/")
             if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
             if !bundledCLI, let range = name.range(of: ".app/Contents/"),
-               let bundle = IDEProcessLocation.bundleIdentifier(String(name[..<range.lowerBound]) + ".app"),
-               let editor = SessionIDE.identify(bundleIdentifier: bundle) { return editor.client }
+               let identifier = bundle(String(name[..<range.lowerBound]) + ".app"),
+               let editor = SessionIDE.identify(bundleIdentifier: identifier) { return editor.client }
             if name.contains("/Terminal.app/") || name.contains("/iTerm.app/") { return .terminal }
-            var info = proc_bsdinfo()
-            let size = Int32(MemoryLayout.size(ofValue: info))
-            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
-                  info.pbi_ppid > 1, info.pbi_ppid != UInt32(pid) else { break }
-            pid = Int32(info.pbi_ppid)
+            guard let parent = process?.parentPID, parent > 1, parent != pid else { break }
+            pid = parent
         }
         if entrypoint.contains("desktop") { return .desktop }
         if terminal.lowercased().contains("vscode") { return .vscode }
@@ -576,7 +597,9 @@ enum SessionProcess {
     }
     /// The controlling terminal device of the client process and the terminal
     /// application that owns it. Reads only process metadata, never arguments or environment.
-    static func terminalLocation(parentPID: Int32, termProgram: String) -> (tty: String, app: String)? {
+    static func terminalLocation(parentPID: Int32, termProgram: String,
+                                 read: (Int32) -> TerminalProcess? = terminalProcess,
+                                 bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> (tty: String, app: String)? {
         // Hook runners may call setsid(), losing their own controlling TTY.
         // Follow their parents to the client rather than giving up at the hook.
         // Read only process metadata; never arguments, environment or terminal text.
@@ -584,27 +607,21 @@ enum SessionProcess {
         let markedApp = termProgram == "Apple_Terminal" ? "Terminal" : termProgram == "iTerm.app" ? "iTerm2" : nil
         for _ in 0..<16 {
             guard pid > 1, seen.insert(pid).inserted else { return nil }
-            var info = proc_bsdinfo()
-            let size = Int32(MemoryLayout.size(ofValue: info))
-            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { break }
-            if tty == nil, info.e_tdev != UInt32.max, let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) {
-                let candidate = "/dev/" + String(cString: name)
-                if TerminalLocation.valid(candidate) { tty = candidate }
-            }
+            let process = read(pid)
+            guard let parent = process?.parentPID else { break }
+            if tty == nil, let candidate = process?.tty, TerminalLocation.valid(candidate) { tty = candidate }
             // Terminal's root-owned login can block further process inspection.
             if let tty, let markedApp { return (tty, markedApp) }
-            var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
-            let path = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+            guard let path = process?.executable else { break }
             if let tty, path.contains("/Terminal.app/") { return (tty, "Terminal") }
             if let tty, path.contains("/iTerm.app/") { return (tty, "iTerm2") }
             // A Desktop/editor runtime must not inherit an ancestor shell's tab.
             if !path.contains("/Contents/Resources/"),
                ["/Claude.app/", "/ChatGPT.app/", "/Codex.app/", "/Visual Studio Code.app/"].contains(where: path.contains) { return nil }
             if !path.contains("/Contents/Resources/"), let range = path.range(of: ".app/Contents/"),
-               let bundle = IDEProcessLocation.bundleIdentifier(String(path[..<range.lowerBound]) + ".app"),
-               SessionIDE.identify(bundleIdentifier: bundle) != nil { return nil }
-            pid = Int32(info.pbi_ppid)
+               let identifier = bundle(String(path[..<range.lowerBound]) + ".app"),
+               SessionIDE.identify(bundleIdentifier: identifier) != nil { return nil }
+            pid = parent
         }
         // A root-owned login process can hide the terminal app's ancestry while
         // the client's TTY remains known. The navigation layer can match that

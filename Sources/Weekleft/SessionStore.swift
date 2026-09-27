@@ -779,35 +779,20 @@ enum SessionNavigation {
         }
     }
     /// A live CLI session stays where it runs: bring its own tab to the front.
+    /// The policy lives in `TerminalLocation.focusSession`; only the running-app check needs AppKit.
     @MainActor static func focusTerminal(_ session: AgentSession) async throws -> Bool {
         let log = Logger(subsystem: "com.weekleft.app", category: "navigation")
-        guard let target = TerminalLocation.focusTarget(for: session) else {
-            log.notice("terminal focus unavailable: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
-            throw SessionOpeningError.terminalTabUnavailable
+        let environment = TerminalFocusEnvironment(isRunning: { bundle in
+            await MainActor.run { !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty }
+        })
+        do {
+            let focused = try await TerminalLocation.focusSession(session, environment: environment)
+            log.notice("terminal focus \(focused ? "succeeded" : "found no tab", privacy: .public)")
+            return focused
+        } catch {
+            log.notice("terminal focus failed: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
+            throw error
         }
-        // A root-owned login may hide the host's name. Match the exact device
-        // against running supported terminals; never launch an empty terminal.
-        let apps = target.app.isEmpty ? ["Terminal", "iTerm2"] : [target.app]
-        var failure: SessionOpeningError?
-        let deadline = ProcessInfo.processInfo.systemUptime + Double(TerminalLocation.focusTimeout)
-        for app in apps {
-            try Task.checkCancellation()
-            guard let bundle = TerminalLocation.bundleIdentifier(forApp: app),
-                  !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty else { continue }
-            do {
-                if try await TerminalLocation.focus(tty: target.tty, app: app,
-                                                    timeout: deadline - ProcessInfo.processInfo.systemUptime) {
-                    log.notice("terminal focus succeeded")
-                    return true
-                }
-            } catch {
-                try Task.checkCancellation()
-                if error is CancellationError { throw error }
-                log.notice("terminal focus failed")
-                failure = failure ?? (error as? SessionOpeningError) ?? .terminalFocusFailed(app)
-            }
-        }
-        throw failure ?? SessionOpeningError.terminalTabUnavailable
     }
     @MainActor static func copy(_ text: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)

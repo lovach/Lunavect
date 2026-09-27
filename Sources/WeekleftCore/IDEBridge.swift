@@ -45,6 +45,50 @@ public enum IDEBridge {
         var shellPID: Int32?
     }
 
+    /// One editor endpoint found in the descriptor directory, with what the app can do with it.
+    public struct Endpoint: Equatable, Sendable {
+        public enum State: Equatable, Sendable {
+            /// Fresh heartbeat and a socket: ready for navigation.
+            case live
+            /// The editor runs and its socket exists, but the heartbeat is late (for example right after sleep).
+            case stale
+            /// The editor runs, but its socket is missing: the companion cannot be reached.
+            case unreachable
+            /// The editor runs a companion with a descriptor protocol this app does not speak.
+            case incompatible
+        }
+        public let editor: SessionIDE
+        public let bundleIdentifier: String
+        public let appPath: String
+        public let companion: String?
+        public let state: State
+        public let descriptor: Descriptor?
+
+        public init(editor: SessionIDE, bundleIdentifier: String, appPath: String, companion: String?,
+                    state: State, descriptor: Descriptor?) {
+            self.editor = editor; self.bundleIdentifier = bundleIdentifier; self.appPath = appPath
+            self.companion = companion; self.state = state; self.descriptor = descriptor
+        }
+        init(live descriptor: Descriptor) {
+            self.init(editor: descriptor.editor, bundleIdentifier: descriptor.bundleIdentifier, appPath: descriptor.appPath,
+                      companion: nil, state: .live, descriptor: descriptor)
+        }
+    }
+
+    /// Everything `open` asks of the system; tests replace it with fixtures.
+    struct Environment: Sendable {
+        var endpoints: @Sendable () -> [Endpoint]
+        var ancestry: @Sendable (SessionProcessIdentity) -> [Int32]
+        var exchange: @Sendable (Descriptor, String, Target, TimeInterval, @escaping @Sendable (URL, URL) async -> Bool) async throws -> Reply
+        var displayName: @Sendable (IDESessionLocation) -> String
+
+        static let live = Environment(
+            endpoints: { IDEBridge.descriptors().map(Endpoint.init(live:)) },
+            ancestry: { IDEProcessLocation.liveAncestry(of: $0) },
+            exchange: { try await IDEBridge.exchange($0, action: $1, target: $2, timeout: $3, openURL: $4) },
+            displayName: { $0.editor.client.title })
+    }
+
     public static var directory: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Lunavect/IDEBridge")
     }
@@ -103,14 +147,21 @@ public enum IDEBridge {
     public static func open(_ session: AgentSession,
                             activateApp: @escaping @Sendable (Int32) async -> Bool,
                             openURL: @escaping @Sendable (URL, URL) async -> Bool) async throws {
+        try await open(session, activateApp: activateApp, openURL: openURL, environment: .live)
+    }
+
+    static func open(_ session: AgentSession,
+                     activateApp: @escaping @Sendable (Int32) async -> Bool,
+                     openURL: @escaping @Sendable (URL, URL) async -> Bool,
+                     environment: Environment) async throws {
         try Task.checkCancellation()
         // A legacy "vscode" label alone does not distinguish a terminal from
         // the provider extension. Require a captured origin before opening either.
         guard let location = session.ideLocation else { throw SessionOpeningError.ideSessionUnavailable(session.client.title) }
-        let name = location.editor.client.title
+        let name = environment.displayName(location)
         let target: Target
         if location.usesTerminal {
-            let ancestors = IDEProcessLocation.liveAncestry(of: location.runtime)
+            let ancestors = environment.ancestry(location.runtime)
             guard !ancestors.isEmpty else { throw SessionOpeningError.ideSessionUnavailable(name) }
             target = Target(kind: "terminal", ancestors: ancestors)
         } else {
@@ -120,14 +171,14 @@ public enum IDEBridge {
             target = Target(kind: session.provider.rawValue, sessionID: session.sessionID, cwd: session.cwd)
         }
         guard target.valid else { throw SessionOpeningError.ideSessionUnavailable(name) }
-        let endpoints = try await SessionProcess.detached { descriptors().filter { endpoint in
-            endpoint.bundleIdentifier == location.bundleIdentifier && endpoint.appPath == location.appPath
-        } }
+        let endpoints = try await SessionProcess.detached { environment.endpoints().filter { endpoint in
+            endpoint.state == .live && endpoint.bundleIdentifier == location.bundleIdentifier && endpoint.appPath == location.appPath
+        }.compactMap(\.descriptor) }
         guard !endpoints.isEmpty else { throw SessionOpeningError.ideBridgeMissing(name) }
         var matches: [Descriptor] = [], unsupported = false
         let probes = await withTaskGroup(of: (Descriptor, Reply?).self, returning: [(Descriptor, Reply?)].self) { group in
             for endpoint in endpoints {
-                group.addTask { (endpoint, try? await exchange(endpoint, action: "probe", target: target, timeout: 2, openURL: openURL)) }
+                group.addTask { (endpoint, try? await environment.exchange(endpoint, "probe", target, 2, openURL)) }
             }
             var results: [(Descriptor, Reply?)] = []
             for await result in group { results.append(result) }
@@ -152,7 +203,7 @@ public enum IDEBridge {
         }
         try Task.checkCancellation()
         let reply: Reply
-        do { reply = try await exchange(endpoint, action: "open", target: target, timeout: 10, openURL: openURL) }
+        do { reply = try await environment.exchange(endpoint, "open", target, 10, openURL) }
         catch {
             try Task.checkCancellation()
             if error is CancellationError { throw error }

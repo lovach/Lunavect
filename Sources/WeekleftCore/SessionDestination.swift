@@ -93,7 +93,9 @@ public extension AgentSession {
 public enum SessionOpeningError: LocalizedError, Equatable {
     case unavailableConfiguredCodex, sessionMayBeOpen
     case terminalTabUnavailable, terminalAutomationDenied(String), terminalFocusTimedOut(String), terminalFocusFailed(String)
+    case terminalProcessEnded, terminalUnsupported(String), terminalAutomationPending(String)
     case ideBridgeMissing(String), ideSessionUnavailable(String), ideUnsupported(String), ideAmbiguous(String), ideTimedOut(String)
+    case ideBridgeUnresponsive(String), ideCompanionIncompatible(String), ideActivationFailed(String)
     case missingCLI(ProviderID), missingProject, missingTerminal, invalidID, missingDesktopLink, missingClient(String), launchFailed(SessionClient)
     public var errorDescription: String? {
         switch self {
@@ -102,11 +104,22 @@ public enum SessionOpeningError: LocalizedError, Equatable {
         case .terminalAutomationDenied(let app): return L("Разрешите Lunavect управлять {0}: Системные настройки → Конфиденциальность и безопасность → Автоматизация. Затем повторите переход.", app)
         case .terminalFocusTimedOut(let app): return L("{0} не ответил на запрос перехода. Закройте открытые диалоги в терминале и повторите попытку.", app)
         case .terminalFocusFailed(let app): return L("Не удалось переключить вкладку в {0}. Откройте терминал и повторите переход.", app)
+        case .terminalProcessEnded:
+            return L("Клиент этой сессии больше не работает в своей вкладке терминала. Продолжите сессию командой из меню «…» → «Копировать команду продолжения».")
+        case .terminalUnsupported(let app):
+            return L("Переход к вкладке в {0} пока не поддерживается. Вернитесь в окно терминала вручную. Через «…» можно открыть папку проекта или скопировать команду продолжения.", app)
+        case .terminalAutomationPending(let app):
+            return L("macOS ждёт вашего ответа на запрос об управлении {0}. Ответьте на системный запрос и повторите переход.", app)
         case .ideBridgeMissing(let app): return L("Подключите {0} в настройках Lunavect, чтобы переходить к сессиям в редакторе.", app)
         case .ideSessionUnavailable(let app): return L("Не удалось найти эту сессию в {0}. Проверьте, что её проект и вкладка открыты, затем обновите список.", app)
         case .ideUnsupported(let app): return L("Этот способ запуска сессии в {0} пока не поддерживается. Поддерживаемые варианты указаны в настройках подключения редакторов.", app)
         case .ideAmbiguous(let app): return L("В {0} найдено несколько подходящих окон. Оставьте проект открытым в одном окне и повторите переход.", app)
         case .ideTimedOut(let app): return L("{0} не подтвердил переход к сессии. Проверьте запросы разрешений в редакторе и повторите попытку.", app)
+        case .ideBridgeUnresponsive(let app):
+            return L("Модуль Lunavect в {0} установлен, но не отвечает. Подождите полминуты или перезапустите окно редактора, затем повторите переход.", app)
+        case .ideCompanionIncompatible(let app):
+            return L("Версия модуля Lunavect в {0} не подходит к этой версии Lunavect. Переустановите модуль: Настройки → Подключения → Сессии в редакторах.", app)
+        case .ideActivationFailed(let app): return L("Не удалось вывести {0} на передний план. Откройте окно редактора и повторите переход.", app)
         case .unavailableConfiguredCodex: return L("Клиент Codex по выбранному пути недоступен. Откройте «Подключения» и выберите исполняемый файл заново.")
         case .missingCLI(let provider): return L("Не найден клиент {0}. Откройте «Подключения» и завершите установку официального клиента.", provider.title)
         case .missingProject: return L("Папка проекта недоступна. Верните её на прежнее место или откройте сессию в официальном приложении. Команду продолжения можно скопировать через «…».")
@@ -121,6 +134,36 @@ public enum SessionOpeningError: LocalizedError, Equatable {
         case .launchFailed(.terminal), .launchFailed(.background): return L("Не удалось запустить Terminal. Откройте терминал вручную и вставьте команду продолжения из меню «…».")
         case .launchFailed: return L("Приложение не приняло переход. Откройте его вручную и повторите попытку. Команда продолжения доступна в меню «…».")
         }
+    }
+}
+
+/// Everything terminal navigation asks of the system. The policy in
+/// `TerminalLocation.focusSession` is tested with fixtures; only the live
+/// environment inspects processes or scripts another application.
+public struct TerminalFocusEnvironment: Sendable {
+    /// Whether an application with this bundle identifier is running. Supplied by the app target.
+    public var isRunning: @Sendable (String) async -> Bool
+    /// What runs on a terminal device, for the session's provider.
+    public var occupancy: @Sendable (String, ProviderID) -> TerminalLocation.DeviceOccupancy
+    /// Apple event permission for a bundle identifier; `true` may show the macOS consent prompt.
+    public var permission: @Sendable (String, Bool) async throws -> Int32
+    /// Runs the focus script for (device, app) within the given number of seconds.
+    public var runScript: @Sendable (String, String, TimeInterval) async throws -> Bool
+    public var runningTarget: @Sendable (ProviderID, String) -> TerminalLocation.Target?
+    public var uptime: @Sendable () -> TimeInterval
+
+    public init(isRunning: @escaping @Sendable (String) async -> Bool,
+                occupancy: @escaping @Sendable (String, ProviderID) -> TerminalLocation.DeviceOccupancy = { _, _ in .unknown },
+                permission: @escaping @Sendable (String, Bool) async throws -> Int32 = { _, _ in 0 },
+                runScript: @escaping @Sendable (String, String, TimeInterval) async throws -> Bool = {
+                    try await TerminalLocation.focus(tty: $0, app: $1, timeout: $2)
+                },
+                runningTarget: @escaping @Sendable (ProviderID, String) -> TerminalLocation.Target? = {
+                    TerminalLocation.runningTarget(provider: $0, cwd: $1)
+                },
+                uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.isRunning = isRunning; self.occupancy = occupancy; self.permission = permission
+        self.runScript = runScript; self.runningTarget = runningTarget; self.uptime = uptime
     }
 }
 
@@ -167,6 +210,44 @@ public enum TerminalLocation {
         default: return .terminalFocusFailed(app)
         }
     }
+    /// What a terminal device currently runs, as far as the session's provider is concerned.
+    public enum DeviceOccupancy: Equatable, Sendable {
+        /// A runtime of the session's provider runs on the device.
+        case provider
+        /// No provider runtime, but an interpreter that may run an npm-installed CLI.
+        case interpreter
+        /// Neither: the recorded tab no longer runs this kind of session.
+        case vacant
+        /// The process table could not be read.
+        case unknown
+    }
+
+    /// A live CLI session stays where it runs: bring its own tab to the front.
+    /// Never launches a terminal application that is not running.
+    public static func focusSession(_ session: AgentSession, environment: TerminalFocusEnvironment) async throws -> Bool {
+        try Task.checkCancellation()
+        guard let target = focusTarget(for: session, running: environment.runningTarget) else {
+            throw SessionOpeningError.terminalTabUnavailable
+        }
+        // A root-owned login may hide the host's name. Match the exact device
+        // against running supported terminals; never launch an empty terminal.
+        let apps = target.app.isEmpty ? ["Terminal", "iTerm2"] : [target.app]
+        var failure: SessionOpeningError?
+        let deadline = environment.uptime() + Double(focusTimeout)
+        for app in apps {
+            try Task.checkCancellation()
+            guard let bundle = bundleIdentifier(forApp: app), await environment.isRunning(bundle) else { continue }
+            do {
+                if try await environment.runScript(target.tty, app, deadline - environment.uptime()) { return true }
+            } catch {
+                try Task.checkCancellation()
+                if error is CancellationError { throw error }
+                failure = failure ?? (error as? SessionOpeningError) ?? .terminalFocusFailed(app)
+            }
+        }
+        throw failure ?? SessionOpeningError.terminalTabUnavailable
+    }
+
     public struct Target: Hashable, Sendable {
         public let tty: String
         public let app: String
