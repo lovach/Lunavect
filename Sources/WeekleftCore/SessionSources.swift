@@ -74,9 +74,12 @@ public enum SessionSources {
         return environment
     }
     public static func claude(path: String) async throws -> [AgentSession] {
+        try await claude(path: path, isInternal: { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: $1) })
+    }
+    static func claude(path: String, isInternal: @escaping @Sendable (String, Int32?) -> Bool) async throws -> [AgentSession] {
         try await SessionProcess.detached {
             let data = try SessionProcess.run(path: path, arguments: ["agents", "--json", "--all"])
-            return try SessionParser.claude(data, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
+            return try SessionParser.claude(data, isInternal: isInternal, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
                 SessionProcess.terminalLocation(parentPID: $0, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
             }, ide: {
                 IDEProcessLocation.locate(parentPID: $0, provider: .claude)
@@ -115,8 +118,11 @@ public enum SessionSources {
         }
     }
     public static func legacyEvents(catalog: [AgentSession], now: Date = Date()) -> [AgentSession] {
+        legacyEvents(catalog: catalog, now: now, directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d"),
+                     isInternal: { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) })
+    }
+    static func legacyEvents(catalog: [AgentSession], now: Date, directory dir: URL, isInternal: (String) -> Bool) -> [AgentSession] {
         guard !Task.isCancelled else { return [] }
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d")
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey, .isSymbolicLinkKey])) ?? []
         let codexIDs = Set(catalog.filter { $0.provider == .codex }.map(\.sessionID))
         return files.filter { $0.pathExtension == "json" }.compactMap { file in
@@ -139,6 +145,7 @@ public enum SessionSources {
             default: phase = .unknown
             }
             let cwd = row["cwd"] as? String ?? ""
+            guard provider != .claude || !isInternal(cwd) else { return nil }
             let client = SessionProcess.client(parentPID: pid, entrypoint: entrypoint, terminal: row["term_program"] as? String ?? "")
             return AgentSession(
                 provider: provider, sessionID: id, title: SessionParser.text(row["project"]), cwd: cwd, client: client,

@@ -193,9 +193,13 @@ public enum SessionHooks {
     public static func secureWrite(_ data: Data, to url: URL) throws {
         try LocalStateRecovery.write(data, to: url)
     }
-    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil) throws {
+    /// `isInternal` identifies Lunavect's own quota probe by its folder. `--safe-mode`
+    /// currently disables hooks there; this keeps a future client from recording it.
+    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil,
+                               isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) }) throws {
         let now = Date()
         let initial = try SessionRecord.event(data, provider: provider, previous: nil, now: now, client: client)
+        if provider == .claude, isInternal(initial.session.cwd) { return }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let file = directory.appendingPathComponent("\(provider.rawValue)-\(initial.session.sessionID).json")
         let lock = open(directory.appendingPathComponent(".capture.lock").path, O_CREAT | O_RDWR, 0o600)

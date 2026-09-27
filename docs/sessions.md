@@ -88,6 +88,10 @@ For a selected CLI that starts through a script, a successful local app-server r
 
 Checks are batched as events approach the freshness limit. A result lasts ten seconds and stays separate from the event timestamp and response start time. Completion and cancellation take priority; inaccessible process information falls back to the ordinary freshness rule. Process arguments, environment and memory are not read. This can preserve a long-running response without new log entries, but cannot distinguish thinking from a stuck process or permission waiting without a separate event.
 
+## Lunavect's own quota probe
+
+To read Claude's weekly and five-hour usage when no statusLine value is fresh, Lunavect runs Claude Code's `/usage` in its private folder `~/Library/Application Support/Weekleft/QuotaProbe`. Claude Code lists that run in `claude agents --json` like any interactive session. Lunavect removes it where the catalog is read: a row whose folder is the probe folder or inside it (after resolving symbolic links, `/private` and trailing slashes), or whose process is a direct child of Lunavect, never becomes a row, a menu-bar count, a notification, an activity or Keep Awake observation, a reason for faster polling or a hidden-session entry. Hook and status-bar records from that folder are ignored as well. The name Claude generates for the run is not used.
+
 ## Tool-launched Claude runtimes
 
 A Claude CLI started through a command inside a Claude or Codex task can appear in the Claude catalog as an interactive session even though it has no separate Desktop conversation. Lunavect checks bounded native process ancestry: a Claude runtime, an intervening command process and another agent runtime establish an internal launch. These records stay out of rows, counters, notifications, activity observations and hidden-session history. The check reads executable paths and parent PIDs, not arguments, environment or conversation content.

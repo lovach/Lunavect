@@ -309,7 +309,7 @@ import WeekleftCore
     /// A source changed while a read was already enumerating it.
     private var eventsChanged = false
     private var panelVisible = false
-    private var polling: SessionPolling?
+    private(set) var polling: SessionPolling?
     private var lastCatalogPollAt: Date?
     func setPanelVisible(_ visible: Bool) {
         guard panelVisible != visible else { return }

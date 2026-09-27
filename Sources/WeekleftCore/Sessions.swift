@@ -227,13 +227,18 @@ public enum SessionParser {
             return session
         }
     }
-    public static func claude(_ data: Data, now: Date = Date(), nestedRuntime: (Int32) -> Bool? = { _ in nil },
+    /// `isInternal` receives each row's cwd and PID; Lunavect's own probe is
+    /// removed here, before any store, notice, activity or Keep Awake consumer.
+    public static func claude(_ data: Data, now: Date = Date(), isInternal: (String, Int32?) -> Bool = { _, _ in false },
+                              nestedRuntime: (Int32) -> Bool? = { _ in nil },
                               terminal: (Int32) -> TerminalLocation.Target? = { _ in nil },
                               ide: (Int32) -> IDESessionLocation? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
         return rows.compactMap { row in
             guard let id = (row["sessionId"] ?? row["id"]) as? String, validID(id) else { return nil }
             let cwd = row["cwd"] as? String ?? ""
+            let rowPID = (row["pid"] as? Int).flatMap { $0 > 1 ? Int32(exactly: $0) : nil }
+            guard !isInternal(cwd, rowPID) else { return nil }
             let background = row["kind"] as? String == "background"
             let status = row["status"] as? String
             let waiting = row["waitingFor"] as? String
@@ -266,7 +271,7 @@ public enum SessionParser {
             if background {
                 // Official detached tasks have attach routes and supervisor processes.
                 session.isNestedClaudeSession = false
-            } else if let pid = row["pid"] as? Int, pid > 1, let safePID = Int32(exactly: pid) {
+            } else if let safePID = rowPID {
                 session.isNestedClaudeSession = nestedRuntime(safePID)
                 if let location = ide(safePID) {
                     session.ideLocation = location; session.client = location.editor.client
