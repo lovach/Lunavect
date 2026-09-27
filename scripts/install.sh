@@ -11,7 +11,8 @@ MIGRATED_LEGACY_APP=false
 INSTALLED_NEW=false
 CREATED_LEGACY_LINK=false
 INSTALL_COMPLETE=false
-LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister
+# Tests inject a recording tool; the default is the system registration tool.
+LSREGISTER="${LUNAVECT_LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister}"
 # Validate every destination before staging, migration, or registration changes.
 for existing in "$APP_DEST" "$LEGACY_APP"; do
   if [ -L "$existing" ]; then
@@ -31,6 +32,13 @@ if [ -e "$GLOBAL_APP" ] &&
    [ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$GLOBAL_APP/Contents/Info.plist" 2>/dev/null)" = 'com.weekleft.app' ] &&
    [ "$(cd "$GLOBAL_APP" && pwd -P)" != "$(cd "$APP_DEST" 2>/dev/null && pwd -P)" ]; then
   echo "Another Lunavect is installed at $GLOBAL_APP; desktop widgets could bind to either copy." >&2
+  # Read-only: name the copy in use so the owner removes the other one.
+  # grep reads all input (no -q), so ps never sees SIGPIPE under pipefail.
+  for copy in "$GLOBAL_APP" "$APP_DEST"; do
+    if ps -axo comm= | grep -Fx -- "$copy/Contents/MacOS/Lunavect" >/dev/null; then
+      echo "Running now: $copy" >&2
+    fi
+  done
   echo 'Quit Lunavect, remove that copy (see docs/installation.md#uninstall), then run this script again.' >&2
   exit 1
 fi

@@ -36,9 +36,19 @@ class ReleasePreflightTests(unittest.TestCase):
         tool.write_text('#!/bin/sh\ntouch "$RELEASE_FIXTURE_TRACE"\nexit 42\n'); tool.chmod(0o755)
         # A private home keeps the owner's installed app out of these fixtures.
         self.home = self.root / 'home'
+        # Registration cleanup must never reach Launch Services, even if a
+        # fixture ever gets past Xcode: these tools only record the attempt.
+        self.forbidden = self.root / 'forbidden-registration'
+        for name in ('lsregister', 'pluginkit'):
+            blocked = self.root / 'bin' / ('blocked-' + name)
+            blocked.write_text('#!/bin/sh\necho "$0 $*" >> "$RELEASE_FIXTURE_FORBIDDEN"\nexit 99\n'); blocked.chmod(0o755)
+        self.addCleanup(lambda: self.assertFalse(self.forbidden.exists(), 'Fixture reached registration cleanup'))
         # HOME alone cannot hide /Applications/Lunavect.app on a developer Mac.
         self.env = dict(os.environ, HOME=str(self.home), LUNAVECT_RELEASE_ROOT=str(self.root / 'output'),
                         LUNAVECT_INSTALLED_APPS=str(self.home / 'Applications/Lunavect.app'),
+                        LUNAVECT_LSREGISTER=str(self.root / 'bin/blocked-lsregister'),
+                        LUNAVECT_PLUGINKIT=str(self.root / 'bin/blocked-pluginkit'),
+                        RELEASE_FIXTURE_FORBIDDEN=str(self.forbidden),
                         RELEASE_FIXTURE_TRACE=str(self.root / 'trace'), PATH=str(tool.parent) + os.pathsep + os.environ['PATH'])
 
     def git(self, *args):
