@@ -28,3 +28,20 @@ Private raw evidence is outside Git. No provider credentials, real session conte
 - [x] Complete focused TSan run: 49 passed, 3 live-integration skips, no TSan reports.
 - [x] Preserve initial audit evidence and record the follow-up separately in [NAVIGATION.md](NAVIGATION.md).
 - [ ] Signed-app Terminal/iTerm2 permissions and actual focus; new live editor/version matrix (not performed in this local continuation).
+
+## Expanded fault and live-integration pass
+
+- [x] Probe filesystem recovery, migration failures/races, clock rollback, socket trickle traffic, asynchronous teardown and cancellation across the companion boundary.
+- [x] Reproduce and fix six further groups, F08–F13; add source-supported opened-descriptor hardening H01.
+- [x] Add 15 behavior tests: four Swift, eight Node and three Python/SDK cases; retain before/after failure evidence.
+- [x] Verify real Apple Terminal navigation and unminimizing with fresh owned inert processes.
+- [x] Verify actual VS Code terminal/window selection, ambiguous and closed targets, and the native Lunavect route for both inert fixture providers; repeat after the final cancellation change.
+- [x] Verify the actual JetBrains class's shutdown race using its SDK; keep live UI/version coverage explicitly separate.
+- [x] Run the real read-only system sleep-setting probe; leave settings unchanged.
+- [x] Rebuild both local companion installers as 0.1.1 and verify packaged source hashes.
+- [x] Final full check `run.toF9OKm8`: 736 Swift passed / 59 skipped; 110 Python passed / one SDK skip; 16 Node passed; built intent test, unsigned universal app/widget/helpers and provenance passed.
+- [x] Final scoped TSan run: 43 passed, zero skipped, no TSan reports; later edits did not change the instrumented Swift implementation.
+- [x] Check fixture cleanup and all 282 recorded implementation/test/config/resource hashes; preserve earlier verification snapshots.
+- [ ] Signed-app permissions, authenticated provider panels, live JetBrains UI/version matrix, real update/widgets, accessibility and hardware matrix remain outside this completed local pass.
+
+Evidence and exact boundaries: [EXPANDED.md](EXPANDED.md), [expanded-verification.json](expanded-verification.json).

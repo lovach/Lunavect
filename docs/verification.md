@@ -6,9 +6,11 @@ The current public release is **Lunavect 0.2.3 (189)**. These records distinguis
 
 ## Unreleased local audit — September 27, 2026
 
-The [full audit](audits/2026-09-27/REPORT.md) corrected seven data/lifecycle/storage defect groups. Its [navigation continuation](audits/2026-09-27/NAVIGATION.md) then removed synchronous MainActor Terminal automation and made IDE socket waits monotonic and cancellable. The continuation's full check passed 732 Swift tests with 59 explicit skips, 108 Python tests and 8 Node tests; the unsigned app/widget build, resources and provenance passed. A focused TSan run passed 49 tests with 3 live-integration skips and no TSan reports.
+The [full audit](audits/2026-09-27/REPORT.md) corrected seven data/lifecycle/storage defect groups. Its [navigation continuation](audits/2026-09-27/NAVIGATION.md) removed synchronous MainActor Terminal automation and made IDE socket waits monotonic and cancellable. The latest [expanded pass](audits/2026-09-27/EXPANDED.md) corrected six further cache/companion groups and hardened opened descriptor reads. It added 15 behavior tests; the final full check passed **736 Swift tests with 59 explicit skips, 110 Python tests with one SDK skip, and 16 Node tests**. Unsigned universal app/widget/helper builds, resources and provenance passed. A focused TSan run passed 43 tests, zero skips, with no TSan reports.
 
-These are local, unreleased changes. Actual Automation attribution and permissions for the new Terminal helper still require a signed-app check; live editor/provider panels, desktop widget placement and the signed-update matrix were not newly exercised. Initial render/performance evidence is preserved separately rather than represented as a rerun.
+Fresh owned inert fixtures verified the actual Apple Terminal tab/window, restoring a minimized window, and the native Lunavect-to-VS-Code route for both fixture providers. VS Code also rejected ambiguous and closed targets. A separate SDK-backed run passed the JetBrains shutdown race that is skipped by the default suite; its live terminal UI was not rerun. The real system sleep-setting read also passed without changing power settings.
+
+These are local, unreleased changes. Automation attribution and permissions still require a signed-app check; authenticated provider panels, desktop widget placement and the signed-update matrix were not newly exercised. Both bundled companion packages were rebuilt as 0.1.1; installed app and companions were not replaced. Initial render/performance evidence is preserved separately rather than represented as a rerun.
 
 ## 0.2.3 release checks — September 26, 2026
 

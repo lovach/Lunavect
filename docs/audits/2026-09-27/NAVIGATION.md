@@ -2,6 +2,8 @@
 
 The two remaining transport risks, R01 and R02, are corrected in local code. Nine additional behavior tests pass. This follows initial audit commit `e94078be3b858cd1c02194f2e6376cc8ea520b21`; it is not a published update or a signed-app acceptance result.
 
+This document preserves that phase's evidence. The later [expanded scenario pass](EXPANDED.md) adds fresh real Terminal and VS Code navigation under native test hosts, companion lifecycle/cancellation fixes and its own final full check. Signed-app Automation attribution remains unverified.
+
 ## Terminal / iTerm2: responsive, bounded automation
 
 Previously, `SessionNavigation.focusTerminal` executed AppleScript synchronously on MainActor. A slow Terminal could hold the app's interface while it processed several Apple events. Per-event timeouts did not bound the entire search.

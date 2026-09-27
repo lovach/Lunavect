@@ -2,7 +2,9 @@
 
 The initial expanded local audit found and fixed **seven defect groups** that the baseline tests did not catch. **Fourteen behavior tests** were added: ten covering the reproduced defects and their adjacent boundaries, one existing FIFO behavior, one independent interval oracle, and two real Unix-socket protocol tests. The application design, compatibility identifiers, data locations and telemetry decision are preserved.
 
-This is a bounded, evidence-led audit of this checkout, not a guarantee that every possible runtime scenario works. The subsequent [navigation hardening](NAVIGATION.md) corrects both recorded transport risks and adds nine behavior tests: the new full check passes 732 Swift tests (59 skips), 108 Python tests and 8 Node tests. The main remaining product risks concern live host integration, including Automation permissions in the signed app. See [findings](FINDINGS.md), [scenario matrix](SCENARIOS.md), [file coverage](coverage.json) and [verification metadata](verification.json).
+The [navigation hardening](NAVIGATION.md) subsequently corrected both recorded transport risks and added nine behavior tests. The latest [expanded scenario pass](EXPANDED.md) reproduced and fixed **six further defect groups**, hardened descriptor reads and added **15 more tests**. Its final full check passes **736 Swift tests (59 skips), 110 Python tests (one SDK skip) and 16 Node tests**. A separate SDK run passes the skipped JetBrains lifecycle case; actual Terminal and VS Code navigation now have fresh inert-fixture evidence.
+
+This is a bounded, evidence-led audit of this checkout, not a guarantee that every possible runtime scenario works. Signed-app Automation permissions, authenticated provider panels and the broader host matrix remain open. See [findings](FINDINGS.md), [scenario matrix](SCENARIOS.md), [initial file coverage](coverage.json), [initial verification](verification.json) and [latest verification metadata](expanded-verification.json).
 
 ## Source and repository
 
@@ -46,6 +48,8 @@ The audit exposed duplicated freshness decisions between quota presentation and 
 
 Remaining concentration points are the large app/session stores, signed-app automation, and external/local provider formats that can change. MainActor automation and wall-clock transport budgeting were addressed in the [continuation](NAVIGATION.md). These require explicit contract/live checks; merely moving functions into more files would not resolve those risks.
 
+The expanded pass also traced cancellation across the native/companion boundary and shutdown across asynchronous file publication. Both needed end-to-end lifetime handling, not another timeout at the caller. Local metadata caches now distinguish file change time and retry negative results, allowing recovery from transient read failures without abandoning positive caching. See F08–F13 and H01 in [EXPANDED.md](EXPANDED.md).
+
 ## Performance
 
 Three optimized synthetic samples on this arm64 Mac, macOS 26.6.2, Swift 6.3.3:
@@ -66,13 +70,15 @@ No provider credential store, token or keychain item was read. No real session t
 
 ## Remaining validation before a release claim
 
-1. Verify the new helper-based Terminal navigation and actual focus/Automation permissions in the signed app; the synchronous automation path has been removed.
-2. Exercise authenticated provider panels separately from inert terminal fixtures, including closed/stale/ambiguous editor windows and supported JetBrains builds. Earlier September 26 live fixtures remain historical, not rerun evidence.
+1. Verify the new helper's Automation attribution, first consent, denial and revocation in the signed app. Correct Apple Terminal tab/window focus and unminimizing were freshly verified under the native test host; this does not prove the shipping app's permission identity.
+2. Exercise authenticated provider panels separately from inert terminal fixtures and broaden supported JetBrains builds. Fresh VS Code native navigation, ambiguous targets and closed tabs passed; JetBrains's fresh SDK teardown test is not a rerun of its September 26 live terminal UI evidence.
 3. Verify desktop WidgetKit placement/refresh through the intended update and restart cycle; test the signed distribution, helper lifecycle and required macOS/hardware targets.
 4. Complete native input/VoiceOver, physical keyboard focus and broader language/contrast/scale checks. Optional screenshot tests that were not run remain listed as such.
 
 An early extra-render attempt rejected incorrect 2x expectations for the AppKit 1x fixture; the wrapper now declares the actual mixed scale and the fresh run passes. An initial socket fixture blocked its own oversized writer; its sampled stack identified the test writer, and the fixture now uses a bounded nonblocking peer buffer. Neither issue was classified as a product failure.
 
-All application changes were followed by a full check. The two final socket tests were followed by another full check. Native/performance runs used the same production code; later changes were test/audit files only. Final audit prose is written after verification; the implementation-file hashes are checked again to distinguish report edits from code changes.
+For the initial audit, all application changes and the two final socket tests were followed by full checks. Its native/performance runs used that phase's production code; they do not certify subsequent navigation/cache/companion changes. Final audit prose is written after verification; implementation-file hashes are checked again to distinguish report edits from code changes.
 
 The navigation continuation has its own fresh full-check and TSan evidence in [NAVIGATION.md](NAVIGATION.md) and [navigation-verification.json](navigation-verification.json). Initial render/performance results above were not rerun or relabelled.
+
+The latest expanded pass is recorded in [EXPANDED.md](EXPANDED.md) and [expanded-verification.json](expanded-verification.json): final run `run.toF9OKm8`, 43 focused tests under TSan, fresh Terminal/VS Code tests, SDK-backed JetBrains teardown and 282 unchanged checked input hashes. Only audit documents changed after the final full check. Companion packages are rebuilt as 0.1.1 locally; installed application and companions remain unchanged.

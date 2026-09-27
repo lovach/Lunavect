@@ -96,9 +96,17 @@ public final class BridgeService implements Disposable {
         if (disposed) return;
         descriptor.addProperty("updatedAt", Instant.now().toEpochMilli() / 1000.0);
         Path temporary = descriptorPath.resolveSibling(id + ".tmp");
-        Files.writeString(temporary, gson.toJson(descriptor), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        Files.setPosixFilePermissions(temporary, PosixFilePermissions.fromString("rw-------"));
-        Files.move(temporary, descriptorPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        try {
+            Files.writeString(temporary, gson.toJson(descriptor), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.setPosixFilePermissions(temporary, PosixFilePermissions.fromString("rw-------"));
+            if (disposed) return;
+            Files.move(temporary, descriptorPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            // Shutdown may race either the write or the rename. Do not wait on
+            // disk I/O on the IDE thread; the last publisher retires its output.
+            try { Files.deleteIfExists(temporary); }
+            finally { if (disposed) Files.deleteIfExists(descriptorPath); }
+        }
     }
 
     private void handle(SocketChannel client, long deadline) {

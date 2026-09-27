@@ -88,3 +88,74 @@ test('official provider routes keep the exact ID and reuse the existing Codex ed
     }
   } finally { await fs.rm(cwd, { recursive: true, force: true }); }
 });
+
+test('workspace root, aliases and similarly named siblings respect path boundaries', async () => {
+  const api = editor([]);
+  api.extensions.getExtension = () => ({});
+  const target = { kind: 'claude', sessionID: '01234567-89ab-cdef-0123-456789abcdef', cwd: '/tmp/project' };
+  api.workspace.workspaceFolders = [{ uri: { scheme: 'file', fsPath: '/' } }];
+  assert.equal((await resolveTarget(api, target, async p => p)).status, 'matched');
+  api.workspace.workspaceFolders[0].uri.fsPath = '/alias';
+  assert.equal((await resolveTarget(api, target, async p => p === '/alias' ? '/tmp' : p)).status, 'matched');
+  api.workspace.workspaceFolders[0].uri.fsPath = '/tmp/pro';
+  assert.equal((await resolveTarget(api, target, async p => p)).status, 'notFound');
+  target.cwd = '/tmp';
+  api.workspace.workspaceFolders[0].uri.fsPath = '/tmp/project';
+  assert.equal((await resolveTarget(api, target, async p => p)).status, 'notFound');
+});
+
+test('provider IDs reject trailing line terminators and paths use the UTF-8 protocol budget', () => {
+  const id = '01234567-89ab-cdef-0123-456789abcdef';
+  for (const suffix of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+    assert.equal(validateTarget({ kind: 'claude', sessionID: id + suffix, cwd: '/tmp' }), false);
+  }
+  assert.equal(validateTarget({ kind: 'codex', sessionID: id, cwd: '/' + '界'.repeat(1365) }), true);
+  assert.equal(validateTarget({ kind: 'codex', sessionID: id, cwd: '/' + '界'.repeat(1366) }), false);
+  for (const control of ['\x7f', '\x85']) {
+    assert.equal(validateTarget({ kind: 'codex', sessionID: id, cwd: '/tmp/' + control }), false);
+  }
+});
+
+test('a backwards wall-clock change cannot prolong focus confirmation', async () => {
+  const fs = require('node:fs/promises'), vm = require('node:vm'), path = require('node:path');
+  const source = await fs.readFile(path.join(__dirname, 'routing.js'), 'utf8');
+  let wall = 0, monotonic = 0, ticks = 0;
+  const module = { exports: {} };
+  const load = name => name === 'node:perf_hooks' ? { performance: { now: () => monotonic += 1000 } } : require(name);
+  vm.runInThisContext('(function(require,module,Date,setTimeout){' + source + '\n})')(
+    load, module, { now: () => wall }, callback => {
+      // Virtual time avoids a loaded CI machine turning this into a timing test.
+      // The old wall-clock loop escapes after ten ticks instead of hanging.
+      wall = ++ticks === 10 ? 1e9 : wall - 10000;
+      queueMicrotask(callback);
+    });
+  const api = editor([30]); api.window.state.focused = false;
+  assert.equal((await module.exports.focusTarget(api, { kind: 'terminal', ancestors: [30] })).status, 'timeout');
+  assert.ok(ticks < 10, 'The monotonic budget must end despite continued clock rollback');
+});
+
+test('cancellation during terminal discovery never focuses a late matching terminal', async () => {
+  const api = editor([30]), abort = new AbortController();
+  let release;
+  api.window.terminals[0].processId = new Promise(resolve => { release = resolve; });
+  const opening = focusTarget(api, { kind: 'terminal', ancestors: [30] }, abort.signal);
+  abort.abort(); release(30);
+  assert.equal((await opening).status, 'cancelled');
+  assert.equal(api.window.activeTerminal, undefined);
+});
+
+test('cancellation during provider activation or command discovery never dispatches an open command', async () => {
+  const fs = require('node:fs/promises'), os = require('node:os'), path = require('node:path');
+  const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'lunavect-cancel-provider-')));
+  try {
+    for (const phase of ['activation', 'commands']) {
+      const api = editor([]), abort = new AbortController(); let opened = 0;
+      api.workspace.workspaceFolders = [{ uri: { scheme: 'file', fsPath: cwd } }];
+      api.extensions.getExtension = () => ({ activate: async () => { if (phase === 'activation') abort.abort(); } });
+      api.commands = { getCommands: async () => { if (phase === 'commands') abort.abort(); return ['claude-vscode.primaryEditor.open']; },
+        executeCommand: async () => { opened++; } };
+      const result = await focusTarget(api, { kind: 'claude', sessionID: '01234567-89ab-cdef-0123-456789abcdef', cwd }, abort.signal);
+      assert.equal(result.status, 'cancelled'); assert.equal(opened, 0);
+    }
+  } finally { await fs.rm(cwd, { recursive: true, force: true }); }
+});

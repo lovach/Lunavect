@@ -231,6 +231,38 @@ final class IDEBridgeTests: XCTestCase {
         XCTAssertFalse(IDEBridge.Target(kind: "claude", sessionID: UUID().uuidString, cwd: "/tmp/project\ncommand").valid)
     }
 
+    func testOpenedDescriptorRejectsSpecialFilesLinksAndPublicPermissions() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("endpoint.json")
+        let record = IDEBridge.Descriptor(version: 1, id: UUID().uuidString, editor: .vscode, pid: 42,
+                                          appPath: "/Applications/Fixture.app", bundleIdentifier: "com.microsoft.VSCode",
+                                          socketPath: "/tmp/fixture.sock", updatedAt: 1)
+        let encoded = try JSONEncoder().encode(record)
+        try encoded.write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        XCTAssertEqual(IDEBridge.readDescriptor(from: file), record)
+        let link = root.appendingPathComponent("link.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        XCTAssertNil(IDEBridge.readDescriptor(from: link))
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        XCTAssertNil(IDEBridge.readDescriptor(from: file))
+        XCTAssertNil(IDEBridge.readDescriptor(from: root))
+        let fifo = root.appendingPathComponent("pipe.json")
+        XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
+        let start = ProcessInfo.processInfo.systemUptime
+        XCTAssertNil(IDEBridge.readDescriptor(from: fifo))
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.2)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try (encoded + Data(repeating: 32, count: 16384 - encoded.count)).write(to: file)
+        XCTAssertEqual(IDEBridge.readDescriptor(from: file), record)
+        try (encoded + Data(repeating: 32, count: 16385 - encoded.count)).write(to: file)
+        XCTAssertNil(IDEBridge.readDescriptor(from: file))
+        try Data("{broken".utf8).write(to: file)
+        XCTAssertNil(IDEBridge.readDescriptor(from: file))
+    }
+
     func testDescriptorDirectoryCannotBeSymlinked() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

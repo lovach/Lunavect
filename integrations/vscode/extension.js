@@ -42,19 +42,22 @@ async function activate(context) {
       const request = pending.get(key);
       if (!request) return;
       pending.delete(key);
-      try { request.finish(await focusTarget(vscode, request.target)); }
+      try { request.finish(await focusTarget(vscode, request.target, request.signal)); }
       catch { request.finish({ status: 'failed' }); }
     }
   });
   const server = net.createServer(socket => {
     if (connections.size >= 8) { socket.destroy(); return; }
     connections.add(socket);
+    const abort = new AbortController();
     let bytes = Buffer.alloc(0), handled = false;
     const send = value => { if (!socket.destroyed) socket.write(JSON.stringify(value) + '\n'); };
     const finish = value => { send(value); socket.end(); };
-    socket.setTimeout(TIMEOUT_MS, () => { finish({ status: 'timeout' }); socket.destroy(); });
+    const deadline = setTimeout(() => { abort.abort(); finish({ status: 'timeout' }); socket.destroy(); }, TIMEOUT_MS);
     socket.on('error', () => socket.destroy());
     socket.on('close', () => {
+      abort.abort();
+      clearTimeout(deadline);
       connections.delete(socket);
       for (const [key, value] of pending) if (value.socket === socket) pending.delete(key);
     });
@@ -75,7 +78,7 @@ async function activate(context) {
           finish({ status: match.status, shellPID: match.shellPID }); return;
         }
         const key = randomUUID();
-        pending.set(key, { socket, target: request.target, finish });
+        pending.set(key, { socket, target: request.target, signal: abort.signal, finish });
         // Resolve at click time and pass the result unchanged. VS Code routes the
         // callback to this exact window and brings it forward before our handler.
         const uri = await vscode.env.asExternalUri(vscode.Uri.parse(vscode.env.uriScheme + '://lovach.lunavect/focus/' + key));
@@ -84,25 +87,37 @@ async function activate(context) {
       } catch { finish({ status: 'failed' }); }
     });
   });
-  let timer;
-  dispose = async () => {
+  let timer, publishing, disposal, disposed = false;
+  dispose = () => {
+    if (disposal) return disposal;
+    disposed = true;
     clearInterval(timer); handler.dispose();
     for (const socket of connections) socket.destroy();
     server.close(); pending.clear();
-    await Promise.all([descriptorPath, descriptorPath + '.tmp', socketPath].map(file => fs.unlink(file).catch(() => {})));
+    disposal = (async () => {
+      // An in-flight heartbeat must finish before deleting its output.
+      await publishing?.catch(() => {});
+      await Promise.all([descriptorPath, descriptorPath + '.tmp', socketPath].map(file => fs.unlink(file).catch(() => {})));
+    })();
+    return disposal;
   };
   context.subscriptions.push({ dispose: () => { void dispose?.(); } });
   const publish = async () => {
-    descriptor.updatedAt = Date.now() / 1000;
-    const temporary = descriptorPath + '.tmp';
-    await fs.writeFile(temporary, JSON.stringify(descriptor), { mode: 0o600 });
-    await fs.rename(temporary, descriptorPath);
+    if (disposed) return;
+    if (publishing) return publishing;
+    publishing = (async () => {
+      descriptor.updatedAt = Date.now() / 1000;
+      const temporary = descriptorPath + '.tmp';
+      await fs.writeFile(temporary, JSON.stringify(descriptor), { mode: 0o600 });
+      await fs.rename(temporary, descriptorPath);
+    })();
+    try { await publishing; } finally { publishing = undefined; }
   };
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
     await fs.chmod(socketPath, 0o600);
     await publish();
-    timer = setInterval(() => publish().catch(() => {}), 30000);
+    if (!disposed) timer = setInterval(() => publish().catch(() => {}), 30000);
   } catch (error) { await dispose(); throw error; }
 }
 

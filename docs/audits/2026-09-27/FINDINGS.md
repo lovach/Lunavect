@@ -1,6 +1,6 @@
 # Findings — 2026-09-27
 
-Baseline: `1bba24c35674d9b7f6438c104c7811162991a02a`. Seven confirmed defect groups were fixed locally. All seven are P2: incorrect data or degraded reliability under specific edge conditions. No claim of absence of other defects is made.
+Baseline: `1bba24c35674d9b7f6438c104c7811162991a02a`. The initial seven confirmed defect groups, F01–F07, were fixed locally; all seven are P2. The navigation continuation corrected R01/R02. The expanded pass adds six reproduced groups, F08–F13, and source-supported hardening H01, recorded below and in [EXPANDED.md](EXPANDED.md). No claim of absence of other defects is made.
 
 Private red/green logs are under the audit evidence directory, outside Git. Filenames below are relative to that directory. Tests use synthetic state, injected clocks/providers/helpers or private temporary files, not account credentials.
 
@@ -69,6 +69,20 @@ Private red/green logs are under the audit evidence directory, outside Git. File
 - **Correction:** one descriptor-based regular-file reader bounds both size and bytes read. Snapshot cap is 1 MiB; history/details cap is 32,000,000 bytes. Existing migration symlinks are resolved; replacement symlinks and special files fail. I/O/oversize failures preserve original bytes rather than treating them as recoverable JSON corruption.
 - **Verification:** 27 targeted tests and full check passed, including migration symlinks, exclusive size boundary, original-file preservation and FIFO rejection. FIFO rejection already passed before the change; it is added coverage, not a newly discovered hang.
 
+## Expanded findings
+
+| ID / priority | Location / reproduced failure | Status and evidence |
+| --- | --- | --- |
+| F08 / P2 | `LocalFileCache.swift`: recovered permissions, equal-size rewrite with restored mtime, or transient failure could leave stale cached data or `nil` | Fixed with change-time identity and bounded negative caching; three before/after regressions |
+| F09 / P2 | VS Code `extension.js` and JetBrains `BridgeService.java`: heartbeat publication could outlive teardown and recreate a stale descriptor | Fixed; startup/periodic VS Code races and actual SDK-backed JetBrains blocked-write race reproduced and checked |
+| F10 / P2 | VS Code `routing.js`: workspace `/` rejected a descendant project | Fixed; root, alias, descendant, sibling and parent boundary cases checked |
+| F11 / P3 | VS Code `routing.js`: path length used code units, accepting over-budget UTF-8 and native-rejected controls | Fixed; byte-exact boundary, multibyte overflow and controls checked |
+| F12 / P2 | VS Code transport/routing: trickle input extended the socket lifetime; wall-clock rollback extended focus confirmation | Fixed with absolute connection timer and monotonic focus budget; real socket and controlled-clock tests |
+| F13 / P2 | VS Code routing: cancellation during asynchronous terminal discovery could still cause late focus | Fixed with connection abort propagation and checks after async discovery/activation; terminal, provider and disconnected-socket cases checked |
+| H01 / hardening | `IDEBridge.swift`: path validation could become stale before opening a replaced file | Opened-file validation and nonblocking bounded read added; FIFO/type/permissions/size cases pass. The actual replacement race was not induced. |
+
+Reproduction logs, consequences, limits and fixes are detailed in [EXPANDED.md](EXPANDED.md); current counts and source hashes are in [expanded-verification.json](expanded-verification.json). These are local, unreleased changes.
+
 ## Open engineering risks and audit limits
 
 These were the initial residual risks. R01 and R02 were subsequently addressed as recorded below; their live verification boundaries remain explicit:
@@ -76,6 +90,6 @@ These were the initial residual risks. R01 and R02 were subsequently addressed a
 - **R01, P2, corrected in code; signed-app verification pending:** synchronous MainActor AppleScript execution was replaced with an owned cancellable helper and one overall automation budget. Real inert scripts, a stalled TERM-ignoring helper, main-actor responsiveness, numeric errors and cancellation cleanup passed. Actual signed-app Automation attribution and tab focus remain unverified. See [continuation evidence](NAVIGATION.md).
 - **R02, P3, corrected and locally verified:** the IDE socket budget now uses monotonic uptime; nonblocking setup and SIGPIPE protection are checked. Cancellation propagates to reads/writes and closes the connection after the worker ends. Real socket fixtures cover full send buffers, silent peers, final-frame/EOF behavior, expired buffered replies and cancellation around the editor callback. The system clock was not changed; a controlled monotonic clock verifies budget expiration. See [continuation evidence](NAVIGATION.md).
 - **R03, local repository hygiene:** the owner's main checkout contains untracked `Lunavect 2.xcodeproj`; its project file lacks newer IDE source/resource references. Canonical `Lunavect.xcodeproj` matches pinned XcodeGen and builds. The extra project was preserved, not deleted, and is not used by audited scripts.
-- **R04, verification boundary:** authenticated Claude/Codex provider panels, current real editor focus, remote editors, other JetBrains products/versions, VoiceOver interaction, physical lid/battery/thermal behavior, desktop WidgetKit placement and a signed update cycle were not newly exercised. Existing documentation's earlier live fixture results are historical evidence only.
+- **R04, verification boundary:** fresh Terminal and VS Code fixture focus now passed, including production native navigation. Authenticated Claude/Codex provider panels, remote editors, the current full JetBrains UI/version/product matrix, VoiceOver interaction, physical lid/battery/thermal behavior, desktop WidgetKit placement and a signed update cycle remain unverified. JetBrains's new SDK lifecycle check and earlier live UI evidence are distinct.
 - **R05, test-render boundary:** the extra fixture's SwiftUI ImageRenderer substitutes a yellow unsupported-view marker for the native Codex path text field. Its explanatory message was inspected; this is not proof of the actual input control's appearance. AppKit renders of long-name activity views are 1x on this host; value-view fixtures are 2x.
 - **R06, maintenance:** Release SwiftPM emits existing unused-`fcntl` and test-local MainActor warnings. The build succeeds, but warnings are not counted as zero-warning validation. No arbitrary warning suppression was added.

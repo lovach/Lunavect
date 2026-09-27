@@ -2,13 +2,15 @@ import Darwin
 import Foundation
 
 /// Identity of a regular file as reported by lstat. Atomic replacement changes
-/// the inode, and in-place writes change size or modification time.
+/// the inode; change time also catches permission changes and restored mtimes.
 struct LocalFileIdentity: Equatable, Sendable {
     let device: Int32
     let inode: UInt64
     let size: Int64
     let modifiedSeconds: Int
     let modifiedNanoseconds: Int
+    let changedSeconds: Int
+    let changedNanoseconds: Int
 
     /// Nil for missing files, symbolic links and other non-regular entries.
     init?(path: String) {
@@ -16,6 +18,7 @@ struct LocalFileIdentity: Equatable, Sendable {
         guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
         device = info.st_dev; inode = info.st_ino; size = info.st_size
         modifiedSeconds = info.st_mtimespec.tv_sec; modifiedNanoseconds = info.st_mtimespec.tv_nsec
+        changedSeconds = info.st_ctimespec.tv_sec; changedNanoseconds = info.st_ctimespec.tv_nsec
     }
 
     /// Two in-place writes of equal size within one timestamp tick are
@@ -31,6 +34,7 @@ final class LocalFileCache<Value: Sendable>: @unchecked Sendable {
     private struct Entry {
         let identity: LocalFileIdentity
         let value: Value?
+        let decodedAt: Date
     }
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
@@ -40,12 +44,18 @@ final class LocalFileCache<Value: Sendable>: @unchecked Sendable {
         lock.lock()
         let cached = entries[path]
         lock.unlock()
-        if let cached, cached.identity == identity { return cached.value }
+        if let cached, cached.identity == identity {
+            // A failed read and a valid-but-irrelevant record both decode to nil.
+            // Retry negative entries after a short pause, including clock rollback,
+            // so a transient I/O/access failure cannot hide an unchanged file forever.
+            let age = now.timeIntervalSince(cached.decodedAt)
+            if cached.value != nil || (age >= 0 && age < 30) { return cached.value }
+        }
         let value = decode()
         // A write between lstat and read leaves an old identity here; the next
         // poll sees the new identity and decodes again.
         lock.lock()
-        entries[path] = Entry(identity: identity, value: value)
+        entries[path] = Entry(identity: identity, value: value, decodedAt: now)
         lock.unlock()
         return value
     }

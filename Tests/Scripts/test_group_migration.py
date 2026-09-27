@@ -3,6 +3,9 @@ from pathlib import Path
 import plistlib
 import tempfile
 import unittest
+from unittest.mock import patch
+import errno
+import os
 
 spec = importlib.util.spec_from_file_location('migration', Path(__file__).parents[2] / 'scripts/migrate-app-group.py')
 migration = importlib.util.module_from_spec(spec)
@@ -64,6 +67,40 @@ class GroupMigrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             migration.migrate(self.old, self.new, self.home)
         self.assertEqual(list(other.iterdir()), [])
+
+    def test_disk_full_during_second_copy_preserves_originals_and_retry_completes(self):
+        originals = {p.relative_to(self.source): p.read_bytes() for p in self.source.rglob('*') if p.is_file()}
+        fsync = os.fsync
+        calls = 0
+        def fail_second(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError(errno.ENOSPC, 'Synthetic full disk')
+            return fsync(fd)
+        with patch.object(migration.os, 'fsync', side_effect=fail_second):
+            with self.assertRaises(OSError):
+                migration.migrate(self.old, self.new, self.home)
+        self.assertEqual((self.destination / 'Weekleft/snapshot.json').read_bytes(), self.snapshot)
+        self.assertFalse((self.destination / 'Weekleft/activity.json').exists())
+        self.assertEqual({p.relative_to(self.source): p.read_bytes() for p in self.source.rglob('*') if p.is_file()}, originals)
+        self.assertEqual(migration.migrate(self.old, self.new, self.home), 2)
+        self.assertEqual(migration.migrate(self.old, self.new, self.home), 0)
+
+    def test_destination_created_during_copy_is_never_removed_or_overwritten(self):
+        real_open = os.open
+        target = self.destination / 'Weekleft/snapshot.json'
+        def collide(file, flags, *args, **kwargs):
+            if Path(file) == target and flags & os.O_EXCL:
+                target.write_bytes(b'foreign concurrent writer')
+            return real_open(file, flags, *args, **kwargs)
+        with patch.object(migration.os, 'open', side_effect=collide):
+            with self.assertRaises(FileExistsError):
+                migration.migrate(self.old, self.new, self.home)
+        self.assertEqual(target.read_bytes(), b'foreign concurrent writer')
+        self.assertEqual((self.source / 'Weekleft/snapshot.json').read_bytes(), self.snapshot)
+        with self.assertRaises(ValueError):
+            migration.migrate(self.old, self.new, self.home)
 
     def test_same_group_leaves_existing_data_alone(self):
         self.assertEqual(migration.migrate(self.old, self.old, self.home), 0)

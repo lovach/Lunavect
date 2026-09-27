@@ -60,6 +60,27 @@
 
 These checks are recorded in [NAVIGATION.md](NAVIGATION.md). They add nine tests to the initial audit's fourteen new tests. None of the live boundaries below was relabelled as passed.
 
+## Expanded pass: failures, recovery and real hosts
+
+| New scenario | Fresh evidence | Result / boundary |
+| --- | --- | --- |
+| Read failure then UNIX permission recovery; same-size rewrite with restored mtime | LocalFileCacheTests, actual private files | Both failed before F08; fixed |
+| Unchanged file after transient read/decode failure; clock rollback | LocalFileCacheTests, injected failure/time | Negative cache now retries; no TCC setting was changed |
+| Descriptor is FIFO, directory, symlink, public-readable, malformed, exact size limit or oversized | IDEBridgeTests, actual filesystem entries | Safe bounded rejection or valid decoding; racing path replacement not induced |
+| VS Code disposal during initial publication or periodic heartbeat | Node protocol tests, deliberately paused filesystem writes | Both lifecycle cases pass after F09; no late descriptor/timer |
+| JetBrains disposal while its actual publisher is blocked in a file open | Actual BridgeService plus IntelliJ SDK and private FIFO | Failed before F09, passes after; no live IDE UI in this fixture |
+| Workspace root `/`, canonical alias, descendant, sibling prefix and parent | Node routing tests | Root failure reproduced and fixed, F10 |
+| Exact UTF-8 path limit, multibyte overflow and C0/C1 controls | Node routing tests | F11 fixed; trailing-newline IDs already rejected correctly |
+| Slow partial peer input; backward wall clock during focus confirmation | Actual private socket; deterministic virtual clocks | F12 reproduced and fixed; real system clock unchanged |
+| Cancel during terminal PID discovery, provider activation or command discovery | Node routing tests, controlled promises | F13 fixed; no late terminal focus or provider command |
+| Native client disconnect while the companion callback is already running | Actual private socket and delayed terminal discovery | Abort reaches the pending callback; no late focus |
+| Migration disk-full error after one complete copy, retry and concurrent destination creation | Two Python migration fixtures | Existing implementation preserved originals/foreign output and resumed correctly |
+| Actual Terminal focus from a detached-hook origin into a minimized window | Fresh inert process/TTY; native SessionNavigation test | Correct window/tab focused and restored; test-host Automation identity |
+| Actual VS Code focus for two providers, closed tab and ambiguous target | Private extension host; native SessionNavigation test | Exact terminals/window selected, invalid targets rejected; repeated after final companion change |
+| Real sleep-setting read | Explicit AwakeLeaseTests probe against `pmset -g` | Passed read-only; no helper approval or power-state change |
+
+This pass adds 15 automated cases (four Swift, eight Node, three Python/SDK) and separately enables three existing system/native tests. [EXPANDED.md](EXPANDED.md) records reproducible failures, no-fix-needed cases and limits. [expanded-verification.json](expanded-verification.json) records the final 736/110/16 passing Swift/Python/Node counts, 59 Swift and one SDK skip, extra checks and current source hashes. Earlier render/performance and live JetBrains UI observations were not rerun.
+
 ## Explicitly unverified live scenarios
 
 - A newly authenticated account in every Claude/Codex host, provider extension panel and remote workspace.

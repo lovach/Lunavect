@@ -74,14 +74,7 @@ public enum IDEBridge {
             (file, (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
         }.sorted { $0.1 > $1.1 }.prefix(64).map(\.0)
         return recent.compactMap { file in
-            guard owned(file.path, type: S_IFREG) else { return nil }
-            let fd = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-            var bytes = [UInt8](repeating: 0, count: 16385)
-            let count = Darwin.read(fd, &bytes, bytes.count)
-            guard count > 0, count <= 16384,
-                  let record = try? JSONDecoder().decode(Descriptor.self, from: Data(bytes.prefix(count))),
+            guard let record = readDescriptor(from: file),
                   valid(record, now: now), file.deletingPathExtension().lastPathComponent == record.id,
                   owned(URL(fileURLWithPath: record.socketPath).deletingLastPathComponent().path, type: S_IFDIR),
                   owned(record.socketPath, type: S_IFSOCK),
@@ -90,6 +83,21 @@ public enum IDEBridge {
                   IDEProcessLocation.bundleIdentifier(record.appPath) == record.bundleIdentifier else { return nil }
             return record
         }
+    }
+
+    /// Validate the opened file, not only its earlier directory entry. A stale
+    /// heartbeat replaced with a FIFO or symlink must never stall discovery.
+    static func readDescriptor(from file: URL) -> Descriptor? {
+        let fd = Darwin.open(file.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
+              info.st_mode & 0o077 == 0, info.st_size > 0, info.st_size <= 16384 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 16385)
+        let count = Darwin.read(fd, &bytes, bytes.count)
+        guard count > 0, count <= 16384 else { return nil }
+        return try? JSONDecoder().decode(Descriptor.self, from: Data(bytes.prefix(count)))
     }
 
     public static func open(_ session: AgentSession,
