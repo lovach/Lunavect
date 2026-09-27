@@ -48,7 +48,7 @@ Right-click the desktop, choose **Edit Widgets**, search for **Lunavect** and se
 
 ## What leaves my Mac?
 
-Lunavect does not upload session titles, project paths or activity history to its developer. Updates use GitHub; installation, sign-in and quota refreshes use the official clients and their services. See [Privacy and permissions](privacy.md) for local files, configuration changes, network requests and deletion.
+Lunavect sends no session data or app usage statistics to its developer. There is no telemetry or analytics identifier. We use only GitHub's download and repository traffic statistics. Updates use GitHub; installation, sign-in and quota refreshes use the official clients and their services. See [Privacy and permissions](privacy.md) for local files, configuration changes, network requests and deletion.
 
 ## Does it work on Intel Macs?
 

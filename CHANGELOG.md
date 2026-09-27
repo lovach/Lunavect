@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Prepared optional technical statistics with explicit consent in welcome and Settings → General. The limited events cover launches and session-navigation results, without session content, project paths or persistent user IDs.
-- Prepared separate consent for website download-link counters and coarse source categories. Added a local GitHub download/traffic snapshot collector.
-- Statistics remain inactive until the PostHog EU project is configured and its ingestion, IP handling and retention are verified. Public 0.2.3 downloads are unchanged.
+- Removed the unreleased app and website analytics integration, including consent UI, event delivery and configuration. Lunavect sends no session data or app usage statistics to its developer.
+- Kept only the separate maintainer tool for GitHub release download counters and repository traffic reports. Clarified this scope in the README and privacy documentation.
+- Public 0.2.3 downloads are unchanged and contain no product analytics.
 
 ## 0.2.3 — 2026-09-26
 

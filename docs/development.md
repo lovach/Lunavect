@@ -169,4 +169,4 @@ Publish the DMG, signed update ZIP, signed appcast and checksums together after 
 
 Original code is [MIT licensed](https://github.com/lovach/Lunavect/blob/main/LICENSE). Keep third-party attribution and permission status in [NOTICE](https://github.com/lovach/Lunavect/blob/main/NOTICE) and the resource provenance document.
 
-Optional technical statistics use explicit consent and three restricted events, with no persistent user ID. See [analytics setup and event contract](analytics-setup.md) before configuring the EU capture token. Native consent renders use isolated preferences and mock transport; real-project ingestion remains a separate acceptance check.
+Lunavect has no app telemetry or website analytics integration. Maintainers use only existing GitHub counters through a separate local script; see [GitHub download and repository statistics](download-statistics.md). This script is not part of the app and does not receive data from installations.

@@ -10,7 +10,7 @@ import sys
 
 
 STAGES = (
-    'source_checkpoint', 'python_tests', 'ide_connector_tests', 'website_analytics_tests', 'swift_tests', 'widget_probe_build',
+    'source_checkpoint', 'python_tests', 'ide_connector_tests', 'swift_tests', 'widget_probe_build',
     'widget_fallback', 'widget_private_abi', 'unsigned_build', 'hook_helper',
     'product_resources', 'intent_resources', 'build_provenance',
 )

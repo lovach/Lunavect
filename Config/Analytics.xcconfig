@@ -1,4 +1,0 @@
-// Public capture token only. Empty until the owner creates the PostHog EU project.
-// Never put a personal API key in the application or website.
-LUNAVECT_ANALYTICS_TOKEN =
-LUNAVECT_ANALYTICS_HOST = https:/$()/eu.i.posthog.com

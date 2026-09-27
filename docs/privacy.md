@@ -1,6 +1,8 @@
 # Privacy and permissions
 
-Lunavect processes session metadata, usage limits and activity on your Mac. There is no Lunavect account or backend for uploading session content. Builds configured for optional usage statistics ask for your consent before sending the limited events described below. This page describes the public app's data flows; it does not describe the separate privacy practices of Claude Code, Codex, GitHub or macOS.
+**Lunavect sends no session data or app usage statistics to us.** There is no telemetry, analytics identifier, automatic diagnostic upload or Lunavect account. Session metadata, usage limits and activity are processed and stored locally on your Mac.
+
+We use only GitHub's download and repository traffic statistics. This page explains the app's local data and network requests; Claude Code, Codex, GitHub and macOS have their own privacy practices.
 
 ## Client access and sign-in
 
@@ -54,26 +56,13 @@ Lunavect creates its data directories and sensitive data files with owner-only p
 
 Automatic update checks and downloads can be turned off in **Settings → Updates**. This does not disable the official clients' own network activity. Lunavect's menu bar and widgets read local state, but fresh account allowances require the relevant client to reach its provider.
 
-## Optional usage statistics
+## GitHub statistics only
 
-Statistics are off by default. The app offers **Allow statistics** and **No thanks** during welcome; you can change your choice in **Settings → General → Share technical statistics**. Existing users can opt in from that setting. The website asks separately, with an equally available refusal and a **Website statistics preferences** button to change the choice. Refusing does not limit features or downloads. If a build or website has no analytics project configured, it sends no analytics and does not show this invitation.
+The project uses GitHub's existing release-asset download counters and repository traffic reports: views, clones, referring sites and popular repository pages. These are GitHub platform statistics, not events sent by Lunavect. They do not tell us which sessions you open, which projects you work on, how often you launch the app or which features you use.
 
-When allowed, events are processed by **PostHog EU**, using `https://eu.i.posthog.com`. There is **no persistent installation or visitor ID**. Each event gets a new random ID so delivery retries can reuse the same event identity. PostHog's required `distinct_id` contains that event ID, not a person or installation identifier. Events are not linked into user profiles, sessions or cross-device journeys. Reported event times are rounded down to the hour.
+The Lunavect website has no analytics scripts, tracking cookies or analytics consent banner. GitHub hosts the website, repository and release downloads and receives normal web request information under [GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement). App update requests also go to GitHub, as described above.
 
-| Surface | Data sent after consent |
-| --- | --- |
-| macOS app | A launch event with the Lunavect version/build and major macOS version. A session-navigation result with those versions, the provider category (Claude/Codex), client category and success/failure. |
-| Website | A click leading to the GitHub release page or a DMG/ZIP, plus a known source category such as Reddit or GitHub. No visitor ID, page-view history, full URL, arbitrary query value, campaign identifier or full referrer. Only the consent choice is kept in local storage. |
-
-Both include a schema version and surface (`macos_app` or `website`). No session titles or IDs, project names or paths, conversation text, prompts, tool arguments/output, account details, quotas, working-time history, interface language or device fingerprint are sent. There is no session replay, screen recording, automatic capture of page text/clicks, feature-use history, active-day tracking, geographic analysis or cross-site identity matching.
-
-GeoIP enrichment and person profiles are disabled in event payloads; the project must also disable IP capture. Like any HTTPS endpoint, PostHog's network infrastructure receives normal connection information including the source IP and request time. See [PostHog's privacy information](https://posthog.com/privacy). Hour-rounded event timestamps do not hide when a network request reaches the server.
-
-The app keeps at most 100 pending events in memory, expires them after 24 hours and retries transient delivery failures at most four times per batch. Pending events are lost when it exits. This is best-effort measurement: offline use, blockers and refusal leave gaps. Website delivery is also best effort. Neither surface reconstructs activity from before consent.
-
-Turning statistics off stops future capture. The app also discards pending events and cancels its in-flight request; an event already received by the service cannot be recalled this way. Disabling statistics does not erase events already stored in PostHog. There is no persistent analytics identifier to associate an individual with old events. The website respects Global Privacy Control and Do Not Track. Consent preferences themselves remain stored so you are not repeatedly asked.
-
-The project owner must set and disclose the remote retention period before enabling production capture; the unconfigured preparation build has no remote dataset. Existing public versions through **0.2.3** have no product analytics. GitHub download/traffic counters are separate platform statistics and do not identify app users. Download counts include repeated downloads, updates and release checks. These reports count events, not unique people, installations or retention.
+Download counts are requests for files, not a count of users or installations. Repeated downloads and updates can contribute to them. GitHub's repository traffic reports cover a limited period and do not provide a complete path from a referring site to a download or to app usage. See the [GitHub-only statistics guide](download-statistics.md) for the reporting scope.
 
 ## Permissions and optional features
 
