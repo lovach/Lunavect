@@ -2561,6 +2561,41 @@
     "fr": "D’après les données disponibles",
     "zh-Hans": "根据可用记录"
   },
+  "Найти данные прежней установки": {
+    "de": "Daten einer früheren Installation suchen",
+    "en": "Find data from a previous installation",
+    "es": "Buscar datos de una instalación anterior",
+    "fr": "Rechercher les données d’une installation précédente",
+    "zh-Hans": "查找之前安装留下的数据"
+  },
+  "Данные прежней установки не найдены.": {
+    "de": "Keine Daten einer früheren Installation gefunden.",
+    "en": "No data from a previous installation was found.",
+    "es": "No se encontraron datos de una instalación anterior.",
+    "fr": "Aucune donnée d’une installation précédente n’a été trouvée.",
+    "zh-Hans": "未找到之前安装留下的数据。"
+  },
+  "Прежняя установка оставила копии, которые Lunavect не читает: {0}.": {
+    "de": "Eine frühere Installation hat Kopien hinterlassen, die Lunavect nicht mehr liest: {0}.",
+    "en": "A previous installation left copies that Lunavect no longer reads: {0}.",
+    "es": "Una instalación anterior dejó copias que Lunavect ya no lee: {0}.",
+    "fr": "Une installation précédente a laissé des copies que Lunavect ne lit plus : {0}.",
+    "zh-Hans": "之前的安装留下了 Lunavect 不再读取的副本：{0}。"
+  },
+  "Переместить в Корзину": {
+    "de": "In den Papierkorb legen",
+    "en": "Move to Trash",
+    "es": "Mover a la Papelera",
+    "fr": "Placer dans la corbeille",
+    "zh-Hans": "移到废纸篓"
+  },
+  "Перемещено в Корзину: {0}.": {
+    "de": "In den Papierkorb gelegt: {0}.",
+    "en": "Moved to Trash: {0}.",
+    "es": "Movido a la Papelera: {0}.",
+    "fr": "Placé dans la corbeille : {0}.",
+    "zh-Hans": "已移到废纸篓：{0}。"
+  },
   "Не засчитано разрывов наблюдения: {0}, всего {1}, с {2}.": {
     "de": "Nicht als Arbeit gezählte Beobachtungslücken: {0}, insgesamt {1}, seit {2}.",
     "en": "Observation gaps not counted as work: {0}, {1} in total, since {2}.",

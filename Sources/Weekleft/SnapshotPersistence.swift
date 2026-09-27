@@ -251,3 +251,39 @@ private final class WaitingResult<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock(); private var stored: Value?
     var value: Value? { get { lock.withLock { stored } } set { lock.withLock { stored = newValue } } }
 }
+
+/// Copies left by earlier installations after the App Group migration (B-06,
+/// decision 24): the previous group container's shared folder and the
+/// Application Support fallback files. The app no longer reads them and never
+/// removes them on its own; the user can check and move them to the Trash.
+/// Probing starts only on that request, because another group container may be
+/// protected by macOS.
+enum LegacySharedData {
+    static let previousGroup = "group.com.weekleft.shared"
+    static func find(group: String? = Bundle.main.object(forInfoDictionaryKey: "WeekleftAppGroup") as? String,
+                     current: URL = SnapshotStore.directory,
+                     home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
+        // Without an App Group, Application Support is the live location, not a leftover.
+        guard let group, !group.isEmpty else { return [] }
+        let live = current.standardizedFileURL.path
+        var candidates: [URL] = []
+        if group != previousGroup {
+            candidates.append(home.appendingPathComponent("Library/Group Containers/\(previousGroup)/Weekleft", isDirectory: true))
+        }
+        let support = home.appendingPathComponent("Library/Application Support/Weekleft", isDirectory: true)
+        if support.standardizedFileURL.path != live {
+            // Only shared-state names; session records and activity-details.json stay live there.
+            candidates += ["snapshot.json", "activity.json", "ActivitySelection"].map { support.appendingPathComponent($0) }
+        }
+        return candidates.filter { url in
+            let path = url.standardizedFileURL.path
+            guard path != live, !live.hasPrefix(path + "/"),
+                  let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]), values.isSymbolicLink != true else { return false }
+            return FileManager.default.fileExists(atPath: url.path)
+        }
+    }
+    /// Returns what could not be moved; the Trash keeps everything recoverable.
+    static func moveToTrash(_ urls: [URL], trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) -> [URL] {
+        urls.filter { url in (try? trash(url)) == nil }
+    }
+}

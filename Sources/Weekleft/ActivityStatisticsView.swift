@@ -12,6 +12,9 @@ struct ActivityStatisticsView: View {
     @State private var detailDate: Date?
     @State private var showingBreakdown = false
     @State var historyExpanded = false
+    /// nil until the user asks; the check reads other Lunavect locations only then.
+    @State private var legacyData: [URL]?
+    @State private var legacyMoved = 0
     private var effectiveSource: ActivitySource { Self.resolvedSource(source, enabledProviders: store.providers) }
     private var providers: [ProviderID] { effectiveSource.providers(from: store.providers) }
     private var selectionScope: ActivityChartSelectionScope {
@@ -143,11 +146,31 @@ struct ActivityStatisticsView: View {
                     Text(L("Часть журналов недоступна или пропущена. Показаны только прочитанные данные.")).foregroundStyle(.orange)
                 }
                 if let issue = store.activityIssue { Text(L(issue)).foregroundStyle(.orange) }
+                legacyDataControls
             }.font(.system(size: 13)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true).padding(16)
                 .background(sectionBackground, in: RoundedRectangle(cornerRadius: 12))
         }.accessibilityIdentifier("statistics-history-disclosure")
+    }
+    /// Copies left by an earlier installation (decision 24): found and moved to
+    /// the Trash only on request, never automatically.
+    @ViewBuilder private var legacyDataControls: some View {
+        HStack(alignment: .firstTextBaseline) {
+            if let legacyData, !legacyData.isEmpty {
+                Text(L("Прежняя установка оставила копии, которые Lunavect не читает: {0}.", String(legacyData.count)))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(L("Переместить в Корзину")) {
+                    let remaining = LegacySharedData.moveToTrash(legacyData)
+                    legacyMoved = legacyData.count - remaining.count; self.legacyData = remaining
+                }
+            } else if legacyData != nil {
+                Text(legacyMoved > 0 ? L("Перемещено в Корзину: {0}.", String(legacyMoved)) : L("Данные прежней установки не найдены."))
+            } else {
+                Button(L("Найти данные прежней установки")) { legacyData = LegacySharedData.find(); legacyMoved = 0 }
+            }
+        }
     }
     private func historyExplanation(_ title: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
