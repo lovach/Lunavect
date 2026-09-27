@@ -541,7 +541,10 @@ public struct SessionRecord: Codable, Sendable {
         }
         if name != "Stop" { record.session.awaitingBackground = nil }
         if name != "PreCompact" { record.session.compactionTrigger = nil }
-        if name != "SessionStart" && name != "SessionEnd" {
+        // Resuming or forking opens an existing task (decision 13): ready for work
+        // before its first prompt. Only startup and /clear wait for real work.
+        let reopened = name == "SessionStart" && ["resume", "fork"].contains(payload["source"] as? String)
+        if (name != "SessionStart" && name != "SessionEnd") || reopened {
             record.session.hasTaskActivity = true
         } else if provider == .claude && record.session.hasTaskActivity == nil && record.session.turnStartedAt == nil {
             record.session.hasTaskActivity = false
