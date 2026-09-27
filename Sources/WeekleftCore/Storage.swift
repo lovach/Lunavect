@@ -119,7 +119,9 @@ public enum WidgetTimelineSchedule {
         for snapshot in snapshots {
             if let fetched = snapshot.fetchedAt { dates.insert(fetched.addingTimeInterval(901)) }
             for window in [snapshot.weekly, snapshot.fiveHour].compactMap({ $0 }) {
-                if let reset = window.resetsAt { dates.insert(reset) }
+                // At the reset the old value disappears; after the grace the app's
+                // confirming request may have replaced it (QuotaRefreshPolicy).
+                if let reset = window.resetsAt { dates.insert(reset); dates.insert(reset.addingTimeInterval(snapshot.resetGrace)) }
             }
         }
         if let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) { dates.insert(midnight) }

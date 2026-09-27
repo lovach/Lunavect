@@ -146,10 +146,73 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     public var resetGrace: TimeInterval { source == "Claude Code /usage" ? 90 : 5 }
     public var hasQuota: Bool { weekly != nil || fiveHour != nil }
     public func connectionQuotaTitle(now: Date = Date()) -> String {
-        guard hasQuota else { return "Ждём лимиты" }
+        guard hasQuota || unlimited == true else { return "Ждём лимиты" }
         return isStale(now: now) ? "Лимиты сохранены" : "Лимиты получены"
     }
 }
+/// The state of one quota window, shared by the menu bar, widgets and settings
+/// (01-quota.md §3). Unknown values stay unknown: after a reset without new data
+/// neither the old value nor an assumed 100 % is shown.
+public enum QuotaWindowStatus: Equatable, Sendable {
+    /// No observation of this window.
+    case unknown
+    /// The provider applies no rate-limit window.
+    case unlimited
+    /// A value with a future (or unreported) reset; stale values are marked.
+    case current(stale: Bool)
+    /// 0 % remaining until the saved reset: it cannot change before then.
+    case exhausted
+    /// The saved reset has passed and no newer observation exists.
+    case resetPassed(Date)
+    /// Confirmed 0 % used and no reset yet: the window starts with the first request.
+    case inactive(stale: Bool)
+
+    public static func of(_ window: QuotaWindow?, stale: Bool, now: Date, unlimited: Bool = false) -> Self {
+        guard let window else { return unlimited ? .unlimited : .unknown }
+        if let reset = window.resetsAt {
+            if reset <= now { return .resetPassed(reset) }
+            return window.remaining < 1 ? .exhausted : .current(stale: stale)
+        }
+        return window.usedPercent == 0 ? .inactive(stale: stale) : .current(stale: stale)
+    }
+    /// The remaining percentage a surface may show; nil shows a dash.
+    public func remaining(of window: QuotaWindow?) -> Double? {
+        switch self {
+        case .current, .exhausted, .inactive: return window?.remaining
+        case .unknown, .unlimited, .resetPassed: return nil
+        }
+    }
+    /// A saved value that may have changed since it was observed ("*").
+    public var isStale: Bool {
+        switch self {
+        case .current(let stale), .inactive(let stale): return stale
+        default: return false
+        }
+    }
+    /// One sentence per state, identical on every surface; nil when the value speaks for itself.
+    public func note(now: Date, language: String = L10n.selection) -> String? {
+        switch self {
+        case .resetPassed(let date):
+            let locale = L10n.locale(language: AppLanguage.resolve(language))
+            let time = date.formatted(Calendar.current.isDate(date, inSameDayAs: now)
+                ? .dateTime.hour().minute().locale(locale)
+                : .dateTime.day().month().hour().minute().locale(locale))
+            return L10n.text("Сброс был в {0}, ждём первые данные нового окна", language: language, arguments: [time])
+        case .inactive: return L10n.text("Окно начнётся с первым запросом", language: language)
+        case .unlimited: return L10n.text("Без лимитов", language: language)
+        case .unknown, .current, .exhausted: return nil
+        }
+    }
+}
+extension UsageSnapshot {
+    public func status(of window: QuotaWindow?, now: Date = Date()) -> QuotaWindowStatus {
+        .of(window, stale: isStale(window: window, now: now), now: now, unlimited: unlimited == true)
+    }
+}
+extension ModelQuota {
+    public func status(now: Date = Date()) -> QuotaWindowStatus { .of(window, stale: isStale(now: now), now: now) }
+}
+
 public enum UsageError: LocalizedError {
     case invalidResponse, missingCLI, timeout, notSignedIn, waitingForClaude, statusLineDisabled, claudeQuotaStale, claudeCLIUnavailable, claudeSignInRequired, claudeUsageUnavailable
     /// Earlier wording still stored in saved snapshots, recognized by diagnostics.
@@ -198,7 +261,23 @@ public enum UsageParser {
             if minutes == 10080 { weekly = window }
             if minutes == 300 { five = window }
         }
-        return UsageSnapshot(provider: .codex, weekly: weekly, fiveHour: five, fetchedAt: now, source: "Codex CLI")
+        // A reached usage limit is 100 % of the binding window, even when the
+        // server's rounded percentage is lower. Credit depletion is not a window.
+        let reachedTypes = ["rate_limit_reached", "workspace_owner_usage_limit_reached", "workspace_member_usage_limit_reached"]
+        if let type = bucket["rateLimitReachedType"] as? String, reachedTypes.contains(type) {
+            let binding = max(weekly?.usedPercent ?? -1, five?.usedPercent ?? -1)
+            if let window = weekly, window.usedPercent == binding {
+                weekly = try QuotaWindow(usedPercent: 100, durationMinutes: window.durationMinutes, resetsAt: window.resetsAt)
+            }
+            if let window = five, window.usedPercent == binding {
+                five = try QuotaWindow(usedPercent: 100, durationMinutes: window.durationMinutes, resetsAt: window.resetsAt)
+            }
+        }
+        var snapshot = UsageSnapshot(provider: .codex, weekly: weekly, fiveHour: five, fetchedAt: now, source: "Codex CLI")
+        // No window at all in the account bucket (unlimited credits, some team
+        // plans): a known answer, not missing data.
+        if !["primary", "secondary"].contains(where: { bucket[$0] is [String: Any] }) { snapshot.unlimited = true }
+        return snapshot
     }
     public static func claude(_ result: [String: Any], now: Date = Date()) throws -> UsageSnapshot {
         func window(_ key: String, _ minutes: Int) throws -> QuotaWindow? {

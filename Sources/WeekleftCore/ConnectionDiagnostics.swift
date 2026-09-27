@@ -233,7 +233,7 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         else if effectiveIssue?.reason == .staleData { state = .staleQuota }
         else if let typed, ![.waitingForData, .staleData].contains(typed.reason) { state = .sourceError }
         else if let issue, issue != UsageError.waitingForClaude.errorDescription && issue != UsageError.claudeQuotaStale.errorDescription { state = .sourceError }
-        else if snapshot?.hasQuota != true { state = .waitingForQuota }
+        else if snapshot?.hasQuota != true && snapshot?.unlimited != true { state = .waitingForQuota }
         else if snapshot?.isStale(now: now) != false { state = .staleQuota }
         else if !eventsConfigured || sessionIssue != nil { state = .eventsMissing }
         else { state = .ready }

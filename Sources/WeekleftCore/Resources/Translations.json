@@ -13,6 +13,13 @@
     "fr": "Claude Code n’a pas fourni de limites à jour. Les données enregistrées sont conservées ; Lunavect réessaiera plus tard.",
     "zh-Hans": "Claude Code 未提供最新额度。已保存的数据保持不变；Lunavect 稍后会再次请求。"
   },
+  "Без лимитов": {
+    "de": "Keine Limits",
+    "en": "No limits",
+    "es": "Sin límites",
+    "fr": "Sans limites",
+    "zh-Hans": "无额度限制"
+  },
   "Клиент не смог загрузить данные об использовании. Сохранённые данные остаются на месте; Lunavect повторит запрос позже.": {
     "de": "Der Client konnte die Nutzungsdaten nicht laden. Die gespeicherten Daten bleiben erhalten; Lunavect fragt später erneut an.",
     "en": "The client could not load its usage data. Saved data stays in place; Lunavect will ask again later.",
@@ -68,6 +75,20 @@
     "es": "La ventana del límite aún no ha empezado: empezará con la primera solicitud.",
     "fr": "La fenêtre de limite n’a pas encore commencé : elle commencera avec la première requête.",
     "zh-Hans": "额度窗口尚未开始：将在第一次请求时开始。"
+  },
+  "Окно начнётся с первым запросом": {
+    "de": "Beginnt mit der ersten Anfrage",
+    "en": "Starts with the first request",
+    "es": "Empieza con la primera solicitud",
+    "fr": "Commence avec la première requête",
+    "zh-Hans": "将在第一次请求时开始"
+  },
+  "Сброс был в {0}, ждём первые данные нового окна": {
+    "de": "Zurückgesetzt um {0}, neue Daten folgen",
+    "en": "Reset at {0}, waiting for the new window's first data",
+    "es": "Reinicio a las {0}, esperando datos nuevos",
+    "fr": "Réinitialisé à {0}, nouvelles données à venir",
+    "zh-Hans": "已于 {0} 重置，正在等待新窗口的首批数据"
   },
   "Сжимает контекст": {
     "de": "Komprimiert Kontext",

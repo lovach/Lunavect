@@ -563,16 +563,17 @@ struct LimitsProviderSummary: View {
                             .help(L("Последние данные: {0}", fetched.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
                     }
                 }
-                DetailedQuotaMeter(title: L("Осталось на неделю"), window: snapshot.weekly,
+                DetailedQuotaMeter(title: L("Осталось на неделю"), window: snapshot.weekly, status: snapshot.status(of: snapshot.weekly, now: now),
                                    tint: activityAccent(snapshot.provider, adaptive: true, scheme: scheme), now: now)
                 if showFiveHour {
-                    DetailedQuotaMeter(title: L("Пятичасовой лимит"), window: snapshot.fiveHour,
+                    DetailedQuotaMeter(title: L("Пятичасовой лимит"), window: snapshot.fiveHour, status: snapshot.status(of: snapshot.fiveHour, now: now),
                                        tint: activityAccent(snapshot.provider, adaptive: true, scheme: scheme), now: now)
                 }
                 if snapshot.provider == .claude, let quotas = snapshot.modelQuotas, !quotas.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(quotas) { quota in
-                            DetailedQuotaMeter(title: quota.name, window: quota.window, tint: activityAccent(.claude, adaptive: true, scheme: scheme), now: now)
+                            DetailedQuotaMeter(title: quota.name, window: quota.window, status: quota.status(now: now),
+                                               tint: activityAccent(.claude, adaptive: true, scheme: scheme), now: now)
                             if quota.isStale(now: now) {
                                 Text(L("Данные этого лимита устарели")).font(.system(size: 11)).foregroundStyle(.orange)
                             }
@@ -594,28 +595,33 @@ struct LimitsProviderSummary: View {
 struct DetailedQuotaMeter: View {
     let title: String
     let window: QuotaWindow?
+    /// The shared window state, so settings say what the menu bar and widgets say.
+    let status: QuotaWindowStatus
     let tint: Color
     let now: Date
     var body: some View {
+        let remaining = status.remaining(of: window)
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).fontWeight(.medium)
                 Spacer(minLength: 8)
-                if let window, !window.isExpired(at: now), window.resetsAt != nil {
+                if remaining != nil, let window, let reset = window.resetsAt, reset > now {
                     Text(L("Сброс через {0}", window.countdown(now: now)))
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-                Text(window.flatMap { $0.isExpired(at: now) ? nil : PercentText.format(Int($0.remaining.rounded())) } ?? "—")
+                Text(status == .unlimited ? "∞" : remaining.map { PercentText.format(Int($0.rounded())) } ?? "—")
                     .monospacedDigit().fontWeight(.semibold)
             }.font(.system(size: 13))
-            if let window, !window.isExpired(at: now) {
-                ProgressView(value: window.remaining, total: 100).tint(tint)
-                    .accessibilityLabel(title).accessibilityValue(L("Осталось {0}%", String(Int(window.remaining.rounded()))))
-                if window.resetsAt == nil {
+            if let remaining {
+                ProgressView(value: remaining, total: 100).tint(tint)
+                    .accessibilityLabel(title).accessibilityValue(L("Осталось {0}%", String(Int(remaining.rounded()))))
+                if let note = status.note(now: now) {
+                    Text(note).font(.system(size: 11)).foregroundStyle(.secondary)
+                } else if window?.resetsAt == nil {
                     Text(L("Источник не передал время сброса")).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             } else {
-                Text(L(window == nil ? "Источник не передал этот лимит" : "Срок сброса наступил. Ждём свежие данные."))
+                Text(status.note(now: now) ?? L("Источник не передал этот лимит"))
                     .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.accessibilityElement(children: .contain)
