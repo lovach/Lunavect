@@ -1,5 +1,7 @@
+import CoreServices
 import Darwin
 import Foundation
+import os
 
 /// One resolution policy for setup, quotas, catalogs and session destinations.
 /// An explicit choice is never silently replaced with a different installation.
@@ -153,8 +155,12 @@ public struct TerminalFocusEnvironment: Sendable {
     public var uptime: @Sendable () -> TimeInterval
 
     public init(isRunning: @escaping @Sendable (String) async -> Bool,
-                occupancy: @escaping @Sendable (String, ProviderID) -> TerminalLocation.DeviceOccupancy = { _, _ in .unknown },
-                permission: @escaping @Sendable (String, Bool) async throws -> Int32 = { _, _ in 0 },
+                occupancy: @escaping @Sendable (String, ProviderID) -> TerminalLocation.DeviceOccupancy = {
+                    TerminalLocation.occupancy(of: $0, provider: $1)
+                },
+                permission: @escaping @Sendable (String, Bool) async throws -> Int32 = {
+                    try await TerminalLocation.waitForPermission(bundleIdentifier: $0, ask: $1)
+                },
                 runScript: @escaping @Sendable (String, String, TimeInterval) async throws -> Bool = {
                     try await TerminalLocation.focus(tty: $0, app: $1, timeout: $2)
                 },
@@ -229,23 +235,159 @@ public enum TerminalLocation {
         guard let target = focusTarget(for: session, running: environment.runningTarget) else {
             throw SessionOpeningError.terminalTabUnavailable
         }
+        // A named host without a navigation route is reported as such. Its device
+        // is never searched for among Terminal or iTerm2 tabs.
+        if !target.app.isEmpty, bundleIdentifier(forApp: target.app) == nil {
+            throw SessionOpeningError.terminalUnsupported(hostName(target.app))
+        }
+        // macOS gives a closed tab's device to the next tab. A hook record stays
+        // fresh for minutes, so require the provider on that device before any script.
+        if environment.occupancy(target.tty, session.provider) == .vacant { throw SessionOpeningError.terminalProcessEnded }
         // A root-owned login may hide the host's name. Match the exact device
         // against running supported terminals; never launch an empty terminal.
-        let apps = target.app.isEmpty ? ["Terminal", "iTerm2"] : [target.app]
-        var failure: SessionOpeningError?
-        let deadline = environment.uptime() + Double(focusTimeout)
-        for app in apps {
+        var apps: [String] = []
+        for app in target.app.isEmpty ? ["Terminal", "iTerm2"] : [target.app] {
             try Task.checkCancellation()
-            guard let bundle = bundleIdentifier(forApp: app), await environment.isRunning(bundle) else { continue }
+            if let bundle = bundleIdentifier(forApp: app), await environment.isRunning(bundle) { apps.append(app) }
+        }
+        var failure: SessionOpeningError?
+        // One overall budget for the scripts, shared by the terminals still to ask:
+        // a hung first terminal cannot leave the second one nothing.
+        var budget = Double(focusTimeout)
+        for (index, app) in apps.enumerated() {
+            try Task.checkCancellation()
+            guard let bundle = bundleIdentifier(forApp: app) else { continue }
             do {
-                if try await environment.runScript(target.tty, app, deadline - environment.uptime()) { return true }
+                // The consent prompt is answered outside the script budget.
+                try await authorize(bundle: bundle, app: app, environment: environment)
+                let share = budget / Double(apps.count - index), start = environment.uptime()
+                let focused: Bool
+                do { focused = try await environment.runScript(target.tty, app, share) }
+                catch { budget -= max(0, environment.uptime() - start); throw error }
+                budget -= max(0, environment.uptime() - start)
+                if focused { return true }
             } catch {
                 try Task.checkCancellation()
                 if error is CancellationError { throw error }
-                failure = failure ?? (error as? SessionOpeningError) ?? .terminalFocusFailed(app)
+                let reason = (error as? SessionOpeningError) ?? .terminalFocusFailed(app)
+                // Another prompt for the next terminal would only stack dialogs.
+                if case .terminalAutomationPending = reason { throw reason }
+                failure = failure ?? reason
             }
         }
         throw failure ?? SessionOpeningError.terminalTabUnavailable
+    }
+
+    /// Apple event permission before the script: a denial or a missing app needs
+    /// no script, and the first consent prompt may take as long as the user needs.
+    static func authorize(bundle: String, app: String, environment: TerminalFocusEnvironment) async throws {
+        func mapped(_ status: Int32) throws {
+            switch status {
+            case -1743: throw SessionOpeningError.terminalAutomationDenied(app) // errAEEventNotPermitted
+            case -600: throw SessionOpeningError.terminalTabUnavailable        // procNotFound: it quit meanwhile
+            default: return // granted, or an unexpected answer the script will report precisely
+            }
+        }
+        let status: Int32
+        do { status = try await environment.permission(bundle, false) }
+        catch is CancellationError { throw CancellationError() }
+        catch { return } // the check itself is unavailable; the script keeps its own error handling
+        guard status == -1744 else { return try mapped(status) } // errAEEventWouldRequireUserConsent
+        let answer: Int32
+        do { answer = try await environment.permission(bundle, true) }
+        catch is CancellationError { throw CancellationError() }
+        catch { throw SessionOpeningError.terminalAutomationPending(app) }
+        try mapped(answer)
+    }
+
+    /// The name shown for a terminal host Lunavect cannot script.
+    static func hostName(_ app: String) -> String {
+        ["ghostty": "Ghostty", "WarpTerminal": "Warp", "WezTerm": "WezTerm", "Hyper": "Hyper", "Tabby": "Tabby",
+         "rio": "Rio", "zellij": "Zellij", "vscode": "VS Code"][app] ?? app
+    }
+
+    // MARK: Occupancy of a terminal device
+
+    /// One process as the occupancy check sees it: owner, controlling device and executable path.
+    public struct DeviceProcess: Sendable {
+        public let uid: uid_t
+        public let device: dev_t
+        public let executable: String
+        public init(uid: uid_t, device: dev_t, executable: String) { self.uid = uid; self.device = device; self.executable = executable }
+    }
+    /// An npm-installed CLI runs inside one of these; it cannot be told apart from other scripts.
+    static let interpreters: Set<String> = ["node", "bun", "deno"]
+
+    /// Only the user's own processes on exactly this device count.
+    public static func occupancy(device: dev_t, provider: ProviderID, processes: [DeviceProcess], uid: uid_t = getuid()) -> DeviceOccupancy {
+        var interpreter = false
+        for process in processes where process.uid == uid && process.device == device {
+            if SessionProcess.runtimeProvider(ofExecutable: process.executable) == provider { return .provider }
+            if interpreters.contains(URL(fileURLWithPath: process.executable).lastPathComponent) { interpreter = true }
+        }
+        return interpreter ? .interpreter : .vacant
+    }
+
+    /// Reads owner, controlling device and executable path with libproc; never
+    /// arguments, environment or terminal contents.
+    public static func occupancy(of tty: String, provider: ProviderID) -> DeviceOccupancy {
+        guard valid(tty) else { return .unknown }
+        var node = stat()
+        guard stat(tty, &node) == 0 else { return errno == ENOENT ? .vacant : .unknown }
+        guard node.st_mode & S_IFMT == S_IFCHR else { return .unknown }
+        let device = node.st_rdev
+        let capacity = Int(proc_listallpids(nil, 0))
+        guard capacity > 0 else { return .unknown }
+        var pids = [pid_t](repeating: 0, count: capacity + 256)
+        let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
+        guard count > 0, count < pids.count else { return .unknown }
+        var processes: [DeviceProcess] = []
+        for pid in pids.prefix(count) where pid > 0 {
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout.size(ofValue: info))
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid(),
+                  info.e_tdev != UInt32.max, dev_t(bitPattern: info.e_tdev) == device else { continue }
+            var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
+            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { continue }
+            processes.append(.init(uid: info.pbi_uid, device: device, executable: String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)))
+        }
+        return occupancy(device: device, provider: provider, processes: processes)
+    }
+
+    // MARK: Automation permission
+
+    /// The Apple event permission for a target application. With `ask`, macOS may
+    /// show its consent prompt and this call blocks until the prompt is answered.
+    public static func automationPermission(bundleIdentifier: String, ask: Bool) -> Int32 {
+        let target = NSAppleEventDescriptor(bundleIdentifier: bundleIdentifier)
+        guard let address = target.aeDesc else { return Int32(paramErr) }
+        return AEDeterminePermissionToAutomateTarget(address, typeWildCard, typeWildCard, ask)
+    }
+
+    private static let pendingConsent = OSAllocatedUnfairLock(initialState: Set<String>())
+
+    /// Runs the blocking permission call on a dispatch worker and waits at most
+    /// `limit` seconds (60 for the consent prompt). Only one prompt per application
+    /// is outstanding; a second request while it is open reports it as pending.
+    public static func waitForPermission(bundleIdentifier: String, ask: Bool, limit: TimeInterval? = nil) async throws -> Int32 {
+        try Task.checkCancellation()
+        if ask {
+            guard pendingConsent.withLock({ $0.insert(bundleIdentifier).inserted }) else { throw SessionError.timeout }
+        }
+        let reply = OnceReply<Int32>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                reply.attach(continuation)
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let status = automationPermission(bundleIdentifier: bundleIdentifier, ask: ask)
+                    if ask { pendingConsent.withLock { _ = $0.remove(bundleIdentifier) } }
+                    reply.finish(.success(status))
+                }
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + (limit ?? (ask ? 60 : 5))) {
+                    reply.finish(.failure(SessionError.timeout))
+                }
+            }
+        } onCancel: { reply.finish(.failure(CancellationError())) }
     }
 
     public struct Target: Hashable, Sendable {
@@ -348,6 +490,11 @@ public enum TerminalLocation {
                             repeat with s in sessions of t
                                 try
                                     if tty of s is "\(tty)" then
+                                        try
+                                            if miniaturized of w then set miniaturized of w to false
+                                        on error errorMessage number errorNumber
+                                            if errorNumber is -1712 or errorNumber is -1743 then error errorMessage number errorNumber
+                                        end try
                                         select w
                                         tell t to select
                                         tell s to select
@@ -369,5 +516,27 @@ public enum TerminalLocation {
             """
         default: return nil
         }
+    }
+}
+
+/// Resumes a continuation exactly once, whichever of result, timeout or
+/// cancellation arrives first; later answers are dropped.
+final class OnceReply<T: Sendable>: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock<(continuation: CheckedContinuation<T, Error>?, result: Result<T, Error>?)>(initialState: (nil, nil))
+    func attach(_ continuation: CheckedContinuation<T, Error>) {
+        let early = lock.withLock { state -> Result<T, Error>? in
+            if let result = state.result { state.result = nil; return result }
+            state.continuation = continuation
+            return nil
+        }
+        if let early { continuation.resume(with: early) }
+    }
+    func finish(_ result: Result<T, Error>) {
+        let waiting = lock.withLock { state -> CheckedContinuation<T, Error>? in
+            if let continuation = state.continuation { state.continuation = nil; state.result = .failure(CancellationError()); return continuation }
+            if state.result == nil { state.result = result }
+            return nil
+        }
+        waiting?.resume(with: result)
     }
 }
