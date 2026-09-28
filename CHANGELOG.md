@@ -12,6 +12,10 @@
 - Quota updates no longer reload the activity widget; it reloads when its history or its shared settings change. The installed app re-confirms its widget registration 5 seconds and 2 minutes after launch. When another copy of Lunavect is installed, Settings → Widgets names it and asks you to keep one; the app still confirms its own widgets unless macOS uses the other copy's.
 - **Find data from a previous installation** lists copies left by the App Group migration, with their paths and last changes, and can move them to the Trash. Copies written within the last week, which a development build may still use, are not offered. The privacy page lists these copies, recovery backups and the IDE bridge files.
 - The glass widget background can be turned off without a rebuild through a hidden setting; it relies on a private macOS interface and blocks Mac App Store distribution.
+- After the clock is set far ahead and corrected, activity keeps being recorded instead of stopping until real time catches up.
+- On a slow disk, activity saving keeps only the newest waiting state: memory no longer grows with a backlog and quitting writes the last state within its time limit. Retention trims only expired history from its start instead of scanning all of it on every observation.
+- The small limits widget and the combined widget show a plan without limits as ∞, a used-up or not yet started window like the menu bar, and no false warning mark.
+- A failed App Group migration removes only the copies it made, so the next installation can migrate again.
 
 ### Navigation to sessions
 
@@ -22,6 +26,8 @@
 - Editor navigation distinguishes a busy editor, a companion that is installed but not answering, an incompatible companion and a window macOS refuses to activate from a missing session, and names the JetBrains product. Every JetBrains 2026.2 IDE and EAP build is recognized.
 - VS Code companion 0.1.2: reports its version, keeps its socket in your private temporary folder, recreates it after the folder is cleaned and warns when it cannot start. An editor started with a different `TMPDIR` (a shell profile, `nix develop`, devbox or none) is still found, as long as the socket folder is private to you. Settings → Connections shows when an installed companion is older than the bundled one. Reinstall the companion to receive these fixes. The JetBrains companion 0.1.2 is prepared in source; the bundled JetBrains installer stays 0.1.1 until it is rebuilt with the IntelliJ SDK.
 - Stale editor connection records left by forced quits are removed after a day. Installed 0.1.0 and 0.1.1 companions keep working.
+- A stopped Claude session no longer opens another Claude session that received the same terminal device: when the session's hook recorded its process, only that process identifies the tab.
+- The VS Code companion recognizes the Claude Code panel by the tab type VS Code reports, so opening such a session no longer ends with a false "VS Code did not respond in time".
 
 ### Sessions
 
@@ -37,6 +43,10 @@
 - A system clock correction no longer hides every idle session at once.
 - Session records that can no longer be read are kept aside for diagnosis and removed after a day instead of being read again on every refresh.
 - If `claude agents --json` changes its format, Connections reports an unsupported response instead of showing an empty Claude list.
+- A subagent finishing now reaches Lunavect: its list can lower a session's background task count and never raises it.
+- **Response ready** and error notifications are announced once, even when Claude's session list still reports the session as busy while Stop hooks run.
+- A new session that Lunavect first sees already waiting for permission or input, or already answered, is announced. Sessions present at launch stay silent.
+- A burst of hook events causes one read of the session records instead of about two reads per event.
 
 ### Usage limits
 
@@ -51,6 +61,11 @@
 - "Limit available again" is no longer sent up to a minute early. `/usage` shows resets truncated to the minute ("11:59pm" for a reset at midnight); Lunavect now stores the end of the shown minute, so a Claude window no longer shows a dash or counts as reset during that minute, and a saved `/usage` reading from an earlier version is read the same way, including model limits that a 0.2.4 snapshot kept next to status-line data. When two sources report the same reset, the later time counts.
 - More `/usage` reset forms are understood instead of failing the probe: a date without a time, "in 2h 15m", "today/tomorrow at …", 12-hour times with a space or capitals, 24-hour times, abbreviated time zones such as "CEST", a reset on the percentage line and model blocks such as "Current week (Sonnet only)". An "Extra usage" block is no longer read as the weekly window. Dated resets in the daylight-saving change are handled like clock times: a repeated hour counts from its later occurrence, a skipped hour is rejected.
 - A Claude status-line window without a reset time no longer discards the other window; at 0% it is shown as not started ("Starts with the first request"), like the same state from `/usage`. "No model usage data available" is reported as usage data that failed to load, and a Claude Code path that became a folder is reported as missing at once.
+- A failed `/usage` check keeps its reason in Connections instead of reporting the connection as working after a few seconds.
+- An unfamiliar block after an inactive window no longer gives that window its reset time or rejects the whole screen.
+- Running an older copy of Lunavect alongside no longer shifts saved reset times by a minute each time.
+- Lunavect's status line waits at most 10 seconds for your previous status line command and reads at most 1 MB from Claude.
+- Connections explains why checks are unavailable while limits are updating, says when a check can run again, and no longer promises an update next to an unsupported response. The limits popover's refresh button explains why it is off.
 
 ### Keep Awake and connections
 
@@ -61,6 +76,20 @@
 - **Turn off events** is shown as your choice with a **Turn on events** button, not as unfinished setup. A command pointing at a deleted file is shown with its path.
 - Settings files with comments or trailing commas are left untouched. Rewritten files end with a newline, are flushed to disk before they replace the original, and keep a link to a settings file even when its file does not exist yet. Disconnecting keeps a settings file Lunavect created, without its entries. Older backups of client settings become private to your user.
 - A second installed copy of Lunavect is reported on the session panel. `weekleft://` links open the same pages as `lunavect://`. Updates are checked once a day instead of every hour.
+- After an update, a helper that stopped while sleep was turned off is started once to restore normal sleep before its registration is renewed. The panel says that sleep is off instead of claiming the helper is retrying.
+- When macOS refuses to renew the helper registration, the panel keeps the manual repair steps instead of offering a retry that repeats the refusal. A refused connection renews the registration at most once per launch.
+- In automatic mode Keep Awake reads the helper status at most every 5 seconds instead of on every session update.
+- A malformed hook command no longer opens Lunavect's window, and `--probe` and `--usage-probe` exit with an error after a timeout.
+- Resetting settings is not applied partly when one part fails. VoiceOver reads each connection step with its state. Spanish uses the informal *tú* throughout.
+
+### Development and checks
+
+- Version 0.2.5 (192), so a local build of this branch cannot be mistaken for 0.2.4 (191).
+- Tests can no longer reach the user's applications, clipboard, Finder, client CLIs, login items or widget registration: navigation, process launches and system features refuse under XCTest unless a live test opts in, and every write guard now covers directory creation, recovery moves and cleanup. Native fixture cleanup never signals a reused process ID.
+- `check.sh` verifies that the app, widget and both helpers contain arm64 and x86_64 slices. The iCloud copy check covers `.github`, `docs` and `design`.
+- Packaging tools refuse test overrides without `--test-fixture`, and release preflight refuses a VERSION that differs from `project.yml`.
+- The weekly native render comparison fails when its baseline cannot be compared instead of passing without a comparison.
+- The privacy notes list the Automation permission used to focus Terminal and iTerm2 tabs.
 
 ## 0.2.4 — 2026-09-27
 
