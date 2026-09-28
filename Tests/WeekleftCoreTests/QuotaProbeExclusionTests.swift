@@ -173,9 +173,10 @@ final class QuotaProbeExclusionTests: XCTestCase {
     /// Decision 28.09: the probe's exact command line, also when run by hand elsewhere.
     /// A person typing /usage in an ordinary session is not a limits check.
     func testManualLimitsCheckIsRecognizedOnlyByTheExactProbeCommandLine() throws {
-        let probe = ["--safe-mode", "--ax-screen-reader", "--tools", "", "--strict-mcp-config",
-                     "--mcp-config", #"{"mcpServers":{}}"#, "--no-chrome", "/usage"]
-        XCTAssertTrue(SessionProcess.isLimitsCheck(arguments: ["claude"] + probe))
+        // The probe runs exactly these arguments; the recognition uses the same definition.
+        let probe = ClaudeUsageProbe.arguments
+        XCTAssertEqual(probe.last, "/usage")
+        XCTAssertTrue(SessionProcess.isLimitsCheck(arguments: ["claude"] + probe), "The probe's own command line is a limits check")
         XCTAssertTrue(SessionProcess.isLimitsCheck(arguments: ["/Users/u/.local/bin/claude", "--safe-mode", "--tools", "", "/usage"]))
         XCTAssertTrue(SessionProcess.isLimitsCheck(arguments: ["node", "/opt/homebrew/bin/claude"] + probe), "npm-installed Claude")
         for arguments in [["claude"], ["claude", "/usage"], ["claude", "--safe-mode", "/usage"], ["claude", "--tools", "", "/usage"],

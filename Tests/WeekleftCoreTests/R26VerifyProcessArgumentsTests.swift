@@ -82,11 +82,13 @@ final class R26VerifyProcessArgumentsTests: XCTestCase {
             func word(allowEmpty: Bool) -> [UInt8] {
                 (0..<(allowEmpty ? random.below(8) : 1 + random.below(8))).map { _ in alphabet[random.below(alphabet.count)] }
             }
-            // argv[0] is never empty for a program started by a shell, npm or bun.
-            let arguments = [word(allowEmpty: false)] + (0..<random.below(6)).map { _ in word(allowEmpty: true) }
+            // argv[0] may be empty too (R26-V2-03). The executable path is NUL-padded to an
+            // 8-byte boundary of the string area, as the kernel lays it out.
+            let arguments = [word(allowEmpty: true)] + (0..<random.below(6)).map { _ in word(allowEmpty: true) }
             let environment = (0..<random.below(4)).map { _ in Array("SECRET_\(random.below(99))=value".utf8) }
-            var bytes = withUnsafeBytes(of: Int32(arguments.count)) { Array($0) } + Array("/opt/homebrew/bin/node".utf8)
-            bytes += [UInt8](repeating: 0, count: 1 + random.below(8))
+            let path = Array("/opt/homebrew/bin/node".utf8.prefix(1 + random.below(22)))
+            var bytes = withUnsafeBytes(of: Int32(arguments.count)) { Array($0) } + path
+            bytes += [UInt8](repeating: 0, count: (path.count + 1 + 7) / 8 * 8 - path.count)
             for string in arguments + environment { bytes += string + [0] }
             let parsed = SessionProcess.parseProcessArguments(bytes)
             XCTAssertEqual(parsed, arguments.map { String(decoding: $0, as: UTF8.self) })

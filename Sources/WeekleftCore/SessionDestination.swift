@@ -112,7 +112,7 @@ public enum SessionOpeningError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .limitsCheck:
-            return L("Это служебная проверка лимитов Claude (команда /usage), а не рабочая сессия. Открывать её не нужно. Чтобы завершить её, нажмите Esc, затем Ctrl+C в окне, где она запущена.")
+            return L("Это служебная проверка лимитов Claude (команда /usage), а не рабочая сессия. Открывать её не нужно: завершите её в окне, где она запущена, клавишей Esc, затем дважды Ctrl+C.")
         case .embeddedTerminal(let app): return L("Сессия запущена во встроенном терминале {0}. Lunavect не может переключить его вкладку: откройте окно {0}.", app)
         case .hostUnsupported(let app): return L("Сессия запущена в {0}. Lunavect пока не умеет переходить к сессиям в этом приложении: откройте окно {0}.", app)
         case .sessionMayBeOpen: return L("Сессия может быть открыта в терминале. Вернитесь в исходное окно. Через «…» можно открыть папку проекта или скопировать ID сессии.")

@@ -598,11 +598,17 @@ enum SessionProcess {
     }
     /// The argument vector of one of the user's own processes, read with
     /// `sysctl(KERN_PROCARGS2)`; no program is run. Another user's process yields nil.
+    /// The kernel returns the environment after the arguments in the same block; it is
+    /// discarded unparsed.
     static func processArguments(_ pid: Int32) -> [String]? {
         guard pid > 1 else { return nil }
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout.size(ofValue: info))
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid() else { return nil }
+        func identity() -> (uid: uid_t, start: UInt64)? {
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout.size(ofValue: info))
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+            return (info.pbi_uid, info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
+        }
+        guard let before = identity(), before.uid == getuid() else { return nil }
         // The kernel reports the size of this process's arguments; fall back to ARG_MAX.
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid], length = 0
         if sysctl(&mib, 3, nil, &length, nil, 0) != 0 || length <= 0 {
@@ -613,17 +619,25 @@ enum SessionProcess {
         guard length <= 16 << 20 else { return nil }
         var bytes = [UInt8](repeating: 0, count: length)
         guard sysctl(&mib, 3, &bytes, &length, nil, 0) == 0 else { return nil }
+        // The PID must still name the process whose owner was checked (R26-V2-03).
+        guard let after = identity(), after.uid == before.uid, after.start == before.start else { return nil }
         return parseProcessArguments(Array(bytes.prefix(length)))
     }
-    /// KERN_PROCARGS2 layout: argc as Int32, the executable path, NUL padding, then
-    /// argc NUL-terminated strings (followed by the environment, which is not read).
+    /// KERN_PROCARGS2 layout: argc as Int32, the executable path, NUL padding to an
+    /// 8-byte boundary of the string area, then argc NUL-terminated strings (followed by
+    /// the environment, which is not read).
     static func parseProcessArguments(_ bytes: [UInt8]) -> [String]? {
         guard bytes.count > 4 else { return nil }
         let argc = Int(bytes.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) })
         guard argc > 0, argc <= 4096 else { return nil }
         var index = 4
         while index < bytes.count, bytes[index] != 0 { index += 1 }
-        while index < bytes.count, bytes[index] == 0 { index += 1 }
+        // argv[0] starts at the boundary even when it is empty; skipping every NUL
+        // would take an empty argv[0] for padding and shift the environment into the
+        // vector (R26-V2-03). An unexpected layout falls back to skipping the NULs.
+        let boundary = 4 + (index - 4 + 1 + 7) / 8 * 8
+        if boundary <= bytes.count, bytes[index..<boundary].allSatisfy({ $0 == 0 }) { index = boundary }
+        else { while index < bytes.count, bytes[index] == 0 { index += 1 } }
         var result: [String] = []
         while result.count < argc, index < bytes.count {
             let start = index
@@ -633,14 +647,8 @@ enum SessionProcess {
         }
         return result.count == argc ? result : nil
     }
-    /// The command line of Lunavect's own `/usage` probe (`ClaudeUsageProbe`), exactly:
-    /// `--safe-mode`, `--tools` with an empty value and `/usage` as the last argument.
-    /// An interactive `claude` in which someone types /usage has none of these.
-    static func isLimitsCheck(arguments: [String]) -> Bool {
-        let rest = Array(arguments.dropFirst())
-        guard rest.last == "/usage", rest.contains("--safe-mode") else { return false }
-        return zip(rest, rest.dropFirst()).contains { $0 == "--tools" && $1.isEmpty }
-    }
+    /// The command line of Lunavect's own `/usage` probe, as `ClaudeUsageProbe` defines it.
+    static func isLimitsCheck(arguments: [String]) -> Bool { ClaudeUsageProbe.isCommandLine(arguments) }
     /// Reads the arguments of the user's own catalog runtime only to compare them
     /// with that command line; they are not kept.
     static func isLimitsCheck(pid: Int32, arguments: (Int32) -> [String]? = processArguments) -> Bool {
