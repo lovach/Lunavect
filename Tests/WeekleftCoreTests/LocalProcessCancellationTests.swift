@@ -117,7 +117,7 @@ import Darwin
         var cacheReads = 0, cacheWrites = 0
         let snapshot = UsageSnapshot(provider: .claude, fetchedAt: Date(), source: ClaudeUsageProbe.source)
         let task = Task {
-            try await ClaudeProvider.refresh(force: true, cached: { cacheReads += 1; return snapshot }, probe: {
+            try await ClaudeProvider.refresh(cached: { cacheReads += 1; return snapshot }, probe: {
                 withUnsafeCurrentTask { $0?.cancel() }
                 return snapshot
             }, save: { _ in cacheWrites += 1 })

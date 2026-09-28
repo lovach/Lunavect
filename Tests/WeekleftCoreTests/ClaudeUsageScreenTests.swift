@@ -152,7 +152,7 @@ final class ClaudeUsageScreenTests: XCTestCase {
         let saved = try UsageSnapshot(provider: .claude,
             weekly: QuotaWindow(usedPercent: 30, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
             fetchedAt: now.addingTimeInterval(-3600), source: ClaudeUsageProbe.source)
-        let result = try await ClaudeProvider.refresh(force: true, now: now, cached: { saved }, probe: {
+        let result = try await ClaudeProvider.refresh(cached: { saved }, probe: {
             try await ClaudeUsageProbe.fetch(cliPath: executable.path, timeout: 8, directory: root.appendingPathComponent("probe"))
         }, save: { _ in XCTFail("Nothing new to save") })
         XCTAssertEqual(result.weekly, saved.weekly)
@@ -218,7 +218,7 @@ final class ClaudeUsageScreenTests: XCTestCase {
             weekly: QuotaWindow(usedPercent: 30, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
             fetchedAt: now.addingTimeInterval(-3600), source: ClaudeUsageProbe.source)
         let trust = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .workspaceTrustRequired)
-        let result = try await ClaudeProvider.refresh(force: true, now: now, cached: { saved }, probe: { throw trust }, save: { _ in })
+        let result = try await ClaudeProvider.refresh(cached: { saved }, probe: { throw trust }, save: { _ in })
         XCTAssertEqual(result.weekly, saved.weekly)
         XCTAssertEqual(result.fetchedAt, saved.fetchedAt)
         XCTAssertEqual(result.issue, trust.message)

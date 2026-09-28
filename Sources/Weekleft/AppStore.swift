@@ -291,6 +291,9 @@ import WeekleftCore
             if self?.lifecycleGeneration == generation { self?.backgroundRefresh = nil }
         }
     }
+    /// No quota request is running or waiting to run. Tests wait for this (with a
+    /// deadline) instead of yielding a fixed number of times.
+    var quotaRefreshIdle: Bool { !refreshing && backgroundRefresh == nil && localRefresh == nil && !network.recoveryPending }
     func stop() {
         started = false; lifecycleGeneration += 1
         cancelTriggers.forEach { $0() }; cancelTriggers.removeAll()
@@ -365,7 +368,7 @@ import WeekleftCore
             if let quotaFetcher { return try await quotaFetcher(id, path) }
             if let refreshQuota { return try await refreshQuota(id, path, true) }
             if id == .codex { return try await CodexProvider.fetch(resolver: resolver) }
-            return try await ClaudeProvider.refresh(force: true)
+            return try await ClaudeProvider.refresh()
         }
     }
     func setProvider(_ id: ProviderID, enabled: Bool) {
@@ -441,8 +444,11 @@ import WeekleftCore
     @Published private(set) var offlineSince: Date?
     var isOffline: Bool { state == .offline }
     var onRestored: (() async -> Void)?
+    /// A restored connection is settling or being handled by `onRestored`.
+    private(set) var recoveryPending = false
     private var monitor: NWPathMonitor?
     private var recovery: Task<Void, Never>?
+    private var recoveryToken = 0
     private var generation = 0
     private let settle: () async throws -> Void
     private let makeMonitor: () -> NWPathMonitor?
@@ -467,16 +473,20 @@ import WeekleftCore
         generation += 1
         monitor?.cancel(); monitor = nil
         recovery?.cancel(); recovery = nil
-        restoring = false
+        restoring = false; recoveryPending = false
     }
     func update(available: Bool) {
         let next: State = available ? .online : .offline
         guard state != next else { return }
         let wasOffline = isOffline
-        state = next; recovery?.cancel(); restoring = false
+        state = next; recovery?.cancel(); restoring = false; recoveryPending = false
         offlineSince = available ? nil : Date()
         guard wasOffline, available else { return }
+        recoveryToken += 1
+        let token = recoveryToken
+        recoveryPending = true
         recovery = Task { [weak self] in
+            defer { if self?.recoveryToken == token { self?.recoveryPending = false } }
             guard let self else { return }
             do { try await settle() } catch { return }
             guard !Task.isCancelled, !isOffline else { return }

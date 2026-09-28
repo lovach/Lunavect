@@ -84,29 +84,26 @@ final class DataFreshnessTests: XCTestCase {
     }
     /// Rewritten for the refresh policy (01-quota.md §3): the five-minute timer is an
     /// evaluation tick, not the probe period. A verified observation is reused for
-    /// the idle interval; an explicit refresh always asks the client.
-    func testAutomaticRefreshUsesCurrentCacheAndManualRefreshInvokesProbe() async throws {
+    /// the idle interval; an explicit refresh always asks the client. The policy is
+    /// exercised as `AppStore` uses it (R1-13), not through a provider shortcut.
+    func testAutomaticRefreshUsesCurrentCacheAndManualRefreshInvokesProbe() throws {
         let cached = try UsageSnapshot(
             provider: .claude,
             weekly: QuotaWindow(usedPercent: 55, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
             fetchedAt: now, source: ClaudeUsageProbe.source)
-        func probes(force: Bool, after age: TimeInterval) async throws -> Int {
-            var count = 0
-            _ = try await ClaudeProvider.refresh(force: force, now: now.addingTimeInterval(age), cached: { cached },
-                                                 probe: { count += 1; return cached }, save: { _ in })
-            return count
+        var policy = QuotaRefreshPolicy()
+        for trigger in [QuotaRefreshPolicy.Trigger.launch, .timer, .wake, .networkRestored] {
+            XCTAssertFalse(policy.shouldFetch(.claude, snapshot: cached, trigger: trigger, now: now.addingTimeInterval(20)), "\(trigger)")
         }
-        var total = 0
-        for force in [false, false, true, false] { total += try await probes(force: force, after: 20) }
-        XCTAssertEqual(total, 1)
-        let tick = try await probes(force: false, after: 600)
-        XCTAssertEqual(tick, 0, "The timer period is not the probe period")
-        let idle = try await probes(force: false, after: 20 * 60)
-        XCTAssertEqual(idle, 0, "Without session activity the idle interval applies")
-        let due = try await probes(force: false, after: 61 * 60)
-        XCTAssertEqual(due, 1)
-        let future = try await probes(force: false, after: -60)
-        XCTAssertEqual(future, 1, "An observation from the future (clock moved back) is re-observed")
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: cached, trigger: .manual, now: now.addingTimeInterval(20)))
+        policy.record(.claude, snapshot: cached, succeeded: true, at: now.addingTimeInterval(20))
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: cached, trigger: .timer, now: now.addingTimeInterval(600)),
+                       "The timer period is not the probe period")
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: cached, trigger: .timer, now: now.addingTimeInterval(20 * 60)),
+                       "Without session activity the idle interval applies")
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: cached, trigger: .timer, now: now.addingTimeInterval(61 * 60)))
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: cached, trigger: .timer, now: now.addingTimeInterval(-60)),
+                      "An observation from the future (clock moved back) is re-observed")
     }
     /// 01-quota.md §6 п.13: the clock was moved back, so a saved observation is from
     /// the "future". It is marked stale, asked about once (failures back off instead

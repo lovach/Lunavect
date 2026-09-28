@@ -2,6 +2,27 @@ import XCTest
 @testable import Weekleft
 @testable import WeekleftCore
 
+/// Waits (at most 5 s of wall time) until no quota request runs or waits and
+/// `condition` holds. Replaces a fixed number of `Task.yield()` calls (R1-13):
+/// the refresh leaves the main actor for the providers and comes back, so a count
+/// of yields proves neither that work finished nor that it never started.
+@MainActor func settleQuota(_ store: AppStore, until condition: @MainActor () -> Bool = { true },
+                            file: StaticString = #filePath, line: UInt = #line) async {
+    await waitForQuota(until: { store.quotaRefreshIdle && condition() }, file: file, line: line)
+}
+/// Waits (at most 5 s of wall time) for a condition while work may still be in flight.
+@MainActor func waitForQuota(until condition: @MainActor () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+    let deadline = ProcessInfo.processInfo.systemUptime + 5
+    var spins = 0
+    while !condition() {
+        guard ProcessInfo.processInfo.systemUptime < deadline else {
+            return XCTFail("Quota refresh did not reach the expected state within 5 s", file: file, line: line)
+        }
+        spins += 1
+        if spins < 200 { await Task.yield() } else { try? await Task.sleep(nanoseconds: 1_000_000) }
+    }
+}
+
 /// The app's refresh triggers (timer, wake, network, session events, reset time,
 /// explicit refresh) with an injected clock, schedulers and providers. No client
 /// is started and nothing outside a temporary directory is written.
@@ -33,7 +54,13 @@ import XCTest
         func minutes(_ dates: [Date], from start: Date) -> [Int] { dates.map { Int(($0.timeIntervalSince(start) / 60).rounded()) } }
     }
 
-    private func drain() async { for _ in 0..<60 { await Task.yield() } }
+
+    private func settle(_ store: AppStore, file: StaticString = #filePath, line: UInt = #line) async {
+        await settleQuota(store, file: file, line: line)
+    }
+    private func wait(until condition: @MainActor () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+        await waitForQuota(until: condition, file: file, line: line)
+    }
 
     private func makeStore(_ h: Harness, snapshots: [UsageSnapshot], providers: [ProviderID],
                            network: NetworkConnection? = nil) throws -> AppStore {
@@ -55,10 +82,11 @@ import XCTest
         let store = AppStore(state: .init(snapshots: snapshots, preferences: preferences), network: network, defaults: defaults,
             dataServices: .init(snapshots: SnapshotPersistence(url: root.appendingPathComponent("snapshot.json")),
                 activity: ActivityService(isolated: true), clock: { h.now }, localQuota: { _ in nil },
-                refreshQuota: { id, _, force in
+                refreshQuota: { id, _, _ in
                     if id == .claude {
-                        // Production path: ClaudeProvider applies its own cache rule to `force == false`.
-                        return try await ClaudeProvider.refresh(force: force, now: h.now, cached: {
+                        // Production path: the store's policy has decided; ClaudeProvider probes
+                        // and falls back to the saved observation with the failure as its issue.
+                        return try await ClaudeProvider.refresh(cached: {
                             guard let saved = h.stored[.claude] else { throw UsageError.waitingForClaude }
                             return saved
                         }, probe: {
@@ -91,12 +119,12 @@ import XCTest
         let fresh = try claude(used: 40, fetchedAt: start, reset: start.addingTimeInterval(3 * 86400))
         h.result = { _, date in try self.claude(used: 41, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
         let store = try makeStore(h, snapshots: [fresh], providers: [.claude])
-        store.start(); await drain()
+        store.start(); await settle(store)
         for minute in stride(from: 5.0, through: 50, by: 5) {
-            h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await drain()
+            h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await settle(store)
         }
         XCTAssertEqual(h.probes.count, 0, "Idle: a verified observation is reused for an hour")
-        h.now = start.addingTimeInterval(65 * 60); h.ticks[300]?(); await drain()
+        h.now = start.addingTimeInterval(65 * 60); h.ticks[300]?(); await settle(store)
         XCTAssertEqual(h.probes.count, 1)
     }
 
@@ -112,17 +140,17 @@ import XCTest
             let saved = try claude(used: 40, fetchedAt: start.addingTimeInterval(-2 * 3600), reset: start.addingTimeInterval(3 * 86400))
             h.result = { _, _ in throw failure }
             let store = try makeStore(h, snapshots: [saved], providers: [.claude])
-            store.start(); await drain()
+            store.start(); await settle(store)
             for minute in stride(from: 5.0, through: 120, by: 5) {
-                h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await drain()
+                h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await settle(store)
             }
             XCTAssertEqual(h.minutes(h.probes, from: start), [0, 5, 15, 35, 75], "\(failure)")
             XCTAssertEqual(store.snapshots.first?.weekly, saved.weekly, "The last real observation stays")
             XCTAssertEqual(store.snapshots.first?.issue, message)
             h.now = start.addingTimeInterval(121 * 60)
-            h.wake?(); await drain()
+            h.wake?(); await settle(store)
             XCTAssertEqual(h.probes.count, 5, "Wake waits for the network to settle")
-            h.now = h.now.addingTimeInterval(5); h.fireDue(); await drain()
+            h.now = h.now.addingTimeInterval(5); h.fireDue(); await settle(store)
             XCTAssertEqual(h.probes.count, 6, "Wake starts the backoff over")
         }
     }
@@ -136,17 +164,17 @@ import XCTest
             h.result = { _, date in try self.claude(used: 3, fetchedAt: date, reset: reset.addingTimeInterval(7 * 86400)) }
             let network = NetworkConnection(settle: {}, makeMonitor: { nil })
             let store = try makeStore(h, snapshots: [exhausted], providers: [.claude], network: network)
-            store.start(); await drain()
+            store.start(); await settle(store)
             XCTAssertEqual(h.probes.count, 0, "0% remaining before the reset: no probe at launch")
             h.now = reset.addingTimeInterval(sleptAfterReset)
-            h.wake?(); await drain()
+            h.wake?(); await settle(store)
             XCTAssertEqual(h.probes.count, 0, "Not before the network has settled")
             network.update(available: false)
-            h.now = h.now.addingTimeInterval(5); h.fireDue(); await drain()
+            h.now = h.now.addingTimeInterval(5); h.fireDue(); await settle(store)
             XCTAssertEqual(h.probes.count, 0, "Offline after wake: wait for the connection")
-            network.update(available: true); await drain()
+            network.update(available: true); await settle(store)
             XCTAssertEqual(h.probes.count, 1, "The restored connection asks once")
-            h.wake?(); await drain(); h.now = h.now.addingTimeInterval(5); h.fireDue(); await drain()
+            h.wake?(); await settle(store); h.now = h.now.addingTimeInterval(5); h.fireDue(); await settle(store)
             XCTAssertEqual(h.probes.count, 1, "The new observation is current")
             XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 3)
         }
@@ -162,24 +190,24 @@ import XCTest
         }
         h.result = { id, date in id == .codex ? try codex(date) : try self.claude(used: 45, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
         let store = try makeStore(h, snapshots: [fresh, try codex(start)], providers: [.claude, .codex])
-        store.start(); await drain()
+        store.start(); await settle(store)
         let launchFetches = h.codexFetches.count
         store.observeSessionEvents([row(updatedAt: start.addingTimeInterval(-600))], now: start)
         XCTAssertTrue(h.soon.isEmpty, "Rows already on disk at launch are the baseline, not new events")
         h.now = start.addingTimeInterval(60); store.observeSessionEvents([row(updatedAt: h.now)], now: h.now)
         h.now = start.addingTimeInterval(90); store.observeSessionEvents([row(updatedAt: h.now)], now: h.now)
         XCTAssertEqual(h.soon.count, 1, "A burst of events is debounced into one evaluation")
-        h.now = start.addingTimeInterval(170); h.fireDue(); await drain()
+        h.now = start.addingTimeInterval(170); h.fireDue(); await settle(store)
         XCTAssertEqual(h.probes.count, 0, "Debounce waits for 90 s of quiet after the last event")
-        h.now = start.addingTimeInterval(181); h.fireDue(); await drain()
+        h.now = start.addingTimeInterval(181); h.fireDue(); await settle(store)
         XCTAssertEqual(h.probes.count, 1, "Data older than two minutes is refreshed after the quiet period")
         XCTAssertEqual(h.codexFetches.count, launchFetches, "A Claude event does not ask Codex")
         h.now = start.addingTimeInterval(200); store.observeSessionEvents([row(updatedAt: h.now)], now: h.now)
-        h.now = start.addingTimeInterval(291); h.fireDue(); await drain()
+        h.now = start.addingTimeInterval(291); h.fireDue(); await settle(store)
         XCTAssertEqual(h.probes.count, 1, "An observation younger than two minutes is kept")
         store.observeSessionEvents([row(updatedAt: h.now, evidence: .catalog)], now: h.now)
         XCTAssertTrue(h.soon.isEmpty, "Catalog rows (including the probe's own) are not session events")
-        h.now = start.addingTimeInterval(181 + 15 * 60 + 5); h.ticks[300]?(); await drain()
+        h.now = start.addingTimeInterval(181 + 15 * 60 + 5); h.ticks[300]?(); await settle(store)
         XCTAssertEqual(h.probes.count, 2, "With recent activity the 15-minute interval applies")
     }
 
@@ -204,15 +232,15 @@ import XCTest
         h.result = { _, date in try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 2, durationMinutes: 10080, resetsAt: reset.addingTimeInterval(7 * 86400)),
                                                   fetchedAt: date, source: "Codex CLI") }
         let store = try makeStore(h, snapshots: [exhausted], providers: [.codex])
-        store.start(); await drain()
+        store.start(); await settle(store)
         for minute in stride(from: 5.0, through: 120, by: 5) {
-            h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await drain()
+            h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await settle(store)
         }
         XCTAssertEqual(h.codexFetches.count, 0, "Exhausted until the reset")
-        h.now = reset.addingTimeInterval(6); h.fireDue(); h.ticks[300]?(); await drain()
+        h.now = reset.addingTimeInterval(6); h.fireDue(); h.ticks[300]?(); await settle(store)
         XCTAssertEqual(h.codexFetches.count, 1, "One confirming request after the exact reset plus 5 s")
         for minute in stride(from: 5.0, through: 50, by: 5) {
-            h.now = reset.addingTimeInterval(6 + minute * 60); h.ticks[300]?(); await drain()
+            h.now = reset.addingTimeInterval(6 + minute * 60); h.ticks[300]?(); await settle(store)
         }
         XCTAssertEqual(h.codexFetches.count, 1)
     }
@@ -224,12 +252,12 @@ import XCTest
         let exhausted = try claude(used: 100, fetchedAt: start, reset: reset)
         h.result = { _, date in try self.claude(used: 0, fetchedAt: date, reset: nil) }
         let store = try makeStore(h, snapshots: [exhausted], providers: [.claude])
-        store.start(); await drain()
+        store.start(); await settle(store)
         // WP-1b: the reset is the end of the shown minute, so the probe's grace is 30 s.
         let timer = try XCTUnwrap(h.pending.first { abs($0.fireAt.timeIntervalSince(reset.addingTimeInterval(30))) < 1 },
                                   "Scheduled for the reset plus the probe's grace")
         XCTAssertNotNil(timer)
-        h.now = reset.addingTimeInterval(30); h.fireDue(); await drain()
+        h.now = reset.addingTimeInterval(30); h.fireDue(); await settle(store)
         XCTAssertEqual(h.probes.count, 1)
         XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 0)
         XCTAssertNil(store.snapshots.first?.weekly?.resetsAt, "The new window starts with the first request")
@@ -244,16 +272,15 @@ import XCTest
         h.hold = { await withCheckedContinuation { release = $0 } }
         let store = try makeStore(h, snapshots: [stale], providers: [.claude])
         let first = Task { await store.refresh() }
-        await drain()
+        await wait(until: { h.probes.count == 1 && release != nil })
         XCTAssertTrue(store.refreshing)
-        XCTAssertEqual(h.probes.count, 1)
         h.hold = nil
         h.now = start.addingTimeInterval(45)
         await store.refresh()
-        await drain()
         XCTAssertEqual(h.probes.count, 1, "A refresh while the probe runs does not start another client")
         release?.resume()
         await first.value
+        await settle(store)
         XCTAssertEqual(h.probes.count, 1)
         XCTAssertFalse(store.refreshing)
     }

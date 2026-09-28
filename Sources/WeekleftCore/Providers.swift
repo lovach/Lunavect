@@ -252,22 +252,18 @@ public enum ClaudeProvider {
             (($0.fetchedAt ?? .distantPast), $0.freshnessVerified ? 1 : 0) < (($1.fetchedAt ?? .distantPast), $1.freshnessVerified ? 1 : 0)
         }
     }
-    public static func refresh(force: Bool = true) async throws -> UsageSnapshot {
-        try await refresh(force: force, cached: { try latest() }, probe: {
+    /// Runs one `/usage` probe. Whether to ask at all is the app's decision
+    /// (`QuotaRefreshPolicy` in `AppStore`), made before this is called.
+    public static func refresh() async throws -> UsageSnapshot {
+        try await refresh(cached: { try latest() }, probe: {
             try Task.checkCancellation()
             guard let path = SessionSources.discoverClaude() else { throw UsageError.claudeCLIUnavailable }
             return try await ClaudeUsageProbe.fetch(cliPath: path)
         }, save: { try saveUsage($0) })
     }
-    static func refresh(force: Bool, now: Date = Date(), cached: () throws -> UsageSnapshot,
-                        probe: () async throws -> UsageSnapshot, save: (UsageSnapshot) throws -> Void) async throws -> UsageSnapshot {
+    static func refresh(cached: () throws -> UsageSnapshot, probe: () async throws -> UsageSnapshot,
+                        save: (UsageSnapshot) throws -> Void) async throws -> UsageSnapshot {
         try Task.checkCancellation()
-        // Without the app's trigger history this is the timer rule: no session
-        // activity, no failures yet (QuotaRefreshPolicy).
-        if !force, let snapshot = try? cached(), !QuotaRefreshPolicy().shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now) {
-            try Task.checkCancellation()
-            return snapshot
-        }
         do {
             try Task.checkCancellation()
             let snapshot = try await probe()

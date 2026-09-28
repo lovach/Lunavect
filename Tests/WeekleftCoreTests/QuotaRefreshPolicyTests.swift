@@ -1,63 +1,57 @@
 import XCTest
 @testable import WeekleftCore
 
-/// Automatic Claude probes follow the window state (01-quota.md §3, variant B):
-/// no probe for an exhausted window before its reset, one confirming probe after
-/// the reset plus grace, and no fixed five-minute cadence.
+/// Automatic requests follow the window state (01-quota.md §3, variant B): no
+/// probe for an exhausted window before its reset, one confirming probe after the
+/// reset plus grace, backoff after failures and no fixed five-minute cadence.
+/// The app asks `QuotaRefreshPolicy` before every automatic request; these tests
+/// use the policy exactly as `AppStore` does (R1-13).
 final class QuotaRefreshPolicyTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
-    private func probeSnapshot(used: Double, fetchedAt: Date, weeklyReset: Date?) throws -> UsageSnapshot {
+    private let automatic: [QuotaRefreshPolicy.Trigger] = [.launch, .timer, .sessionEvent, .wake, .networkRestored, .resetDue]
+    private func probeSnapshot(used: Double, fetchedAt: Date, weeklyReset: Date?, fiveHour: QuotaWindow? = nil) throws -> UsageSnapshot {
         try UsageSnapshot(provider: .claude,
                           weekly: QuotaWindow(usedPercent: used, durationMinutes: 10080, resetsAt: weeklyReset, resetPrecision: .minute),
-                          fetchedAt: fetchedAt, source: ClaudeUsageProbe.source)
+                          fiveHour: fiveHour, fetchedAt: fetchedAt, source: ClaudeUsageProbe.source)
     }
-    private func probes(force: Bool, at date: Date, cached: UsageSnapshot, returning result: UsageSnapshot? = nil,
-                        saved: ((UsageSnapshot) -> Void)? = nil) async throws -> Int {
-        var count = 0
-        _ = try await ClaudeProvider.refresh(force: force, now: date, cached: { cached },
-                                             probe: { count += 1; return result ?? cached }, save: { saved?($0) })
-        return count
+    private func due(_ policy: QuotaRefreshPolicy, _ snapshot: UsageSnapshot?, at date: Date,
+                     provider: ProviderID = .claude) -> [QuotaRefreshPolicy.Trigger] {
+        automatic.filter { policy.shouldFetch(provider, snapshot: snapshot, trigger: $0, now: date) }
     }
 
     // 01-quota.md §6 п.1, matrix L2
-    func testExhaustedWindowIsNotProbedAutomaticallyBeforeItsReset() async throws {
+    func testExhaustedWindowIsNotProbedAutomaticallyBeforeItsReset() throws {
         let reset = now.addingTimeInterval(2 * 86400)
         let exhausted = try probeSnapshot(used: 100, fetchedAt: now, weeklyReset: reset)
+        let policy = QuotaRefreshPolicy()
         for age in [1200.0, 3 * 3600.0, 30 * 3600.0] {
-            let count = try await probes(force: false, at: now.addingTimeInterval(age), cached: exhausted)
-            XCTAssertEqual(count, 0, "age \(age): 0% remaining cannot change before the reset")
+            XCTAssertEqual(due(policy, exhausted, at: now.addingTimeInterval(age)), [], "age \(age): 0% remaining cannot change before the reset")
         }
-        let manual = try await probes(force: true, at: now.addingTimeInterval(1200), cached: exhausted)
-        XCTAssertEqual(manual, 1, "An explicit refresh may still ask")
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: exhausted, trigger: .manual, now: now.addingTimeInterval(1200)),
+                      "An explicit refresh may still ask")
     }
 
     // 01-quota.md §6 п.2
-    func testResetPassingLeadsToOneConfirmingProbeAfterGrace() async throws {
+    func testResetPassingLeadsToOneConfirmingProbeAfterGrace() throws {
         let reset = now.addingTimeInterval(3600)
         let exhausted = try probeSnapshot(used: 100, fetchedAt: now, weeklyReset: reset)
+        var policy = QuotaRefreshPolicy()
         // WP-1b: the stored reset is the end of the minute the CLI showed; the CLI then needs a moment.
-        let early = try await probes(force: false, at: reset.addingTimeInterval(29), cached: exhausted)
-        XCTAssertEqual(early, 0, "Wait for the grace period after the reset")
+        XCTAssertEqual(due(policy, exhausted, at: reset.addingTimeInterval(29)), [], "Wait for the grace period after the reset")
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: exhausted, trigger: .resetDue, now: reset.addingTimeInterval(30)))
         // The new window has not started: the probe reports 0% without a reset.
-        let inactive = try probeSnapshot(used: 0, fetchedAt: reset.addingTimeInterval(91), weeklyReset: nil)
-        var stored: UsageSnapshot?
-        let confirming = try await probes(force: false, at: reset.addingTimeInterval(91), cached: exhausted, returning: inactive, saved: { stored = $0 })
-        XCTAssertEqual(confirming, 1)
-        XCTAssertEqual(stored, inactive, "An unstarted window is saved as the new observation")
-        let run1 = try await probes(force: false, at: reset.addingTimeInterval(120), cached: inactive)
-        XCTAssertEqual(run1, 0,
-                       "The confirmed observation is current")
+        let inactive = try probeSnapshot(used: 0, fetchedAt: reset.addingTimeInterval(31), weeklyReset: nil)
+        policy.record(.claude, snapshot: inactive, succeeded: true, at: reset.addingTimeInterval(31))
+        XCTAssertEqual(due(policy, inactive, at: reset.addingTimeInterval(120)), [], "The confirmed observation is current")
     }
 
-    func testStatusLineObservationDoesNotCountAsAVerifiedProbe() async throws {
+    func testStatusLineObservationDoesNotCountAsAVerifiedProbe() throws {
         let status = try UsageParser.claude(["seven_day": ["used_percentage": 40, "resets_at": now.addingTimeInterval(86400).timeIntervalSince1970]], now: now)
-        let run6 = try await probes(force: false, at: now.addingTimeInterval(10), cached: status)
-        XCTAssertEqual(run6, 1,
-                       "statusLine carries no server observation time")
+        XCTAssertTrue(QuotaRefreshPolicy().shouldFetch(.claude, snapshot: status, trigger: .timer, now: now.addingTimeInterval(10)),
+                      "statusLine carries no server observation time")
         var exhausted = status
         exhausted.weekly = try QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400))
-        let run7 = try await probes(force: false, at: now.addingTimeInterval(10), cached: exhausted)
-        XCTAssertEqual(run7, 0,
+        XCTAssertEqual(due(QuotaRefreshPolicy(), exhausted, at: now.addingTimeInterval(10)), [],
                        "Usage within a window never decreases, whatever the source")
     }
 

@@ -190,9 +190,10 @@ final class DataLifecycleRegressionTests: XCTestCase {
             dataServices: .init(snapshots: SnapshotPersistence(url: root.appendingPathComponent("snapshot.json")), activity: ActivityService(isolated: true), clock: { date.now },
                 localQuota: { _ in localRead.fulfill(); return cached }, refreshQuota: { _, _, force in
                     forced.append(force)
-                    return try await ClaudeProvider.refresh(force: force, now: date.now, cached: { cached }, probe: { probes += 1; return cached }, save: { _ in })
+                    return try await ClaudeProvider.refresh(cached: { cached }, probe: { probes += 1; return cached }, save: { _ in })
                 }, scheduling: scheduling, discoverCodex: { "/fixture/automatic-codex" }))
-        func drain() async { for _ in 0..<30 { await Task.yield() } }
+        // Waits for the store's quota work with a deadline, not a count of yields (R1-13).
+        func drain() async { await settleQuota(store) }
         store.start(); store.start(); await drain()
         ticks[5]?(); await fulfillment(of: [localRead], timeout: 5)
         wake?(); await drain()
