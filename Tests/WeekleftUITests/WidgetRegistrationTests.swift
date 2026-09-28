@@ -272,9 +272,13 @@ import WeekleftCore
         XCTAssertEqual(launched(), expected, "the launch path survives the move")
         XCTAssertTrue(WidgetRegistrationSystem.staleExtensionProcesses(installed).contains(pid))
         let stopped = await Task.detached { WidgetRegistrationSystem.stopExtension(installed) }.value
-        XCTAssertTrue(stopped)
+        XCTAssertTrue(stopped, "the stale process is signalled and has exited")
         process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, SIGTERM)
+        // macOS may end a linker-signed fixture itself once its file moved (SIGKILL);
+        // either way no process of the old file remains.
+        XCTAssertEqual(process.terminationReason, .uncaughtSignal)
+        XCTAssertTrue([SIGTERM, SIGKILL].contains(process.terminationStatus), "\(process.terminationStatus)")
+        XCTAssertFalse(WidgetRegistrationSystem.staleExtensionProcesses(installed).contains(pid))
     }
 
     func testStaleMeansStartedFromTheInstalledPathButRunningAnotherFile() {
