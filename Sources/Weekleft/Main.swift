@@ -472,6 +472,35 @@ enum CommandLineMaintenance {
     }
 }
 
+/// Command-line modes, decided before any application state exists (Y-I6).
+enum LaunchCommand: Equatable {
+    case application, unregisterAwakeHelper, sessionHook(ProviderID), sessionProbe
+    case claudeStatusLine, installClaudeStatusLine, probe, usageProbe
+    case invalid(String, code: Int32)
+
+    static func parse(_ arguments: [String]) -> LaunchCommand {
+        if arguments.contains("--unregister-awake-helper") {
+            return arguments.count == 2 ? .unregisterAwakeHelper
+                : .invalid("Use --unregister-awake-helper without other arguments.", code: 2)
+        }
+        if let index = arguments.firstIndex(of: "--session-hook") {
+            // A hook command never falls through to the application: that would
+            // reopen its panel on every client event. Like the headless helper,
+            // fail with 64 (a non-blocking hook error), never 2.
+            guard arguments.indices.contains(index + 1), let provider = ProviderID(rawValue: arguments[index + 1]) else {
+                return .invalid("Use --session-hook claude or --session-hook codex.", code: 64)
+            }
+            return .sessionHook(provider)
+        }
+        if arguments.contains("--session-probe") { return .sessionProbe }
+        if arguments.contains("--claude-statusline") { return .claudeStatusLine }
+        if arguments.contains("--install-claude-statusline") { return .installClaudeStatusLine }
+        if arguments.contains("--probe") { return .probe }
+        if arguments.contains("--usage-probe") { return .usageProbe }
+        return .application
+    }
+}
+
 /// What a second launch needs from a running copy (matrix P6).
 protocol RunningCopy {
     var processIdentifier: pid_t { get }
@@ -517,19 +546,19 @@ enum InstanceHandover {
             fputs("Preview requires a Debug build and one valid fixture/output path. No application services were started.\n", stderr)
             exit(1)
         }
-        if CommandLine.arguments.contains("--unregister-awake-helper") {
-            guard CommandLine.arguments.count == 2 else {
-                fputs("Use --unregister-awake-helper without other arguments.\n", stderr)
-                exit(2)
-            }
+        let command = LaunchCommand.parse(CommandLine.arguments)
+        if case .invalid(let message, let code) = command {
+            fputs(message + "\n", stderr)
+            exit(code)
+        }
+        if command == .unregisterAwakeHelper {
             removeAwakeHelper()
             return
         }
-        if let index = CommandLine.arguments.firstIndex(of: "--session-hook"), CommandLine.arguments.indices.contains(index + 1),
-           let provider = ProviderID(rawValue: CommandLine.arguments[index + 1]) {
+        if case .sessionHook(let provider) = command {
             SessionHooks.captureFromStandardInput(provider: provider); return
         }
-        if CommandLine.arguments.contains("--session-probe") {
+        if command == .sessionProbe {
             let resolver = diagnosticClientResolver()
             let signal = DispatchSemaphore(value: 0)
             Task.detached {
@@ -548,8 +577,8 @@ enum InstanceHandover {
             }
             guard signal.wait(timeout: .now() + 45) == .success else { exit(1) }; return
         }
-        if CommandLine.arguments.contains("--claude-statusline") { ClaudeProvider.runStatusLine(); return }
-        if CommandLine.arguments.contains("--install-claude-statusline") {
+        if command == .claudeStatusLine { ClaudeProvider.runStatusLine(); return }
+        if command == .installClaudeStatusLine {
             let location = HookHelperLocation()
             try? location.refreshLink()
             guard let executable = CommandLineMaintenance.statusLineExecutable(location: location, argument: CommandLine.arguments[0]) else {
@@ -562,7 +591,7 @@ enum InstanceHandover {
         }
         // Diagnostics: runs one real /usage probe; results are printed, never saved.
         // With LUNAVECT_PROBE_DUMP_DIR set, a failed probe's screen is also written there.
-        if CommandLine.arguments.contains("--probe") {
+        if command == .probe {
             let resolver = diagnosticClientResolver()
             let signal = DispatchSemaphore(value: 0)
             Task.detached {
@@ -573,10 +602,11 @@ enum InstanceHandover {
                 lines.forEach { print($0) }
                 signal.signal()
             }
-            _ = signal.wait(timeout: .now() + 60); return
+            guard signal.wait(timeout: .now() + 60) == .success else { fputs("Probe timed out.\n", stderr); exit(1) }
+            return
         }
         // Prints the plain /usage screen text, then the parsed result or typed reason.
-        if CommandLine.arguments.contains("--usage-probe") {
+        if command == .usageProbe {
             let resolver = diagnosticClientResolver()
             let signal = DispatchSemaphore(value: 0)
             Task.detached {
@@ -586,8 +616,10 @@ enum InstanceHandover {
                 } catch { print(QuotaProbeReport.describe(error)) }
                 signal.signal()
             }
-            _ = signal.wait(timeout: .now() + 40); return
+            guard signal.wait(timeout: .now() + 40) == .success else { fputs("Probe timed out.\n", stderr); exit(1) }
+            return
         }
+        guard command == .application else { return }
         let instance: AppInstanceLease
         do {
             guard let acquired = try AppInstanceLease.acquire(directory: SnapshotStore.directory) else {

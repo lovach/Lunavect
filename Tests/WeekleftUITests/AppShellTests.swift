@@ -98,3 +98,37 @@ final class AppShellTests: XCTestCase {
         XCTAssertNotEqual(titles["en"], titles["de"])
     }
 }
+
+/// Y-I6 (audit r2): every command-line mode is decided before the application
+/// starts, and a malformed maintenance command never falls through to it.
+final class LaunchCommandTests: XCTestCase {
+    func testEveryModeIsRecognizedAndOnlyNoFlagStartsTheApplication() {
+        let app = "/Applications/Lunavect.app/Contents/MacOS/Lunavect"
+        XCTAssertEqual(LaunchCommand.parse([app]), .application)
+        XCTAssertEqual(LaunchCommand.parse([app, "--unregister-awake-helper"]), .unregisterAwakeHelper)
+        XCTAssertEqual(LaunchCommand.parse([app, "--session-hook", "claude"]), .sessionHook(.claude))
+        XCTAssertEqual(LaunchCommand.parse([app, "--session-hook", "codex"]), .sessionHook(.codex))
+        XCTAssertEqual(LaunchCommand.parse([app, "--session-probe"]), .sessionProbe)
+        XCTAssertEqual(LaunchCommand.parse([app, "--claude-statusline"]), .claudeStatusLine)
+        XCTAssertEqual(LaunchCommand.parse([app, "--install-claude-statusline"]), .installClaudeStatusLine)
+        XCTAssertEqual(LaunchCommand.parse([app, "--probe"]), .probe)
+        XCTAssertEqual(LaunchCommand.parse([app, "--usage-probe"]), .usageProbe)
+        guard case .invalid(_, 2) = LaunchCommand.parse([app, "--unregister-awake-helper", "--probe"]) else {
+            return XCTFail("removal accepts no other arguments")
+        }
+    }
+
+    /// A hook command that names no known provider (hand-edited, or written by a
+    /// newer release) must not launch Lunavect and reopen its panel on every
+    /// client event. It fails like the headless helper: code 64, never 2, which
+    /// would block the client's tool call.
+    func testAMalformedHookCommandNeverStartsTheApplication() {
+        let app = "/Applications/Lunavect.app/Contents/MacOS/Lunavect"
+        for arguments in [[app, "--session-hook"], [app, "--session-hook", "gemini"], [app, "--session-hook", ""],
+                          [app, "--session-hook", "--claude-statusline"]] {
+            let command = LaunchCommand.parse(arguments)
+            guard case .invalid(_, let code) = command else { XCTFail("\(arguments) → \(command)"); continue }
+            XCTAssertEqual(code, 64, "\(arguments)")
+        }
+    }
+}
