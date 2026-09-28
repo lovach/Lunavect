@@ -113,10 +113,23 @@ final class TerminalLocationTests: XCTestCase {
                        "/dev/ttys099", "Hooks still recover a location when the catalog cannot")
     }
 
-    func testAutomationDenialAndTimeoutHaveSpecificRecoveryMessages() {
-        XCTAssertEqual(TerminalLocation.focusError(code: -1743, app: "Terminal"), .terminalAutomationDenied("Terminal"))
-        XCTAssertEqual(TerminalLocation.focusError(code: -1712, app: "iTerm2"), .terminalFocusTimedOut("iTerm2"))
-        XCTAssertEqual(TerminalLocation.focusError(code: -1708, app: "Terminal"), .terminalFocusFailed("Terminal"))
+    /// Numeric AppleScript errors from the real osascript helper (no `tell
+    /// application`, so no Apple event is sent) reach distinct recovery messages.
+    func testAutomationDenialAndTimeoutHaveSpecificRecoveryMessages() async {
+        var messages: Set<String> = []
+        for (code, expected) in [(-1743, SessionOpeningError.terminalAutomationDenied("iTerm2")),
+                                 (-1712, .terminalFocusTimedOut("iTerm2")), (-1708, .terminalFocusFailed("iTerm2"))] {
+            do {
+                _ = try await TerminalLocation.executeFocusScript("error \"localized text\" number \(code)", app: "iTerm2", timeout: TestDeadline.seconds)
+                XCTFail("Expected error \(code)")
+            } catch {
+                XCTAssertEqual(error as? SessionOpeningError, expected)
+                let message = (error as? LocalizedError)?.errorDescription ?? ""
+                XCTAssertTrue(message.contains("iTerm2"), "The message names the terminal: \(message)")
+                messages.insert(message)
+            }
+        }
+        XCTAssertEqual(messages.count, 3, "Denial, timeout and other failures ask for different recovery steps")
     }
 
     private func session(client: SessionClient, tty: String? = nil, app: String? = nil, phase: SessionPhase = .running) -> AgentSession {
@@ -143,17 +156,59 @@ final class TerminalLocationTests: XCTestCase {
 
     /// The helper also bounds each Apple event and stops on its first timeout;
     /// the process runner separately enforces the overall navigation budget.
-    func testFocusScriptsBoundEveryAppleEventAndStopAtTheFirstTimeout() throws {
+    func testFocusScriptsBoundEveryAppleEventAndStopAtTheFirstTimeout() async throws {
+        // Pins a documented relation, not behavior: Keep Awake holds a 30 s lease.
         XCTAssertLessThanOrEqual(TerminalLocation.focusTimeout, 10, "Stays well inside Keep Awake's 30 s lease")
+        // Kept as text: `with timeout` only acts on a real Apple event, which this suite never sends.
         for app in ["Terminal", "iTerm2"] {
             let script = try XCTUnwrap(TerminalLocation.focusScript(tty: "/dev/ttys003", app: app))
             let lines = script.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
             XCTAssertEqual(lines.first, "with timeout of \(TerminalLocation.focusTimeout) seconds", app)
             XCTAssertEqual(lines.suffix(2), ["end timeout", "return false"], app)
-            let guarded = lines.filter { $0 == "try" }.count
-            XCTAssertGreaterThan(guarded, 0, app)
-            XCTAssertEqual(lines.filter { $0 == "if errorNumber is -1712 or errorNumber is -1743 then error errorMessage number errorNumber" }.count, guarded,
-                           "\(app): a per-tab error handler must not swallow a timeout or Automation denial")
+        }
+        // Kept as text: iTerm2's `select` exists only in its dictionary, so its script cannot run on a stand-in.
+        let iTerm = try XCTUnwrap(TerminalLocation.focusScript(tty: "/dev/ttys003", app: "iTerm2"))
+            .components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+        XCTAssertEqual(iTerm.filter { $0 == "if errorNumber is -1712 or errorNumber is -1743 then error errorMessage number errorNumber" }.count,
+                       iTerm.filter { $0 == "try" }.count, "iTerm2: a per-tab error handler must not swallow a timeout or Automation denial")
+
+        // Terminal's script runs through the real osascript helper against an
+        // in-script stand-in instead of Terminal: two windows, each with a tab on
+        // the device. Its `activate` fails once with the given error number.
+        let generated = try XCTUnwrap(TerminalLocation.focusScript(tty: "/dev/ttys003", app: "Terminal"))
+        let target = "tell application \"Terminal\"", windows = "repeat with w in windows"
+        XCTAssertEqual(generated.components(separatedBy: target).count, 2, "The stand-in replaces exactly one application target")
+        XCTAssertEqual(generated.components(separatedBy: windows).count, 2, "The stand-in replaces exactly one window query")
+        func run(failingOnce error: Int) async throws -> Bool {
+            let standIn = """
+            set standInWindows to {{miniaturized:false, index:2, tabs:{{tty:"/dev/ttys001", processes:{1}, selected:false}, \
+            {tty:"/dev/ttys003", processes:{1}, selected:false}}}, {miniaturized:true, index:3, tabs:{{tty:"/dev/ttys003", processes:{1}, selected:false}}}}
+            script standInTerminal
+                property activations : 0
+                on activate
+                    set activations to activations + 1
+                    if activations is 1 and \(error) is not 0 then error "stand-in failure" number \(error)
+                end activate
+            end script
+
+            """
+            let script = standIn + generated.replacingOccurrences(of: target, with: "tell standInTerminal")
+                .replacingOccurrences(of: windows, with: "repeat with w in standInWindows")
+            // Never run a script that could still address an application.
+            guard !script.contains("tell application"), !script.contains(" windows") else {
+                throw FixtureError(description: "The stand-in did not replace the application target; the script was not run")
+            }
+            return try await TerminalLocation.executeFocusScript(script, app: "Terminal", timeout: TestDeadline.seconds)
+        }
+        let focused = try await run(failingOnce: 0)
+        XCTAssertTrue(focused, "The first tab on the device is focused")
+        let skipped = try await run(failingOnce: -1728)
+        XCTAssertTrue(skipped, "An ordinary per-tab error (a closed tab) moves on to the next match")
+        for (code, expected) in [(-1712, SessionOpeningError.terminalFocusTimedOut("Terminal")), (-1743, .terminalAutomationDenied("Terminal"))] {
+            do {
+                let result = try await run(failingOnce: code)
+                XCTFail("Error \(code) was swallowed and the search continued to another tab (result \(result))")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, expected, "Error \(code) must stop the search") }
         }
     }
 

@@ -89,19 +89,19 @@ import Darwin
     }
 
     func testEveryLaunchReassertsRegistrationAfterReplacedCopiesSettle() async {
-        let defaults = defaults(), checks = Attempts()
+        let defaults = defaults(), log = EventLog()
         defaults.set(target.stamp, forKey: WidgetRegistration.stampKey)
-        var reloads = 0, delays: [Duration] = []
+        var elapsed: Duration = .zero
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build restarts no extension"); return false },
-            reassert: { _ in await checks.record(); return true }, reload: { reloads += 1 }, pause: {},
-            settle: { delays.append($0) }, registeredCopies: { [] })
+            reassert: { _ in log.add("reassert"); return true }, reload: { log.add("reload") }, pause: {},
+            settle: { elapsed += $0; log.add("check at \(elapsed.components.seconds) s") }, registeredCopies: { [] })
         service.start(); await service.waitUntilFinished()
-        let count = await checks.count
-        XCTAssertEqual(delays, [.seconds(5), .seconds(115)],
+        // Behavior: every reassertion waits for its settle period first, and each
+        // successful one reloads the widgets. The offsets pin the launch schedule
+        // documented in docs/development.md (5 seconds and 2 minutes after launch).
+        XCTAssertEqual(log.events, ["check at 5 s", "reassert", "reload", "check at 120 s", "reassert", "reload"],
                        "The first check follows the restart; the last one falls in a quiet period")
-        XCTAssertEqual(count, 2)
-        XCTAssertEqual(reloads, 2)
         let failures = Attempts()
         let failing = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build restarts no extension"); return false },
@@ -184,6 +184,13 @@ import Darwin
         XCTAssertEqual(owned.terminationStatus, SIGTERM)
         XCTAssertTrue(unrelated.isRunning)
     }
+}
+
+private final class EventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func add(_ event: String) { lock.withLock { items.append(event) } }
+    var events: [String] { lock.withLock { items } }
 }
 
 private actor Attempts {
