@@ -135,6 +135,8 @@ struct ConnectionsView: View {
     @State private var disconnectedEventsOnly = false
     /// The card the user refreshed; background polls do not show progress in every card.
     @State private var refreshingCard: ProviderID?
+    /// A repair asked for outside Settings (sessions panel, limits popover, a notice).
+    @AppStorage(ConnectionRepairRequest.defaultsKey) private var repairRequest = ""
     private var availability: QuotaCheckAvailability {
         QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline)
     }
@@ -206,7 +208,8 @@ struct ConnectionsView: View {
                 }
 
             }.padding(8).fixedSize(horizontal: false, vertical: true)
-        }.onAppear { statusLineObservedAt = store.statusLineObservedAt(); sessions.updateHookConfiguration() }
+        }.onAppear { statusLineObservedAt = store.statusLineObservedAt(); sessions.updateHookConfiguration(); openRequestedRepair() }
+            .onChange(of: repairRequest) { openRequestedRepair() }
             .sheet(item: $selectedProvider, onDismiss: {
                 statusLineObservedAt = store.statusLineObservedAt()
                 sessions.updateHookConfiguration()
@@ -220,6 +223,11 @@ struct ConnectionsView: View {
                     repairProvider = provider; selectedRepair = repair
                 }
             }
+    }
+    /// Opens the same setup step as the card's own button, once per request.
+    private func openRequestedRepair() {
+        guard let request = ConnectionRepairRequest.take(&repairRequest, connected: store.providers) else { return }
+        selectedRepair = request.repair; selectedProvider = request.provider
     }
     private func optionalProviderCard(_ id: ProviderID) -> some View {
         HStack(spacing: 12) {

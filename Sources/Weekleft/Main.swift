@@ -117,7 +117,7 @@ enum StatusItemClick {
         }, onMenuBarSettings: { [weak self] in self?.showMenuBarSettings() }, onKeepAwakeSettings: { [weak self] in
             self?.environment.defaults.set(SettingsSection.keepAwake.rawValue, forKey: "settingsSection")
             self?.showSettings()
-        }, onHeightChange: { [weak self] height in self?.popover.contentSize = NSSize(width: 360, height: height) }, onReorderingChange: { [weak self] dragging in
+        }, onRepair: { [weak self] in self?.showRepair($0) }, onHeightChange: { [weak self] height in self?.popover.contentSize = NSSize(width: 360, height: height) }, onReorderingChange: { [weak self] dragging in
             self?.popover.behavior = dragging ? .applicationDefined : .transient
         }) }.defaultAppStorage(environment.defaults))
         menuBarAnimator = MenuBarAnimator(statusItem: statusItem, updates: environment.updates)
@@ -135,12 +135,16 @@ enum StatusItemClick {
             onShow: { [weak self] in self?.popover.performClose(nil); self?.menuBarAnimator?.setPopoverOpen(true) },
             onHide: { [weak self] in self?.menuBarAnimator?.setPopoverOpen(self?.popover.isShown == true) },
             onOpenMenu: { [weak self] in self?.showMenuBarSettings() },
+            onRepair: { [weak self] in self?.showRepair($0) },
             contextMenu: { [weak self] in self?.statusMenu() ?? NSMenu() },
             network: store.network,
             onOpenLimits: { [weak self] in self?.showLimits() })
         limitsObserver = Publishers.CombineLatest3(store.$snapshots, store.$preferences.map(\.providers).removeDuplicates(), menuBarAppearance.$limits)
             .combineLatest(environment.language.$code, store.$refreshing).receive(on: RunLoop.main).sink { [weak self] state, _, refreshing in
                 self?.menuBarLimits?.update(snapshots: state.0, providers: state.1, preferences: state.2, refreshing: refreshing)
+                // A signed-out client is named above the sessions and on the sessions item.
+                self?.sessionPanelState.observeSignIn(state.0, providers: state.1)
+                self?.menuBarAnimator?.setSignInAttention(SignInAttention.all(state.0, providers: state.1))
             }
         observeSessionStatus()
         languageObserver = environment.language.$code.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
@@ -153,6 +157,7 @@ enum StatusItemClick {
             }
             let features = environment.features
             features.onPermissionFinished = { [weak self] in self?.showSettings() }
+            features.onRepair = { [weak self] in self?.showRepair($0) }
             features.onTogglePanel = { [weak self] in
                 guard let self else { return }
                 if self.popover.isShown { self.popover.performClose(nil) } else { self.showSessions() }
@@ -307,6 +312,13 @@ enum StatusItemClick {
         if item.action == #selector(undoEdit) { return editingUndoManager?.canUndo == true }
         if item.action == #selector(redoEdit) { return editingUndoManager?.canRedo == true }
         return true
+    }
+    /// The Connections card's repair, asked for from the sessions panel, the limits
+    /// popover or a notice: Connections opens the same setup step as its button.
+    func showRepair(_ request: ConnectionRepairRequest) {
+        environment.defaults.set(request.rawValue, forKey: ConnectionRepairRequest.defaultsKey)
+        environment.defaults.set(SettingsSection.connections.rawValue, forKey: "settingsSection")
+        showSettings()
     }
     @objc func showLimits() {
         environment.defaults.set(SettingsSection.limits.rawValue, forKey: "settingsSection")
