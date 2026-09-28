@@ -1,6 +1,42 @@
 import Foundation
 import OSLog
 import Darwin
+import os
+
+/// Under XCTest, refuses writes below the real home folder: client settings,
+/// Lunavect's support folder, the helper link and preferences stay untouched
+/// even when a test forgets to inject a destination. The home folder comes from
+/// the user database because Foundation ignores a `HOME` override. Inert in the
+/// app and its helpers (no XCTest classes are loaded there).
+public enum LiveWriteGuard {
+    public struct Refused: LocalizedError, Equatable {
+        public let path: String
+        public var errorDescription: String? { "Test isolation: refused to write \(path)" }
+    }
+    static let underTests = NSClassFromString("XCTestCase") != nil
+    public static var underTestsForStores: Bool { underTests }
+    static let realHome: String? = {
+        guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else { return nil }
+        return String(cString: directory)
+    }()
+    private static let fixtures = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    /// Test support: also protect a temporary folder, so a fixture can prove that
+    /// a write site is guarded without ever aiming it at the real home folder.
+    public static func protect(_ root: URL) { fixtures.withLock { _ = $0.insert(root.resolvingSymlinksInPath().standardizedFileURL.path) } }
+    public static func unprotect(_ root: URL) { fixtures.withLock { _ = $0.remove(root.resolvingSymlinksInPath().standardizedFileURL.path) } }
+    public static func isProtected(_ url: URL) -> Bool {
+        guard underTests else { return false }
+        let roots = fixtures.withLock { $0 }.union(realHome.map { [$0] } ?? [])
+        let paths = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().standardizedFileURL.path]
+        return roots.contains { root in paths.contains { $0 == root || $0.hasPrefix(root + "/") } }
+    }
+    public static func check(_ urls: URL...) throws {
+        for url in urls where isProtected(url) {
+            fputs("LUNAVECT TEST ISOLATION: refused write to \(url.path)\n", stderr)
+            throw Refused(path: url.path)
+        }
+    }
+}
 
 public struct WidgetPreferences: Codable, Equatable, Sendable {
     public var showFiveHour = false
