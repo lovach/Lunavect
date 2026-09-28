@@ -186,6 +186,21 @@ class NativeRendersTests(unittest.TestCase):
             result = renders.compare_baseline(baseline, baseline, [], {"macos": "new"})
             self.assertEqual(result["status"], "skipped")
 
+    def test_a_supplied_baseline_that_cannot_be_compared_fails_the_run(self):
+        """R2-U-07: after a runner update the weekly job must not stay green without comparing."""
+        def skipped_comparison(output, *, enabled, baseline=None, report=None, suite="smoke"):
+            report["render"] = {"status": "passed"}
+            report["comparison"] = {"status": "skipped", "reason": "Baseline OS/toolchain/fixture environment differs"}
+            return report
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "out"
+            with patch.object(renders.sys, "argv", [str(SCRIPT), "--output", str(output), "--baseline", temporary]), \
+                    patch.object(renders, "check", side_effect=skipped_comparison):
+                self.assertEqual(renders.main(), 1)
+            comparison = json.loads((output / "render-report.json").read_text())["comparison"]
+            self.assertEqual(comparison["status"], "failed")
+            self.assertIn("baseline", comparison["reason"])
+
     def test_explicit_record_marks_only_a_passed_render_without_comparison(self):
         """R3-06: only a manual dispatch with render_baseline cleared records a new reference."""
         report = renders.initial_report()
