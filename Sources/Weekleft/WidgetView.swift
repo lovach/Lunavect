@@ -3,6 +3,36 @@ import SwiftUI
 import WeekleftCore
 #endif
 
+/// What a limits card shows for one weekly window: the value, whether it is
+/// dimmed as saved data, whether the state sentence replaces the reset
+/// countdown and whether the card marks it as not updated. Every card uses
+/// the same window status as the menu bar (P-I4, R2-P-05).
+struct WidgetQuotaDisplay: Equatable {
+    /// The window whose remaining share and reset are shown.
+    var window: QuotaWindow?
+    var unlimited = false
+    var dimmed: Bool
+    var showsStatus: Bool
+    var needsAttention: Bool
+    init(window: QuotaWindow?, unlimited: Bool = false, dimmed: Bool, showsStatus: Bool, needsAttention: Bool) {
+        self.window = window; self.unlimited = unlimited; self.dimmed = dimmed
+        self.showsStatus = showsStatus; self.needsAttention = needsAttention
+    }
+    /// No limits, a value, an exhausted window or a passed reset: shown as in the menu bar.
+    init(weekly snapshot: UsageSnapshot, now: Date) {
+        let status = snapshot.status(of: snapshot.weekly, now: now)
+        let window = status.remaining(of: snapshot.weekly) == nil ? nil : snapshot.weekly
+        self.init(window: window, unlimited: status == .unlimited, dimmed: status.isStale,
+                  showsStatus: window == nil || status.isStale || status.note(now: now) != nil,
+                  needsAttention: snapshot.issue != nil || (snapshot.fetchedAt != nil && status.needsAttention))
+    }
+    var percent: Int? { window.map { Int($0.remaining.rounded()) } }
+    /// "∞", the remaining share or a dash.
+    var value: String { unlimited ? "∞" : percent.map { PercentText.format($0) } ?? "—" }
+    /// The share without its sign, for a layout that sets the sign apart.
+    var number: String { unlimited ? "∞" : percent.map(String.init) ?? "—" }
+}
+
 struct WeekleftCard: View {
     let snapshots: [UsageSnapshot]
     let preferences: WidgetPreferences
@@ -23,7 +53,7 @@ struct WeekleftCard: View {
                 Text(L("Недельный остаток")).font(.system(size: 10, weight: .regular))
                 Spacer()
                 if demo { Text(L("Демо")).font(.system(size: 9)) }
-                else if snapshots.contains(where: { $0.issue != nil || ($0.fetchedAt != nil && $0.status(of: $0.weekly, now: now).needsAttention) }) {
+                else if marksAttention {
                     Image(systemName: "exclamationmark.circle").font(.system(size: 10))
                         .help(L("Некоторые данные не обновились. Откройте настройки для подробностей."))
                 }
@@ -46,12 +76,14 @@ struct WeekleftCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 26))
     }
     }
+    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
+    var marksAttention: Bool { snapshots.contains { display($0).needsAttention } }
     private func providerRow(_ id: ProviderID) -> some View {
         let snapshot = snapshots.first(where: { $0.provider == id }) ?? UsageSnapshot(provider: id)
         // A past reset does not tell us the new window's usage. Keep the cached
         // record for diagnostics, but never present it as the current allowance.
-        let status = snapshot.status(of: snapshot.weekly, now: now)
-        let weekly = status.remaining(of: snapshot.weekly) == nil ? nil : snapshot.weekly
+        let display = display(snapshot)
+        let weekly = display.window
         let fiveHour = snapshot.status(of: snapshot.fiveHour, now: now).remaining(of: snapshot.fiveHour) == nil ? nil : snapshot.fiveHour
         let accent = id == .claude ? Color(red: 1, green: 0.70, blue: 0.47) : Color(red: 0.61, green: 0.84, blue: 1)
         return HStack(alignment: .top, spacing: 9) {
@@ -69,13 +101,13 @@ struct WeekleftCard: View {
                             .padding(.trailing, 6)
                     }
                     HStack(alignment: .firstTextBaseline, spacing: 1) {
-                        Text(status == .unlimited ? "∞" : weekly.map { String(Int($0.remaining.rounded())) } ?? "—").font(.system(size: 25, weight: .semibold)).monospacedDigit()
+                        Text(display.number).font(.system(size: 25, weight: .semibold)).monospacedDigit()
                         if weekly != nil { Text(PercentText.sign()).font(.system(size: 12)) }
-                    }.opacity(status.isStale ? 0.6 : 1)
+                    }.opacity(display.dimmed ? 0.6 : 1)
                 }.frame(height: 23).lineLimit(1)
-                bar(weekly, accent: accent, height: 5).opacity(status.isStale ? 0.5 : 1).padding(.top, 7)
+                bar(weekly, accent: accent, height: 5).opacity(display.dimmed ? 0.5 : 1).padding(.top, 7)
                 HStack(spacing: 6) {
-                    if weekly == nil || status.isStale || status.note(now: now) != nil {
+                    if display.showsStatus {
                         Text(widgetQuotaStatus(snapshot, now: now)).font(.system(size: 9))
                             .foregroundStyle(WidgetInk(0.78)).lineLimit(1).minimumScaleFactor(0.8)
                     }
@@ -84,7 +116,7 @@ struct WeekleftCard: View {
                             .font(.system(size: 9)).monospacedDigit().foregroundStyle(WidgetInk(0.78)).fixedSize()
                     }
                     Spacer(minLength: 0)
-                    if !demo, status.isStale, let fetched = snapshot.fetchedAt {
+                    if !demo, display.dimmed, let fetched = snapshot.fetchedAt {
                         Text(widgetQuotaDate(fetched, now: now)).font(.system(size: 9)).foregroundStyle(WidgetInk(0.65)).fixedSize()
                     }
                 }.frame(height: 14).padding(.top, 6)
@@ -121,23 +153,23 @@ struct SingleProviderLimitsCard: View {
     let preferences: WidgetPreferences
     let now: Date
     var compact = false
-    private var status: QuotaWindowStatus { snapshot.status(of: snapshot.weekly, now: now) }
-    private var weekly: QuotaWindow? { status.remaining(of: snapshot.weekly) == nil ? nil : snapshot.weekly }
+    var display: WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
+    private var weekly: QuotaWindow? { display.window }
     private var five: QuotaWindow? { snapshot.status(of: snapshot.fiveHour, now: now).remaining(of: snapshot.fiveHour) == nil ? nil : snapshot.fiveHour }
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(snapshot.provider.title).font(.system(size: compact ? 13 : 15, weight: .semibold))
                 Spacer(minLength: 4)
-                if snapshot.issue != nil || (snapshot.fetchedAt != nil && status.needsAttention) {
+                if display.needsAttention {
                     Image(systemName: "exclamationmark.circle").font(.system(size: 10)).foregroundStyle(.secondary)
                 }
                 ProviderLogo(id: snapshot.provider).foregroundStyle(activityAccent(snapshot.provider)).scaleEffect(0.75).frame(width: 24, height: 24)
             }.frame(height: 24)
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(status == .unlimited ? "∞" : weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—")
+                Text(display.value)
                     .font(.system(size: compact ? 28 : 36, weight: .semibold)).monospacedDigit()
-                    .opacity(status.isStale ? 0.6 : 1)
+                    .opacity(display.dimmed ? 0.6 : 1)
                 if !compact { Text(L("Недельный остаток")).font(.system(size: 11)).foregroundStyle(.secondary) }
             }.lineLimit(1).minimumScaleFactor(0.8)
             if compact { Text(L("Недельный остаток")).font(.system(size: 9)).foregroundStyle(.secondary) }
@@ -146,7 +178,7 @@ struct SingleProviderLimitsCard: View {
                     Capsule().fill(WidgetInk(0.12, increased: 0.3))
                     if let weekly { Capsule().fill(activityAccent(snapshot.provider)).frame(width: geometry.size.width * weekly.remaining / 100) }
                 }
-            }.frame(height: 5).opacity(status.isStale ? 0.5 : 1).accessibilityLabel(L("Осталось"))
+            }.frame(height: 5).opacity(display.dimmed ? 0.5 : 1).accessibilityLabel(L("Осталось"))
                 .accessibilityValue(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? L("Нет данных"))
             if preferences.showFiveHour {
                 HStack {
@@ -157,13 +189,13 @@ struct SingleProviderLimitsCard: View {
             }
             Spacer(minLength: 0)
             Text(
-                status.isStale || weekly == nil || status.note(now: now) != nil
+                display.showsStatus
                     ? widgetQuotaStatus(snapshot, now: now)
                     : weekly.map { L("Сброс через {0}", $0.countdown(now: now)) } ?? L("Ждём лимиты")
             )
             .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2).minimumScaleFactor(0.7)
             .fixedSize(horizontal: false, vertical: true)
-            if status.isStale, let fetched = snapshot.fetchedAt {
+            if display.dimmed, let fetched = snapshot.fetchedAt {
                 Text(
                     L(
                         "Данные: {0}",

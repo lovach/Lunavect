@@ -56,6 +56,7 @@ final class SnapshotPersistence: @unchecked Sendable {
          read: @escaping @Sendable (URL) -> SharedState = { SnapshotStore.load(from: $0) },
          recover: @escaping @Sendable (URL) throws -> RecoveredLocalState<SharedState> = { try SnapshotStore.loadRecovering(from: $0) },
          write: @escaping @Sendable (SharedState, URL) throws -> Void = { state, url in
+             try LiveWriteGuard.check(url)
              try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                      attributes: [.posixPermissions: 0o700])
              try LocalStateRecovery.write(JSONEncoder().encode(state), to: url)

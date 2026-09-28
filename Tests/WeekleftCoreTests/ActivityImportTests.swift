@@ -319,6 +319,24 @@ extension ActivityImportTests {
         XCTAssertNotNil(result.report.providers.first?.issues[.budget])
     }
 
+    /// R3-04: a boundary at or before the 35-day window leaves nothing to recover,
+    /// so no journal is opened at all (a re-import for an old installation).
+    func testBoundaryOutsideTheWindowReadsNoJournal() throws {
+        let root = try directory(), end = now.timeIntervalSince1970
+        try write([codex(end - 20 * 86400, end - 20 * 86400 + 600)], to: root.appendingPathComponent("log.jsonl"))
+        for days in [35.0, 40] {
+            let result = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)],
+                                                      before: now.addingTimeInterval(-days * 86400), now: now)
+            XCTAssertTrue(result.intervals.isEmpty)
+            XCTAssertEqual(result.report.providers.first?.filesRead, 0, "\(Int(days)) days")
+            XCTAssertEqual(result.report.providers.first?.bytesRead, 0, "\(Int(days)) days")
+            XCTAssertFalse(result.limited)
+        }
+        let inside = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)],
+                                                  before: now.addingTimeInterval(-10 * 86400), now: now)
+        XCTAssertEqual(inside.report.providers.first?.filesRead, 1, "A boundary inside the window still reads the journal")
+    }
+
     func testDeadlineDuringChunkPreservesOnlyAcceptedCompleteRecords() throws {
         let root = try directory(), end = now.timeIntervalSince1970
         var records: [[String: Any]] = []

@@ -260,6 +260,32 @@ final class ActivityStorageTests: XCTestCase {
         XCTAssertLessThan(size, 32_000_000)
     }
 
+    /// R2-P-02: under tests, keeping a copy and starting over and the default
+    /// snapshot writer change nothing inside a protected folder (the real home
+    /// folder in practice). Proven on a temporary folder marked as protected.
+    func testStartOverAndSnapshotWriterRefuseAProtectedFolder() throws {
+        let home = try root().resolvingSymlinksInPath().appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let historyURL = home.appendingPathComponent("activity.json"), original = Data(repeating: 0x20, count: 32_000_001)
+        try original.write(to: historyURL)
+        LiveWriteGuard.protect(home)
+        defer { LiveWriteGuard.unprotect(home) }
+        let storage = ActivityPersistence(historyURL: historyURL, detailsURL: home.appendingPathComponent("activity-details.json"),
+                                          completionQueue: DispatchQueue(label: "ActivityStorageTests.guard"))
+        XCTAssertFalse(storage.load().historyLoaded)
+        let done = DispatchSemaphore(value: 0), outcome = StorageFlag(false)
+        storage.startOverPreservingHistory { result in
+            if case .started = result { outcome.value = true }
+            done.signal()
+        }
+        XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+        XCTAssertFalse(outcome.value, "The unreadable file is not moved aside inside a protected folder")
+        let snapshots = SnapshotPersistence(url: home.appendingPathComponent("Weekleft/snapshot.json"))
+        XCTAssertEqual(snapshots.flush(SharedState()).disposition, .failed)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: home.path), ["activity.json"], "no copy, no folder")
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: historyURL.path)[.size] as? Int, original.count)
+    }
+
     // MARK: B-03 abandoned temporaries
 
     func testActivityAndSnapshotLoadsRemoveOnlyOldOwnTemporaries() throws {
