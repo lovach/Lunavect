@@ -28,6 +28,8 @@ The guide checks progress while open. If an external window was closed or setup 
 | Claude Code | The official CLI's `/usage` output and `rate_limits` delivered to the status-line command | Local lifecycle hooks, available client session information and title metadata |
 | Codex | `account/rateLimits/read` through the local Codex app-server | Available runtime state, lifecycle hooks and local session metadata; log-based fallback where needed |
 
+`/usage` shows resets truncated to the minute: "Resets Sep 27 at 11:59pm" for a reset at 00:00:00. Lunavect stores the end of the shown minute, so a window is not shown as reset and its return is not announced before the reset has certainly happened; the same reset from the status line gives the same time. Resets shown as a date only ("Sep 28"), relative ("in 2h 15m"), as "today/tomorrow at …", in 24-hour time or with an abbreviated zone ("CEST") are read the same way, to the end of the shown day or unit and never later than the window's length from the reading. A time in a repeated daylight-saving hour is read as its later occurrence; a time in a skipped hour is rejected. A status-line window without a reset time (not started yet) is treated as absent and the other window is kept.
+
 Claude status-line quotas have a receipt time but no server observation timestamp. They remain marked as saved observations; recent `/usage` results take precedence. Recognized repeated status-line payloads do not advance their receipt time, and a lower value for the same limit window from another session (an idle session's older response, re-sent when Claude re-runs its status line) does not replace a newer observation.
 
 ## When limits are refreshed
@@ -38,7 +40,7 @@ A Claude `/usage` probe starts Claude Code for a few seconds, and a Codex reques
 | --- | --- | --- |
 | Current value | Remaining percentage and countdown; `*` after 15 minutes | After 15 minutes while sessions are active (an event within the last hour), otherwise after an hour |
 | 0 % remaining, reset ahead | `0%` and the countdown, without `*` | None before the saved reset |
-| Reset passed, no newer data | A dash and "Reset at HH:MM, waiting for the new window's first data" | One request at the reset plus a grace (90 s for `/usage`, which rounds to the minute; 5 s for exact status-line and Codex times) |
+| Reset passed, no newer data | A dash and "Reset at HH:MM, waiting for the new window's first data" | One request at the reset plus a grace (30 s after the end of the minute `/usage` showed; 5 s for exact status-line and Codex times) |
 | Window not started (0 % used, no reset) | 100 % and "Starts with the first request" | After session activity, otherwise hourly |
 | Codex without any window | ∞ and "No limits" | Hourly |
 | Last request failed | Last value with `*` and the specific reason | Backs off 5, 10, 20, 40, then 60 minutes |
