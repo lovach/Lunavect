@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Fetch the newest passed native render of one suite from an earlier CI run.
+"""Fetch the newest reviewed native render of one suite from an earlier CI run.
 
 The scheduled native-render job compares against it with
 `check-native-renders.py --baseline`. Candidates are successful `schedule` and
 `workflow_dispatch` runs of the workflow on the given branch, newest first,
 excluding the current run. An artifact counts only if its render-report.json
-records a passed render of the same suite. The tool only reads the Actions API
-through `gh` (a GITHUB_TOKEN with `actions: read` is enough); it never uploads,
-approves or deletes anything.
+records a passed render of the same suite that is itself reviewed: its own
+comparison with the previous baseline passed, or it was recorded as a new
+reference by an explicit manual dispatch (`--record-baseline`). A green run
+without a comparison (a lookup failure, an expired or skipped baseline, the
+first run) is never promoted. Runs without a render artifact of the suite do
+not count toward `--max-runs`. The tool only reads the Actions API through `gh`
+(a GITHUB_TOKEN with `actions: read` is enough); it never uploads, approves or
+deletes anything.
 
-Prints the baseline directory on stdout, or nothing when no baseline is
-available, in which case the render runs without comparison. A failed lookup is
-reported as a warning rather than failing the render job.
+Prints the baseline directory on stdout, or nothing when no reviewed baseline
+is available or the lookup failed; the workflow then renders for the gallery
+and fails the job, so a reference is only ever recorded on purpose.
 """
 import argparse
 import json
@@ -48,27 +53,38 @@ def render_artifact(gh, repository, run, suite, arch):
     return max(matches)[1] if matches else None
 
 
-def passed_render(directory, suite):
+def reviewed_render(directory, suite):
+    """None for a usable baseline, otherwise why the render cannot be one."""
     try:
         report = json.loads((directory / 'render-report.json').read_text())
     except (OSError, ValueError):
-        return False
-    return (report.get('render', {}).get('status') == 'passed'
-            and report.get('environment', {}).get('suite') == suite
-            and (directory / 'images').is_dir())
+        return 'no readable render report'
+    if (report.get('render', {}).get('status') != 'passed' or report.get('environment', {}).get('suite') != suite
+            or not (directory / 'images').is_dir()):
+        return f'no passed {suite} render report'
+    if (report.get('comparison', {}).get('status') != 'passed'
+            and report.get('baseline_record', {}).get('status') != 'recorded'):
+        return 'not compared with a reviewed baseline and not recorded as a reference by a manual dispatch'
+    return None
 
 
 def find(args):
-    for run in candidate_runs(args.gh, args.repository, args.workflow, args.branch, args.exclude_run)[:args.max_runs]:
+    inspected = 0
+    for run in candidate_runs(args.gh, args.repository, args.workflow, args.branch, args.exclude_run):
+        if inspected >= args.max_runs:
+            break
         name = render_artifact(args.gh, args.repository, run, args.suite, args.arch)
         if name is None:
+            # A dispatch of another job has no render: it does not use up the search.
             continue
+        inspected += 1
         with tempfile.TemporaryDirectory(prefix='render-baseline-', dir=args.output.parent) as temporary:
             staging = Path(temporary) / 'artifact'
             subprocess.run([args.gh, 'run', 'download', str(run['id']), '--repo', args.repository,
                             '--name', name, '--dir', str(staging)], check=True, timeout=300)
-            if not passed_render(staging, args.suite):
-                print(f'Skipping {name} from run {run["id"]}: no passed {args.suite} render report.', file=sys.stderr)
+            reason = reviewed_render(staging, args.suite)
+            if reason:
+                print(f'Skipping {name} from run {run["id"]}: {reason}.', file=sys.stderr)
                 continue
             staging.rename(args.output)
         return run, name
@@ -86,7 +102,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True, help='New directory for the downloaded baseline')
     parser.add_argument('--summary', type=Path, help='Markdown file to append one provenance line to')
     parser.add_argument('--gh', default='gh', help='GitHub CLI executable')
-    parser.add_argument('--max-runs', type=int, default=10)
+    parser.add_argument('--max-runs', type=int, default=10, help='Runs with a render artifact of the suite to inspect')
     args = parser.parse_args()
     args.output = args.output.resolve()
     if args.output.exists() or args.output.is_symlink():
@@ -105,7 +121,8 @@ def main():
                     f'({run["event"]}, {run["created_at"]}).')
             print(args.output)
         else:
-            note = f'No passed baseline for {args.suite} in earlier successful runs; comparison not-run.'
+            note = (f'No reviewed baseline for {args.suite} in earlier successful runs; comparison not-run. '
+                    'Review the gallery, then record one with a manual dispatch that clears render_baseline.')
     print(note, file=sys.stderr)
     if args.summary:
         with args.summary.open('a') as summary:
