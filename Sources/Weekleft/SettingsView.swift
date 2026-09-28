@@ -243,6 +243,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .statistics:
             ActivityStatisticsView(store: store)
         case .widget:
+            WidgetDuplicateCopyNotice(status: .shared)
             GroupBox(L("Общие настройки виджетов")) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(L("Применяются к установленным виджетам и предпросмотру. macOS обновляет виджеты по своему расписанию."))

@@ -4591,6 +4591,34 @@
     "fr": "S’appliquent aux widgets installés et à l’aperçu. macOS planifie les actualisations.",
     "zh-Hans": "适用于已安装的小组件和预览。macOS 按系统计划更新小组件。"
   },
+  "Установлена ещё одна копия Lunavect": {
+    "de": "Eine weitere Kopie von Lunavect ist installiert",
+    "en": "Another copy of Lunavect is installed",
+    "es": "Hay otra copia de Lunavect instalada",
+    "fr": "Une autre copie de Lunavect est installée",
+    "zh-Hans": "已安装另一份 Lunavect"
+  },
+  "Пока установлены две копии, виджеты на рабочем столе могут показывать заглушки. Оставьте одну: переместите лишнюю копию в Корзину и перезапустите Lunavect.": {
+    "de": "Solange zwei Kopien installiert sind, können Widgets auf dem Schreibtisch Platzhalter zeigen. Behalten Sie eine: Bewegen Sie die überzählige Kopie in den Papierkorb und starten Sie Lunavect neu.",
+    "en": "While two copies are installed, desktop widgets can show placeholders. Keep one: move the extra copy to the Trash and relaunch Lunavect.",
+    "es": "Mientras haya dos copias instaladas, los widgets del escritorio pueden mostrar marcadores de posición. Conserve una: mueva la copia sobrante a la Papelera y vuelva a abrir Lunavect.",
+    "fr": "Tant que deux copies sont installées, les widgets du bureau peuvent afficher des espaces réservés. Gardez-en une : placez la copie en trop dans la Corbeille et relancez Lunavect.",
+    "zh-Hans": "同时安装两份时，桌面小组件可能显示占位内容。请只保留一份：将多余的副本移到废纸篓，然后重新打开 Lunavect。"
+  },
+  "Показать в Finder": {
+    "de": "Im Finder zeigen",
+    "en": "Show in Finder",
+    "es": "Mostrar en Finder",
+    "fr": "Afficher dans le Finder",
+    "zh-Hans": "在访达中显示"
+  },
+  "macOS показывает виджеты из другой копии, поэтому эта копия не подтверждает их регистрацию, пока другая установлена.": {
+    "de": "macOS zeigt die Widgets der anderen Kopie, daher bestätigt diese Kopie ihre Registrierung nicht, solange die andere installiert ist.",
+    "en": "macOS shows the widgets of the other copy, so this copy does not re-confirm their registration while the other one is installed.",
+    "es": "macOS muestra los widgets de la otra copia, por lo que esta copia no vuelve a confirmar su registro mientras la otra esté instalada.",
+    "fr": "macOS affiche les widgets de l’autre copie ; cette copie ne reconfirme donc pas leur enregistrement tant que l’autre est installée.",
+    "zh-Hans": "macOS 正在显示另一份副本的小组件，因此在另一份仍安装期间，此副本不会重新确认小组件的注册。"
+  },
   "Посмотреть варианты": {
     "en": "Explore layouts",
     "de": "Varianten ansehen",
