@@ -360,13 +360,10 @@ struct PanelShortcut: Codable, Equatable {
         limitTimer = timer
     }
     /// When every exhausted window of this provider has reset, from fresh data only.
+    /// Freshness is judged per window: /usage model buckets kept inside a newer
+    /// statusLine snapshot carry their own observation time.
     func limitResetTime(for provider: ProviderID, now: Date) -> Date? {
-        let windows = snapshots.filter { snapshot in
-            guard snapshot.provider == provider, snapshot.freshnessVerified, snapshot.issue == nil,
-                  let fetchedAt = snapshot.fetchedAt else { return false }
-            let age = now.timeIntervalSince(fetchedAt)
-            return age >= 0 && age <= 900
-        }.flatMap { snapshot in
+        let windows = snapshots.filter { $0.provider == provider }.flatMap { snapshot in
             [snapshot.fiveHour, snapshot.weekly].compactMap { $0 }.filter { !snapshot.isStale(window: $0, now: now) }
                 + (snapshot.modelQuotas ?? []).filter { !$0.isStale(now: now) }.map(\.window)
         }

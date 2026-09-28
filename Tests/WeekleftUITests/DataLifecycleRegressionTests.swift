@@ -166,41 +166,50 @@ final class DataLifecycleRegressionTests: XCTestCase {
         XCTAssertEqual(persistence.counters.written, 60)
         XCTAssertEqual(reloads.value, 4)
     }
+    /// Rewritten for QuotaRefreshPolicy: start, timer, wake and network are evaluations.
+    /// A current verified observation is reused; only the explicit refresh asks.
     @MainActor func testProductionStartLocalTimerWakeNetworkAndStopUseControlledSources() async throws {
         let date = DataClock(now), root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let suite = "DataLifecycle." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
         var ticks: [TimeInterval: @MainActor () -> Void] = [:], wake: (@MainActor () -> Void)?
-        var cancelled = 0, forced: [Bool] = [], probes = 0
+        var delayed: [@MainActor () -> Void] = []
+        var cancelled = 0, oneShotsCancelled = 0, forced: [Bool] = [], probes = 0
         var preferences = WidgetPreferences(); preferences.enabledProviders = [.claude]
         let cached = try UsageSnapshot(
             provider: .claude,
             weekly: QuotaWindow(usedPercent: 55, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
             fetchedAt: now, source: ClaudeUsageProbe.source)
-        let fetchCalls = expectation(description: "start wake timer network and manual"); fetchCalls.expectedFulfillmentCount = 5
         let localRead = expectation(description: "local timer read")
         let network = NetworkConnection(settle: {}, makeMonitor: { nil })
-        let scheduling = AppRefreshScheduling(repeating: { interval, action in ticks[interval] = action; return { cancelled += 1 } }, wake: { action in wake = action; return { cancelled += 1 } })
+        let scheduling = AppRefreshScheduling(repeating: { interval, action in ticks[interval] = action; return { cancelled += 1 } },
+                                              wake: { action in wake = action; return { cancelled += 1 } },
+                                              after: { _, action in delayed.append(action); return { oneShotsCancelled += 1 } })
         let store = AppStore(state: .init(snapshots: [cached], preferences: preferences), network: network, defaults: defaults,
             dataServices: .init(snapshots: SnapshotPersistence(url: root.appendingPathComponent("snapshot.json")), activity: ActivityService(isolated: true), clock: { date.now },
                 localQuota: { _ in localRead.fulfill(); return cached }, refreshQuota: { _, _, force in
-                    forced.append(force); defer { fetchCalls.fulfill() }
+                    forced.append(force)
                     return try await ClaudeProvider.refresh(force: force, now: date.now, cached: { cached }, probe: { probes += 1; return cached }, save: { _ in })
                 }, scheduling: scheduling, discoverCodex: { "/fixture/automatic-codex" }))
         func drain() async { for _ in 0..<30 { await Task.yield() } }
         store.start(); store.start(); await drain()
         ticks[5]?(); await fulfillment(of: [localRead], timeout: 3)
-        wake?(); await drain(); ticks[300]?(); await drain()
+        wake?(); await drain()
+        XCTAssertFalse(delayed.isEmpty, "Wake settles before it evaluates")
+        for action in delayed { action() }
+        await drain(); ticks[300]?(); await drain()
         network.update(available: false); network.update(available: true); await drain()
-        await store.refresh(); await fulfillment(of: [fetchCalls], timeout: 3)
-        XCTAssertEqual(forced.filter { $0 }.count, 1)
-        XCTAssertEqual(probes, 1, "Only explicit refresh bypasses the fresh cache")
+        XCTAssertEqual(forced, [], "A current verified observation is reused by every automatic trigger")
+        await store.refresh(); await drain()
+        XCTAssertEqual(forced, [true])
+        XCTAssertEqual(probes, 1, "Only the explicit refresh asks the client")
         XCTAssertEqual(store.codexPath, "")
         XCTAssertNil(defaults.string(forKey: "codexPath"))
         store.stop(); XCTAssertEqual(cancelled, 3)
+        XCTAssertGreaterThan(oneShotsCancelled, 0, "The reset timer is cancelled with the store")
         wake?(); ticks[5]?(); ticks[300]?(); await drain()
-        XCTAssertEqual(forced.count, 5)
+        XCTAssertEqual(forced.count, 1)
     }
 }
 private final class DataClock: @unchecked Sendable {

@@ -91,28 +91,36 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     let stale: Bool
     let value: String
     let detail: String
+    /// The state's sentence (reset passed, window not started, no limits).
+    var note: String? = nil
 
     static func make(snapshots: [UsageSnapshot], providers: [ProviderID], preferences: MenuBarLimitsPreferences,
                      now: Date = Date()) -> [Self] {
         ProviderID.allCases.filter { providers.contains($0) && preferences.provider.includes($0) }.map { provider in
             let snapshot = snapshots.first { $0.provider == provider } ?? UsageSnapshot(provider: provider)
-            let window = preferences.period.window(in: snapshot).flatMap { $0.isExpired(at: now) ? nil : $0 }
-            let stale = snapshot.isStale(window: window, now: now)
-            let percent = window.map { String(Int($0.remaining.rounded())) }
-            let value = window.map { PercentText.format(Int($0.remaining.rounded())) + (stale ? "*" : "") } ?? "—"
+            let observed = preferences.period.window(in: snapshot)
+            let status = snapshot.status(of: observed, now: now)
+            let remaining = status.remaining(of: observed)
+            // An exhausted window keeps its countdown and is not marked: 0 % cannot change before the reset.
+            let window = remaining == nil ? nil : observed
+            let stale = status.isStale
+            let note = status.note(now: now)
+            let percent = remaining.map { String(Int($0.rounded())) }
+            let value = status == .unlimited ? "∞" : remaining.map { PercentText.format(Int($0.rounded())) + (stale ? "*" : "") } ?? "—"
             // This is time until the actual reset, never the duration of the quota window.
             let countdown = window?.countdown(now: now) ?? "—"
             let resetDate = window?.resetsAt?.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))
             var detail = [provider.title + " · " + preferences.period.title,
-                          percent.map { L("Осталось {0}%", $0) } ?? L("Нет данных")]
+                          percent.map { L("Осталось {0}%", $0) } ?? note ?? L("Нет данных")]
+            if percent != nil, let note { detail.append(note) }
             if let resetDate { detail.append(L("Сброс через {0}", countdown)); detail.append(resetDate) }
-            if stale && window != nil { detail.append(L("Показаны последние полученные данные")) }
+            if stale { detail.append(L("Показаны последние полученные данные")) }
             if let fetchedAt = snapshot.fetchedAt {
                 detail.append(L("Последние данные: {0}", fetchedAt.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
             }
-            return Self(provider: provider, remaining: window?.remaining, countdown: countdown,
+            return Self(provider: provider, remaining: remaining, countdown: countdown,
                         compactCountdown: compactCountdown(window: window, now: now), resetDate: resetDate,
-                        fetchedAt: snapshot.fetchedAt, stale: stale, value: value, detail: detail.joined(separator: "\n"))
+                        fetchedAt: snapshot.fetchedAt, stale: stale, value: value, detail: detail.joined(separator: "\n"), note: note)
         }
     }
     private static func compactCountdown(window: QuotaWindow?, now: Date) -> String {
@@ -451,8 +459,8 @@ struct MenuBarLimitsPopover: View {
                         Text(L("Сброс через {0}", entry.countdown)).font(.system(size: 12, weight: .medium))
                         Text(resetDate).font(.system(size: 11)).foregroundStyle(.secondary)
                     } else {
-                        Text(L(entry.remaining == nil ? "Нет данных" : "Время сброса неизвестно"))
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(entry.note ?? L(entry.remaining == nil ? "Нет данных" : "Время сброса неизвестно"))
+                            .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     if entry.stale, entry.remaining != nil {
                         Text(L("Показаны последние полученные данные")).font(.system(size: 11)).foregroundStyle(.secondary)

@@ -1,4 +1,95 @@
 {
+  "Claude Code ждёт подтверждения доверия к папке проверки лимитов. Откройте проверку в терминале и подтвердите один раз.": {
+    "de": "Claude Code wartet darauf, dass Sie dem Ordner für die Limitprüfung vertrauen. Öffnen Sie die Prüfung im Terminal und bestätigen Sie einmal.",
+    "en": "Claude Code is waiting for you to trust the limit-check folder. Open the check in Terminal and confirm once.",
+    "es": "Claude Code espera que confíe en la carpeta de comprobación de límites. Abra la comprobación en Terminal y confírmelo una vez.",
+    "fr": "Claude Code attend que vous fassiez confiance au dossier de vérification des limites. Ouvrez la vérification dans Terminal et confirmez une fois.",
+    "zh-Hans": "Claude Code 正在等待您信任额度检查文件夹。请在终端中打开检查并确认一次。"
+  },
+  "Claude Code не передал свежие лимиты. Сохранённые данные остаются на месте; Lunavect повторит запрос позже.": {
+    "de": "Claude Code hat keine aktuellen Limits geliefert. Die gespeicherten Daten bleiben erhalten; Lunavect fragt später erneut an.",
+    "en": "Claude Code did not provide fresh limits. Saved data stays in place; Lunavect will ask again later.",
+    "es": "Claude Code no proporcionó límites actualizados. Los datos guardados se conservan; Lunavect volverá a solicitarlos más tarde.",
+    "fr": "Claude Code n’a pas fourni de limites à jour. Les données enregistrées sont conservées ; Lunavect réessaiera plus tard.",
+    "zh-Hans": "Claude Code 未提供最新额度。已保存的数据保持不变；Lunavect 稍后会再次请求。"
+  },
+  "Без лимитов": {
+    "de": "Keine Limits",
+    "en": "No limits",
+    "es": "Sin límites",
+    "fr": "Sans limites",
+    "zh-Hans": "无额度限制"
+  },
+  "Клиент не смог загрузить данные об использовании. Сохранённые данные остаются на месте; Lunavect повторит запрос позже.": {
+    "de": "Der Client konnte die Nutzungsdaten nicht laden. Die gespeicherten Daten bleiben erhalten; Lunavect fragt später erneut an.",
+    "en": "The client could not load its usage data. Saved data stays in place; Lunavect will ask again later.",
+    "es": "El cliente no pudo cargar los datos de uso. Los datos guardados se conservan; Lunavect volverá a solicitarlos más tarde.",
+    "fr": "Le client n’a pas pu charger les données d’utilisation. Les données enregistrées sont conservées ; Lunavect réessaiera plus tard.",
+    "zh-Hans": "客户端无法加载使用数据。已保存的数据保持不变；Lunavect 稍后会再次请求。"
+  },
+  "Лимит исчерпан. Сохранённые данные остаются на месте; Lunavect обновит их после сброса.": {
+    "de": "Das Limit ist ausgeschöpft. Die gespeicherten Daten bleiben erhalten; Lunavect aktualisiert sie nach dem Zurücksetzen.",
+    "en": "The limit is used up. Saved data stays in place; Lunavect will update it after the reset.",
+    "es": "El límite está agotado. Los datos guardados se conservan; Lunavect los actualizará después del reinicio.",
+    "fr": "La limite est épuisée. Les données enregistrées sont conservées ; Lunavect les mettra à jour après la réinitialisation.",
+    "zh-Hans": "额度已用完。已保存的数据保持不变；Lunavect 会在重置后更新。"
+  },
+  "Лимиты обновляются автоматически: после ответов Claude, каждые 15 минут во время работы, раз в час в простое и после сброса. Исчерпанный лимит до сброса не запрашивается. Запускать задачу в терминале не нужно.": {
+    "de": "Limits werden automatisch aktualisiert: nach Antworten von Claude, alle 15 Minuten während der Arbeit, stündlich im Leerlauf und nach dem Zurücksetzen. Ein ausgeschöpftes Limit wird vor dem Zurücksetzen nicht abgefragt. Sie müssen keine Aufgabe im Terminal starten.",
+    "en": "Limits refresh automatically: after Claude's replies, every 15 minutes while you work, hourly when idle and after a reset. A used-up limit is not requested before its reset. You don't need to run a task in Terminal.",
+    "es": "Los límites se actualizan automáticamente: tras las respuestas de Claude, cada 15 minutos mientras trabaja, cada hora en reposo y después de un reinicio. Un límite agotado no se consulta antes de su reinicio. No hace falta ejecutar ninguna tarea en Terminal.",
+    "fr": "Les limites se mettent à jour automatiquement : après les réponses de Claude, toutes les 15 minutes pendant le travail, toutes les heures au repos et après une réinitialisation. Une limite épuisée n’est pas interrogée avant sa réinitialisation. Inutile de lancer une tâche dans Terminal.",
+    "zh-Hans": "额度会自动更新：在 Claude 回复后、工作期间每 15 分钟、空闲时每小时以及重置之后。已用完的额度在重置前不会查询。无需在终端中运行任务。"
+  },
+  "Лимиты подписки недоступны": {
+    "de": "Abo-Limits nicht verfügbar",
+    "en": "Subscription limits unavailable",
+    "es": "Límites de suscripción no disponibles",
+    "fr": "Limites de l’abonnement indisponibles",
+    "zh-Hans": "订阅额度不可用"
+  },
+  "Лимиты подписки недоступны: Claude Code не вошёл в аккаунт с подпиской или использует оплату через API.": {
+    "de": "Abo-Limits sind nicht verfügbar: Claude Code ist nicht mit einem Abo-Konto angemeldet oder rechnet über die API ab.",
+    "en": "Subscription limits are unavailable: Claude Code is not signed in with a subscription account or uses API billing.",
+    "es": "Los límites de la suscripción no están disponibles: Claude Code no ha iniciado sesión con una cuenta de suscripción o usa facturación por API.",
+    "fr": "Les limites de l’abonnement ne sont pas disponibles : Claude Code n’est pas connecté avec un compte d’abonnement ou utilise la facturation par API.",
+    "zh-Hans": "订阅额度不可用：Claude Code 未使用订阅账户登录，或正在使用 API 计费。"
+  },
+  "Нужно подтвердить доверие к папке": {
+    "de": "Ordner muss als vertrauenswürdig bestätigt werden",
+    "en": "Folder trust needs confirmation",
+    "es": "Hay que confirmar la confianza en la carpeta",
+    "fr": "La confiance dans le dossier doit être confirmée",
+    "zh-Hans": "需要确认信任该文件夹"
+  },
+  "Окно лимита ещё не началось": {
+    "de": "Limitfenster hat noch nicht begonnen",
+    "en": "Limit window has not started",
+    "es": "La ventana del límite no ha empezado",
+    "fr": "La fenêtre de limite n’a pas commencé",
+    "zh-Hans": "额度窗口尚未开始"
+  },
+  "Окно лимита ещё не началось: оно начнётся с первым запросом.": {
+    "de": "Das Limitfenster hat noch nicht begonnen: Es beginnt mit der ersten Anfrage.",
+    "en": "The limit window has not started yet: it starts with the first request.",
+    "es": "La ventana del límite aún no ha empezado: empezará con la primera solicitud.",
+    "fr": "La fenêtre de limite n’a pas encore commencé : elle commencera avec la première requête.",
+    "zh-Hans": "额度窗口尚未开始：将在第一次请求时开始。"
+  },
+  "Окно начнётся с первым запросом": {
+    "de": "Beginnt mit der ersten Anfrage",
+    "en": "Starts with the first request",
+    "es": "Empieza con la primera solicitud",
+    "fr": "Commence avec la première requête",
+    "zh-Hans": "将在第一次请求时开始"
+  },
+  "Сброс был в {0}, ждём первые данные нового окна": {
+    "de": "Zurückgesetzt um {0}, neue Daten folgen",
+    "en": "Reset at {0}, waiting for the new window's first data",
+    "es": "Reinicio a las {0}, esperando datos nuevos",
+    "fr": "Réinitialisé à {0}, nouvelles données à venir",
+    "zh-Hans": "已于 {0} 重置，正在等待新窗口的首批数据"
+  },
   "Сжимает контекст": {
     "de": "Komprimiert Kontext",
     "en": "Compacting context",
@@ -1461,13 +1552,6 @@
     "es": "Límites y ajustes — Lunavect",
     "fr": "Quotas et réglages — Lunavect",
     "zh-Hans": "额度与设置 — Lunavect"
-  },
-  "Лимиты обновляются автоматически каждые 5 минут и после пробуждения Mac. Claude Code запрашивает квоты аккаунта, включая работу в Desktop. Запускать задачу в терминале не нужно.": {
-    "de": "Die Limits werden alle 5 Minuten und nach dem Aufwachen des Mac automatisch aktualisiert. Claude Code fragt die Kontonutzung einschließlich Desktop ab. Dafür ist keine Aufgabe im Terminal nötig.",
-    "en": "Limits update automatically every 5 minutes and when your Mac wakes. Claude Code reads account usage, including Desktop activity. No terminal task is needed.",
-    "es": "Los límites se actualizan automáticamente cada 5 minutos y al activar el Mac. Claude Code consulta el uso de la cuenta, incluido Desktop. No hace falta iniciar una tarea en Terminal.",
-    "fr": "Les limites sont actualisées automatiquement toutes les 5 minutes et au réveil du Mac. Claude Code consulte l’utilisation du compte, y compris dans Desktop. Aucune tâche dans Terminal n’est nécessaire.",
-    "zh-Hans": "用量限制每 5 分钟自动更新一次，Mac 唤醒后也会更新。Claude Code 会查询整个账户的用量，包括 Desktop。无需在终端中启动任务。"
   },
   "Лимиты получены": {
     "de": "Limits empfangen",
@@ -3709,6 +3793,13 @@
     "fr": "État des sessions",
     "zh-Hans": "会话状态"
   },
+  "Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage": {
+    "de": "Die Statuszeile läuft in Claude Desktop nicht; Limits werden über /usage aktualisiert",
+    "en": "The status line doesn't run in Claude Desktop; limits refresh through /usage",
+    "es": "La línea de estado no funciona en Claude Desktop; los límites se actualizan mediante /usage",
+    "fr": "La ligne d’état ne fonctionne pas dans Claude Desktop ; les limites sont actualisées via /usage",
+    "zh-Hans": "状态栏在 Claude Desktop 中不运行；额度通过 /usage 更新"
+  },
   "Строка меню": {
     "de": "Menüleiste",
     "en": "Menu Bar",
@@ -5026,11 +5117,11 @@
     "zh-Hans": "0% 为实色底层，100% 仅保留系统玻璃效果。模糊和色调随墙纸及 macOS 设置调整。"
   },
   "Лимит исчерпан": {
-    "de": "Limit erreicht",
-    "en": "Limit reached",
-    "es": "Límite alcanzado",
-    "fr": "Limite atteinte",
-    "zh-Hans": "已达上限"
+    "de": "Limit ausgeschöpft",
+    "en": "Limit used up",
+    "es": "Límite agotado",
+    "fr": "Limite épuisée",
+    "zh-Hans": "额度已用完"
   },
   "Нет связи с Claude": {
     "de": "Keine Verbindung zu Claude",

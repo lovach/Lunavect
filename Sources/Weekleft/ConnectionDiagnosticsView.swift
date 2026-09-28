@@ -60,12 +60,14 @@ import WeekleftCore
         async let codexAuth = auth(.codex, path: providers.contains(.codex) ? codex : nil)
         let statuses = await [ProviderID.claude: claudeAuth, .codex: codexAuth]
         guard acceptsResult() else { return }
+        let desktopOnly = ClaudeStatusLineReach.onlyDesktopSessions(sessions.sessions, statusLineObservedAt: ClaudeProvider.statusLineObservedAt(), now: Date())
         let checked = providers.map { provider in
             ConnectionDiagnostic(provider: provider, clientFound: (provider == .claude ? claude : codex) != nil,
                 signIn: statuses[provider] ?? .unavailable,
                 eventsConfigured: sessions.hooksInstalled[provider] == true,
                 snapshot: store.snapshots.first { $0.provider == provider }, sessionIssue: sessions.issues[provider],
-                sourceIssue: provider == .codex ? codexPathIssue ?? sessions.typedIssues[provider] : sessions.typedIssues[provider])
+                sourceIssue: provider == .codex ? codexPathIssue ?? sessions.typedIssues[provider] : sessions.typedIssues[provider],
+                statusLineDesktopOnly: desktopOnly)
         }
         results = requestedProvider == nil ? checked : results.filter { $0.provider != requestedProvider } + checked
         checkedAt = Date()
@@ -94,6 +96,9 @@ struct ConnectionDiagnosticSummary: View {
             }
             Text(L(result.title)).font(.system(size: 13, weight: .semibold))
             Text(L(result.guidance)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let note = result.note {
+                InterfaceLabel(L(note), .info).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if let age = result.quotaAgeMinutes {
                 Text(L("Лимиты получены {0} мин назад", String(age))).font(.system(size: 11)).foregroundStyle(.secondary)
             }

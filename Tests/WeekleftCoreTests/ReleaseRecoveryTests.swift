@@ -277,9 +277,16 @@ final class ReleaseRecoveryTests: XCTestCase {
             provider: .claude, weekly: try QuotaWindow(usedPercent: 20, durationMinutes: 10080, resetsAt: end),
             fiveHour: try QuotaWindow(usedPercent: 5, durationMinutes: 300, resetsAt: end), fetchedAt: now,
             source: ClaudeUsageProbe.source)
-        XCTAssertTrue(ClaudeProvider.cacheIsCurrent(snapshot, now: now.addingTimeInterval(20)))
-        XCTAssertFalse(ClaudeProvider.cacheIsCurrent(snapshot, now: now.addingTimeInterval(301)))
+        // Rewritten for QuotaRefreshPolicy: the old 300 s cache equalled the timer
+        // period, so every tick probed. The policy reuses a verified value.
+        let policy = QuotaRefreshPolicy()
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now.addingTimeInterval(20)))
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now.addingTimeInterval(301)))
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: end.addingTimeInterval(30)))
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: end.addingTimeInterval(90)))
+        // An expired window needs a confirming probe, after the CLI's minute-rounding grace.
         snapshot.fiveHour = try QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: now)
-        XCTAssertFalse(ClaudeProvider.cacheIsCurrent(snapshot, now: now))
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now))
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now.addingTimeInterval(90)))
     }
 }

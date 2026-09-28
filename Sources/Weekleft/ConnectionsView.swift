@@ -38,6 +38,7 @@ struct ConnectionsView: View {
     @State private var repairProvider: ProviderID?
     @State private var selectedRepair: ConnectionDiagnostic.Repair?
     @State private var claudeBridge = ClaudeProvider.statusLineInstalled()
+    @State private var statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
     @State private var disconnectedProvider: ProviderID?
     @State private var disconnectedEventsOnly = false
     /// The card the user refreshed; background polls do not show progress in every card.
@@ -102,7 +103,8 @@ struct ConnectionsView: View {
             }.padding(8).fixedSize(horizontal: false, vertical: true)
         }.onAppear { sessions.updateHookConfiguration() }
             .sheet(item: $selectedProvider, onDismiss: {
-                claudeBridge = ClaudeProvider.statusLineInstalled(); sessions.updateHookConfiguration()
+                claudeBridge = ClaudeProvider.statusLineInstalled(); statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
+                sessions.updateHookConfiguration()
             }) { id in
                 ConnectionSetupView(provider: id, store: store, sessions: sessions, repair: selectedRepair)
             }
@@ -160,16 +162,21 @@ struct ConnectionsView: View {
                 Text(L("Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
+            if id == .claude, ClaudeStatusLineReach.onlyDesktopSessions(sessions.sessions, statusLineObservedAt: statusLineObservedAt, now: Date()) {
+                InterfaceLabel(L("Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage"), .info)
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if let issue = snapshot?.issue, !(id == .claude && issue == UsageError.waitingForClaude.errorDescription) {
                 if store.network.isOffline {
                     Text(L("Ждём соединение. Данные обновятся автоматически.")).font(.system(size: 12)).foregroundStyle(.secondary)
                 } else {
                     Text(L(issue)).font(.system(size: 12)).foregroundStyle(.orange)
-                    let needsLogin = issue == UsageError.notSignedIn.errorDescription
-                    let needsUsage = issue == UsageError.claudeSignInRequired.errorDescription
-                    if needsLogin || needsUsage {
-                        Button(L(needsLogin ? "Войти снова" : "Завершить настройку Claude Code")) {
-                            selectedRepair = needsLogin ? .signIn : .reviewUsage; selectedProvider = id
+                    // The saved message maps to its typed reason; sign-in, setup and the
+                    // probe folder's trust question each open their own Terminal step.
+                    let repair = ClientIntegrationIssue.legacy(issue, provider: id, capability: id == .codex ? .rateLimits : .usageProbe)?.repair
+                    if let repair, repair == .signIn || repair == .reviewUsage {
+                        Button(L(repair.title)) {
+                            selectedRepair = repair; selectedProvider = id
                         }.buttonStyle(.link)
                     }
                 }
@@ -189,7 +196,7 @@ struct ConnectionsView: View {
                     if id == .claude {
                         Text(
                             L(
-                                "Лимиты обновляются автоматически каждые 5 минут и после пробуждения Mac. Claude Code запрашивает квоты аккаунта, включая работу в Desktop. Запускать задачу в терминале не нужно."
+                                "Лимиты обновляются автоматически: после ответов Claude, каждые 15 минут во время работы, раз в час в простое и после сброса. Исчерпанный лимит до сброса не запрашивается. Запускать задачу в терминале не нужно."
                             )
                         )
                         .font(.system(size: 12)).foregroundStyle(.secondary)
