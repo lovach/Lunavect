@@ -5640,5 +5640,12 @@
     "es": "El reposo está desactivado en este Mac. El registro del asistente de Keep Awake se actualizará cuando vuelva el reposo normal.",
     "fr": "La veille est actuellement désactivée sur ce Mac. L’enregistrement de l’assistant Keep Awake sera mis à jour au retour de la veille normale.",
     "zh-Hans": "此 Mac 当前已禁用睡眠。恢复正常睡眠后，将更新 Keep Awake 辅助程序的注册。"
+  },
+  "Данные только что проверены. Повторить проверку можно через {0} с.": {
+    "en": "The data was just checked. You can check again in {0} s.",
+    "de": "Die Daten wurden gerade geprüft. Erneut prüfen ist in {0} s möglich.",
+    "es": "Los datos se acaban de comprobar. Puedes volver a comprobarlos en {0} s.",
+    "fr": "Les données viennent d’être vérifiées. Vous pourrez vérifier à nouveau dans {0} s.",
+    "zh-Hans": "数据刚刚检查过。{0} 秒后可再次检查。"
   }
 }

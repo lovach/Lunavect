@@ -440,7 +440,8 @@ struct MenuBarLimitsPopover: View {
                     if model.refreshing { ProgressView().controlSize(.small).frame(width: 18, height: 18) }
                     else { Image(systemName: "arrow.clockwise").frame(width: 18, height: 18) }
                 }
-                    .buttonStyle(.borderless).disabled(model.refreshing || model.offline).help(L("Обновить лимиты"))
+                    .buttonStyle(.borderless).disabled(model.refreshing || model.offline)
+                    .help(L(QuotaCheckAvailability(refreshing: model.refreshing, offline: model.offline).reason ?? "Обновить лимиты"))
                     .accessibilityLabel(L("Обновить лимиты")).accessibilityIdentifier("menu-limits-refresh")
                 Button(action: onMenu) {
                     Image(systemName: "slider.horizontal.3").frame(width: 18, height: 18)

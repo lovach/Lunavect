@@ -25,7 +25,7 @@ final class AppStoreLifecycleTests: XCTestCase {
         }, isolated: true)
         let request = Task { await store.refresh() }
         request.cancel()
-        await request.value
+        _ = await request.value
         XCTAssertEqual(calls.withLock { $0 }, 0)
         XCTAssertFalse(store.refreshing)
     }
@@ -61,7 +61,7 @@ final class AppStoreLifecycleTests: XCTestCase {
         await fulfillment(of: [started], timeout: 5)
         store.stop()
         resumption.resume()
-        await request.value
+        _ = await request.value
         XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 40)
         XCTAssertFalse(store.refreshing)
         await store.refresh()
@@ -83,7 +83,7 @@ final class AppStoreLifecycleTests: XCTestCase {
         store.codexPath = "/fixture/new-codex"
         store.codexPath = "/fixture/original-codex"
         resumption.resume()
-        await request.value
+        _ = await request.value
         XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 40, "A response started before a connection change is obsolete")
         XCTAssertFalse(store.refreshing)
         store.codexPath = "/fixture/new-codex"

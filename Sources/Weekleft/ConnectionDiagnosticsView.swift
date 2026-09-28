@@ -62,7 +62,7 @@ import WeekleftCore
         async let codexAuth = auth(.codex, path: providers.contains(.codex) ? codex : nil)
         let statuses = await [ProviderID.claude: claudeAuth, .codex: codexAuth]
         guard acceptsResult() else { return }
-        let desktopOnly = ClaudeStatusLineReach.onlyDesktopSessions(sessions.sessions, statusLineObservedAt: ClaudeProvider.statusLineObservedAt(), now: Date())
+        let desktopOnly = ClaudeStatusLineReach.onlyDesktopSessions(sessions.sessions, statusLineObservedAt: store.statusLineObservedAt(), now: Date())
         let checked = providers.map { provider in
             ConnectionDiagnostic(provider: provider, clientFound: (provider == .claude ? claude : codex) != nil,
                 signIn: statuses[provider] ?? .unavailable,

@@ -167,7 +167,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch section {
         case .limits:
             LimitsOverview(store: store, claudeNote: ClaudeStatusLineReach.onlyDesktopSessions(
-                sessions.sessions, statusLineObservedAt: ClaudeProvider.statusLineObservedAt(), now: Date())
+                sessions.sessions, statusLineObservedAt: store.statusLineObservedAt(), now: Date())
                 ? L("Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage") : nil) { section = .connections }
         case .general:
             AppBehaviorSettings(features: features)

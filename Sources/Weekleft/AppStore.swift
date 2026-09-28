@@ -133,7 +133,7 @@ import WeekleftCore
             return await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
         }
         refreshQuota = dataServices?.refreshQuota
-        statusLineReceipt = dataServices?.statusLineObservedAt ?? { ClaudeProvider.statusLineObservedAt() }
+        statusLineReceipt = dataServices?.statusLineObservedAt ?? { @Sendable in ClaudeProvider.statusLineObservedAt() }
         scheduling = dataServices?.scheduling ?? AppRefreshScheduling()
         codexDiscovery = dataServices?.discoverCodex ?? Self.discoverCodex
         snapshotPersistence = isolated ? nil : dataServices?.snapshots ?? SnapshotPersistence(reload: {

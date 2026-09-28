@@ -86,6 +86,13 @@ enum QuotaCheckAvailability: Equatable {
         case .offline: return "Ждём соединение. Данные обновятся автоматически."
         }
     }
+    /// What an explicit check reports when it did not ask the provider again:
+    /// the 30 s limit between checks is stated, not silent (R2-U-03).
+    static func note(for outcome: AppStore.RefreshOutcome, now: Date) -> String? {
+        guard case .tooSoon(let until) = outcome else { return nil }
+        let seconds = max(1, Int(until.timeIntervalSince(now).rounded(.up)))
+        return L("Данные только что проверены. Повторить проверку можно через {0} с.", "\(seconds)")
+    }
 }
 
 /// One step of a card's connection details.
@@ -120,7 +127,10 @@ struct ConnectionsView: View {
     @State private var showingDiagnostics = false
     @State private var repairProvider: ProviderID?
     @State private var selectedRepair: ConnectionDiagnostic.Repair?
-    @State private var statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
+    /// Read through the store: an isolated store never reads the user's files (R2-U-04).
+    @State private var statusLineObservedAt: Date?
+    /// A check asked again within 30 s of the last one; shown instead of doing nothing (R2-U-03).
+    @State private var checkNote: String?
     @State private var disconnectedProvider: ProviderID?
     @State private var disconnectedEventsOnly = false
     /// The card the user refreshed; background polls do not show progress in every card.
@@ -140,6 +150,9 @@ struct ConnectionsView: View {
                         ProgressView().controlSize(.small)
                         Text(L(reason)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }.accessibilityElement(children: .combine).accessibilityIdentifier("connection-quota-refreshing")
+                } else if let checkNote {
+                    Text(checkNote).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("connection-quota-too-soon")
                 }
                 ForEach(store.providers) { id in providerCard(id) }
                 ForEach(ProviderID.allCases.filter { !store.providers.contains($0) }) { id in optionalProviderCard(id) }
@@ -193,9 +206,9 @@ struct ConnectionsView: View {
                 }
 
             }.padding(8).fixedSize(horizontal: false, vertical: true)
-        }.onAppear { sessions.updateHookConfiguration() }
+        }.onAppear { statusLineObservedAt = store.statusLineObservedAt(); sessions.updateHookConfiguration() }
             .sheet(item: $selectedProvider, onDismiss: {
-                statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
+                statusLineObservedAt = store.statusLineObservedAt()
                 sessions.updateHookConfiguration()
             }) { id in
                 ConnectionSetupView(provider: id, store: store, sessions: sessions, repair: selectedRepair)
@@ -241,7 +254,12 @@ struct ConnectionsView: View {
                     case .enableEvents: sessions.toggleHooks(id); disconnectedProvider = nil
                     case .refresh:
                         refreshingCard = id
-                        Task { await store.refresh(provider: id); await sessions.refresh(); refreshingCard = nil }
+                        checkNote = nil
+                        Task {
+                            let outcome = await store.refresh(provider: id)
+                            checkNote = QuotaCheckAvailability.note(for: outcome, now: Date())
+                            await sessions.refresh(); refreshingCard = nil
+                        }
                     }
                 }
                     // Setup and turning events on do not ask the provider; only a check waits.

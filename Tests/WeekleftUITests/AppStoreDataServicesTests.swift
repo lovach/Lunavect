@@ -92,7 +92,7 @@ final class AppStoreDataServicesTests: XCTestCase {
         let task = Task { await store.refresh() }
         await fulfillment(of: [began], timeout: 5)
         store.setProvider(.codex, enabled: false); store.setProvider(.codex, enabled: true)
-        continuation?.resume(); await task.value
+        continuation?.resume(); _ = await task.value
         XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 10)
         XCTAssertFalse(store.refreshing)
         store.stop()
