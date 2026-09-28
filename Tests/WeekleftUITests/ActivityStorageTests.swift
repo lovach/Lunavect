@@ -142,10 +142,11 @@ final class ActivityStorageTests: XCTestCase {
         XCTAssertEqual(log.values.last, true, "The final flush at quit writes details with fsync")
     }
 
-    func testAnUnsynchronizedDetailsWriteIsRepeatedWhenDurabilityIsRequested() {
-        let log = StorageSyncLog(), directory = FileManager.default.temporaryDirectory
-        let storage = ActivityPersistence(historyURL: directory.appendingPathComponent("unused-\(UUID().uuidString).json"),
-                                          detailsURL: directory.appendingPathComponent("unused-\(UUID().uuidString).json"),
+    func testAnUnsynchronizedDetailsWriteIsRepeatedWhenDurabilityIsRequested() throws {
+        // A private folder: loading also sweeps abandoned temporaries next to the files.
+        let log = StorageSyncLog(), directory = try root()
+        let storage = ActivityPersistence(historyURL: directory.appendingPathComponent("activity.json"),
+                                          detailsURL: directory.appendingPathComponent("activity-details.json"),
                                           writeHistory: { _, _ in }, writeDetails: { _, _, synchronize in log.append(synchronize) },
                                           completionQueue: DispatchQueue(label: "ActivityStorageTests.completion"))
         _ = storage.load(history: ActivityHistory(), details: ActivityDetails())
