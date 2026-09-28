@@ -4178,6 +4178,48 @@
     "fr": "Le service auxiliaire ne répond pas. Le mode capot fermé n’est pas confirmé. Réessayez la connexion.",
     "zh-Hans": "辅助服务未响应。合盖运行模式尚未确认，请重试连接。"
   },
+  "Системный помощник Keep Awake остался зарегистрирован от прежней версии Lunavect и не запускается. Обновите его регистрацию.": {
+    "de": "Der Keep-Awake-Systemhelfer ist noch von einer früheren Lunavect-Version registriert und startet nicht. Erneuern Sie die Registrierung.",
+    "en": "The Keep Awake system helper is still registered from an earlier version of Lunavect and does not start. Renew its registration.",
+    "es": "El asistente del sistema de Keep Awake sigue registrado desde una versión anterior de Lunavect y no se inicia. Renueva su registro.",
+    "fr": "L’assistant système Keep Awake est encore enregistré par une version précédente de Lunavect et ne démarre pas. Renouvelez son enregistrement.",
+    "zh-Hans": "Keep Awake 系统辅助程序仍由旧版 Lunavect 注册，无法启动。请更新其注册。"
+  },
+  "Не удалось обновить регистрацию помощника Keep Awake. Закройте Lunavect, выполните скопированную команду в Терминале и откройте Lunavect снова. Либо выключите и снова включите Lunavect в разделе «Объекты входа» → «Разрешить в фоне».": {
+    "de": "Die Registrierung des Keep-Awake-Helfers konnte nicht erneuert werden. Beenden Sie Lunavect, führen Sie den kopierten Befehl im Terminal aus und öffnen Sie Lunavect erneut. Oder schalten Sie Lunavect unter „Anmeldeobjekte“ → „Im Hintergrund erlauben“ aus und wieder ein.",
+    "en": "The Keep Awake helper’s registration could not be renewed. Quit Lunavect, run the copied command in Terminal and open Lunavect again. Or turn Lunavect off and on again under Login Items → “Allow in the Background”.",
+    "es": "No se pudo renovar el registro del asistente de Keep Awake. Cierra Lunavect, ejecuta el comando copiado en Terminal y vuelve a abrir Lunavect. O desactiva y vuelve a activar Lunavect en «Ítems de inicio» → «Permitir en segundo plano».",
+    "fr": "Impossible de renouveler l’enregistrement de l’assistant Keep Awake. Quittez Lunavect, exécutez la commande copiée dans Terminal, puis rouvrez Lunavect. Ou désactivez puis réactivez Lunavect dans « Éléments de connexion » → « Autoriser en arrière-plan ».",
+    "zh-Hans": "无法更新 Keep Awake 辅助程序的注册。请退出 Lunavect，在“终端”中运行已复制的命令，然后重新打开 Lunavect。或在“登录项”→“允许在后台”中关闭再重新开启 Lunavect。"
+  },
+  "Помощник Keep Awake зарегистрирован, но macOS его не запускает.": {
+    "de": "Der Keep-Awake-Helfer ist registriert, aber macOS startet ihn nicht.",
+    "en": "The Keep Awake helper is registered, but macOS does not start it.",
+    "es": "El asistente de Keep Awake está registrado, pero macOS no lo inicia.",
+    "fr": "L’assistant Keep Awake est enregistré, mais macOS ne le démarre pas.",
+    "zh-Hans": "Keep Awake 辅助程序已注册，但 macOS 未启动它。"
+  },
+  "Обновить регистрацию": {
+    "de": "Registrierung erneuern",
+    "en": "Renew registration",
+    "es": "Renovar registro",
+    "fr": "Renouveler l’enregistrement",
+    "zh-Hans": "更新注册"
+  },
+  "Скопировать команду": {
+    "de": "Befehl kopieren",
+    "en": "Copy command",
+    "es": "Copiar comando",
+    "fr": "Copier la commande",
+    "zh-Hans": "拷贝命令"
+  },
+  "Объекты входа": {
+    "de": "Anmeldeobjekte",
+    "en": "Login Items",
+    "es": "Ítems de inicio",
+    "fr": "Éléments de connexion",
+    "zh-Hans": "登录项"
+  },
   "Автоматически, пока работают сессии": {
     "en": "Automatically while sessions work",
     "de": "Automatisch während Sitzungen arbeiten",
