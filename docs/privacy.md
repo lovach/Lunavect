@@ -50,7 +50,7 @@ Earlier installations can leave copies that the current app no longer reads. The
 | `~/Library/Group Containers/group.com.weekleft.shared/Weekleft/` | Shared snapshot, aggregate activity and widget selection from builds before the signed App Group |
 | `~/Library/Application Support/Weekleft/snapshot.json`, `activity.json`, `ActivitySelection/` | The same shared files from builds without an App Group (only these names; the other entries in that folder are current) |
 
-In **Settings → Statistics → History and data accuracy**, **Find data from a previous installation** lists what exists and can move it to the Trash. Lunavect looks only when you ask and never deletes these copies on its own.
+In **Settings → Statistics → History and data accuracy**, **Find data from a previous installation** lists what exists, with each path and its last change, and can move it to the Trash. Lunavect looks only when you ask and never deletes these copies on its own. Only the exact locations above are offered, never the container the running copy uses, and a copy written within the last seven days is left out: `group.com.weekleft.shared` is also the live container of development builds, and Application Support is live for a build without an App Group.
 
 Connecting Claude adds Lunavect event handlers and a status-line command to Claude's `settings.json`. Connecting Codex adds event handlers to `hooks.json`. Default locations are `~/.claude` and `~/.codex`; the app respects `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when configured in its environment. Codex may require you to approve new handlers through `/hooks`.
 
