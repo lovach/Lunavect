@@ -143,7 +143,7 @@ public struct TerminalFocusEnvironment: Sendable {
     /// Whether an application with this bundle identifier is running. Supplied by the app target.
     public var isRunning: @Sendable (String) async -> Bool
     /// What runs on a terminal device, for the session's provider.
-    public var occupancy: @Sendable (String, ProviderID) -> TerminalLocation.DeviceOccupancy
+    public var occupancy: @Sendable (String, ProviderID, Int32?) -> TerminalLocation.DeviceOccupancy
     /// Apple event permission for a bundle identifier; `true` may show the macOS consent prompt.
     public var permission: @Sendable (String, Bool) async throws -> Int32
     /// Runs the focus script for (device, app) within the given number of seconds.
@@ -152,8 +152,8 @@ public struct TerminalFocusEnvironment: Sendable {
     public var uptime: @Sendable () -> TimeInterval
 
     public init(isRunning: @escaping @Sendable (String) async -> Bool,
-                occupancy: @escaping @Sendable (String, ProviderID) -> TerminalLocation.DeviceOccupancy = {
-                    TerminalLocation.occupancy(of: $0, provider: $1)
+                occupancy: @escaping @Sendable (String, ProviderID, Int32?) -> TerminalLocation.DeviceOccupancy = {
+                    TerminalLocation.occupancy(of: $0, provider: $1, runtimePID: $2)
                 },
                 permission: @escaping @Sendable (String, Bool) async throws -> Int32 = {
                     try await TerminalLocation.waitForPermission(bundleIdentifier: $0, ask: $1)
@@ -239,7 +239,8 @@ public enum TerminalLocation {
         }
         // macOS gives a closed tab's device to the next tab. A hook record stays
         // fresh for minutes, so require the provider on that device before any script.
-        if environment.occupancy(target.tty, session.provider) == .vacant { throw SessionOpeningError.terminalProcessEnded }
+        // The hook's recorded runtime identifies the session even under an unknown name.
+        if environment.occupancy(target.tty, session.provider, session.runtimePID) == .vacant { throw SessionOpeningError.terminalProcessEnded }
         // A root-owned login may hide the host's name. Match the exact device
         // against running supported terminals; never launch an empty terminal.
         var apps: [String] = []
@@ -309,25 +310,34 @@ public enum TerminalLocation {
     public struct DeviceProcess: Sendable {
         public let uid: uid_t
         public let device: dev_t
-        public let executable: String
-        public init(uid: uid_t, device: dev_t, executable: String) { self.uid = uid; self.device = device; self.executable = executable }
+        public let executable: String?
+        public let pid: Int32
+        public init(uid: uid_t, device: dev_t, executable: String?, pid: Int32 = 0) {
+            self.uid = uid; self.device = device; self.executable = executable; self.pid = pid
+        }
     }
     /// An npm-installed CLI runs inside one of these; it cannot be told apart from other scripts.
     static let interpreters: Set<String> = ["node", "bun", "deno"]
 
-    /// Only the user's own processes on exactly this device count.
-    public static func occupancy(device: dev_t, provider: ProviderID, processes: [DeviceProcess], uid: uid_t = getuid()) -> DeviceOccupancy {
-        var interpreter = false
+    /// Only the user's own processes on exactly this device count. The session's
+    /// recorded runtime (Claude hooks) is the provider whatever its name; a process
+    /// whose path macOS does not return (for example a binary an update removed)
+    /// may be the session, so the device is then `.unknown`, never `.vacant` (R2-06).
+    public static func occupancy(device: dev_t, provider: ProviderID, processes: [DeviceProcess], uid: uid_t = getuid(),
+                                 runtimePID: Int32? = nil) -> DeviceOccupancy {
+        var interpreter = false, unreadable = false
         for process in processes where process.uid == uid && process.device == device {
-            if SessionProcess.runtimeProvider(ofExecutable: process.executable) == provider { return .provider }
-            if interpreters.contains(URL(fileURLWithPath: process.executable).lastPathComponent) { interpreter = true }
+            if let runtimePID, runtimePID > 1, process.pid == runtimePID { return .provider }
+            guard let executable = process.executable else { unreadable = true; continue }
+            if SessionProcess.runtimeProvider(ofExecutable: executable) == provider { return .provider }
+            if interpreters.contains(URL(fileURLWithPath: executable).lastPathComponent) { interpreter = true }
         }
-        return interpreter ? .interpreter : .vacant
+        return interpreter ? .interpreter : unreadable ? .unknown : .vacant
     }
 
     /// Reads owner, controlling device and executable path with libproc; never
     /// arguments, environment or terminal contents.
-    public static func occupancy(of tty: String, provider: ProviderID) -> DeviceOccupancy {
+    public static func occupancy(of tty: String, provider: ProviderID, runtimePID: Int32? = nil) -> DeviceOccupancy {
         guard valid(tty) else { return .unknown }
         var node = stat()
         guard stat(tty, &node) == 0 else { return errno == ENOENT ? .vacant : .unknown }
@@ -345,10 +355,11 @@ public enum TerminalLocation {
             guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid(),
                   info.e_tdev != UInt32.max, dev_t(bitPattern: info.e_tdev) == device else { continue }
             var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { continue }
-            processes.append(.init(uid: info.pbi_uid, device: device, executable: String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)))
+            let executable = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0
+                ? String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self) : nil
+            processes.append(.init(uid: info.pbi_uid, device: device, executable: executable, pid: pid))
         }
-        return occupancy(device: device, provider: provider, processes: processes)
+        return occupancy(device: device, provider: provider, processes: processes, runtimePID: runtimePID)
     }
 
     // MARK: Automation permission

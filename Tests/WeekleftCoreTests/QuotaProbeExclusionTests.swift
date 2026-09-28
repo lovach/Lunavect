@@ -51,6 +51,28 @@ final class QuotaProbeExclusionTests: XCTestCase {
         }
     }
 
+    /// R2-07: every catalog row is checked on every poll. A project folder on an
+    /// unmounted SMB/NFS/autofs volume or a dataless iCloud folder can block
+    /// realpath(3) for a network timeout and stall the shared refresh. Only a path
+    /// that names the probe folder can resolve into it; nothing else is resolved.
+    func testOnlyPathsNamingTheProbeFolderAreResolved() throws {
+        let fixture = try probeFixture()
+        var resolved: [String] = []
+        let resolve: (String) -> String = { resolved.append($0); return ClaudeUsageProbe.canonicalPath($0) }
+        for cwd in ["/Volumes/NAS/project", "/net/server/share/app", "/Users/fixture/Library/Mobile Documents/com~apple~CloudDocs/app",
+                    "/Users/fixture/Projects/lunavect", fixture.root.appendingPathComponent("Weekleft").path] {
+            XCTAssertFalse(ClaudeUsageProbe.isProbeSession(cwd: cwd, pid: nil, canonicalDirectory: fixture.canonical,
+                                                           parentPID: { _ in nil }, resolve: resolve), cwd)
+        }
+        XCTAssertEqual(resolved, [], "Folders that cannot be the probe folder are never touched")
+        XCTAssertTrue(ClaudeUsageProbe.isProbeSession(cwd: fixture.canonical + "/", pid: nil, canonicalDirectory: fixture.canonical,
+                                                      parentPID: { _ in nil }, resolve: resolve))
+        XCTAssertEqual(resolved, [], "The physical folder Claude reports matches without a file system call")
+        XCTAssertTrue(ClaudeUsageProbe.isProbeSession(cwd: fixture.root.appendingPathComponent("link/QuotaProbe").path, pid: nil,
+                                                      canonicalDirectory: fixture.canonical, parentPID: { _ in nil }, resolve: resolve))
+        XCTAssertEqual(resolved.count, 1, "A linked spelling of the probe folder is resolved once")
+    }
+
     func testCanonicalFolderIsStableBeforeAndAfterTheProbeCreatesIt() throws {
         let root = try temporaryRoot()
         let probe = root.appendingPathComponent("Weekleft/QuotaProbe", isDirectory: true)

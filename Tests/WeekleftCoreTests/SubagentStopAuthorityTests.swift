@@ -54,7 +54,10 @@ final class SubagentStopAuthorityTests: XCTestCase {
         let mixed = try hook("SubagentStop", ["background_tasks": [task("c", "shell"), task("m", "monitor")]], after: lowered, at: 25)
         XCTAssertEqual(mixed.session.backgroundWork, BackgroundWork(commands: 1), "A kind is never raised, another may still drop")
         XCTAssertEqual(mixed.session.hookDiagnostic?.reported, BackgroundWork(commands: 1, monitors: 1))
-        XCTAssertNil(try hook("SubagentStop", ["background_tasks": []], after: mixed, at: 30).session.backgroundWork)
+        // R2-09: an empty list does not show whose tasks it describes; Stop settles it.
+        XCTAssertEqual(try hook("SubagentStop", ["background_tasks": []], after: mixed, at: 30).session.backgroundWork, BackgroundWork(commands: 1))
+        XCTAssertNil(try hook("SubagentStop", ["background_tasks": [task("c", "shell", "completed")]], after: mixed, at: 31).session.backgroundWork,
+                     "A list that names tasks, even finished ones, still lowers the count")
     }
 
     func testOnlyRunningOrPendingTasksWithAnIdentifierAreCounted() throws {

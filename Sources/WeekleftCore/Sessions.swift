@@ -563,6 +563,9 @@ public struct SessionRecord: Codable, Sendable {
             // Its list is not authoritative (decision 10): it can lower or confirm
             // what this session launched, never raise it. Stop sets the exact set.
             guard provider == .claude, previous != nil, payload["background_tasks"] != nil else { throw SessionError.invalidResponse }
+            // An empty list does not show whose tasks it describes: the parent's, or
+            // the finished subagent's own. It leaves the count to Stop (R2-09).
+            guard (payload["background_tasks"] as? [Any])?.isEmpty == false else { return record }
             let reported = ClaudeBackgroundWork.awaited(payload["background_tasks"]) ?? BackgroundWork()
             let known = record.session.backgroundWork ?? BackgroundWork()
             let lowered = known.lowered(to: reported)
@@ -759,7 +762,10 @@ enum ClaudeBackgroundWork {
     static func launched(tool: String, payload: [String: Any]) -> BackgroundWork? {
         let input = payload["tool_input"] as? [String: Any] ?? [:]
         let response = payload["tool_response"] as? [String: Any] ?? [:]
-        let background = input["run_in_background"] as? Bool == true
+        // A long command Claude moves to the background by itself, or one the user
+        // sends there with Ctrl+B, reports its task id instead of the flag (R2-09).
+        let movedID = (response["backgroundTaskId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let background = input["run_in_background"] as? Bool == true || !movedID.isEmpty
         switch tool {
         case "Bash":
             guard background else { return nil }

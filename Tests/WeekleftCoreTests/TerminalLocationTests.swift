@@ -261,10 +261,36 @@ final class TerminalLocationTests: XCTestCase {
         login[25] = proc(20, nil, tty: "/dev/ttys004")
         XCTAssertEqual(locate(login, termProgram: "Apple_Terminal")?.app, "Terminal", "Hooks know the host from TERM_PROGRAM")
         XCTAssertEqual(locate(login)?.tty, "/dev/ttys004")
-        XCTAssertEqual(locate(login)?.app, "", "The catalog cannot name a host hidden by login; the device is kept")
+        // R2-10: a login whose path is hidden still names its parent; the walk continues to the host.
+        XCTAssertEqual(locate(login)?.app, "Terminal", "The catalog names the host behind a hidden login")
         login[25] = nil
         XCTAssertEqual(locate(login)?.app, "", "Unreadable login")
         XCTAssertEqual(locate(login, termProgram: "iTerm.app")?.app, "iTerm2")
+    }
+
+    /// R2-10: macOS does not disclose another user's BSD info, so Terminal's
+    /// root-owned login used to end the walk with an empty host, and every catalog
+    /// row (no TERM_PROGRAM) or emulator without it (Alacritty) had no host name.
+    /// The short BSD record still names the parent; the walk continues through login.
+    func testRootOwnedLoginIsWalkedThroughToTheRealHost() {
+        let tty = "/dev/ttys012"
+        func chain(_ host: String, loginPath: String?) -> Table {
+            [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(25, "/bin/zsh", tty: tty),
+             25: proc(20, loginPath), 20: proc(1, host)]
+        }
+        for loginPath in ["/usr/bin/login", nil] as [String?] {
+            XCTAssertEqual(locate(chain("/Applications/Alacritty.app/Contents/MacOS/alacritty", loginPath: loginPath))?.app, "Alacritty",
+                           "Alacritty sets no TERM_PROGRAM (login path \(loginPath ?? "hidden"))")
+            XCTAssertEqual(locate(chain(Self.terminalApp, loginPath: loginPath))?.app, "Terminal",
+                           "A catalog row has no TERM_PROGRAM (login path \(loginPath ?? "hidden"))")
+            XCTAssertEqual(locate(chain(Self.terminalApp, loginPath: loginPath))?.tty, tty)
+        }
+        // A process on another known device whose path is hidden still ends the walk.
+        var foreign = chain(Self.terminalApp, loginPath: nil)
+        foreign[25] = proc(20, nil, tty: "/dev/ttys099")
+        XCTAssertEqual(locate(foreign)?.app, "", "An unknown process on another device is not looked through")
+        // The live record of another user's process (launchd) keeps its parent.
+        XCTAssertNotNil(SessionProcess.terminalProcess(1)?.parentPID, "The short BSD record needs no same-user access")
     }
 
     /// N-07 / §4 items 6 and 8: the device survives to launchd and the actual host is named.
