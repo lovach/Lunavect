@@ -108,6 +108,51 @@ final class DataFreshnessTests: XCTestCase {
         let future = try await probes(force: false, after: -60)
         XCTAssertEqual(future, 1, "An observation from the future (clock moved back) is re-observed")
     }
+    /// 01-quota.md §6 п.13: the clock was moved back, so a saved observation is from
+    /// the "future". It is marked stale, asked about once (failures back off instead
+    /// of asking on every tick), and a manual refresh restores a current value.
+    func testObservationFromTheFutureIsMarkedStaleAndAskedAboutOnce() throws {
+        let future = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
+            fetchedAt: now.addingTimeInterval(3600), source: ClaudeUsageProbe.source)
+        XCTAssertEqual(future.status(of: future.weekly, now: now), .current(stale: true))
+        var policy = QuotaRefreshPolicy()
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: future, trigger: .timer, now: now))
+        policy.record(.claude, snapshot: nil, succeeded: false, at: now)
+        for seconds in [5.0, 60, 299] {
+            XCTAssertFalse(policy.shouldFetch(.claude, snapshot: future, trigger: .timer, now: now.addingTimeInterval(seconds)), "\(seconds)")
+        }
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: future, trigger: .manual, now: now.addingTimeInterval(60)))
+        let restored = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 42, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
+            fetchedAt: now.addingTimeInterval(60), source: ClaudeUsageProbe.source)
+        policy.record(.claude, snapshot: restored, succeeded: true, at: now.addingTimeInterval(60))
+        XCTAssertEqual(restored.status(of: restored.weekly, now: now.addingTimeInterval(60)), .current(stale: false))
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: restored, trigger: .timer, now: now.addingTimeInterval(360)))
+        let statusLine = try UsageParser.claude(["seven_day": ["used_percentage": 40, "resets_at": now.addingTimeInterval(86400).timeIntervalSince1970]],
+                                                now: now.addingTimeInterval(3600))
+        XCTAssertEqual(ClaudeProvider.preferredObservation([statusLine, restored], now: now.addingTimeInterval(60)), restored,
+                       "A status line stamped in the future does not replace the restored value")
+    }
+    /// 01-quota.md §6 п.14: a status line and a probe observed at the same moment.
+    /// The choice no longer depends on the order in which they were read.
+    func testEqualObservationTimesPreferTheVerifiedProbeInAnyOrder() throws {
+        let at = now.addingTimeInterval(-3600)
+        let probe = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 55, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400), resetPrecision: .minute),
+            fetchedAt: at, source: ClaudeUsageProbe.source)
+        let statusLine = try UsageParser.claude(["seven_day": ["used_percentage": 40, "resets_at": now.addingTimeInterval(86400).timeIntervalSince1970]], now: at)
+        XCTAssertEqual(ClaudeProvider.preferredObservation([statusLine, probe], now: now), probe)
+        XCTAssertEqual(ClaudeProvider.preferredObservation([probe, statusLine], now: now), probe)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let status = root.appendingPathComponent("quota.json"), usage = root.appendingPathComponent("usage.json")
+        try ClaudeProvider.saveUsage(probe, destination: usage)
+        try ClaudeProvider.capture(payload(40), destination: status, now: at)
+        let latest = try ClaudeProvider.latest(statusLineURL: status, usageURL: usage, now: now)
+        XCTAssertEqual(latest.source, ClaudeUsageProbe.source)
+        XCTAssertEqual(latest.weekly, probe.weekly)
+    }
     func testFreshnessOfOneWindowDoesNotDependOnOtherWindowsReset() throws {
         let weekly = try QuotaWindow(usedPercent: 28, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400))
         let fiveHour = try QuotaWindow(usedPercent: 40, durationMinutes: 300, resetsAt: now)
