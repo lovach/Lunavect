@@ -314,6 +314,10 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, repairRegistr
             recoveryAction = .openLoginItems
             return L("Помощник Keep Awake зарегистрирован, но macOS его не запускает.") + " " + Self.registrationGuidance
         }
+        if error is AwakeRegistrationRefused {
+            recoveryAction = .openLoginItems
+            return Self.registrationGuidance
+        }
         switch error as? AwakeFailure {
         case .battery, .thermal, .power: recoveryAction = .reviewConditions
         case .permission, .external, .recovery, .expired, .busy: recoveryAction = .none
