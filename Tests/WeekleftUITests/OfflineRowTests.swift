@@ -33,7 +33,7 @@ final class OfflineRowTests: XCTestCase {
     /// next to an ordinary waiting one for visual inspection.
     @MainActor func testManualLimitsCheckRowShowsANeutralServiceLabel() throws {
         let now = Date()
-        var check = AgentSession(provider: .claude, sessionID: "check", title: "vicey-a3", cwd: "/Users/fixture", client: .unknown,
+        var check = AgentSession(provider: .claude, sessionID: "check", title: "fixture-a3", cwd: "/Users/fixture", client: .unknown,
                                  phase: .input, updatedAt: now, observedAt: now, evidence: .catalog)
         check.isLimitsCheck = true
         let waiting = AgentSession(provider: .claude, sessionID: "work", title: "Fix widgets", cwd: "/Users/fixture/Projects/lunavect",
