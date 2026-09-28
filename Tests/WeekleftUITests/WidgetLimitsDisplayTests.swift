@@ -15,9 +15,9 @@ final class WidgetLimitsDisplayTests: XCTestCase {
     }
 
     func testEveryLimitsCardShowsAWeeklyWindowLikeTheMenuBar() throws {
-        func codex(used: Double? = nil, reset: TimeInterval = 86400, fetched: TimeInterval? = 0, unlimited: Bool? = nil) throws -> UsageSnapshot {
+        func codex(used: Double? = nil, reset: TimeInterval? = 86400, fetched: TimeInterval? = 0, unlimited: Bool? = nil) throws -> UsageSnapshot {
             UsageSnapshot(provider: .codex,
-                          weekly: try used.map { try QuotaWindow(usedPercent: $0, durationMinutes: 10080, resetsAt: now.addingTimeInterval(reset)) },
+                          weekly: try used.map { try QuotaWindow(usedPercent: $0, durationMinutes: 10080, resetsAt: reset.map { now.addingTimeInterval($0) }) },
                           fetchedAt: fetched.map { now.addingTimeInterval($0) }, source: "Codex CLI", unlimited: unlimited)
         }
         let cases: [(String, UsageSnapshot, Shown)] = [
@@ -29,6 +29,9 @@ final class WidgetLimitsDisplayTests: XCTestCase {
             ("reset passed", try codex(used: 40, reset: -60, fetched: -7200), Shown(value: "—", dimmed: false, showsStatus: true, needsAttention: true)),
             ("window not reported", try codex(), Shown(value: "—", dimmed: false, showsStatus: true, needsAttention: true)),
             ("never observed", try codex(fetched: nil), Shown(value: "—", dimmed: false, showsStatus: true, needsAttention: false)),
+            // A window that has not started (0 %, no reset yet) is full and says when it starts (V: mutation M16).
+            ("not started", try codex(used: 0, reset: nil), Shown(value: PercentText.format(100), dimmed: false, showsStatus: true, needsAttention: false)),
+            ("not started, saved", try codex(used: 0, reset: nil, fetched: -7200), Shown(value: PercentText.format(100), dimmed: true, showsStatus: true, needsAttention: true)),
         ]
         let claude = UsageSnapshot(provider: .claude,
                                    weekly: try QuotaWindow(usedPercent: 10, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),

@@ -70,6 +70,25 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         }
     }
 
+    /// Opening a finished Terminal session writes a launcher and opens Terminal. Under
+    /// tests that route stops before either, whatever home Foundation reports (R2-V-01).
+    @MainActor func testFinishedTerminalSessionNeverLaunchesTerminalUnderTests() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r2-launch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture",
+                               cwd: directory.path, client: .terminal, phase: .finished, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        XCTAssertTrue(row.canLaunchTerminalSession)
+        let resolver = ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { executable.path })
+        do {
+            try await SessionNavigation.open(row, resolver: resolver, focus: { _ in XCTFail("A finished session is launched, not focused"); return false })
+            XCTFail("A test reached Terminal")
+        } catch { XCTAssertEqual(error as? SessionNavigation.LiveSystemRefused, .init(action: "terminal launch")) }
+    }
+
     @MainActor func testIDEOriginWinsOverStaleTerminalAndNeverFallsBackToDesktop() async throws {
         for provider in ProviderID.allCases {
             for client in [SessionClient.vscode, .jetbrains] {

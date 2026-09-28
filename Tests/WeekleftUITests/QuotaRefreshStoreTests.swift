@@ -285,7 +285,7 @@ import XCTest
         await store.refresh()
         XCTAssertEqual(h.probes.count, 1, "A refresh while the probe runs does not start another client")
         release?.resume()
-        await first.value
+        _ = await first.value
         await settle(store)
         XCTAssertEqual(h.probes.count, 1)
         XCTAssertFalse(store.refreshing)
@@ -577,6 +577,30 @@ import XCTest
         XCTAssertEqual(h.probes.count, 0)
         h.now = start.addingTimeInterval(5); h.ticks[5]?(); await settle(store)
         XCTAssertEqual(store.snapshots.first { $0.provider == .claude }, original)
+    }
+
+    /// With two providers a check is "too soon" only when every requested provider was
+    /// asked less than 30 s ago; one provider still due is asked (V: mutation MQ3).
+    func testTooSoonNeedsEveryRequestedProviderToBeWaiting() async throws {
+        let h = Harness(now: start)
+        func codex(_ date: Date) throws -> UsageSnapshot {
+            try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 10, durationMinutes: 10080, resetsAt: self.start.addingTimeInterval(4 * 86400)),
+                              fetchedAt: date, source: "Codex CLI")
+        }
+        h.result = { id, date in id == .codex ? try codex(date) : try self.claude(used: 41, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
+        let fresh = try claude(used: 40, fetchedAt: start.addingTimeInterval(-60), reset: start.addingTimeInterval(3 * 86400))
+        let store = try makeStore(h, snapshots: [fresh, try codex(start.addingTimeInterval(-60))], providers: [.claude, .codex])
+        store.start(); await settle(store)
+        var outcome = await store.refresh(provider: .claude)
+        XCTAssertEqual(outcome, .asked)
+        let fetchesAfterClaude = h.codexFetches.count
+        h.now = start.addingTimeInterval(10)
+        outcome = await store.refresh()
+        XCTAssertEqual(outcome, .asked, "Codex was not asked yet, so this check asks it")
+        XCTAssertGreaterThan(h.codexFetches.count, fetchesAfterClaude)
+        h.now = start.addingTimeInterval(20)
+        outcome = await store.refresh()
+        XCTAssertEqual(outcome, .tooSoon(until: start.addingTimeInterval(30)), "The earliest provider decides when checking is possible again")
     }
 
     /// R2-U-03 (proposed by U): an explicit refresh says what happened, so the

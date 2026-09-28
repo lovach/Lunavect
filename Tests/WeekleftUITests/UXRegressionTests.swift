@@ -633,7 +633,7 @@ final class UXRegressionTests: XCTestCase {
         XCTAssertFalse(availability().allowsCheck)
         XCTAssertNotNil(availability().reason, "The owner saw both checks disabled with no reason while a request ran")
         release?.resume(); release = nil
-        await request.value
+        _ = await request.value
         await settleQuota(store)
         XCTAssertTrue(availability().allowsCheck)
         XCTAssertNil(availability().reason)

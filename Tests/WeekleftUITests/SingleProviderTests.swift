@@ -50,7 +50,7 @@ final class SingleProviderTests: XCTestCase {
         let refresh = Task { await store.refresh() }
         while resume == nil { await Task.yield() }
         store.setProvider(.codex, enabled: false)
-        resume?.resume(); await refresh.value
+        resume?.resume(); _ = await refresh.value
         XCTAssertFalse(store.snapshots.contains { $0.source == "late" })
     }
 

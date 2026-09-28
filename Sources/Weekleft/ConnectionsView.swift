@@ -257,8 +257,14 @@ struct ConnectionsView: View {
                         checkNote = nil
                         Task {
                             let outcome = await store.refresh(provider: id)
-                            checkNote = QuotaCheckAvailability.note(for: outcome, now: Date())
+                            let note = QuotaCheckAvailability.note(for: outcome, now: Date())
+                            checkNote = note
                             await sessions.refresh(); refreshingCard = nil
+                            // The note describes a wait; it goes when checking is possible again (R2-V-02).
+                            if case .tooSoon(let until) = outcome, let note {
+                                try? await Task.sleep(for: .seconds(max(0, until.timeIntervalSinceNow)))
+                                if checkNote == note { checkNote = nil }
+                            }
                         }
                     }
                 }

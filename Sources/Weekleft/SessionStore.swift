@@ -915,6 +915,9 @@ enum SessionNavigation {
             let script = try session.terminalScript(resolver: resolver)
             var directoryExists: ObjCBool = false
             guard FileManager.default.fileExists(atPath: session.cwd, isDirectory: &directoryExists), directoryExists.boolValue else { throw SessionOpeningError.missingProject }
+            // The write guard below follows the account's home; a test that runs with
+            // another Foundation home must still never launch Terminal (R2-V-01).
+            try checkLiveSystem("terminal launch")
             guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { throw SessionOpeningError.missingTerminal }
             let directory = SessionHooks.directory.appendingPathComponent("Openers")
             try LiveWriteGuard.check(directory)
