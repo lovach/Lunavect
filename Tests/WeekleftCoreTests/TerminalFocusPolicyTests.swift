@@ -200,6 +200,55 @@ final class TerminalFocusPolicyTests: XCTestCase {
                        "The Codex release binary keeps its download name")
     }
 
+    /// R2-N-01: macOS gives a closed tab's device to the next tab, and that tab may
+    /// run another Claude session. The runtime recorded by this session's hook
+    /// identifies its tab: when it is known and no longer on the device, whatever
+    /// else runs there (another Claude, node, a hidden process) is another task.
+    func testAnotherSessionOnAReusedDeviceIsNotThisSession() {
+        let uid = getuid()
+        let shell = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/bin/zsh", pid: 30)
+        let other = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/Users/u/.local/share/claude/versions/2.1.280", pid: 200)
+        let node = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/opt/homebrew/bin/node", pid: 210)
+        let hidden = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: nil, pid: 220)
+        for extra in [other, node, hidden] {
+            XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, extra], runtimePID: 100), .vacant,
+                           "\(extra.executable ?? "hidden"): the recorded runtime 100 left this device")
+        }
+        let own = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/Users/u/.local/share/claude/versions/2.1.280", pid: 100)
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, other, own], runtimePID: 100), .provider,
+                       "Its own runtime still runs there")
+        let elsewhere = TerminalLocation.DeviceProcess(uid: uid, device: 8, executable: own.executable, pid: 100)
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, other, elsewhere], runtimePID: 100), .vacant,
+                       "The session now runs on another device; the recorded one hosts another task")
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, other], runtimePID: nil), .provider,
+                       "Without a recorded runtime (Codex, older records) the provider rule is unchanged")
+    }
+
+    /// R2-N-01 through the focus policy: no consent prompt and no Apple event for a
+    /// tab that another session received, and the row reports that its client ended.
+    func testRecordedRuntimeGoneFromItsDeviceIsNeverFocused() async throws {
+        let uid = getuid()
+        let table = [TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/bin/zsh", pid: 30),
+                     TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/Users/u/.local/bin/claude", pid: 200)]
+        for app in ["Terminal", "iTerm2", ""] {
+            let recorder = Recorder()
+            var row = session(app: app); row.runtimePID = 100; row.phase = .interrupted
+            let environment = TerminalFocusEnvironment(
+                isRunning: { _ in true },
+                occupancy: { _, provider, pid in TerminalLocation.occupancy(device: 7, provider: provider, processes: table, runtimePID: pid) },
+                permission: { bundle, ask in recorder.permission(bundle, ask); return 0 },
+                runScript: { tty, app, timeout in recorder.script(tty, app, timeout); return true },
+                runningTarget: { _, _ in XCTFail("A recorded device must not search processes"); return nil },
+                uptime: { recorder.clock })
+            do {
+                _ = try await TerminalLocation.focusSession(row, environment: environment)
+                XCTFail("\(app): the tab of another session was focused")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, .terminalProcessEnded, app) }
+            XCTAssertTrue(recorder.scripts.isEmpty, "\(app): no Apple event")
+            XCTAssertTrue(recorder.permissions.isEmpty, "\(app): no consent prompt")
+        }
+    }
+
     func testFocusPassesTheRecordedRuntimeToTheOccupancyCheck() async throws {
         let recorder = Recorder(), seen = OSAllocatedUnfairLock<Int32?>(initialState: nil)
         var row = session(); row.runtimePID = 4242
@@ -234,18 +283,24 @@ final class TerminalFocusPolicyTests: XCTestCase {
             host.standardInput = Pipe(); host.standardOutput = FileHandle.nullDevice; host.standardError = FileHandle.nullDevice
             try host.run()
             defer { host.terminate(); host.waitUntilExit() }
-            var tty: String?
+            var tty: String?, child: Int32 = 0
             let deadline = ProcessInfo.processInfo.systemUptime + 5
             while tty == nil && ProcessInfo.processInfo.systemUptime < deadline {
                 var pids = [pid_t](repeating: 0, count: 64)
                 let found = proc_listchildpids(host.processIdentifier, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
                 for pid in pids.prefix(max(0, Int(found))) where pid > 0 {
-                    if let device = SessionProcess.terminalProcess(pid)?.tty { tty = device }
+                    if let device = SessionProcess.terminalProcess(pid)?.tty { tty = device; child = pid }
                 }
                 if tty == nil { Thread.sleep(forTimeInterval: 0.02) }
             }
             let device = try XCTUnwrap(tty, "script(1) must give its child a pseudo-terminal")
             XCTAssertEqual(TerminalLocation.occupancy(of: device, provider: .claude), expected, executable)
+            if expected == .provider {
+                // R2-N-01 with the live process table: the recorded runtime decides.
+                XCTAssertEqual(TerminalLocation.occupancy(of: device, provider: .claude, runtimePID: child), .provider, "Its own runtime")
+                XCTAssertEqual(TerminalLocation.occupancy(of: device, provider: .claude, runtimePID: getpid()), .vacant,
+                               "Another Claude on the device is not the session whose runtime was recorded")
+            }
         }
     }
 }

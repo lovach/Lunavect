@@ -381,12 +381,96 @@ final class TerminalLocationTests: XCTestCase {
         let launcher = root.appendingPathComponent("open.command")
         try script.write(to: launcher, atomically: true, encoding: .utf8)
         let zsh = Process(); zsh.executableURL = URL(fileURLWithPath: "/bin/zsh"); zsh.arguments = ["-f", launcher.path]
-        zsh.environment = ["PATH": "/usr/bin:/bin"]
+        // A regression that runs `$(touch pwned)` must do so inside this fixture (checked
+        // below), not in the directory the suite was started from.
+        zsh.environment = ["PATH": "/usr/bin:/bin"]; zsh.currentDirectoryURL = root
         try zsh.run(); zsh.waitUntilExit()
         XCTAssertEqual(zsh.terminationStatus, 0)
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), project.path + "\n--resume\n01234567-89ab-cdef-0123-456789abcdef\n")
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("pwned").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("pwned").path))
+    }
+
+    /// Fixed-seed SplitMix64: the same inputs on every run and machine.
+    private struct Seeded: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    /// N-I4 / L9, bounded fuzz with a fixed seed: whatever a project folder or CLI
+    /// folder is called (quotes, backslashes, `$()`, backticks, globs, newlines,
+    /// control and bidi characters, emoji), the resume launcher reaches exactly that
+    /// folder and passes exactly the session ID; nothing in a name is executed. Runs
+    /// zsh on the generated script with a fake CLI in a temporary folder, never Terminal.
+    func testResumeLauncherKeepsArbitraryFolderNamesInert() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r2-N-" + UUID().uuidString).resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pieces = ["'", "\"", "\\", "$", "`", "(", ")", ";", "&", "|", "*", "?", "~", "!", "#", " ", "\n", "\t", "\r", "{", "}",
+                      "[", "]", "<", ">", "%", "^", "=", ",", "-", ".", "é", "проект", "🐶", "a", "Z", "0", "$(touch pwned)",
+                      "`touch pwned`", "'$HOME'", "\u{202E}", "\u{1B}[31m", "--resume"]
+        var random = Seeded(state: 0x4C55_4E41_5645_4354)
+        func name() -> String {
+            var text = ""
+            for _ in 0..<Int.random(in: 1...6, using: &random) { text += pieces.randomElement(using: &random)! }
+            return text == "." || text == ".." ? text + "x" : text
+        }
+        let output = root.appendingPathComponent("out.txt")
+        let id = "01234567-89ab-cdef-0123-456789abcdef"
+        for index in 0..<16 {
+            let case_ = root.appendingPathComponent("\(index)")
+            let project = case_.appendingPathComponent(name()), bin = case_.appendingPathComponent(name())
+            guard project.lastPathComponent != bin.lastPathComponent else { continue }
+            try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+            let fake = bin.appendingPathComponent("claude")
+            try "#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$@\" > \(SessionHooks.quote(output.path))\n".write(to: fake, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+            let row = AgentSession(provider: .claude, sessionID: id, title: "Fixture", cwd: project.path, client: .terminal,
+                                   phase: .finished, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+            let script = try XCTUnwrap(row.terminalScript(executable: fake.path), project.path)
+            let launcher = case_.appendingPathComponent("open.command")
+            try script.write(to: launcher, atomically: true, encoding: .utf8)
+            try? FileManager.default.removeItem(at: output)
+            let zsh = Process(); zsh.executableURL = URL(fileURLWithPath: "/bin/zsh"); zsh.arguments = ["-f", launcher.path]
+            zsh.environment = ["PATH": "/usr/bin:/bin"]; zsh.currentDirectoryURL = root
+            zsh.standardOutput = FileHandle.nullDevice; zsh.standardError = FileHandle.nullDevice
+            try zsh.run(); zsh.waitUntilExit()
+            XCTAssertEqual(zsh.terminationStatus, 0, project.lastPathComponent.debugDescription)
+            XCTAssertEqual(try? String(contentsOf: output, encoding: .utf8), project.path + "\n--resume\n" + id + "\n",
+                           project.lastPathComponent.debugDescription + " / " + bin.lastPathComponent.debugDescription)
+        }
+        let pwned = FileManager.default.enumerator(atPath: root.path)?.compactMap { $0 as? String }.filter { $0.hasSuffix("/pwned") || $0 == "pwned" } ?? []
+        XCTAssertEqual(pwned, [], "No command in a folder name ran")
+    }
+
+    /// N-I4, bounded fuzz with a fixed seed: only a plain `/dev/ttysN` (1-4 digits)
+    /// ever reaches an AppleScript source. The oracle is written independently of the regex.
+    func testOnlyPlainDevicesReachAppleScriptUnderFuzz() {
+        func plain(_ text: String) -> Bool {
+            guard text.hasPrefix("/dev/ttys") else { return false }
+            let digits = text.utf8.dropFirst("/dev/ttys".utf8.count)
+            return (1...4).contains(digits.count) && digits.allSatisfy { (0x30...0x39).contains($0) }
+        }
+        let pieces = ["/dev/ttys", "/dev/tty", "0", "7", "12", "\n", "\r", "\"", "\\", " ", "& quit", "\u{0}", "٣", "１", "\u{200B}", "/", "s"]
+        var random = Seeded(state: 0x7474_7973)
+        var accepted = 0
+        for _ in 0..<2_000 {
+            var text = ""
+            for _ in 0..<Int.random(in: 1...5, using: &random) { text += pieces.randomElement(using: &random)! }
+            for app in ["Terminal", "iTerm2"] {
+                let script = TerminalLocation.focusScript(tty: text, app: app)
+                XCTAssertEqual(script != nil, plain(text), text.debugDescription)
+                if let script { XCTAssertTrue(script.contains("is \"" + text + "\""), text.debugDescription); accepted += 1 }
+            }
+        }
+        XCTAssertGreaterThan(accepted, 0, "The generator also produces valid devices")
     }
 
     func testRuntimeClassificationIgnoresInterpreters() {

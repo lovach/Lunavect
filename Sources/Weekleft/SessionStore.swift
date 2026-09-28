@@ -860,6 +860,20 @@ final class SharedWorkDemand: Sendable {
 }
 
 enum SessionNavigation {
+    /// Test isolation (R2-N-02): under XCTest navigation never scripts, launches or
+    /// connects to the user's applications, nor reads their Desktop session records,
+    /// unless a test driving operator-owned fixtures opts in. A routing regression in
+    /// a test then fails with this error instead of opening a real app.
+    struct LiveSystemRefused: LocalizedError, Equatable {
+        let action: String
+        var errorDescription: String? { "Test isolation: refused \(action)" }
+    }
+    @MainActor static var allowsLiveSystemInTests = false
+    @MainActor static func checkLiveSystem(_ action: String) throws {
+        guard LiveWriteGuard.underTestsForStores, !allowsLiveSystemInTests else { return }
+        fputs("LUNAVECT TEST ISOLATION: refused live navigation (\(action))\n", stderr)
+        throw LiveSystemRefused(action: action)
+    }
     /// `focus` is the only step that scripts another application; tests replace it.
     @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver(),
                                 focus: @MainActor (AgentSession) async throws -> Bool = { try await focusTerminal($0) },
@@ -892,6 +906,7 @@ enum SessionNavigation {
             return
         }
         // Editor sessions returned above: every VS Code or JetBrains row uses its companion.
+        try checkLiveSystem("desktop link")
         let url: URL?
         if session.provider == .codex { url = session.codexURL }
         else {
@@ -903,6 +918,7 @@ enum SessionNavigation {
         guard NSWorkspace.shared.open(url) else { throw SessionOpeningError.launchFailed(session.client) }
     }
     @MainActor static func focusIDE(_ session: AgentSession) async throws {
+        try checkLiveSystem("editor bridge")
         try await IDEBridge.open(session, activateApp: { pid in
             await MainActor.run { activateEditor(pid) }
         }) { url, app in
@@ -924,6 +940,7 @@ enum SessionNavigation {
     /// A live CLI session stays where it runs: bring its own tab to the front.
     /// The policy lives in `TerminalLocation.focusSession`; only the running-app check needs AppKit.
     @MainActor static func focusTerminal(_ session: AgentSession) async throws -> Bool {
+        try checkLiveSystem("terminal focus")
         let log = Logger(subsystem: "com.weekleft.app", category: "navigation")
         let environment = TerminalFocusEnvironment(isRunning: { bundle in
             await MainActor.run { !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty }
