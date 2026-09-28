@@ -19,6 +19,10 @@ import WeekleftCore
         var isProcessAlive: (Int32) -> Bool = { _ in true }
         var schedulesTimers = false
         var watchesEvents = false
+        /// How long directory changes gather before one read (R2-R-01): a record is a
+        /// temporary file plus a rename, and busy clients write several a second.
+        /// Tests replace it with a barrier; it is not live access.
+        var changeWindow: @Sendable () async throws -> Void = { try await Task.sleep(for: .milliseconds(100)) }
         var allowsClientConfiguration = false
         /// Hands a manually selected client executable to runtime observation.
         var configureRuntime: (ClientExecutableResolver) async -> Void = { _ in }
@@ -398,6 +402,7 @@ import WeekleftCore
         localTimer?.invalidate(); localTimer = nil
         sourceTimer?.invalidate(); sourceTimer = nil
         eventWatcher?.cancel(); eventWatcher = nil
+        changeTask?.cancel(); changeTask = nil
     }
     func stop() {
         stopped = true; started = false
@@ -406,7 +411,7 @@ import WeekleftCore
         if let clockObserver { NotificationCenter.default.removeObserver(clockObserver); self.clockObserver = nil }
     }
     isolated deinit {
-        refreshTask?.cancel(); eventTask?.cancel(); undoDismissTask?.cancel()
+        refreshTask?.cancel(); eventTask?.cancel(); undoDismissTask?.cancel(); changeTask?.cancel()
         localTimer?.invalidate(); sourceTimer?.invalidate(); eventWatcher?.cancel()
         if let clockObserver { NotificationCenter.default.removeObserver(clockObserver) }
     }
@@ -452,7 +457,7 @@ import WeekleftCore
         watcher.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self, self.isCurrent(current) else { return }
-                self.sourceChanged()
+                self.directoryChanged()
             }
         }
         watcher.setCancelHandler { close(fd) }
@@ -543,6 +548,21 @@ import WeekleftCore
     /// A hook wrote a record. A read already in progress may have enumerated the
     /// directory before the write, so the change schedules exactly one more read.
     func sourceChanged() { beginEvents(afterChange: true) }
+    /// The watcher reports each directory change: a record's temporary file and its
+    /// rename are two, and busy clients write several records a second. Changes that
+    /// arrive within one window cost one read (R2-R-01). A stop or a provider change
+    /// invalidates the window; a late one never reads for an older generation.
+    private var changeTask: Task<Void, Never>?
+    func directoryChanged() {
+        guard !stopped, !Task.isCancelled, changeTask == nil else { return }
+        let current = generation, window = dependencies.changeWindow
+        changeTask = Task { [weak self] in
+            do { try await window() } catch { return }
+            guard let self, self.isCurrent(current) else { return }
+            self.changeTask = nil
+            self.sourceChanged()
+        }
+    }
     @discardableResult private func beginEvents(requested: Bool = false, afterChange: Bool = false) -> Task<Void, Never>? {
         guard !stopped, !Task.isCancelled else { return nil }
         // Freshness belongs to the display clock, not source success. Keep menu
