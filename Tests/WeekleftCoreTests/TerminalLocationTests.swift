@@ -381,7 +381,9 @@ final class TerminalLocationTests: XCTestCase {
         let launcher = root.appendingPathComponent("open.command")
         try script.write(to: launcher, atomically: true, encoding: .utf8)
         let zsh = Process(); zsh.executableURL = URL(fileURLWithPath: "/bin/zsh"); zsh.arguments = ["-f", launcher.path]
-        zsh.environment = ["PATH": "/usr/bin:/bin"]
+        // A regression that runs `$(touch pwned)` must do so inside this fixture (checked
+        // below), not in the directory the suite was started from.
+        zsh.environment = ["PATH": "/usr/bin:/bin"]; zsh.currentDirectoryURL = root
         try zsh.run(); zsh.waitUntilExit()
         XCTAssertEqual(zsh.terminationStatus, 0)
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), project.path + "\n--resume\n01234567-89ab-cdef-0123-456789abcdef\n")
