@@ -350,7 +350,10 @@ public enum SessionList {
                 let idleDuringCompaction = fresh && row.phase == .idle && event.compactionTrigger != nil
                 // Between task events Claude is idle, but its background tasks will wake it.
                 let backgroundPause = fresh && row.phase == .idle && event.phase == .running && event.awaitingBackground == true
-                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && !idleDuringCompaction && !backgroundPause && row.phase != .unknown && row.observedAt > event.observedAt
+                // Claude's list reports every wait as waiting (no waitingFor since 2.1.280):
+                // it confirms an open permission dialog, not a different question.
+                let waitingDialog = fresh && row.provider == .claude && row.phase == .input && event.phase == .permission
+                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && !idleDuringCompaction && !backgroundPause && !waitingDialog && row.phase != .unknown && row.observedAt > event.observedAt
                 let moreSpecificApproval = !newerClaudeCatalog && row.effectivePhase(now: now) == .input && event.phase == .permission
                 if fresh && !newerClaudeCatalog && (idleAfterQuestion || idleDuringCompaction || backgroundPause || dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
                     row.phase = event.phase; row.observedAt = event.observedAt; row.evidence = event.evidence; row.tool = event.tool

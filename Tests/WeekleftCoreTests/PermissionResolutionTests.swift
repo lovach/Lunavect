@@ -184,6 +184,29 @@ final class PermissionResolutionTests: XCTestCase {
         XCTAssertEqual(waiting, [0, 0, 1, 0, 0, 0])
     }
 
+    /// Claude's session list reports every wait as "waiting" (it has no waitingFor
+    /// since 2.1.280). A newer listing during an open dialog confirms the wait: it
+    /// does not turn "Permission needed" into "Input needed" or announce it again.
+    func testANewerWaitingListingKeepsTheDialogAndItsSingleNotice() throws {
+        func listing(_ status: String, at seconds: Double) throws -> AgentSession {
+            let row: [String: Any] = ["sessionId": "parent-session", "kind": "interactive", "pid": 4242, "status": status, "startedAt": 1_700_000_000_000]
+            return try XCTUnwrap(SessionParser.claude(JSONSerialization.data(withJSONObject: [row]), now: start.addingTimeInterval(seconds)).first)
+        }
+        let steps = try play([("UserPromptSubmit", [:]), ("PreToolUse", call("Bash", "x")), ("PermissionRequest", request("Bash"))])
+        var tracker = SessionNoticeTracker()
+        var shown: [SessionPhase] = [], notices: [[SessionNoticeKind]] = []
+        for (record, status, listed, seconds) in [(steps[0], "busy", -1.0, 0.5), (steps[2], "busy", -1, 2.1), (steps[2], "waiting", 5, 5.1),
+                                                   (steps[2], "waiting", 20, 20.1), (steps[2], "idle", 35, 35.1)] {
+            let now = start.addingTimeInterval(seconds)
+            let rows = SessionList.merge(catalog: [try listing(status, at: listed)], events: [record.session], now: now)
+            shown.append(rows[0].phase)
+            notices.append(tracker.update(rows, now: now).map(\.kind))
+        }
+        // The last listing: declined without a comment, Claude stopped the turn.
+        XCTAssertEqual(shown, [.running, .permission, .permission, .permission, .interrupted])
+        XCTAssertEqual(notices, [[], [.permission], [], [], []])
+    }
+
     /// The hook helper decodes the record again for every event.
     func testRequestsSurviveTheHelperBetweenEvents() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r26-S2-" + UUID().uuidString, isDirectory: true)
