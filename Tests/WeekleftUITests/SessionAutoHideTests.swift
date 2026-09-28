@@ -155,6 +155,10 @@ final class SessionAutoHideTests: XCTestCase {
             XCTAssertEqual(SessionStore(directory: directory, defaults: defaults).hiddenCount, 0)
         }
     }
+    /// Real work without its prompt hook is a task, not a lifecycle-only launch:
+    /// once shown as current and inactive, it is hidden after the interval, also
+    /// after SessionEnd. Work that ended before it was ever shown as current is
+    /// not archived (decision 11 of the 2026-09-28 audit).
     @MainActor func testRealClaudeWorkRemainsEligibleForAutoHideEvenWithMissedPrompt() throws {
         for name in ["UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop", "StopFailure"] {
             try withStore { store, _, _ in
@@ -165,10 +169,15 @@ final class SessionAutoHideTests: XCTestCase {
                 let catalog = AgentSession(provider: .claude, sessionID: "empty", title: "Named task",
                                            cwd: "/example/project", phase: .unknown,
                                            updatedAt: start, observedAt: start)
+                let shown = SessionList.merge(catalog: [catalog], events: [work.session], now: start)
+                store.acceptSessions(shown, now: start)
+                XCTAssertEqual(store.sessions.map(\.sessionID), ["empty"], name)
                 let rows = SessionList.merge(catalog: [catalog], events: [ended.session], now: start.addingTimeInterval(10))
                 store.acceptSessions(rows, now: start.addingTimeInterval(10))
                 store.acceptSessions(rows, now: start.addingTimeInterval(310))
-                XCTAssertEqual(store.hiddenCount, 1, name)
+                // Working or waiting rows never start an inactivity interval.
+                let inactiveWhenShown = !work.session.phase.isActive
+                XCTAssertEqual(store.hiddenCount, inactiveWhenShown ? 1 : 0, name)
                 try store.removeHidden()
                 store.acceptSessions(rows, now: start.addingTimeInterval(311))
                 XCTAssertEqual(store.hiddenCount, 0, name)

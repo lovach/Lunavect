@@ -15,6 +15,8 @@ import WeekleftCore
         var titles: ([AgentSession], [String], [ProviderID]) async throws -> [String: String] = { _, _, _ in [:] }
         var hooksState: @Sendable () -> [ProviderID: Bool] = { [:] }
         var initialEvents: (URL) -> [AgentSession] = { _ in [] }
+        /// Inert default: no process is ever declared gone.
+        var isProcessAlive: (Int32) -> Bool = { _ in true }
         var schedulesTimers = false
         var watchesEvents = false
         var allowsClientConfiguration = false
@@ -56,7 +58,8 @@ import WeekleftCore
                     return result
                 }
             }, hooksState: { Dictionary(uniqueKeysWithValues: ProviderID.allCases.map { ($0, SessionHooks.installed($0)) }) },
-                 initialEvents: { CodexSessionMetadata.markingSubagents(in: SessionHooks.load(at: $0)) }, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
+                 initialEvents: { CodexSessionMetadata.markingSubagents(in: SessionHooks.load(at: $0)) },
+                 isProcessAlive: SessionSources.isProcessAlive, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
                  configureRuntime: { resolver in
                      // Automatic discovery is already checked by the runtime reader itself.
                      await CodexActivityReader.shared.useExecutable(resolver.codexPath.isEmpty ? nil : resolver.codexPath)
@@ -86,6 +89,8 @@ import WeekleftCore
     struct DiagnosticEntry: Equatable {
         let date: Date
         let issue: ClientIntegrationIssue
+        /// A fact the hook helper recorded, such as a rejected SubagentStop count.
+        var hook: HookDiagnostic? = nil
     }
     /// Fixed codes only; bounded and local to this store's lifetime.
     @Published private(set) var diagnosticEntries: [DiagnosticEntry] = []
@@ -102,6 +107,7 @@ import WeekleftCore
         self.providers = providers
         allSessions = allSessions.filter { providers.contains($0.provider) }
         catalog = catalog.filter { providers.contains($0.key) }
+        catalogSettled.formIntersection(providers)
         issues = issues.filter { providers.contains($0.key) }
         typedIssues = typedIssues.filter { providers.contains($0.key) }
         if let row = lastHidden, !providers.contains(row.provider) { lastHidden = nil }
@@ -133,6 +139,9 @@ import WeekleftCore
     // Retain observed inactivity beyond the source's status freshness window.
     // Poll timestamps are deliberately not activity timestamps.
     private var organizationCheckedAt: Date?
+    /// Providers whose catalog read has answered at least once, successfully or not.
+    /// The daily organization check waits for all of them (S-05).
+    private var catalogSettled: Set<ProviderID> = []
     private var inactiveSince: [String: Date] = [:]
     private var arrangementURL: URL?
     private var arrangementLoadError: Error?
@@ -309,7 +318,7 @@ import WeekleftCore
     /// A source changed while a read was already enumerating it.
     private var eventsChanged = false
     private var panelVisible = false
-    private var polling: SessionPolling?
+    private(set) var polling: SessionPolling?
     private var lastCatalogPollAt: Date?
     func setPanelVisible(_ visible: Bool) {
         guard panelVisible != visible else { return }
@@ -367,10 +376,20 @@ import WeekleftCore
         stopped = true; started = false
         invalidateWork()
         undoDismissTask?.cancel(); undoDismissTask = nil
+        if let clockObserver { NotificationCenter.default.removeObserver(clockObserver); self.clockObserver = nil }
     }
     isolated deinit {
         refreshTask?.cancel(); eventTask?.cancel(); undoDismissTask?.cancel()
         localTimer?.invalidate(); sourceTimer?.invalidate(); eventWatcher?.cancel()
+        if let clockObserver { NotificationCenter.default.removeObserver(clockObserver) }
+    }
+    private var clockObserver: NSObjectProtocol?
+    /// Inactivity is measured on the wall clock. A correction (NTP step, a
+    /// manual change) is not time without activity: running intervals restart
+    /// instead of hiding every idle session at once (matrix S14).
+    func systemClockChanged() {
+        let now = now()
+        for id in inactiveSince.keys { inactiveSince[id] = now }
     }
     private var desktopTitles: [String: String] = [:]
     private var titlesCheckedAt = Date.distantPast
@@ -390,6 +409,11 @@ import WeekleftCore
         beginRefresh()
         updatePollingTimers()
         watchEvents()
+        if dependencies.schedulesTimers, clockObserver == nil {
+            clockObserver = NotificationCenter.default.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in self?.systemClockChanged() }
+            }
+        }
     }
     private func watchEvents() {
         guard started, !stopped, dependencies.watchesEvents, eventWatcher == nil else { return }
@@ -442,6 +466,8 @@ import WeekleftCore
         for (provider, result) in await [(ProviderID.codex, codex), (.claude, claude)] {
             guard isCurrent(expected) else { return }
             guard providers.contains(provider), let result else { continue }
+            if case .failure(let error) = result, error is CancellationError { return }
+            catalogSettled.insert(provider)
             switch result {
             case .success(let result):
                 catalog[provider] = result.rows
@@ -526,8 +552,18 @@ import WeekleftCore
             let events = try await dependencies.events(rows, providers, now())
             guard isCurrent(expected) else { return }
             let date = now()
+            recordHookDiagnostics(events.filter { providers.contains($0.provider) && !internalSessionIDs.contains($0.id) })
             let currentEvents = suppressResolvedClaudeQuestions(events.filter { providers.contains($0.provider) }, catalog: rows, now: date)
-            var merged = SessionList.merge(catalog: rows, events: currentEvents, now: date)
+            // `--all` re-lists finished and dormant background tasks on every poll.
+            // Such history joins the merge only when a hook event names it; otherwise
+            // it is passed through unchanged for completion notices (S-12).
+            let eventIDs = Set(currentEvents.map(\.id))
+            let history = rows.filter { $0.catalogHistory == true && !eventIDs.contains($0.id) }
+            let live = history.isEmpty ? rows : rows.filter { !($0.catalogHistory == true && !eventIDs.contains($0.id)) }
+            var merged = SessionList.merge(catalog: live, events: currentEvents, now: date) + history
+            // S-13 / A-02: a client killed mid-turn sends no Stop or SessionEnd.
+            let completeClaude = providers.contains(.claude) && typedIssues[.claude] == nil ? catalog[.claude].map { Set($0.map(\.id)) } : nil
+            merged = SessionList.endingDeadClaudeRuntimes(merged, completeCatalog: completeClaude, isAlive: dependencies.isProcessAlive)
             if now().timeIntervalSince(titlesCheckedAt) >= (polling?.titles ?? 15) {
                 let titles = try await dependencies.titles(merged, hiddenIDs, providers)
                 guard isCurrent(expected) else { return }
@@ -563,8 +599,28 @@ import WeekleftCore
         guard let issue = ClientIntegrationIssue.classify(error, provider: provider, capability: .sessionCatalog) else { return }
         typedIssues[provider] = issue
         issues[provider] = L(issue.message)
-        diagnosticEntries.append(DiagnosticEntry(date: now(), issue: issue))
+        appendDiagnostic(DiagnosticEntry(date: now(), issue: issue))
+    }
+    private func appendDiagnostic(_ entry: DiagnosticEntry) {
+        diagnosticEntries.append(entry)
         if diagnosticEntries.count > 32 { diagnosticEntries.removeFirst(diagnosticEntries.count - 32) }
+    }
+    /// Latest hook fact already turned into an entry, by session and kind.
+    private var reportedHookDiagnostics: [String: Date] = [:]
+    /// Hook records keep only their latest fact; each new one becomes one entry.
+    /// It is diagnostic only: no connection issue, message or badge.
+    private func recordHookDiagnostics(_ events: [AgentSession]) {
+        for event in events {
+            guard let fact = event.hookDiagnostic else { continue }
+            let key = event.id + ":" + fact.kind.rawValue
+            guard fact.at > (reportedHookDiagnostics[key] ?? .distantPast) else { continue }
+            reportedHookDiagnostics[key] = fact.at
+            appendDiagnostic(DiagnosticEntry(date: fact.at, issue: ClientIntegrationIssue(provider: event.provider, capability: .sessionCatalog,
+                                                                                            reason: .unsupportedResponse), hook: fact))
+        }
+        if reportedHookDiagnostics.count > 512 {
+            reportedHookDiagnostics = Dictionary(uniqueKeysWithValues: reportedHookDiagnostics.sorted { $0.value > $1.value }.prefix(256).map { ($0.key, $0.value) })
+        }
     }
     private func suppressResolvedClaudeQuestions(_ events: [AgentSession], catalog: [AgentSession], now: Date) -> [AgentSession] {
         resolvedClaudeQuestions = resolvedClaudeQuestions.filter {
@@ -603,13 +659,18 @@ import WeekleftCore
         onObservation?(taskRows.filter { $0.catalogHistory != true }, now)
         do {
             try removeHiddenInternalSessions()
-            if organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
+            // The local event timer usually delivers the first rows before the
+            // catalogs; checking then would stamp the day without any evidence.
+            if providers.allSatisfy(catalogSettled.contains),
+               organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
                 try visibility?.pruneRemoved(now: now)
                 // Only a provider whose current catalog arrived complete can prove absence.
+                // Re-listed history is not presence: it must not keep a hidden entry
+                // or an arrangement slot alive indefinitely (S-12).
                 let complete = Set(providers.filter { catalog[$0] != nil && typedIssues[$0] == nil })
-                try visibility?.observe(Set(rows.map(\.id)), completeProviders: complete, now: now)
+                try visibility?.observe(Set(rows.filter { $0.catalogHistory != true }.map(\.id)), completeProviders: complete, now: now)
                 var next = arrangement
-                if next.observe(Set(taskRows.map(\.id)), now: now) { try saveArrangement(next) }
+                if next.observe(Set(taskRows.filter { $0.catalogHistory != true }.map(\.id)), now: now) { try saveArrangement(next) }
                 organizationCheckedAt = now
             }
             try visibility?.removeUnstartedClaudeLifecycles(rows)
@@ -634,14 +695,16 @@ import WeekleftCore
         for row in visible {
             // Never hide ongoing work, requests for input/permission, or an
             // unconfirmed state merely because its latest event is old.
-            guard !row.phase.isActive, row.phase != .unknown, row.runtimeConfirmed != false,
+            // Retained catalog history is never shown as current; it is not archived.
+            guard row.catalogHistory != true, !row.phase.isActive, row.phase != .unknown, row.runtimeConfirmed != false,
                   !row.isUnstartedClaudeLifecycle else {
                 inactiveSince.removeValue(forKey: row.id)
                 continue
             }
             if inactiveSince[row.id] == nil {
-                // Historical catalog entries must not flood the hidden list.
-                guard row.effectivePhase(now: now) != .unknown else { continue }
+                // Only a row the panel shows as current starts an interval: history,
+                // stale entries and sessions that ended unseen do not fill the list.
+                guard row.isCurrent(now: now) else { continue }
                 inactiveSince[row.id] = min(row.updatedAt, now)
             }
             let since = max(inactiveSince[row.id]!, min(row.updatedAt, now))

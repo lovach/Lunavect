@@ -66,6 +66,8 @@ public enum SessionSources {
         candidates += versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }.map { nvm + "/" + $0 + "/bin/claude" }
         return candidates.first { ClientExecutableResolver.isExecutableFile($0) }
     }
+    /// Whether a recorded client process still exists (kill(pid, 0) != ESRCH).
+    public static func isProcessAlive(_ pid: Int32) -> Bool { SessionProcess.isAlive(pid) }
     /// npm-style launchers are `#!/usr/bin/env node` scripts; their Node lives next to them.
     static func environment(forExecutable path: String, base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var environment = base
@@ -74,9 +76,15 @@ public enum SessionSources {
         return environment
     }
     public static func claude(path: String) async throws -> [AgentSession] {
+        try await claude(path: path, isInternal: { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: $1) })
+    }
+    static func claude(path: String, isInternal: @escaping @Sendable (String, Int32?) -> Bool) async throws -> [AgentSession] {
         try await SessionProcess.detached {
+            // The listing describes the moment the command started. A hook event
+            // written while it runs (0.1-0.5 s) must remain the newer observation.
+            let observedAt = Date()
             let data = try SessionProcess.run(path: path, arguments: ["agents", "--json", "--all"])
-            return try SessionParser.claude(data, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
+            return try SessionParser.claude(data, now: observedAt, isInternal: isInternal, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
                 SessionProcess.terminalLocation(parentPID: $0, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
             }, ide: {
                 IDEProcessLocation.locate(parentPID: $0, provider: .claude)
@@ -114,7 +122,8 @@ public enum SessionSources {
             return try SessionProcess.codexCatalog(path: path, proxy: false, prioritySessionIDs: prioritySessionIDs, timeout: remaining, discovery: discovery)
         }
     }
-    public static func legacyEvents(catalog: [AgentSession], now: Date = Date(), directory: URL? = nil) -> [AgentSession] {
+    public static func legacyEvents(catalog: [AgentSession], now: Date = Date(), directory: URL? = nil,
+                                    isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) }) -> [AgentSession] {
         guard !Task.isCancelled else { return [] }
         let dir = directory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d")
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey, .isSymbolicLinkKey])) ?? []
@@ -140,6 +149,7 @@ public enum SessionSources {
             default: phase = .unknown
             }
             let cwd = row["cwd"] as? String ?? ""
+            guard provider != .claude || !isInternal(cwd) else { return nil }
             let client = SessionProcess.client(parentPID: pid, entrypoint: entrypoint, terminal: row["term_program"] as? String ?? "")
             return AgentSession(
                 provider: provider, sessionID: id, title: SessionParser.text(row["project"]), cwd: cwd, client: client,
@@ -413,6 +423,7 @@ enum SessionProcess {
     static func readCodexCatalog(prioritySessionIDs: [String] = [], maxPages: Int = 8, maxPriorityReads: Int = 16,
                                  discovery: CodexSessionDiscovery.Result = .empty, maxDiscoveryReads: Int = 32,
                                  deadline: TimeInterval, uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                                 clock: () -> Date = Date.init,
                                  request: (String, [String: Any], TimeInterval) throws -> [String: Any]) throws -> CodexSessionCatalog {
         var sessions: [AgentSession] = [], indices: [String: Int] = [:], pagesRead = 0
         try Task.checkCancellation()
@@ -432,10 +443,12 @@ enum SessionProcess {
                 try Task.checkCancellation()
                 guard index < max(0, maxDiscoveryReads), uptime() < discoveryDeadline else { discoveryLimited = true; break }
                 do {
+                    // Each summary describes the moment its request started (S-07).
+                    let requestedAt = clock()
                     let reply = try request("thread/read", ["threadId": id, "includeTurns": false], min(discoveryDeadline, uptime() + 1))
                     guard let row = reply["thread"] as? [String: Any], row["id"] as? String == id else { discoveryLimited = true; continue }
                     try ClientResponseContract.validateCodexThreadList(["data": [row]])
-                    let parsed = try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]))
+                    let parsed = try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]), now: requestedAt)
                     guard parsed.count == 1, parsed.first?.sessionID == id else { discoveryLimited = true; continue }
                     append(parsed)
                 } catch is CancellationError { throw CancellationError() }
@@ -453,9 +466,10 @@ enum SessionProcess {
             try Task.checkCancellation()
             guard uptime() < priorityDeadline else { break }
             do {
+                let requestedAt = clock()
                 let reply = try request("thread/read", ["threadId": id, "includeTurns": false], min(priorityDeadline, uptime() + 1))
                 guard let row = reply["thread"] as? [String: Any], row["id"] as? String == id else { continue }
-                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]])))
+                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]), now: requestedAt))
             } catch is CancellationError { throw CancellationError() }
             catch { try Task.checkCancellation(); continue }
         }
@@ -471,8 +485,9 @@ enum SessionProcess {
                                          "sourceKinds": ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]]
             if let cursor { params["cursor"] = cursor }
             do {
+                let requestedAt = clock()
                 let reply = try request("thread/list", params, deadline)
-                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: reply)))
+                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: reply), now: requestedAt))
                 try ClientResponseContract.validateCodexThreadList(reply)
                 pagesRead += 1
                 if reply["nextCursor"] is NSNull { return try result() }
@@ -517,6 +532,23 @@ enum SessionProcess {
            name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"#, options: .regularExpression) != nil { return .claude }
         if name == "codex" { return .codex }
         return nil
+    }
+    /// The client runtime that ran a hook: the nearest ancestor that is not a
+    /// shell or command wrapper. Hook runners may or may not exec the command.
+    static func hookClientPID(startPID: Int32, read: (Int32) -> RuntimeProcess? = runtimeProcess) -> Int32? {
+        let runners: Set<String> = ["sh", "bash", "zsh", "dash", "ksh", "fish", "tcsh", "csh", "env", "timeout", "gtimeout", "nohup", "nice"]
+        var pid = startPID, seen = Set<Int32>()
+        for _ in 0..<8 {
+            guard pid > 1, seen.insert(pid).inserted, let process = read(pid) else { return nil }
+            if !runners.contains(URL(fileURLWithPath: process.executable).lastPathComponent) { return pid }
+            pid = process.parentPID
+        }
+        return nil
+    }
+    /// ESRCH only: a process that exists but belongs to someone else is alive.
+    static func isAlive(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        return kill(pid, 0) == 0 || errno != ESRCH
     }
     /// Only executable paths and parent PIDs: no commands, prompts or foreign environment.
     /// Missing/cyclic/truncated ancestry is unknown, not evidence of an independent task.
@@ -685,7 +717,8 @@ public extension SessionHooks {
         let client = ide?.editor.client ?? SessionProcess.client(parentPID: getppid(), entrypoint: env["CLAUDE_CODE_ENTRYPOINT"] ?? "", terminal: env["TERM_PROGRAM"] ?? "")
         let nested = provider == .claude ? SessionProcess.nestedClaudeRuntime(startPID: getppid()) : nil
         let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
-        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide)
+        let runtimePID = provider == .claude ? SessionProcess.hookClientPID(startPID: getppid()) : nil
+        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide, runtimePID: runtimePID)
         print("{}")
     }
 }

@@ -51,7 +51,9 @@ public struct SessionNoticeTracker {
                   now.timeIntervalSince(row.observedAt) < 60 else { continue }
             let kind: SessionNoticeKind?
             switch phase {
-            case .ready, .finished: kind = [.running, .permission, .input].contains(prior.phase) ? .completed : nil
+            // Only a reply announces completion. SessionEnd after active work
+            // means the client closed, often right after Esc (no Stop): silent.
+            case .ready: kind = [.running, .permission, .input].contains(prior.phase) ? .completed : nil
             case .permission: kind = .permission
             case .input: kind = .input
             case .failed: kind = [.running, .permission, .input].contains(prior.phase) ? .failed : nil

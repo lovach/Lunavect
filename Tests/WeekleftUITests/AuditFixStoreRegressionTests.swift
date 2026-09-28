@@ -29,7 +29,7 @@ import os
         await store.refresh()
         XCTAssertEqual(store.currentSessions.count, 2, "A timeout is not evidence that sessions ended")
         XCTAssertNotNil(store.issues[.codex], "The failure remains visible as a provider issue")
-        clock += 50
+        clock = instant.addingTimeInterval(AgentSession.catalogLifetime)
         await store.refresh()
         XCTAssertEqual(store.currentSessions.count, 0, "Unconfirmed observations still expire")
     }

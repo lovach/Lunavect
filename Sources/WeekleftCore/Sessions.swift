@@ -91,15 +91,24 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     public var terminalApp: String?
     /// Exact local IDE origin. Optional so records from earlier releases still load.
     public var ideLocation: IDESessionLocation?
-    /// Claude's own background tasks known to be in flight: set exactly at Stop
-    /// and SubagentStop, raised when a background launch is observed. Only
-    /// counts by kind are kept.
+    /// Claude's own background tasks known to be in flight: set exactly at Stop,
+    /// raised when a background launch is observed, only lowered or confirmed by
+    /// SubagentStop. Only counts by kind are kept.
     public var backgroundWork: BackgroundWork?
     /// Claude finished its reply while those tasks run; they will wake it. Set
     /// only by Stop and cleared by any later event of the session.
     public var awaitingBackground: Bool?
     /// Why Claude's last turn ended with an API error. The error text is not kept.
     public var failure: SessionFailure?
+    /// The latest fact the hook helper could not report to the app directly.
+    public var hookDiagnostic: HookDiagnostic?
+    /// The Claude runtime process that ran this session's latest hook (the hook's
+    /// nearest non-shell ancestor). Only a PID: used to notice a client that
+    /// exited without SessionEnd (kill, crash, closed terminal).
+    public var runtimePID: Int32?
+    /// SessionEnd's documented `reason` code (for example `prompt_input_exit`),
+    /// kept for diagnosis only. Cleared by any later event.
+    public var endReason: String?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -136,6 +145,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         self.evidence = evidence; self.tool = tool; self.resumeID = resumeID
         self.runtimeConfirmed = runtimeConfirmed
     }
+    /// Two idle catalog polls plus the 12-second process timeout and timer
+    /// tolerance: one failed or late read cannot blank catalog-only rows (S-08).
+    public static let catalogLifetime: TimeInterval = 2 * SessionPolling.idleCatalogInterval + 30
     public func effectivePhase(now: Date = Date()) -> SessionPhase {
         let age = now.timeIntervalSince(observedAt)
         guard runtimeConfirmed != false else { return .unknown }
@@ -147,7 +159,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         // This is an observation, not a heartbeat or proof a process still exists.
         // A background pause has no events until a task finishes; allow long
         // renders, but still expire it if Claude never wakes (crash, lost hook).
-        let lifetime: TimeInterval = evidence == .catalog ? 60 : evidence == .localEvent && phase.isActive ? 120
+        let lifetime: TimeInterval = evidence == .catalog ? Self.catalogLifetime : evidence == .localEvent && phase.isActive ? 120
             : phase == .running && awaitingBackground == true ? 3600 : 600
         guard age >= -60, age < lifetime else { return .unknown }
         return phase
@@ -227,15 +239,26 @@ public enum SessionParser {
             return session
         }
     }
-    public static func claude(_ data: Data, now: Date = Date(), nestedRuntime: (Int32) -> Bool? = { _ in nil },
+    /// `isInternal` receives each row's cwd and PID; Lunavect's own probe is
+    /// removed here, before any store, notice, activity or Keep Awake consumer.
+    public static func claude(_ data: Data, now: Date = Date(), isInternal: (String, Int32?) -> Bool = { _, _ in false },
+                              nestedRuntime: (Int32) -> Bool? = { _ in nil },
                               terminal: (Int32) -> TerminalLocation.Target? = { _ in nil },
                               ide: (Int32) -> IDESessionLocation? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
-        return rows.compactMap { row in
+        // The JSON listing is not a documented contract. When no row carries a
+        // session identifier, report the changed shape instead of an empty list.
+        var recognized = 0
+        let sessions: [AgentSession] = rows.compactMap { row in
             guard let id = (row["sessionId"] ?? row["id"]) as? String, validID(id) else { return nil }
+            recognized += 1
             let cwd = row["cwd"] as? String ?? ""
+            let rowPID = (row["pid"] as? Int).flatMap { $0 > 1 ? Int32(exactly: $0) : nil }
+            guard !isInternal(cwd, rowPID) else { return nil }
             let background = row["kind"] as? String == "background"
             let status = row["status"] as? String
+            // Claude Code 2.1.280 emits neither `waitingFor` nor `updatedAt`; both are
+            // read only if a later version adds them. Every wait is then input.
             let waiting = row["waitingFor"] as? String
             let waitingPhase: SessionPhase = ["permission prompt", "sandbox request"].contains(waiting) ? .permission : .input
             let phase: SessionPhase
@@ -266,7 +289,7 @@ public enum SessionParser {
             if background {
                 // Official detached tasks have attach routes and supervisor processes.
                 session.isNestedClaudeSession = false
-            } else if let pid = row["pid"] as? Int, pid > 1, let safePID = Int32(exactly: pid) {
+            } else if let safePID = rowPID {
                 session.isNestedClaudeSession = nestedRuntime(safePID)
                 if let location = ide(safePID) {
                     session.ideLocation = location; session.client = location.editor.client
@@ -279,6 +302,10 @@ public enum SessionParser {
             session.catalogHistory = background && ["blocked", "done", "failed", "stopped"].contains(row["state"] as? String) && !livePresence
             return session
         }
+        if !rows.isEmpty && recognized == 0 {
+            throw ClientIntegrationIssue(provider: .claude, capability: .sessionCatalog, reason: .unsupportedResponse)
+        }
+        return sessions
     }
 }
 public enum SessionList {
@@ -364,6 +391,23 @@ public enum SessionList {
             return $0.id < $1.id
         }
     }
+    /// S-13 / A-02: a Claude turn that was working or waiting when its client
+    /// died without SessionEnd. Applies only when the complete Claude catalog
+    /// (`completeCatalog`, nil after a failed or partial read) no longer lists
+    /// the session and the recorded runtime process is gone.
+    public static func endingDeadClaudeRuntimes(_ rows: [AgentSession], completeCatalog: Set<String>?,
+                                                isAlive: (Int32) -> Bool) -> [AgentSession] {
+        guard let completeCatalog else { return rows }
+        return rows.map { row in
+            guard row.provider == .claude, row.evidence == .hook, row.phase.isActive, let pid = row.runtimePID,
+                  !completeCatalog.contains(row.id), !isAlive(pid) else { return row }
+            // Not a completion (no Stop): the turn stopped with its client.
+            var row = row
+            row.phase = .interrupted; row.tool = nil
+            row.awaitingBackground = nil; row.backgroundWork = nil
+            return row
+        }
+    }
     public static func filter(_ sessions: [AgentSession], query: String, provider: ProviderID?, activeOnly: Bool, now: Date = Date(), includeHistory: Bool = false) -> [AgentSession] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return sessions.filter { session in
@@ -439,7 +483,11 @@ public struct SessionRecord: Codable, Sendable {
             else { record.pendingApprovals.insert(toolID) }
             record.session.phase = .permission
         case "Notification":
-            guard let type = payload["notification_type"] as? String, ["permission_prompt", "idle_prompt", "elicitation_dialog", "elicitation_url_dialog"].contains(type) else { throw SessionError.invalidResponse }
+            guard let type = payload["notification_type"] as? String else { throw SessionError.invalidResponse }
+            // Types without a lifecycle meaning here (agent_completed,
+            // quota_auto_resume_*, future ones) change nothing, not even freshness.
+            guard ["permission_prompt", "idle_prompt", "elicitation_dialog", "elicitation_url_dialog",
+                   "elicitation_complete", "elicitation_response", "agent_needs_input"].contains(type) else { return previous ?? record }
             if type == "permission_prompt" {
                 if record.pendingApprovals.isEmpty { record.unidentifiedApproval = true }
                 record.session.phase = .permission
@@ -449,6 +497,9 @@ public struct SessionRecord: Codable, Sendable {
                 // Do not refresh stale work evidence from a delayed notification.
                 if previous != nil { return record }
                 record.session.phase = .idle
+            } else if type == "elicitation_complete" || type == "elicitation_response" {
+                // The MCP form or link was answered; the same reply continues.
+                record.session.phase = .running
             } else { record.session.phase = .input }
         case "PreToolUse", "PostToolUse", "PostToolUseFailure":
             if name != "PreToolUse" {
@@ -464,10 +515,17 @@ public struct SessionRecord: Codable, Sendable {
                 record.session.backgroundWork = work
             }
         case "SubagentStop":
-            // Reports the parent session's in-flight tasks while it keeps working;
-            // it is not a turn boundary, so phase, tool and freshness stay as they are.
+            // Not a turn boundary: phase, tool and freshness stay as they are.
+            // Its list is not authoritative (decision 10): it can lower or confirm
+            // what this session launched, never raise it. Stop sets the exact set.
             guard provider == .claude, previous != nil, payload["background_tasks"] != nil else { throw SessionError.invalidResponse }
-            record.session.backgroundWork = ClaudeBackgroundWork.awaited(payload["background_tasks"])
+            let reported = ClaudeBackgroundWork.awaited(payload["background_tasks"]) ?? BackgroundWork()
+            let known = record.session.backgroundWork ?? BackgroundWork()
+            let lowered = known.lowered(to: reported)
+            record.session.backgroundWork = lowered.total > 0 ? lowered : nil
+            if lowered != reported {
+                record.session.hookDiagnostic = HookDiagnostic(kind: .backgroundCountRaised, at: now, reported: reported)
+            }
             return record
         case "Stop":
             record.pendingApprovals = []; record.unidentifiedApproval = nil
@@ -480,7 +538,11 @@ public struct SessionRecord: Codable, Sendable {
             record.session.backgroundWork = work
             record.session.awaitingBackground = waiting ? true : nil
             record.session.phase = asksForReply ? .input : waiting ? .running : .ready
-        case "SessionEnd": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
+        case "SessionEnd":
+            record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
+            record.session.endReason = (payload["reason"] as? String).flatMap {
+                $0.range(of: "^[a-z_]{1,40}$", options: .regularExpression) != nil ? $0 : nil
+            }
         case "Interrupt": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .interrupted
         case "StopFailure":
             record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .failed
@@ -491,6 +553,7 @@ public struct SessionRecord: Codable, Sendable {
         default: throw SessionError.invalidResponse
         }
         if name != "Stop" { record.session.responseRequestsInput = nil }
+        if name != "SessionEnd" { record.session.endReason = nil }
         if name != "StopFailure" { record.session.failure = nil }
         // Background tasks outlive prompts and tool calls; only a new or ended
         // session starts without them (compaction keeps them running).
@@ -499,7 +562,10 @@ public struct SessionRecord: Codable, Sendable {
         }
         if name != "Stop" { record.session.awaitingBackground = nil }
         if name != "PreCompact" { record.session.compactionTrigger = nil }
-        if name != "SessionStart" && name != "SessionEnd" {
+        // Resuming or forking opens an existing task (decision 13): ready for work
+        // before its first prompt. Only startup and /clear wait for real work.
+        let reopened = name == "SessionStart" && ["resume", "fork"].contains(payload["source"] as? String)
+        if (name != "SessionStart" && name != "SessionEnd") || reopened {
             record.session.hasTaskActivity = true
         } else if provider == .claude && record.session.hasTaskActivity == nil && record.session.turnStartedAt == nil {
             record.session.hasTaskActivity = false
@@ -510,6 +576,23 @@ public struct SessionRecord: Codable, Sendable {
         record.session.tool = name == "PreToolUse" && !tool.isEmpty ? tool : nil
         if client != .unknown { record.session.client = client }
         return record
+    }
+}
+
+/// A fixed code, time and counts only: never a payload, command or description.
+/// The app turns a new one into a diagnostic entry; records keep only the latest.
+public struct HookDiagnostic: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        /// SubagentStop reported more background work than the session started.
+        case backgroundCountRaised
+        /// The previous record did not decode; it was set aside and a new one started.
+        case unreadableRecord
+    }
+    public var kind: Kind
+    public var at: Date
+    public var reported: BackgroundWork?
+    public init(kind: Kind, at: Date, reported: BackgroundWork? = nil) {
+        self.kind = kind; self.at = at; self.reported = reported
     }
 }
 
@@ -577,6 +660,11 @@ public struct BackgroundWork: Codable, Equatable, Sendable {
         commands = Self.adding(commands, other.commands); agents = Self.adding(agents, other.agents)
         monitors = Self.adding(monitors, other.monitors); self.other = Self.adding(self.other, other.other)
     }
+    /// Each kind lowered to a report, never raised above what is known.
+    public func lowered(to report: BackgroundWork) -> BackgroundWork {
+        BackgroundWork(commands: min(commands, report.commands), agents: min(agents, report.agents),
+                       monitors: min(monitors, report.monitors), other: min(other, report.other))
+    }
 }
 
 /// Claude Code reports in-flight background work in Stop input (`background_tasks`,
@@ -584,7 +672,9 @@ public struct BackgroundWork: Codable, Equatable, Sendable {
 /// is a pause. Services and followers never finish or wake it; they don't delay
 /// the response. Commands and descriptions are inspected here, never stored.
 enum ClaudeBackgroundWork {
-    private static let finished: Set<String> = ["completed", "failed", "killed", "stopped", "cancelled", "canceled", "error", "done"]
+    /// Only a task that is known to be in flight and identifiable is awaited;
+    /// finished, unknown or unnamed entries never hold a reply or a badge.
+    private static let inFlight: Set<String> = ["running", "pending"]
     private static let services = [
         #"\btail\b[^|;&\n]*\s(?:-[a-z0-9]*f\b|--follow\b)"#,
         #"\blog\s+stream\b"#,
@@ -604,7 +694,8 @@ enum ClaudeBackgroundWork {
     static func awaited(_ value: Any?) -> BackgroundWork? {
         guard let tasks = value as? [[String: Any]] else { return nil }
         var work = BackgroundWork()
-        for task in tasks.prefix(500) where !finished.contains((task["status"] as? String ?? "").lowercased()) {
+        for task in tasks.prefix(500) where inFlight.contains((task["status"] as? String ?? "").lowercased()) {
+            guard let id = task["id"] as? String, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             switch (task["type"] as? String ?? "").lowercased() {
             case "shell":
                 if let command = task["command"] as? String, isService(command) { continue }

@@ -103,7 +103,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         XCTAssertEqual(view.currentCounts(at: now).total, 3)
         XCTAssertEqual(view.currentCounts(at: now).working, 1)
 
-        var live = raw[1]; live["pid"] = 123; live["status"] = "waiting"; live["waitingFor"] = "input needed"
+        var live = raw[1]; live["pid"] = 123; live["status"] = "waiting"
         retained[1] = try XCTUnwrap(SessionParser.claude(JSONSerialization.data(withJSONObject: [live]), now: now).first)
         store.acceptSessions(retained + codex, now: now)
         XCTAssertEqual(view.currentCounts(at: now).total, 4)
@@ -111,7 +111,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         XCTAssertEqual(view.currentCounts(at: now).waiting, 1)
         XCTAssertEqual(waitingView.filteredSessions(at: now).map(\.id), [retained[1].id])
         XCTAssertEqual(claudeView.filteredSessions(at: now).count, 1)
-        XCTAssertEqual(view.currentCounts(at: now.addingTimeInterval(61)).waiting, 0, "Header counts use the display clock and expire stale live evidence")
+        XCTAssertEqual(view.currentCounts(at: now.addingTimeInterval(AgentSession.catalogLifetime + 1)).waiting, 0, "Header counts use the display clock and expire stale live evidence")
         XCTAssertEqual(store.hiddenCount, 2)
     }
     @MainActor func testRetainedWaitsStayOutOfCurrentCountsNoticesActivityAndAwakeUntilFreshEvidence() async throws {
@@ -125,7 +125,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         let store = SessionStore(directory: root, defaults: defaults, isolated: true, now: { now }, dependencies: .init(catalog: { _, _, _, _ in
             let rows: [[String: Any]] = ids.map { id in
                 var row: [String: Any] = ["sessionId": id, "id": id, "kind": "background", "state": id == workID ? "working" : "blocked", "startedAt": 1_783_332_137_673]
-                if id == liveID { row["pid"] = 123; row["status"] = "waiting"; row["waitingFor"] = "input needed" }
+                if id == liveID { row["pid"] = 123; row["status"] = "waiting" }
                 return row
             }
             return (try SessionParser.claude(JSONSerialization.data(withJSONObject: rows), now: now), false)

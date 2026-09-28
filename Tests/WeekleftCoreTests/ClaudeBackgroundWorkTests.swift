@@ -193,11 +193,13 @@ final class ClaudeBackgroundWorkTests: XCTestCase {
         XCTAssertEqual(record.session.effectivePhase(now: start.addingTimeInterval(5 + 601)), .unknown, "an active turn keeps the normal freshness")
     }
 
-    /// SubagentStop reports the exact in-flight set without touching the turn.
+    /// SubagentStop lowers the count to the reported in-flight set without
+    /// touching the turn (it can no longer raise it; see SubagentStopAuthorityTests).
     func testSubagentStopUpdatesTheCountWithoutChangingTheTurn() throws {
         let prompt = try hook("UserPromptSubmit", after: nil, at: 0)
         let launched = try hook("PostToolUse", ["tool_name": "Agent", "tool_use_id": "a", "tool_input": ["run_in_background": true]], after: prompt, at: 1)
-        let working = try hook("PreToolUse", ["tool_name": "Bash", "tool_use_id": "b"], after: launched, at: 2)
+        let monitored = try hook("PostToolUse", ["tool_name": "Monitor", "tool_use_id": "m", "tool_input": [:]], after: launched, at: 1.5)
+        let working = try hook("PreToolUse", ["tool_name": "Bash", "tool_use_id": "b"], after: monitored, at: 2)
         let finished = try hook("SubagentStop", ["agent_id": "a1", "agent_type": "general-purpose", "background_tasks": [monitor]], after: working, at: 30)
         XCTAssertEqual(finished.session.backgroundWork, BackgroundWork(monitors: 1))
         XCTAssertEqual(finished.session.tool, "Bash")

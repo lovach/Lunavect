@@ -174,3 +174,56 @@ public enum ClaudeUsageText {
         return interval <= 0 && interval > -120
     }
 }
+
+/// Lunavect's own `/usage` probe is not a user session. Its catalog row (and any
+/// hook a future `--safe-mode` might run) is dropped at the source. The name
+/// Claude generates for it ("quotaprobe-NN") is deliberately not used.
+public extension ClaudeUsageProbe {
+    /// The probe folder as the file system names it: symlinks resolved, `/var`
+    /// and `/private/var` unified, no trailing slash.
+    static let canonicalDirectory = canonicalPath(directory.path)
+
+    static func isProbeSession(cwd: String, pid: Int32?) -> Bool {
+        isProbeSession(cwd: cwd, pid: pid, canonicalDirectory: canonicalDirectory)
+    }
+}
+
+extension ClaudeUsageProbe {
+    /// `canonicalDirectory` must already be canonical. The probe is started by
+    /// `Process` without a shell, so the catalog PID is a direct child of this app.
+    static func isProbeSession(cwd: String, pid: Int32?, canonicalDirectory: String,
+                               parentPID: (Int32) -> Int32? = { SessionProcess.runtimeProcess($0)?.parentPID },
+                               ownPID: Int32 = getpid()) -> Bool {
+        if !canonicalDirectory.isEmpty {
+            let path = canonicalPath(cwd)
+            if !path.isEmpty, path == canonicalDirectory || path.hasPrefix(canonicalDirectory + "/") { return true }
+        }
+        guard let pid, pid > 1 else { return false }
+        return parentPID(pid) == ownPID
+    }
+    /// A lexical `.`/`..`/slash cleanup, then realpath(3) of the deepest existing
+    /// ancestor. realpath keeps `/private`, so both spellings of a temporary or
+    /// `/var` path compare equal; a folder that does not exist yet still matches
+    /// the name it will have once created.
+    static func canonicalPath(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return "" }
+        var parts: [String] = []
+        for part in path.split(separator: "/", omittingEmptySubsequences: true) {
+            if part == "." { continue }
+            if part == ".." { if !parts.isEmpty { parts.removeLast() }; continue }
+            parts.append(String(part))
+        }
+        var suffix: [String] = []
+        while true {
+            let candidate = "/" + parts.joined(separator: "/")
+            if let resolved = realpath(candidate, nil) {
+                defer { free(resolved) }
+                let base = String(cString: resolved)
+                guard !suffix.isEmpty else { return base }
+                return (base == "/" ? "" : base) + "/" + suffix.reversed().joined(separator: "/")
+            }
+            guard let last = parts.popLast() else { return candidate }
+            suffix.append(last)
+        }
+    }
+}

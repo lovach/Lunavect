@@ -23,6 +23,21 @@
 - VS Code companion 0.1.2: reports its version, keeps its socket in your private temporary folder, recreates it after the folder is cleaned and warns when it cannot start. Settings → Connections shows when an installed companion is older than the bundled one. Reinstall the companion to receive these fixes. The JetBrains companion 0.1.2 is prepared in source; the bundled JetBrains installer stays 0.1.1 until it is rebuilt with the IntelliJ SDK.
 - Stale editor connection records left by forced quits are removed after a day. Installed 0.1.0 and 0.1.1 companions keep working.
 
+### Sessions
+
+- Lunavect's own `/usage` quota check no longer appears as a Claude session. Its run could show "quotaprobe-00 · Input needed", raise the menu-bar waiting count, play a notification sound, add activity minutes, start automatic Keep Awake and speed up polling.
+- Automatic hiding no longer fills Hidden sessions with finished or dormant Claude background tasks that `claude agents --all` keeps listing, or with sessions that ended before the panel showed them. The listing of such history no longer keeps hidden entries from expiring after 35 days.
+- A subagent finishing can no longer raise a session's background task count; the end of each reply sets it. Sessions that started no background work no longer show a task badge.
+- Closing Claude right after interrupting a reply no longer announces **Response ready**.
+- A Claude session whose client was killed or crashed mid-reply shows **Stopped** at once instead of working or waiting for up to ten minutes, and no longer adds activity or holds Keep Awake.
+- A hook event that arrives while a session list is being read is no longer overridden by that list, and one failed or slow read no longer empties the list.
+- Hidden-session expiry and ordering cleanup wait until the session lists have answered, instead of running once without them after launch.
+- Answered MCP forms return the session to working, and a background agent asking for input shows **Input needed**.
+- A resumed or forked Claude session appears as **Idle** before its first prompt.
+- A system clock correction no longer hides every idle session at once.
+- Session records that can no longer be read are kept aside for diagnosis and removed after a day instead of being read again on every refresh.
+- If `claude agents --json` changes its format, Connections reports an unsupported response instead of showing an empty Claude list.
+
 ## 0.2.4 — 2026-09-27
 
 - Terminal navigation stays responsive while macOS selects a tab. Slow or cancelled requests stop cleanly and retain specific permission and timeout messages.

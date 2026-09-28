@@ -193,18 +193,35 @@ public enum SessionHooks {
     public static func secureWrite(_ data: Data, to url: URL) throws {
         try LocalStateRecovery.write(data, to: url)
     }
-    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil) throws {
+    /// `isInternal` identifies Lunavect's own quota probe by its folder. `--safe-mode`
+    /// currently disables hooks there; this keeps a future client from recording it.
+    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil,
+                               runtimePID: Int32? = nil,
+                               isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) }) throws {
         let now = Date()
         let initial = try SessionRecord.event(data, provider: provider, previous: nil, now: now, client: client)
+        if provider == .claude, isInternal(initial.session.cwd) { return }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let file = directory.appendingPathComponent("\(provider.rawValue)-\(initial.session.sessionID).json")
         let lock = open(directory.appendingPathComponent(".capture.lock").path, O_CREAT | O_RDWR, 0o600)
         guard lock >= 0 else { throw SessionError.unavailable }
         defer { flock(lock, LOCK_UN); close(lock) }
         guard flock(lock, LOCK_EX) == 0 else { throw SessionError.unavailable }
-        let previous = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(SessionRecord.self, from: $0) }
+        let existing = try? Data(contentsOf: file)
+        let previous = existing.flatMap { try? JSONDecoder().decode(SessionRecord.self, from: $0) }
+        // A record that no longer decodes loses its turn start and pending
+        // approvals. Keep its bytes aside for diagnosis and say so (S-09).
+        let unreadable = existing != nil && previous == nil
+        if unreadable {
+            try? FileManager.default.moveItem(at: file, to: directory.appendingPathComponent(file.lastPathComponent + Self.corruptMarker + UUID().uuidString))
+        }
         var record = try SessionRecord.event(data, provider: provider, previous: previous, now: now, client: client)
+        if unreadable { record.session.hookDiagnostic = HookDiagnostic(kind: .unreadableRecord, at: now) }
+        // An ignored notice for a session without a record carries no lifecycle.
+        if previous == nil, record.session.phase == .unknown { return }
         if provider == .claude, let nestedClaudeRuntime { record.session.isNestedClaudeSession = nestedClaudeRuntime }
+        // Replaced on every event: a resumed session runs in a new process.
+        if provider == .claude { record.session.runtimePID = runtimePID }
         if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
         if let ide {
             record.session.ideLocation = ide; record.session.client = ide.editor.client
@@ -234,6 +251,7 @@ public enum SessionHooks {
         }
     }
     private static let loadedRecords = LocalFileCache<AgentSession>()
+    static let corruptMarker = ".corrupt-"
     /// Lifecycle observations expire after a day. Clean only this monitor's
     /// records, under the same lock as capture; never touch provider transcripts.
     @discardableResult public static func prune(at directory: URL = directory, now: Date = Date()) throws -> Int {
@@ -255,14 +273,29 @@ public enum SessionHooks {
                 name.hasPrefix(provider.rawValue + "-") && SessionParser.validID(String(name.dropFirst(provider.rawValue.count + 1)))
             }
         }
+        /// `<provider>-<id>.json.corrupt-<uuid>`, set aside by capture.
+        func setAside(_ url: URL) -> Bool {
+            let name = url.lastPathComponent
+            guard let marker = name.range(of: ".json" + corruptMarker) else { return false }
+            return owned(URL(fileURLWithPath: String(name[..<marker.lowerBound]) + ".json")) && UUID(uuidString: String(name[marker.upperBound...])) != nil
+        }
         var removed = 0
         for file in files {
             guard let values = try? file.resourceValues(forKeys: keys), values.isRegularFile == true,
                   values.isSymbolicLink != true, let modified = values.contentModificationDate, modified < cutoff else { continue }
-            if file.pathExtension == "json", owned(file), (values.fileSize ?? 0) < 65536,
-               let data = try? Data(contentsOf: file), let record = try? JSONDecoder().decode(SessionRecord.self, from: data),
-               file.lastPathComponent == "\(record.session.provider.rawValue)-\(record.session.sessionID).json",
-               record.session.observedAt < cutoff {
+            if file.pathExtension == "json", owned(file) {
+                let loadable = (values.fileSize ?? 0) < 65536
+                let data = loadable ? try? Data(contentsOf: file) : nil
+                if let data, let record = try? JSONDecoder().decode(SessionRecord.self, from: data) {
+                    guard file.lastPathComponent == "\(record.session.provider.rawValue)-\(record.session.sessionID).json",
+                          record.session.observedAt < cutoff else { continue }
+                } else if loadable && data == nil {
+                    continue // Not readable right now (for example permissions): not proof of damage.
+                }
+                // Expired, or never loadable again (damaged, oversized or rejected
+                // by a stricter decoder): it would be decoded on every poll forever.
+                try FileManager.default.removeItem(at: file); removed += 1
+            } else if setAside(file) {
                 try FileManager.default.removeItem(at: file); removed += 1
             }
         }
