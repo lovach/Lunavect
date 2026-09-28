@@ -207,7 +207,12 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
     }
     private mutating func prune(at end: Date) {
         let cutoff = end.addingTimeInterval(-35 * 86400)
-        intervals.removeAll { $0.end <= cutoff }
+        // Intervals are ordered and disjoint (load validates it; append and union keep
+        // it), so only a prefix can expire: no scan of the whole history on every
+        // observation (R2-R-03).
+        if let first = intervals.first, first.end <= cutoff {
+            intervals.removeFirst(intervals.prefix { $0.end <= cutoff }.count)
+        }
         if !intervals.isEmpty, intervals[0].start < cutoff { intervals[0].start = cutoff }
         // Bound storage even when state changes every second for weeks.
         if intervals.count > 50_000 { intervals.removeFirst(intervals.count - 50_000) }

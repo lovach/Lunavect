@@ -63,13 +63,15 @@ final class DataLifecycleRegressionTests: XCTestCase {
             date.now = now.addingTimeInterval(Double(seconds)); service.observe([row(.idle)])
         }
         service.flush()
-        XCTAssertLessThanOrEqual(storage.counters.written, 13, "Initial state, at most twelve idle checkpoints including final flush")
-        let beforeWork = storage.counters.written
+        // Checkpoints are counted as requests: a checkpoint still waiting for the disk
+        // is replaced by the next one (R2-R-02), so physical writes can be fewer.
+        XCTAssertLessThanOrEqual(storage.counters.submitted, 13, "Initial state, at most twelve idle checkpoints including final flush")
+        let beforeWork = storage.counters.submitted
         for seconds in stride(from: 3600, through: 3720, by: 5) {
             date.now = now.addingTimeInterval(Double(seconds)); service.observe([row(.running)])
         }
         service.stop()
-        XCTAssertGreaterThanOrEqual(storage.counters.written - beforeWork, 3)
+        XCTAssertGreaterThanOrEqual(storage.counters.submitted - beforeWork, 3)
         XCTAssertEqual(try ActivityHistory.load(from: root.appendingPathComponent("history.json")), service.history)
         XCTAssertEqual(service.history.summary(now: date.now).totals.codex, 120)
     }
