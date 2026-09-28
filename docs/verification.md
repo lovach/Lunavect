@@ -1,8 +1,22 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.2.5 (192)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.2.6 (193)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.5)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.6)
+
+## 0.2.6 release checks — September 28, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `1f1509fd26b1430e4615d6277d839d63b4e8d9e6`, tagged `v0.2.6`, merged through [PR #42](https://github.com/lovach/Lunavect/pull/42). Merge `53d69c28950219ddacbd8c563d112b4749c7e8e5` has exactly the archived source tree. Archive, signed export and provenance checks passed; no application code changed during release packaging. |
+| Automated checks | The saved local check for this exact clean source passed: 1,165 Swift tests passed, 79 skipped and zero failures (1,244 total); 169 Python tests passed, one skipped and zero failures (170 total). Editor companion checks, unsigned universal app/widget/helpers, resources and the built intent-resource test passed. [PR source CI](https://github.com/lovach/Lunavect/actions/runs/36407259494) passed; optional native-render, thread-sanitizer and synthetic-performance jobs were skipped. The release run reused this evidence and did not rerun tests against client settings. |
+| Distribution | Developer ID signed and Apple notarized, build 193. Anonymous downloads of all four release assets match packaged bytes, sizes and SHA-256 digests. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, resources, hook-helper, App Group and awake-policy checks. Universal arm64/x86_64 app and widget slices were verified. |
+| Update signatures | ZIP and appcast signatures verify with the public key from installed 0.2.5. Deliberately damaged ZIP and feed copies are rejected. The latest public feed points to build 193 and the exact `v0.2.6` ZIP URL. |
+| Editor companions | The exported app bundles VS Code companion 0.1.2 and JetBrains companion 0.1.2. Reinstall the JetBrains companion from Settings → Connections and restart the IDE. The app now offers an update to older companions, including 0.1.1; replacing the app alone does not replace editor plugins. See [IDE setup and compatibility](ide-sessions.md). |
+| Existing downloads | All 16 previous releases retain their 66 asset identities, URLs, sizes and digests. |
+| Scope | These are source, packaging and public-download checks. Installed Sparkle updates, desktop rendering and the new live IDEA/npm-Claude/manual limit-check scenarios require their own live evidence. Earlier version-specific checks below remain historical. No provider sign-in or model request was made for publication. |
+
+The 0.2.6 DMG SHA-256 is `cbb3e5a41340af92db3886c3b4f379a3e89b062ec2e21a7eb7d86727bc4973bf`.
 
 ## 0.2.5 release checks — September 28, 2026
 
