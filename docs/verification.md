@@ -1,8 +1,22 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.2.6 (193)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.2.7 (194)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.6)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.7)
+
+## 0.2.7 release checks — September 28, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `621e726312e04675e5580b73d39fd6c3babcb51a`, tagged `v0.2.7`, merged through [PR #44](https://github.com/lovach/Lunavect/pull/44). Merge `33ec08bafc32c49fd3f754a25061a00099377b80` has exactly the archived source tree. Archive, signed export and provenance checks passed; no application code changed during release packaging. |
+| Automated checks | The saved local check for this exact clean source passed: 1,183 Swift tests passed, 79 skipped and zero failures (1,262 total); 169 Python tests passed, one skipped and zero failures (170 total); 22 editor companion Node tests passed. Unsigned universal app/widget/helpers, resources and the built intent-resource test passed. [PR source CI](https://github.com/lovach/Lunavect/actions/runs/36460904509) passed; optional native-render, thread-sanitizer and synthetic-performance jobs were skipped. This release run reused that evidence and did not rerun tests against client settings. |
+| Distribution | Developer ID signed and Apple notarized, build 194. Anonymous downloads of all four release assets match packaged bytes, sizes and SHA-256 digests. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, resources, hook-helper, App Group and awake-policy checks. Universal arm64/x86_64 app and widget slices were verified. |
+| Update signatures | ZIP and appcast signatures verify with the public key from installed 0.2.6. Deliberately damaged ZIP and feed copies are rejected. The latest public feed points to build 194 and the exact `v0.2.7` ZIP URL. |
+| Editor companions | The exported app bundles VS Code companion 0.1.3 and JetBrains companion 0.1.2. Reinstall the VS Code companion in VS Code or Cursor and reload the editor; updating Lunavect alone does not update editor extensions. See [IDE setup and compatibility](ide-sessions.md). |
+| Existing downloads | All 17 previous releases retain their 70 asset identities, URLs, sizes and digests. |
+| Scope | These are source, packaging and public-download checks. The installed Sparkle update, Cursor/VS Code navigation, idle-data freshness and Fable widget scenarios require their own live evidence. A NotificationCenter LIVE record alone does not prove fresh widget data: chronod reload acceptance, current process paths and displayed data timestamps must also be checked. Earlier version-specific checks below remain historical. No provider sign-in or model request was made for publication. |
+
+The 0.2.7 DMG SHA-256 is `81218158e13be71bbc729afa358fe85c6fde420fe34b831c93a50e3621749353`.
 
 ## 0.2.6 release checks — September 28, 2026
 
