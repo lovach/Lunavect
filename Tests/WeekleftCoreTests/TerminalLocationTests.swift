@@ -128,6 +128,20 @@ final class TerminalLocationTests: XCTestCase {
         XCTAssertNil(SessionProcess.processArguments(1), "Another user's process (launchd) is never read")
     }
 
+    /// R26-V2-03 against the real kernel: a process started with an empty argv[0] (any
+    /// launcher may do so) keeps it, and its environment never enters the vector.
+    func testEmptyFirstArgumentOfARealProcessIsNotTakenForPadding() throws {
+        let stub = try Self.natives.compileOnce(Self.waitingSource, as: "node")
+        var pid: pid_t = 0
+        let argv: [UnsafeMutablePointer<CChar>?] = [strdup(""), strdup("second"), nil]
+        let envp: [UnsafeMutablePointer<CChar>?] = [strdup("SECRET_R26=1"), nil]
+        defer { for pointer in argv + envp { free(pointer) } }
+        guard posix_spawn(&pid, stub.path, nil, nil, argv, envp) == 0 else { throw FixtureError(description: "posix_spawn failed") }
+        Self.natives.track(pid)
+        defer { kill(pid, SIGKILL); var status: Int32 = 0; waitpid(pid, &status, 0) }
+        XCTAssertEqual(SessionProcess.processArguments(pid), ["", "second"])
+    }
+
     func testCatalogAssociatesEachSessionWithItsOwnProcessAndPreservesLiveLocation() throws {
         let data = Data(#"[{"sessionId":"first","pid":10,"cwd":"/tmp/project","kind":"interactive","status":"busy"},{"sessionId":"second","pid":20,"cwd":"/tmp/project","kind":"interactive","status":"busy"},{"sessionId":"background","pid":30,"kind":"background","status":"busy"},{"sessionId":"bad-pid","pid":-2,"kind":"interactive"}]"#.utf8)
         var reads: [Int32] = []

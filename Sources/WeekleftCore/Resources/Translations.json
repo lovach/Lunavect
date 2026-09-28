@@ -5704,12 +5704,12 @@
     "fr": "Vérification interne des limites",
     "zh-Hans": "内部额度检查"
   },
-  "Это служебная проверка лимитов Claude (команда /usage), а не рабочая сессия. Открывать её не нужно. Чтобы завершить её, нажмите Esc, затем Ctrl+C в окне, где она запущена.": {
-    "en": "This is a Claude limit check (the /usage command), not a work session. There is no need to open it. To end it, press Esc, then Ctrl+C in the window where it runs.",
-    "de": "Dies ist eine interne Limitprüfung von Claude (Befehl /usage), keine Arbeitssitzung. Sie müssen sie nicht öffnen. Um sie zu beenden, drücken Sie in dem Fenster, in dem sie läuft, Esc und dann Ctrl+C.",
-    "es": "Es una comprobación interna de límites de Claude (el comando /usage), no una sesión de trabajo. No hace falta abrirla. Para terminarla, pulsa Esc y luego Ctrl+C en la ventana donde se ejecuta.",
-    "fr": "Il s’agit d’une vérification interne des limites de Claude (commande /usage), pas d’une session de travail. Inutile de l’ouvrir. Pour l’arrêter, appuyez sur Échap, puis sur Ctrl+C dans la fenêtre où elle s’exécute.",
-    "zh-Hans": "这是 Claude 的内部额度检查（/usage 命令），不是工作会话，无需打开。要结束它，请在其运行的窗口中按 Esc，然后按 Ctrl+C。"
+  "Это служебная проверка лимитов Claude (команда /usage), а не рабочая сессия. Открывать её не нужно: завершите её в окне, где она запущена, клавишей Esc, затем дважды Ctrl+C.": {
+    "en": "This is a Claude limit check (the /usage command), not a work session. There is no need to open it: end it in the window where it runs by pressing Esc, then Ctrl+C twice.",
+    "de": "Dies ist eine interne Limitprüfung von Claude (Befehl /usage), keine Arbeitssitzung. Sie müssen sie nicht öffnen: Beenden Sie sie in dem Fenster, in dem sie läuft, mit Esc und dann zweimal Ctrl+C.",
+    "es": "Es una comprobación interna de límites de Claude (el comando /usage), no una sesión de trabajo. No hace falta abrirla: termínala en la ventana donde se ejecuta pulsando Esc y luego Ctrl+C dos veces.",
+    "fr": "Il s’agit d’une vérification interne des limites de Claude (commande /usage), pas d’une session de travail. Inutile de l’ouvrir : arrêtez-la dans la fenêtre où elle s’exécute en appuyant sur Échap, puis deux fois sur Ctrl+C.",
+    "zh-Hans": "这是 Claude 的内部额度检查（/usage 命令），不是工作会话，无需打开：请在其运行的窗口中按 Esc，然后按两次 Ctrl+C 结束它。"
   },
   "Сессия запущена во встроенном терминале {0}. Lunavect не может переключить его вкладку: откройте окно {0}.": {
     "en": "This session runs in the built-in terminal of {0}. Lunavect cannot switch to its tab: open the {0} window.",

@@ -106,14 +106,23 @@ final class IDESessionLocationTests: XCTestCase {
                      "The Codex npm wrapper is identified by its native child, not as Claude")
     }
 
+    /// The kernel layout as `sysctl(KERN_PROCARGS2)` returns it (checked on macOS 26 with
+    /// every executable path length): the path is NUL-padded to an 8-byte boundary of the
+    /// string area, and argv[0] starts there even when it is empty.
     func testProcessArgumentsLayoutIsParsedWithoutTheEnvironment() {
-        func bytes(argc: Int32, _ strings: [String], padding: Int = 3) -> [UInt8] {
-            var result = withUnsafeBytes(of: argc) { Array($0) } + Array("/opt/homebrew/bin/node".utf8) + [UInt8](repeating: 0, count: padding)
+        func bytes(argc: Int32, _ strings: [String], path: String = "/opt/homebrew/bin/node") -> [UInt8] {
+            let padded = (path.utf8.count + 1 + 7) / 8 * 8
+            var result = withUnsafeBytes(of: argc) { Array($0) } + Array(path.utf8) + [UInt8](repeating: 0, count: padded - path.utf8.count)
             for string in strings { result += Array(string.utf8) + [0] }
             return result
         }
         XCTAssertEqual(SessionProcess.parseProcessArguments(bytes(argc: 2, ["node", "/bin/claude", "SECRET=1"])), ["node", "/bin/claude"])
         XCTAssertEqual(SessionProcess.parseProcessArguments(bytes(argc: 3, ["claude", "", ""])), ["claude", "", ""])
+        for path in ["/bin/node", "/usr/bin/node", "/opt/homebrew/bin/node", "/Users/u/.bun/bin/bun", "/a/b/c/d/nodejs1"] {
+            XCTAssertEqual(SessionProcess.parseProcessArguments(bytes(argc: 2, ["", "/x/cli.js", "SECRET=1"], path: path)), ["", "/x/cli.js"],
+                           "R26-V2-03: an empty argv[0] is not padding (\(path.utf8.count + 1) path bytes)")
+            XCTAssertEqual(SessionProcess.parseProcessArguments(bytes(argc: 2, ["", "", "SECRET=1"], path: path)), ["", ""])
+        }
         XCTAssertNil(SessionProcess.parseProcessArguments(bytes(argc: 4, ["node", "/bin/claude"])), "A truncated vector is unknown")
         XCTAssertNil(SessionProcess.parseProcessArguments(bytes(argc: 0, [])))
         XCTAssertNil(SessionProcess.parseProcessArguments([1, 0]))
