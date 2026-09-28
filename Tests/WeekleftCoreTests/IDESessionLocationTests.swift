@@ -221,6 +221,30 @@ final class IDESessionLocationTests: XCTestCase {
         XCTAssertEqual(SessionIDE.identify(bundleIdentifier: "com.microsoft.VSCodeInsiders"), .vscode)
     }
 
+    /// Every JetBrains product goes through the same origin, descriptor and routing path
+    /// as IntelliJ IDEA; only IntelliJ IDEA was exercised live.
+    func testOtherJetBrainsProductsUseTheSameOriginAndCompanionPath() throws {
+        for (bundle, app) in [("com.jetbrains.WebStorm", "WebStorm"), ("com.jetbrains.pycharm.ce", "PyCharm CE"), ("com.jetbrains.goland", "GoLand"),
+                              ("com.jetbrains.rustrover-EAP", "RustRover"), ("com.jetbrains.PhpStorm", "PhpStorm"), ("com.jetbrains.rider", "Rider")] {
+            let processes: [Int32: IDEProcessLocation.ProcessInfo] = [
+                42: process(42, parent: 30, path: "/Users/u/.local/bin/claude", tty: true),
+                30: process(30, parent: 20, path: "/bin/zsh", tty: true),
+                20: process(20, parent: 1, path: "/Applications/\(app).app/Contents/MacOS/\(app.lowercased())")]
+            let location = try XCTUnwrap(IDEProcessLocation.locate(parentPID: 42, provider: .claude, read: { processes[$0] }, bundle: { _ in bundle }), bundle)
+            XCTAssertEqual(location.editor, .jetbrains, bundle)
+            XCTAssertEqual(location.appPath, "/Applications/\(app).app")
+            let id = UUID().uuidString
+            let descriptor = IDEBridge.Descriptor(version: 1, id: id, editor: .jetbrains, pid: 20, appPath: location.appPath, bundleIdentifier: bundle,
+                                                  socketPath: "/tmp/lunavect-ide-\(getuid())/\(id).sock", updatedAt: Date().timeIntervalSince1970, companion: "0.1.2")
+            XCTAssertTrue(IDEBridge.valid(descriptor), "\(bundle): its companion descriptor is accepted")
+        }
+        let processes: [Int32: IDEProcessLocation.ProcessInfo] = [
+            42: process(42, parent: 20, path: "/Users/u/.local/bin/claude", tty: true),
+            20: process(20, parent: 1, path: "/Applications/Android Studio.app/Contents/MacOS/studio")]
+        XCTAssertNil(IDEProcessLocation.locate(parentPID: 42, provider: .claude, read: { processes[$0] }, bundle: { _ in "com.google.android.studio" }),
+                     "Android Studio is not a com.jetbrains product; the companion refuses it too")
+    }
+
     /// Messages name the actual JetBrains product from its bundle, not the vendor.
     func testEditorMessagesNameTheProductFromItsBundle() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
