@@ -4,6 +4,8 @@ import AppKit
 import WeekleftCore
 @testable import Weekleft
 
+private struct LayoutDidNotSettle: Error, CustomStringConvertible { let description: String }
+
 final class HiddenSessionsRenderingTests: XCTestCase {
     @MainActor func testPanelFitsWholeRowsAcrossCountsScrollLimitsAndFooterChanges() throws {
         let uiDependencies = try AppEnvironment.preview(rows: [])
@@ -31,7 +33,8 @@ final class HiddenSessionsRenderingTests: XCTestCase {
 
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         // Measure the steady state, not a row transition that is still running on a
-        // slow machine: every row is mounted once and three passes agree.
+        // slow machine: every row is mounted once and the computed geometry agrees
+        // across passes.
         func rowLayout() -> [String] {
             descendants(host).compactMap { view -> String? in
                 guard let handle = view as? SessionRowInteraction.Handle, let id = handle.session?.id,
@@ -40,18 +43,33 @@ final class HiddenSessionsRenderingTests: XCTestCase {
                 return "\(id)@\(Int(frame.minY.rounded()))"
             }.sorted()
         }
-        func settle() {
-            let deadline = Date().addingTimeInterval(3)
-            var passes = 0, stable = 0, previous: [String] = []
-            repeat {
+        // Everything the assertions below read: row frames, the panel height the
+        // view requested, its measured sections and viewport, the scroll position
+        // and the native clip/document geometry.
+        func geometry() -> String {
+            let scroll = descendants(host).compactMap { $0 as? NSScrollView }.first
+            let native = scroll.map { "\($0.contentView.bounds)|\($0.documentView?.bounds ?? .zero)" } ?? "none"
+            let measured = sections.keys.sorted().map { "\($0)=\(sections[$0] ?? 0)" }.joined(separator: ",")
+            return [rowLayout().joined(separator: ","), "\(height)", measured, "\(measuredViewport)", "\(state.scrollOffset)", native]
+                .joined(separator: " # ")
+        }
+        // Settles on computed geometry, not on elapsed time: the layout is steady
+        // when rows are mounted once and three consecutive passes, each at least
+        // 50 ms apart (longer than a frame of any running transition), agree.
+        // The pass budget only turns a layout that never settles into a clear failure.
+        func settle() throws {
+            var stable = 0, previous = ""
+            for pass in 1...200 {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.05))
                 window.setContentSize(NSSize(width: 360, height: height))
                 host.frame.size = NSSize(width: 360, height: height)
                 host.layoutSubtreeIfNeeded()
-                let layout = rowLayout(), ids = layout.map { $0.split(separator: "@")[0] }
-                stable = Set(ids).count == ids.count && layout == previous ? stable + 1 : 0
-                previous = layout; passes += 1
-            } while (passes < 6 || stable < 3) && Date() < deadline
+                let ids = rowLayout().map { $0.split(separator: "@")[0] }, current = geometry()
+                stable = Set(ids).count == ids.count && !host.needsLayout && current == previous ? stable + 1 : 0
+                previous = current
+                if pass >= 6 && stable >= 3 { return }
+            }
+            throw LayoutDidNotSettle(description: "The session panel did not settle in 200 layout passes; last geometry: \(previous)")
         }
         func panelRect(of view: NSView) -> CGRect {
             let rect = host.convert(view.bounds, from: view)
@@ -59,7 +77,7 @@ final class HiddenSessionsRenderingTests: XCTestCase {
                                                   width: rect.width, height: rect.height)
         }
         func checkScrollLimits(expectedCount: Int) throws {
-            settle()
+            try settle()
             let handle = try XCTUnwrap(descendants(host).compactMap { $0 as? SessionRowInteraction.Handle }.first)
             let scroll = try XCTUnwrap(handle.enclosingScrollView)
             let document = try XCTUnwrap(scroll.documentView)
@@ -71,7 +89,7 @@ final class HiddenSessionsRenderingTests: XCTestCase {
                 let y = document.isFlipped == bottom ? maximumY : document.bounds.minY
                 scroll.contentView.scroll(to: CGPoint(x: scroll.contentView.bounds.minX, y: y))
                 scroll.reflectScrolledClipView(scroll.contentView)
-                settle()
+                try settle()
 
                 let viewport = panelRect(of: scroll.contentView)
                 // AppKit pixel-aligns the clip view; SwiftUI retains its fractional origin.
