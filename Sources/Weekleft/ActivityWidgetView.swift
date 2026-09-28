@@ -96,12 +96,7 @@ struct SmallLimitsCard: View {
     let preferences: WidgetPreferences
     let now: Date
     private var visibleSnapshots: [UsageSnapshot] { snapshots.filter { preferences.providers.contains($0.provider) } }
-    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay {
-        let stale = snapshot.isStale(window: snapshot.weekly, now: now)
-        let window = snapshot.weekly.flatMap { $0.isExpired(at: now) ? nil : $0 }
-        return WidgetQuotaDisplay(window: window, dimmed: stale, showsStatus: window == nil || stale,
-                                  needsAttention: snapshot.issue != nil || (snapshot.fetchedAt != nil && stale))
-    }
+    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
     var marksAttention: Bool { visibleSnapshots.contains { display($0).needsAttention } }
     private var lastDate: Date? { visibleSnapshots.compactMap(\.fetchedAt).min() }
     var body: some View {
@@ -207,11 +202,7 @@ struct OverviewLimitsCard: View {
     let preferences: WidgetPreferences
     let now: Date
     /// The overview draws no attention mark of its own.
-    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay {
-        let stale = snapshot.isStale(window: snapshot.weekly, now: now)
-        return WidgetQuotaDisplay(window: snapshot.weekly.flatMap { $0.isExpired(at: now) ? nil : $0 }, dimmed: stale, showsStatus: stale,
-                                  needsAttention: snapshot.issue != nil || (snapshot.fetchedAt != nil && stale))
-    }
+    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L("Недельный остаток")).font(.system(size: 10, weight: .medium)).foregroundStyle(WidgetInk(0.78))

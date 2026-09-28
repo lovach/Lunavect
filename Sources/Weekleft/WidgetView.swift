@@ -5,7 +5,8 @@ import WeekleftCore
 
 /// What a limits card shows for one weekly window: the value, whether it is
 /// dimmed as saved data, whether the state sentence replaces the reset
-/// countdown and whether the card marks it as not updated.
+/// countdown and whether the card marks it as not updated. Every card uses
+/// the same window status as the menu bar (P-I4, R2-P-05).
 struct WidgetQuotaDisplay: Equatable {
     /// The window whose remaining share and reset are shown.
     var window: QuotaWindow?
@@ -13,6 +14,18 @@ struct WidgetQuotaDisplay: Equatable {
     var dimmed: Bool
     var showsStatus: Bool
     var needsAttention: Bool
+    init(window: QuotaWindow?, unlimited: Bool = false, dimmed: Bool, showsStatus: Bool, needsAttention: Bool) {
+        self.window = window; self.unlimited = unlimited; self.dimmed = dimmed
+        self.showsStatus = showsStatus; self.needsAttention = needsAttention
+    }
+    /// No limits, a value, an exhausted window or a passed reset: shown as in the menu bar.
+    init(weekly snapshot: UsageSnapshot, now: Date) {
+        let status = snapshot.status(of: snapshot.weekly, now: now)
+        let window = status.remaining(of: snapshot.weekly) == nil ? nil : snapshot.weekly
+        self.init(window: window, unlimited: status == .unlimited, dimmed: status.isStale,
+                  showsStatus: window == nil || status.isStale || status.note(now: now) != nil,
+                  needsAttention: snapshot.issue != nil || (snapshot.fetchedAt != nil && status.needsAttention))
+    }
     var percent: Int? { window.map { Int($0.remaining.rounded()) } }
     /// "∞", the remaining share or a dash.
     var value: String { unlimited ? "∞" : percent.map { PercentText.format($0) } ?? "—" }
@@ -63,13 +76,7 @@ struct WeekleftCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 26))
     }
     }
-    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay {
-        let status = snapshot.status(of: snapshot.weekly, now: now)
-        let window = status.remaining(of: snapshot.weekly) == nil ? nil : snapshot.weekly
-        return WidgetQuotaDisplay(window: window, unlimited: status == .unlimited, dimmed: status.isStale,
-                                  showsStatus: window == nil || status.isStale || status.note(now: now) != nil,
-                                  needsAttention: snapshot.issue != nil || (snapshot.fetchedAt != nil && status.needsAttention))
-    }
+    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
     var marksAttention: Bool { snapshots.contains { display($0).needsAttention } }
     private func providerRow(_ id: ProviderID) -> some View {
         let snapshot = snapshots.first(where: { $0.provider == id }) ?? UsageSnapshot(provider: id)
@@ -146,13 +153,7 @@ struct SingleProviderLimitsCard: View {
     let preferences: WidgetPreferences
     let now: Date
     var compact = false
-    var display: WidgetQuotaDisplay {
-        let status = snapshot.status(of: snapshot.weekly, now: now)
-        let window = status.remaining(of: snapshot.weekly) == nil ? nil : snapshot.weekly
-        return WidgetQuotaDisplay(window: window, unlimited: status == .unlimited, dimmed: status.isStale,
-                                  showsStatus: window == nil || status.isStale || status.note(now: now) != nil,
-                                  needsAttention: snapshot.issue != nil || (snapshot.fetchedAt != nil && status.needsAttention))
-    }
+    var display: WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
     private var weekly: QuotaWindow? { display.window }
     private var five: QuotaWindow? { snapshot.status(of: snapshot.fiveHour, now: now).remaining(of: snapshot.fiveHour) == nil ? nil : snapshot.fiveHour }
     var body: some View {
