@@ -85,7 +85,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                         Button {
                             Task { await store.refresh(); await sessions.refresh() }
                         } label: { InterfaceLabel(L("Обновить"), .refresh) }
-                            .disabled(store.refreshing)
+                            .disabled(!QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline).allowsCheck)
                     }
                 }.padding(.horizontal, 20).padding(.vertical, 16)
                 Divider()

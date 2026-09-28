@@ -50,6 +50,46 @@ struct ConnectionCardState {
             needsSetup = !configured; action = configured ? .refresh : .setup
         }
     }
+
+    /// The sentence under limits that are shown but not fresh.
+    static func savedQuotaNote(provider: ProviderID, snapshot: UsageSnapshot?, now: Date = Date()) -> String? {
+        guard let snapshot, snapshot.hasQuota else { return nil }
+        guard snapshot.isStale(now: now) || snapshot.issue != nil else { return nil }
+        return "Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."
+    }
+    /// What to do about the source issue shown on the card, when the card offers no button for it.
+    static func issueGuidance(provider: ProviderID, issue: String?) -> String? { nil }
+}
+
+/// Whether the quota check controls can ask the provider now.
+enum QuotaCheckAvailability: Equatable {
+    case available, refreshing, offline
+    init(refreshing: Bool, offline: Bool) {
+        self = refreshing ? .refreshing : .available
+    }
+    var allowsCheck: Bool { self == .available }
+    /// Shown beside disabled controls; nil when they are available.
+    var reason: String? { nil }
+}
+
+/// One step of a card's connection details.
+struct ConnectionStepRow: View {
+    let number: Int
+    let title: String
+    let complete: Bool
+    var stale = false
+    var body: some View {
+        HStack(spacing: 8) {
+            if complete {
+                InterfaceIcon(stale ? .history : .checkCircle, size: 13)
+                    .foregroundStyle(stale ? Color.secondary : Color.green).frame(width: 16)
+            } else {
+                Text(String(number)).font(.system(size: 9, weight: .semibold))
+                    .frame(width: 16, height: 16).background(.primary.opacity(0.08), in: Circle())
+            }
+            Text(title).foregroundStyle(complete && !stale ? Color.primary : .secondary)
+        }.font(.system(size: 11))
+    }
 }
 
 struct ConnectionsView: View {
@@ -155,8 +195,6 @@ struct ConnectionsView: View {
         let configured = sessions.hooksInstalled[id] == true && (id == .codex || sessions.connectionStates[.claude]?.statusLine == .ready)
         let card = ConnectionCardState(provider: id, resolver: store.clientResolver, configured: configured, snapshot: snapshot,
                                        local: sessions.connectionStates[id], eventsDisabled: sessions.eventsDisabledByUser.contains(id))
-        let hasQuota = snapshot?.hasQuota == true
-        let freshQuota = snapshot.map { !$0.isStale() && $0.issue == nil && $0.hasQuota } ?? false
         let receivedEvents = sessions.currentSessions.contains { $0.provider == id && [.hook, .localEvent].contains($0.evidence) }
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -175,7 +213,7 @@ struct ConnectionsView: View {
                         refreshingCard = id
                         Task { await store.refresh(provider: id); await sessions.refresh(); refreshingCard = nil }
                     }
-                }.disabled(store.refreshing || refreshingCard != nil)
+                }.disabled(!QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline).allowsCheck || refreshingCard != nil)
                     .accessibilityIdentifier("connect-" + id.rawValue)
             }
             if refreshingCard == id { ProgressView().controlSize(.small) }
@@ -183,9 +221,8 @@ struct ConnectionsView: View {
                 Text(L("Последние данные: {0}", date.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            if hasQuota && !freshQuota {
-                Text(L("Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            if let note = ConnectionCardState.savedQuotaNote(provider: id, snapshot: snapshot) {
+                Text(L(note)).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if id == .claude, ClaudeStatusLineReach.onlyDesktopSessions(sessions.sessions, statusLineObservedAt: statusLineObservedAt, now: Date()) {
                 InterfaceLabel(L("Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage"), .info)
@@ -196,6 +233,9 @@ struct ConnectionsView: View {
                     Text(L("Ждём соединение. Данные обновятся автоматически.")).font(.system(size: 12)).foregroundStyle(.secondary)
                 } else {
                     Text(L(issue)).font(.system(size: 12)).foregroundStyle(.orange)
+                    if let guidance = ConnectionCardState.issueGuidance(provider: id, issue: issue) {
+                        Text(L(guidance)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                     // The saved message maps to its typed reason; sign-in, setup and the
                     // probe folder's trust question each open their own Terminal step.
                     let repair = ClientIntegrationIssue.legacy(issue, provider: id, capability: id == .codex ? .rateLimits : .usageProbe)?.repair
@@ -208,8 +248,8 @@ struct ConnectionsView: View {
             }
             DisclosureGroup(L("Подробности подключения")) {
                 VStack(alignment: .leading, spacing: 10) {
-                    connectionStep(1, title: L("Приложение найдено"), complete: card.clientFound)
-                    connectionStep(2, title: L("Локальные события настроены"), complete: configured)
+                    ConnectionStepRow(number: 1, title: L("Приложение найдено"), complete: card.clientFound)
+                    ConnectionStepRow(number: 2, title: L("Локальные события настроены"), complete: configured)
                     if let missing = sessions.connectionStates[id]?.missingExecutable {
                         Text(L("Не найден файл: {0}", missing)).font(.system(size: 11)).foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
@@ -233,17 +273,5 @@ struct ConnectionsView: View {
                 }.padding(.top, 6)
             }
         }.padding(14).background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-    }
-    private func connectionStep(_ number: Int, title: String, complete: Bool, stale: Bool = false) -> some View {
-        HStack(spacing: 8) {
-            if complete {
-                InterfaceIcon(stale ? .history : .checkCircle, size: 13)
-                    .foregroundStyle(stale ? Color.secondary : Color.green).frame(width: 16)
-            } else {
-                Text(String(number)).font(.system(size: 9, weight: .semibold))
-                    .frame(width: 16, height: 16).background(.primary.opacity(0.08), in: Circle())
-            }
-            Text(title).foregroundStyle(complete && !stale ? Color.primary : .secondary)
-        }.font(.system(size: 11))
     }
 }
