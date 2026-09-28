@@ -9,6 +9,11 @@ struct DeadlineExceeded: Error, CustomStringConvertible {
     let description: String
 }
 
+/// A native fixture that could not be built or did not report as expected.
+struct FixtureError: Error, CustomStringConvertible {
+    let description: String
+}
+
 enum TestDeadline {
     /// Generous upper bound for work that must not wait: a loaded runner still
     /// finishes in milliseconds, a blocking regression never does.
@@ -120,7 +125,7 @@ final class NativeFixtures: @unchecked Sendable {
         compiler.waitUntilExit()
         guard compiler.terminationStatus == 0 else {
             let text = String(decoding: log.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            throw DeadlineExceeded(description: "clang failed for \(name): \(text)")
+            throw FixtureError(description: "clang failed for \(name): \(text)")
         }
         return output
     }
@@ -186,7 +191,7 @@ final class NativeFixtures: @unchecked Sendable {
             let count = Darwin.read(fd, &bytes, bytes.count)
             if count < 0 && (errno == EINTR || errno == EAGAIN) { continue }
             guard count > 0 else {
-                throw DeadlineExceeded(description: "Fixture closed its output before a complete line; received \(String(decoding: received, as: UTF8.self).debugDescription)")
+                throw FixtureError(description: "Fixture closed its output before a complete line; received \(String(decoding: received, as: UTF8.self).debugDescription)")
             }
             received.append(contentsOf: bytes.prefix(count))
         }

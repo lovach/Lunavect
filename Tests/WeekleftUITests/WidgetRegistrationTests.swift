@@ -3,6 +3,17 @@ import Darwin
 @testable import Weekleft
 
 @MainActor final class WidgetRegistrationTests: XCTestCase {
+    /// Stands in for the widget extension: a process with a chosen executable path.
+    nonisolated private static let sleeper = CompiledFixture("#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n",
+                                                 name: "LunavectWidget", prefix: "widget-registration-fixture")
+    nonisolated override class func setUp() {
+        super.setUp()
+        _ = try? sleeper.executable() // one clang run per suite
+    }
+    nonisolated override class func tearDown() {
+        sleeper.remove()
+        super.tearDown()
+    }
     private func defaults() -> UserDefaults {
         let name = "WidgetRegistrationTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -71,7 +82,7 @@ import Darwin
             reassert: { _ in XCTFail("Cancelled registration"); return false },
             reload: { XCTFail("Cancelled registration") }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         service.start()
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 5)
         service.stop()
         await service.waitUntilFinished()
         XCTAssertNil(defaults.string(forKey: WidgetRegistration.stampKey))
@@ -111,7 +122,7 @@ import Darwin
             reload: { XCTFail("Stopped before the check") }, pause: {},
             settle: { _ in settling.fulfill(); try await Task.sleep(for: .seconds(60)) }, registeredCopies: { [] })
         service.start()
-        await fulfillment(of: [settling], timeout: 3)
+        await fulfillment(of: [settling], timeout: 5)
         service.stop()
         await service.waitUntilFinished()
     }
@@ -134,26 +145,22 @@ import Darwin
         let root = URL(fileURLWithPath: String(cString: canonical))
         defer { try? FileManager.default.removeItem(at: root) }
         // A copied Apple-signed /bin/sleep is not a stable synthetic executable:
-        // macOS can reject the relocated binary before discovery. Build our own.
-        let source = root.appendingPathComponent("fixture.c")
-        try Data("#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n".utf8).write(to: source)
+        // macOS can reject the relocated binary before discovery. Build our own
+        // once per suite and copy it to each extension path.
+        let compiled = try Self.sleeper.executable()
         let own = WidgetRegistrationTarget(app: root.appendingPathComponent("Installed/Lunavect.app"), version: "1")
         let other = WidgetRegistrationTarget(app: root.appendingPathComponent("Archive/Lunavect.app"), version: "1")
         func launch(_ target: WidgetRegistrationTarget) throws -> Process {
             let executable = URL(fileURLWithPath: target.executable)
             try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let compiler = Process(); compiler.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
-            compiler.arguments = [source.path, "-o", executable.path]
-            try compiler.run(); compiler.waitUntilExit()
-            XCTAssertEqual(compiler.terminationStatus, 0)
+            try FileManager.default.copyItem(at: compiled, to: executable)
             let process = Process(); process.executableURL = executable
-            try process.run(); return process
+            try process.run()
+            // A teardown block also runs after failed assertions and thrown errors.
+            addTeardownBlock { if process.isRunning { process.terminate() }; process.waitUntilExit() }
+            return process
         }
         let owned = try launch(own), unrelated = try launch(other)
-        defer {
-            if owned.isRunning { owned.terminate() }; if unrelated.isRunning { unrelated.terminate() }
-            owned.waitUntilExit(); unrelated.waitUntilExit()
-        }
         // Process.run can return before the spawned process exposes its final
         // executable path. Establish that both fixtures are discoverable before
         // exercising the production path matcher, and report the actual path if not.

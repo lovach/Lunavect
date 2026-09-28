@@ -3,73 +3,90 @@ import XCTest
 
 /// Terminal focus scripts another application, so its inputs are validated here.
 final class TerminalLocationTests: XCTestCase {
+    /// A launcher that detaches from the test host's terminal, then runs a
+    /// `forkpty` client whose detached child plays the hook and prints its PID.
+    private static let launcherSource = #"""
+    #include <util.h>
+    #include <unistd.h>
+    #include <stdio.h>
+    #include <string.h>
+    #include <signal.h>
+    #include <fcntl.h>
+    #include <sys/ioctl.h>
+    int main(void) {
+        /* Run from a Terminal tab, this launcher inherits the test host's
+           controlling terminal and is itself a `claude` process in the same
+           folder, so the folder fallback would rightly see two sessions.
+           Detach it; only the forkpty client may own a terminal. */
+        if (setsid() < 0) {
+            int tty = open("/dev/tty", O_RDWR | O_NOCTTY);
+            if (tty >= 0) { ioctl(tty, TIOCNOTTY); close(tty); }
+        }
+        int master; pid_t client = forkpty(&master, NULL, NULL, NULL);
+        if (client < 0) return 1;
+        if (client == 0) {
+            if (fork() == 0) {
+                if (setsid() < 0) _exit(2);
+                printf("%d\n", getpid()); fflush(stdout);
+            }
+            for (;;) pause();
+        }
+        /* Forward the hook's whole line, however the terminal splits it. */
+        char bytes[128]; int used = 0;
+        while (used < (int)sizeof(bytes)) {
+            int n = read(master, bytes + used, sizeof(bytes) - used);
+            if (n <= 0) break;
+            used += n;
+            if (memchr(bytes, '\n', used)) break;
+        }
+        if (used > 0) { write(STDOUT_FILENO, bytes, used); }
+        for (;;) pause();
+    }
+    """#
+    private static let natives = NativeFixtures(prefix: "terminal-location-fixture")
+    override class func setUp() {
+        super.setUp()
+        // Compiled once per suite; the name makes every fixture process a `claude` runtime.
+        _ = try? natives.compileOnce(launcherSource, as: "claude")
+    }
+    override class func tearDown() {
+        natives.removeDirectory()
+        super.tearDown()
+    }
+    override func tearDown() {
+        // Runs after assertion failures and thrown errors too: no pause() fixture survives.
+        Self.natives.stopAll()
+        super.tearDown()
+    }
+
     func testDetachedHookFindsItsClientsControllingTerminal() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("fixture.c"), executable = root.appendingPathComponent("claude")
-        try #"""
-        #include <util.h>
-        #include <unistd.h>
-        #include <stdio.h>
-        #include <signal.h>
-        #include <fcntl.h>
-        #include <sys/ioctl.h>
-        int main(void) {
-            /* Run from a Terminal tab, this launcher inherits the test host's
-               controlling terminal and is itself a `claude` process in the same
-               folder, so the folder fallback would rightly see two sessions.
-               Detach it; only the forkpty client may own a terminal. */
-            if (setsid() < 0) {
-                int tty = open("/dev/tty", O_RDWR | O_NOCTTY);
-                if (tty >= 0) { ioctl(tty, TIOCNOTTY); close(tty); }
-            }
-            int master; pid_t client = forkpty(&master, NULL, NULL, NULL);
-            if (client < 0) return 1;
-            if (client == 0) {
-                if (fork() == 0) {
-                    if (setsid() < 0) _exit(2);
-                    printf("%d\n", getpid()); fflush(stdout);
-                }
-                for (;;) pause();
-            }
-            char bytes[128]; int n = read(master, bytes, sizeof(bytes));
-            if (n > 0) { write(STDOUT_FILENO, bytes, n); }
-            for (;;) pause();
-        }
-        """#.write(to: source, atomically: true, encoding: .utf8)
-        let compiler = Process(); compiler.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
-        compiler.arguments = [source.path, "-o", executable.path]; try compiler.run(); compiler.waitUntilExit()
-        XCTAssertEqual(compiler.terminationStatus, 0)
-        let output = Pipe(), process = Process(); process.executableURL = executable; process.standardOutput = output
-        process.currentDirectoryURL = root
-        try process.run()
-        defer { process.terminate(); process.waitUntilExit() }
-        let line = String(decoding: output.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        let hook = try XCTUnwrap(Int32(line))
-        defer { _ = kill(hook, SIGTERM) }
+        let executable = try Self.natives.compileOnce(Self.launcherSource, as: "claude")
+        let output = Pipe()
+        let process = try Self.natives.launch(executable, in: root, output: output)
+        let hook = try XCTUnwrap(Int32(NativeFixtures.readLine(from: output.fileHandleForReading)))
+        Self.natives.track(hook)
         var launcher = proc_bsdinfo()
         if proc_pidinfo(process.processIdentifier, PROC_PIDTBSDINFO, 0, &launcher, Int32(MemoryLayout<proc_bsdinfo>.size))
             == Int32(MemoryLayout<proc_bsdinfo>.size), launcher.e_tdev != UInt32.max {
             throw XCTSkip("The fixture launcher could not detach from the test host's terminal; the folder fallback cannot be isolated here")
         }
         let client = try XCTUnwrap(SessionProcess.runtimeProcess(hook)).parentPID
-        defer { _ = kill(client, SIGTERM) }
+        Self.natives.track(client)
         let expected = try XCTUnwrap(SessionProcess.terminalLocation(parentPID: client, termProgram: "Apple_Terminal"))
         let actual = SessionProcess.terminalLocation(parentPID: hook, termProgram: "Apple_Terminal")
         XCTAssertEqual(actual?.tty, expected.tty, "A detached hook has no controlling TTY; its live client still does")
         XCTAssertEqual(actual?.app, "Terminal")
         XCTAssertEqual(TerminalLocation.runningTarget(provider: .claude, cwd: root.path)?.tty, expected.tty)
 
-        let otherOutput = Pipe(), other = Process(); other.executableURL = executable
-        other.currentDirectoryURL = root; other.standardOutput = otherOutput
-        try other.run()
-        defer { other.terminate(); other.waitUntilExit() }
-        let otherLine = String(decoding: otherOutput.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        let otherHook = try XCTUnwrap(Int32(otherLine))
-        defer { _ = kill(otherHook, SIGTERM) }
+        let otherOutput = Pipe()
+        _ = try Self.natives.launch(executable, in: root, output: otherOutput)
+        let otherHook = try XCTUnwrap(Int32(NativeFixtures.readLine(from: otherOutput.fileHandleForReading)))
+        Self.natives.track(otherHook)
         let otherClient = try XCTUnwrap(SessionProcess.runtimeProcess(otherHook)).parentPID
-        defer { _ = kill(otherClient, SIGTERM) }
+        Self.natives.track(otherClient)
         XCTAssertNil(TerminalLocation.runningTarget(provider: .claude, cwd: root.path),
                      "Two sessions in one folder cannot be distinguished by folder alone")
     }
