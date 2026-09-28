@@ -205,19 +205,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             Text(L("Изменения сохраняются автоматически."))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             BaseSettingsView(canRestore: !awake.isBusy && !features.busy) {
-                // Keep Awake or a macOS request may have started after the
-                // confirmation appeared. Reset nothing then and say so.
-                guard !awake.isBusy, !features.busy else { return false }
-                let awakeRestored = await awake.restoreDefaults()
-                let featuresRestored = await features.restoreDefaults()
-                menuBarAppearance.restoreDefaults()
-                sessions.autoHideMinutes = 0
-                store.preferences.restoreAppearanceDefaults()
-                updates.setAutomatic(false)
-                updates.setCheckingAutomatically(true)
-                appearance = AppDefaultSettings.appearance
-                language.code = "system"
-                return awakeRestored && featuresRestored
+                await Self.restoreBaseSettings(awake: awake, features: features) {
+                    menuBarAppearance.restoreDefaults()
+                    sessions.autoHideMinutes = 0
+                    store.preferences.restoreAppearanceDefaults()
+                    updates.setAutomatic(false)
+                    updates.setCheckingAutomatically(true)
+                    appearance = AppDefaultSettings.appearance
+                    language.code = "system"
+                }
             }
             GroupBox(L("Начало работы")) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -290,6 +286,18 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 SubscriptionSettingsRow(store: store, provider: id)
             }
         }
+    }
+}
+
+extension SettingsView {
+    /// Keep Awake or a macOS request may have started after the confirmation
+    /// appeared. Reset nothing then and say so.
+    static func restoreBaseSettings(awake: KeepAwake, features: AppFeatures, applyRest: () -> Void) async -> Bool {
+        guard !awake.isBusy, !features.busy else { return false }
+        let awakeRestored = await awake.restoreDefaults()
+        let featuresRestored = await features.restoreDefaults()
+        applyRest()
+        return awakeRestored && featuresRestored
     }
 }
 
