@@ -130,18 +130,22 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         issue = try values.decodeIfPresent(String.self, forKey: .issue)
         modelQuotas = try values.decodeIfPresent([ModelQuota].self, forKey: .modelQuotas)
         unlimited = try values.decodeIfPresent(Bool.self, forKey: .unlimited)
-        if source == Self.usageProbeSource {
-            // Written before `/usage` resets carried their precision (Q-05).
-            let observed = fetchedAt
-            do {
+        // Written before `/usage` resets carried their precision (Q-05). Claude's model
+        // buckets always come from `/usage`, also inside a status-line snapshot that
+        // kept them (0.2.4 snapshot.json); the status line's own windows are exact.
+        do {
+            if source == Self.usageProbeSource {
+                let observed = fetchedAt
                 weekly = try weekly?.completingShownMinute(observedAt: observed)
                 fiveHour = try fiveHour?.completingShownMinute(observedAt: observed)
+            }
+            if source == Self.usageProbeSource || provider == .claude {
                 modelQuotas = try modelQuotas?.map {
                     ModelQuota(name: $0.name, window: try $0.window.completingShownMinute(observedAt: $0.fetchedAt), fetchedAt: $0.fetchedAt)
                 }
-            } catch {
-                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid quota window", underlyingError: error))
             }
+        } catch {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid quota window", underlyingError: error))
         }
         guard weekly.map({ $0.durationMinutes == 10080 }) ?? true else {
             throw DecodingError.dataCorruptedError(forKey: .weekly, in: values, debugDescription: "Invalid weekly duration")
@@ -311,17 +315,25 @@ public enum UsageParser {
             }
         }
         var snapshot = UsageSnapshot(provider: .codex, weekly: weekly, fiveHour: five, fetchedAt: now, source: "Codex CLI")
-        // No window at all in the account bucket (unlimited credits, some team
-        // plans): a known answer, not missing data.
-        if !["primary", "secondary"].contains(where: { bucket[$0] is [String: Any] }) { snapshot.unlimited = true }
+        // No window in the account bucket and the documented unlimited-credits flag
+        // (app-server v2 `CreditsSnapshot.unlimited`): a known answer. Without the
+        // flag (API-key sign-in, a plan name, an empty answer) the limit is unknown.
+        let credits = bucket["credits"] as? [String: Any]
+        let unlimitedCredits = (credits?["unlimited"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false
+        if unlimitedCredits, !["primary", "secondary"].contains(where: { bucket[$0] is [String: Any] }) { snapshot.unlimited = true }
         return snapshot
     }
     public static func claude(_ result: [String: Any], now: Date = Date()) throws -> UsageSnapshot {
         func window(_ key: String, _ minutes: Int) throws -> QuotaWindow? {
             guard let raw = result[key] as? [String: Any] else { return nil }
             guard let used = number(raw["used_percentage"]), (0...100).contains(used.doubleValue) else { throw UsageError.invalidResponse }
-            // Windows are independent (Q-10): one that has not started (resets_at
-            // null) or carries no usable reset is absent; the other window stays.
+            // Windows are independent (Q-10). One that has not started yet (0 %,
+            // `resets_at` null) is the inactive window, like the same block of
+            // `/usage` (decision 5). A used window or a malformed reset is absent;
+            // the other window stays.
+            if raw["resets_at"] == nil || raw["resets_at"] is NSNull {
+                return used.doubleValue == 0 ? try QuotaWindow(usedPercent: 0, durationMinutes: minutes, resetsAt: nil) : nil
+            }
             guard let epoch = number(raw["resets_at"]), epoch.doubleValue > 0 else { return nil }
             let date = Date(timeIntervalSince1970: epoch.doubleValue)
             return try QuotaWindow(usedPercent: used.doubleValue, durationMinutes: minutes, resetsAt: date)

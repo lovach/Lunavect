@@ -27,7 +27,7 @@ The menu bar, the details panel, widgets and **Settings → Limits** use one sta
 - Saved values older than 15 minutes, or values associated with a source error, show an asterisk or a faded dashed arc. The details panel identifies saved data.
 - An exhausted window shows `0%`, an empty meter and its countdown without an asterisk: it cannot change before the reset.
 - A window that has not started (0% used and no reset yet, typically right after a weekly reset) shows `100%` and "Starts with the first request", without a countdown.
-- Codex without any rate-limit window shows `∞` and "No limits".
+- Codex reporting unlimited credits without any rate-limit window shows `∞` and "No limits"; an answer without a known window otherwise shows a dash.
 - Disabled services are omitted even if their previous snapshots remain stored.
 
 ## Session status

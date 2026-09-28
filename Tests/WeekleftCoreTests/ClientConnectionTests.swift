@@ -410,7 +410,7 @@ extension ClientCapabilityDiagnosticTests {
             resetsAt: now.addingTimeInterval(3600)), fetchedAt: now, source: ClaudeUsageProbe.source)
         let unsupported = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse)
         var writes = 0
-        let result = try await ClaudeProvider.refresh(force: true, cached: { cached }, probe: { throw unsupported }, save: { _ in writes += 1 })
+        let result = try await ClaudeProvider.refresh(cached: { cached }, probe: { throw unsupported }, save: { _ in writes += 1 })
         XCTAssertEqual(result.weekly?.usedPercent, 48)
         XCTAssertEqual(result.fetchedAt, cached.fetchedAt)
         XCTAssertEqual(result.issue, unsupported.message)

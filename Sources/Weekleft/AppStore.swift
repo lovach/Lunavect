@@ -93,6 +93,8 @@ import WeekleftCore
     private var refreshPolicy = QuotaRefreshPolicy()
     private var lastSessionEvent: [ProviderID: Date] = [:]
     private var pendingEventProviders: Set<ProviderID> = []
+    /// Automatic requests that arrived while a refresh ran; evaluated after it.
+    private var deferredRequests: [(trigger: QuotaRefreshPolicy.Trigger, providers: Set<ProviderID>?)] = []
     private var cancelEventDebounce: (() -> Void)?
     private var cancelWakeSettle: (() -> Void)?
     private var cancelResetCheck: (() -> Void)?
@@ -250,12 +252,13 @@ import WeekleftCore
             self.requestBackgroundRefresh(trigger: .sessionEvent, only: due)
         }
     }
-    /// One confirming request at the earliest reset plus its grace.
+    /// One confirming request at the earliest reset plus its grace, or at the end of
+    /// the backoff while a passed reset is still unconfirmed.
     private func scheduleResetCheck() {
         cancelResetCheck?(); cancelResetCheck = nil
         guard started else { return }
         let now = clock()
-        guard let date = QuotaRefreshPolicy.nextResetCheck(snapshots.filter { providers.contains($0.provider) }, now: now) else { return }
+        guard let date = refreshPolicy.nextCheck(snapshots.filter { providers.contains($0.provider) }, now: now) else { return }
         let generation = lifecycleGeneration
         cancelResetCheck = scheduling.after(date.timeIntervalSince(now)) { [weak self] in
             guard let self, self.started, self.lifecycleGeneration == generation else { return }
@@ -282,21 +285,46 @@ import WeekleftCore
             self.snapshots[index] = snapshot; self.persist(); self.scheduleResetCheck()
         }
     }
+    /// An automatic evaluation. One that arrives while a refresh runs is kept and
+    /// evaluated after it: that refresh may not have included its provider.
     private func requestBackgroundRefresh(trigger: QuotaRefreshPolicy.Trigger, only providers: Set<ProviderID>? = nil) {
-        guard started, backgroundRefresh == nil else { return }
+        deferRequest(trigger, providers)
+        runDeferredRequests()
+    }
+    private func deferRequest(_ trigger: QuotaRefreshPolicy.Trigger, _ providers: Set<ProviderID>?) {
+        guard started else { return }
+        guard let index = deferredRequests.firstIndex(where: { $0.trigger == trigger }) else {
+            deferredRequests.append((trigger, providers)); return
+        }
+        // nil asks about every provider.
+        deferredRequests[index].providers = deferredRequests[index].providers.flatMap { old in providers.map { old.union($0) } }
+    }
+    private func runDeferredRequests() {
+        guard started, backgroundRefresh == nil, !refreshing, !deferredRequests.isEmpty else { return }
+        let requests = deferredRequests
+        deferredRequests = []
         let generation = lifecycleGeneration
         backgroundRefresh = Task { [weak self] in
-            guard !Task.isCancelled, self?.started == true, self?.lifecycleGeneration == generation else { return }
-            await self?.refresh(only: providers, trigger: trigger)
-            if self?.lifecycleGeneration == generation { self?.backgroundRefresh = nil }
+            for request in requests {
+                guard !Task.isCancelled, self?.started == true, self?.lifecycleGeneration == generation else { break }
+                await self?.refresh(only: request.providers, trigger: request.trigger)
+            }
+            guard let self, self.lifecycleGeneration == generation else { return }
+            self.backgroundRefresh = nil
+            self.runDeferredRequests()
         }
+    }
+    /// No quota request is running or waiting to run. Tests wait for this (with a
+    /// deadline) instead of yielding a fixed number of times.
+    var quotaRefreshIdle: Bool {
+        !refreshing && backgroundRefresh == nil && deferredRequests.isEmpty && localRefresh == nil && !network.recoveryPending
     }
     func stop() {
         started = false; lifecycleGeneration += 1
         cancelTriggers.forEach { $0() }; cancelTriggers.removeAll()
         for cancel in [cancelEventDebounce, cancelWakeSettle, cancelResetCheck] { cancel?() }
         cancelEventDebounce = nil; cancelWakeSettle = nil; cancelResetCheck = nil
-        pendingEventProviders = []; lastSessionEvent = [:]; refreshPolicy = QuotaRefreshPolicy()
+        pendingEventProviders = []; deferredRequests = []; lastSessionEvent = [:]; refreshPolicy = QuotaRefreshPolicy()
         backgroundRefresh?.cancel(); backgroundRefresh = nil
         localRefresh?.cancel(); localRefresh = nil
         refreshing = false; network.stop()
@@ -312,7 +340,9 @@ import WeekleftCore
         await refresh(only: requestedProvider.map { [$0] }, trigger: force ? .manual : .timer)
     }
     func refresh(only requested: Set<ProviderID>?, trigger: QuotaRefreshPolicy.Trigger) async {
-        guard !Task.isCancelled, !refreshing, !network.isOffline else { return }
+        guard !Task.isCancelled, !network.isOffline else { return }
+        // One refresh at a time; a request during it is evaluated afterwards.
+        guard !refreshing else { deferRequest(trigger, requested); return }
         let now = clock()
         let due = Set(providers.filter { id in
             (requested?.contains(id) ?? true)
@@ -321,7 +351,7 @@ import WeekleftCore
         guard !due.isEmpty else { scheduleResetCheck(); return }
         refreshing = true
         let generation = lifecycleGeneration, selectedGenerations = providerGenerations
-        defer { if lifecycleGeneration == generation { refreshing = false } }
+        defer { if lifecycleGeneration == generation { refreshing = false; runDeferredRequests() } }
         let path = codexPath
         async let codex = fetchIfEnabled(.codex, path: path, due: due)
         async let claude = fetchIfEnabled(.claude, path: path, due: due)
@@ -332,7 +362,8 @@ import WeekleftCore
             switch result {
             case .success(let snapshot):
                 // Claude's fallback returns the saved observation with the failure as its issue.
-                refreshPolicy.record(id, snapshot: snapshot, succeeded: snapshot.issue == nil, at: clock())
+                let reason = ClientIntegrationIssue.legacy(snapshot.issue, provider: id, capability: Self.quotaCapability(id))?.reason
+                refreshPolicy.record(id, snapshot: snapshot, succeeded: snapshot.issue == nil, reason: reason, at: clock())
                 if let index {
                     // The local reader may publish a newer Claude observation while a slower
                     // provider keeps this refresh open. A delayed fallback must not roll it back.
@@ -343,7 +374,10 @@ import WeekleftCore
                 }
                 else { snapshots.append(snapshot) }
             case .failure(let error):
-                if !(error is CancellationError) { refreshPolicy.record(id, snapshot: nil, succeeded: false, at: clock()) }
+                if !(error is CancellationError) {
+                    let reason = ClientIntegrationIssue.classify(error, provider: id, capability: Self.quotaCapability(id))?.reason
+                    refreshPolicy.record(id, snapshot: index.map { snapshots[$0] }, succeeded: false, reason: reason, at: clock())
+                }
                 guard !network.isOffline else { continue }
                 let message = (error as? ClientIntegrationIssue)?.message
                     ?? (error as? UsageError)?.errorDescription ?? (error as? SessionOpeningError)?.errorDescription
@@ -356,6 +390,7 @@ import WeekleftCore
         persist()
         scheduleResetCheck()
     }
+    private static func quotaCapability(_ id: ProviderID) -> ClientIntegrationIssue.Capability { id == .claude ? .usageProbe : .rateLimits }
     private func fetchIfEnabled(_ id: ProviderID, path: String, due: Set<ProviderID>) async -> Result<UsageSnapshot, Error>? {
         guard !Task.isCancelled, providers.contains(id), due.contains(id) else { return nil }
         guard !isolated || quotaFetcher != nil else { return nil }
@@ -365,7 +400,7 @@ import WeekleftCore
             if let quotaFetcher { return try await quotaFetcher(id, path) }
             if let refreshQuota { return try await refreshQuota(id, path, true) }
             if id == .codex { return try await CodexProvider.fetch(resolver: resolver) }
-            return try await ClaudeProvider.refresh(force: true)
+            return try await ClaudeProvider.refresh()
         }
     }
     func setProvider(_ id: ProviderID, enabled: Bool) {
@@ -441,8 +476,11 @@ import WeekleftCore
     @Published private(set) var offlineSince: Date?
     var isOffline: Bool { state == .offline }
     var onRestored: (() async -> Void)?
+    /// A restored connection is settling or being handled by `onRestored`.
+    private(set) var recoveryPending = false
     private var monitor: NWPathMonitor?
     private var recovery: Task<Void, Never>?
+    private var recoveryToken = 0
     private var generation = 0
     private let settle: () async throws -> Void
     private let makeMonitor: () -> NWPathMonitor?
@@ -467,16 +505,20 @@ import WeekleftCore
         generation += 1
         monitor?.cancel(); monitor = nil
         recovery?.cancel(); recovery = nil
-        restoring = false
+        restoring = false; recoveryPending = false
     }
     func update(available: Bool) {
         let next: State = available ? .online : .offline
         guard state != next else { return }
         let wasOffline = isOffline
-        state = next; recovery?.cancel(); restoring = false
+        state = next; recovery?.cancel(); restoring = false; recoveryPending = false
         offlineSince = available ? nil : Date()
         guard wasOffline, available else { return }
+        recoveryToken += 1
+        let token = recoveryToken
+        recoveryPending = true
         recovery = Task { [weak self] in
+            defer { if self?.recoveryToken == token { self?.recoveryPending = false } }
             guard let self else { return }
             do { try await settle() } catch { return }
             guard !Task.isCancelled, !isOffline else { return }
