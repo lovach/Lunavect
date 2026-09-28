@@ -75,10 +75,10 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
          registeredCopies: @escaping @Sendable () -> [URL] = { WidgetRegistrationSystem.registeredCopies() },
          widgetHost: @escaping @Sendable () -> WidgetHostLookup = { WidgetRegistrationSystem.widgetHost() },
          fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
-         status: WidgetRegistrationStatus = .shared) {
+         status: WidgetRegistrationStatus? = nil) {
         self.defaults = defaults; self.target = target; self.repair = repair; self.reassert = reassert
         self.reload = reload; self.pause = pause; self.settle = settle; self.registeredCopies = registeredCopies
-        self.widgetHost = widgetHost; self.fileExists = fileExists; self.status = status
+        self.widgetHost = widgetHost; self.fileExists = fileExists; self.status = status ?? .shared
     }
 
     func start() {
