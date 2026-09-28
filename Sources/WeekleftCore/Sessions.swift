@@ -478,7 +478,11 @@ public struct PendingApproval: Codable, Equatable, Sendable {
     public var context: String?
     /// `tool_use_id` when the request carries one. Documented requests do not.
     public var id: String?
-    public init(tool: String, context: String?, id: String?) { self.tool = tool; self.context = context; self.id = id }
+    /// When the request was recorded; nil in records from before 0.2.6.
+    public var at: Date?
+    public init(tool: String, context: String?, id: String?, at: Date? = nil) {
+        self.tool = tool; self.context = context; self.id = id; self.at = at
+    }
 }
 public struct SessionRecord: Codable, Sendable {
     public var session: AgentSession
@@ -499,6 +503,13 @@ public struct SessionRecord: Codable, Sendable {
     /// Such a call finishing while a request is open ran alongside it: not an answer.
     public var runningTools: [String]?
     static let approvalLimit = 32, runningToolLimit = 32
+    /// Remembers a call whose PreToolUse was seen; the oldest are forgotten first.
+    mutating func noteRunning(_ id: String) {
+        guard !id.isEmpty else { return }
+        var running = runningTools ?? []
+        if !running.contains(id) { running.append(id) }
+        runningTools = Array(running.suffix(Self.runningToolLimit))
+    }
     /// Closes the requests `matching` selects; returns whether any closed.
     @discardableResult mutating func closeApprovals(where matching: (PendingApproval) -> Bool) -> Bool {
         guard let open = approvals, open.contains(where: matching) else { return false }
@@ -531,12 +542,28 @@ public struct SessionRecord: Codable, Sendable {
             let name = payload["hook_event_name"] as? String
         else { throw SessionError.invalidResponse }
         let cwd = payload["cwd"] as? String ?? previous?.session.cwd ?? ""
+        let tool = SessionParser.text(payload["tool_name"])
+        let toolID = SessionParser.text(payload["tool_use_id"])
+        // A Claude subagent reports the parent's session_id with its own agent_id.
+        // Codex subagent tool events carry no agent_id and Lunavect receives no Codex
+        // SubagentStop, so Codex requests share one context: any later call ends them.
+        let context = provider == .claude ? SessionParser.text(payload["agent_id"]) : ""
         var record = previous ?? SessionRecord(session: AgentSession(provider: provider, sessionID: id, title: "", cwd: cwd, phase: .unknown, updatedAt: now, observedAt: now, evidence: .hook))
         guard record.session.sessionID == id, record.session.provider == provider else { throw SessionError.invalidResponse }
         if record.session.observedAt > now {
             // Preserve ordering for concurrently delivered hooks, but rebase after
             // a substantial wall-clock correction so Stop is never lost for hours.
-            guard record.session.observedAt.timeIntervalSince(now) > 300 else { return record }
+            guard record.session.observedAt.timeIntervalSince(now) > 300 else {
+                // R26-V2-02: parallel calls' helpers write in either order. A call that
+                // started before every open request of its conversation ran alongside
+                // them, and its result must not answer them. Only this is noted; the
+                // phase and the requests stay as the newer events left them.
+                if name == "PreToolUse", record.approvalVersion == 3,
+                   !(record.approvals ?? []).contains(where: { ($0.context == nil || $0.context == context) && ($0.at.map { $0 < now } ?? true) }) {
+                    record.noteRunning(toolID)
+                }
+                return record
+            }
             record.session.turnStartedAt = nil
             record.approvals = []; record.runningTools = nil
         }
@@ -553,12 +580,6 @@ public struct SessionRecord: Codable, Sendable {
             record.runningTools = nil
             record.approvalVersion = 3
         }
-        let tool = SessionParser.text(payload["tool_name"])
-        let toolID = SessionParser.text(payload["tool_use_id"])
-        // A Claude subagent reports the parent's session_id with its own agent_id.
-        // Codex subagent tool events carry no agent_id and Lunavect receives no Codex
-        // SubagentStop, so Codex requests share one context: any later call ends them.
-        let context = provider == .claude ? SessionParser.text(payload["agent_id"]) : ""
         switch name {
         case "SessionStart":
             if provider == .claude, payload["source"] as? String == "compact", let trigger = record.session.compactionTrigger {
@@ -586,7 +607,7 @@ public struct SessionRecord: Codable, Sendable {
             // call and arrives again is the same dialog.
             var open = record.approvals ?? []
             if toolID.isEmpty || !open.contains(where: { $0.id == toolID }) {
-                open.append(PendingApproval(tool: tool, context: context, id: toolID.isEmpty ? nil : toolID))
+                open.append(PendingApproval(tool: tool, context: context, id: toolID.isEmpty ? nil : toolID, at: now))
                 record.approvals = Array(open.suffix(Self.approvalLimit))
             }
             record.session.phase = .permission
@@ -599,7 +620,7 @@ public struct SessionRecord: Codable, Sendable {
             if type == "permission_prompt" {
                 // About six seconds into a dialog, or a sandboxed command's network
                 // request, which has no PermissionRequest: its origin is unknown.
-                if (record.approvals ?? []).isEmpty { record.approvals = [PendingApproval(tool: "", context: nil, id: nil)] }
+                if (record.approvals ?? []).isEmpty { record.approvals = [PendingApproval(tool: "", context: nil, id: nil, at: now)] }
                 record.session.phase = .permission
             }
             else if type == "idle_prompt" {

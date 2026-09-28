@@ -36,9 +36,9 @@ final class R26VerifyPermissionOrderTests: XCTestCase {
 
         // The WebFetch helper, started 1 ms later, takes the capture lock first.
         let swapped = try XCTUnwrap(record([prompt, fetch, read, request, readDone]))
-        XCTExpectFailure("R26-V2-02: the Read's PreToolUse is older than the record and dropped whole, so its result counts as a call never seen to start and ends the open WebFetch dialog", strict: true) {
-            XCTAssertEqual(swapped.session.phase, .permission, "The WebFetch dialog is still open")
-            XCTAssertEqual(swapped.approvals?.count, 1)
-        }
+        // R26-V2-02: the Read's PreToolUse is older than the record. It still counts
+        // as a call that started, so its result does not end the WebFetch dialog.
+        XCTAssertEqual(swapped.session.phase, .permission, "The WebFetch dialog is still open")
+        XCTAssertEqual(swapped.approvals?.count, 1)
     }
 }

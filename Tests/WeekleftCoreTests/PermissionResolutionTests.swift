@@ -262,6 +262,40 @@ final class PermissionResolutionTests: XCTestCase {
         XCTAssertEqual(try capture("Stop", [:]), .ready)
     }
 
+    /// R26-V2-02: a tool event older than the record keeps its place in the order and
+    /// changes neither the phase nor the requests. A PreToolUse is only noted as a
+    /// running call when it started before every open request of its conversation.
+    func testAToolEventOlderThanTheRecordCountsAsOfItsOwnTime() throws {
+        let fetch = call("WebFetch", "a"), read = call("Read", "r")
+        func run(_ steps: [(String, [String: Any], Double)]) throws -> SessionRecord {
+            var record: SessionRecord?
+            for (name, extra, seconds) in steps { record = try event(name, extra, provider: .claude, after: record, at: seconds) }
+            return record!
+        }
+        // A late or repeated call that started before the dialog: no «Working», no answer.
+        let replay = try run([("UserPromptSubmit", [:], 0), ("PreToolUse", fetch, 1), ("PermissionRequest", request("WebFetch"), 2),
+                              ("PreToolUse", read, 1.5)])
+        XCTAssertEqual(replay.session.phase, .permission)
+        XCTAssertEqual(replay.approvals?.count, 1)
+        XCTAssertEqual(replay.session.observedAt, start.addingTimeInterval(2), "The record's time stays")
+        XCTAssertEqual(try event("PostToolUse", read, provider: .claude, after: replay, at: 3).session.phase, .permission,
+                       "Its result ran alongside the dialog")
+
+        // A call that started after the dialog, written after another subagent's event,
+        // is not noted: its result still counts as progress.
+        let next = try run([("UserPromptSubmit", [:], 0), ("PreToolUse", fetch, 1), ("PermissionRequest", request("WebFetch"), 2),
+                            ("PreToolUse", call("Read", "b1", agent: "agent-b"), 5.001), ("PreToolUse", call("Grep", "z"), 5)])
+        XCTAssertEqual(next.session.phase, .permission)
+        XCTAssertNil(next.runningTools?.firstIndex(of: "z"))
+        XCTAssertEqual(try event("PostToolUse", call("Grep", "z"), provider: .claude, after: next, at: 6).session.phase, .running)
+
+        // A result older than the record answers nothing, even for a call never seen.
+        let reminded = try run([("UserPromptSubmit", [:], 0), ("PreToolUse", fetch, 1), ("PermissionRequest", request("WebFetch"), 2),
+                                ("Notification", ["notification_type": "permission_prompt"], 6), ("PostToolUse", call("Read", "x"), 5.5)])
+        XCTAssertEqual(reminded.session.phase, .permission)
+        XCTAssertEqual(reminded.approvals?.count, 1)
+    }
+
     /// Hooks carry no event time. The helper stamps an event when it starts, before
     /// it reads its input and inspects processes, so a reminder that started first
     /// but reached the record last is still the older event (S-I3).
