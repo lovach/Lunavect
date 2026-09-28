@@ -295,7 +295,13 @@ public enum IDEBridge {
         guard let location = session.ideLocation else { throw SessionOpeningError.ideSessionUnavailable(session.client.title) }
         let name = environment.displayName(location)
         let target: Target
-        if location.usesTerminal {
+        // The JetBrains companion knows only Terminal tool window tabs, and matches a
+        // tab by the process it started, not by a controlling terminal. A runtime a
+        // Reworked tab started without one is still in that tab's process ancestry, so
+        // JetBrains is always asked by ancestry; a runtime outside every tab (an AI
+        // chat or agent panel) is then reported as unsupported, as before.
+        let panelPossible = location.editor == .jetbrains && !location.usesTerminal
+        if location.usesTerminal || location.editor == .jetbrains {
             let ancestors = environment.ancestry(location.runtime)
             guard !ancestors.isEmpty else { throw SessionOpeningError.ideSessionUnavailable(name) }
             target = Target(kind: "terminal", ancestors: ancestors)
@@ -352,7 +358,7 @@ public enum IDEBridge {
         guard let endpoint = matches.first else {
             if busy { throw SessionOpeningError.ideTimedOut(name) }
             if !answered { throw SessionOpeningError.ideBridgeUnresponsive(name) }
-            throw unsupported ? SessionOpeningError.ideUnsupported(name) : SessionOpeningError.ideSessionUnavailable(name)
+            throw unsupported || panelPossible ? SessionOpeningError.ideUnsupported(name) : SessionOpeningError.ideSessionUnavailable(name)
         }
         // Swing's toFront selects an IDE project window, but macOS does not
         // grant a background Java application foreground focus from that alone.
