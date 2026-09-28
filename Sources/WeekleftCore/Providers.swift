@@ -196,7 +196,7 @@ public enum ClaudeProvider {
         var snapshot = try JSONDecoder().decode(UsageSnapshot.self, from: data)
         guard snapshot.provider == .claude, snapshot.source == "Claude Code statusLine", snapshot.fetchedAt != nil,
             [snapshot.weekly, snapshot.fiveHour].compactMap({ $0 }).allSatisfy({
-                $0.resetsAt != nil && $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
+                hasResetOrIsInactive($0) && $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
             })
         else { throw UsageError.invalidResponse }
         if snapshot.isStale(now: now) { snapshot.issue = UsageError.claudeQuotaStale.errorDescription }

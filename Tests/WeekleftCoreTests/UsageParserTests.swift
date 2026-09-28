@@ -164,7 +164,8 @@ final class UsageParserTests: XCTestCase {
             let fiveOnly = try UsageParser.claude(decoded([
                 "seven_day": ["used_percentage": 0, "resets_at": missing],
                 "five_hour": ["used_percentage": 10, "resets_at": reset.timeIntervalSince1970]]))
-            XCTAssertNil(fiveOnly.weekly, "\(missing)")
+            // R1-10: 0 % with `resets_at: null` is the unstarted window; a malformed reset stays absent.
+            XCTAssertEqual(fiveOnly.weekly, missing is NSNull ? try QuotaWindow(usedPercent: 0, durationMinutes: 10080, resetsAt: nil) : nil, "\(missing)")
             XCTAssertEqual(fiveOnly.fiveHour?.usedPercent, 10, "\(missing)")
         }
         let neither = try UsageParser.claude(["seven_day": ["used_percentage": 42.5], "five_hour": ["used_percentage": 10]])
@@ -192,8 +193,34 @@ final class UsageParserTests: XCTestCase {
         try ClaudeProvider.capture(Data(payload.utf8), destination: destination, now: now)
         let stored = try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: destination))
         XCTAssertEqual(stored.fiveHour, try QuotaWindow(usedPercent: 23.5, durationMinutes: 300, resetsAt: Date(timeIntervalSince1970: 1_900_003_600)))
-        XCTAssertNil(stored.weekly, "The unstarted weekly window is absent, not an error")
+        XCTAssertEqual(stored.weekly, try QuotaWindow(usedPercent: 0, durationMinutes: 10080, resetsAt: nil),
+                       "R1-10: the unstarted weekly window is the inactive state, not an error")
         XCTAssertEqual(stored.source, "Claude Code statusLine")
+    }
+
+    /// R1-10: the status line's unstarted window (0 %, `resets_at: null`) is the same
+    /// fact as `/usage`'s inactive block (decision 5): a confirmed 0 % whose window
+    /// starts with the first request. A used window without a reset stays absent.
+    func testStatusLineUnstartedWindowIsTheInactiveStateLikeTheProbe() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("quota.json")
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let payload = #"{"session_id":"fixture","rate_limits":{"seven_day":{"used_percentage":0,"resets_at":null},"five_hour":{"used_percentage":12,"resets_at":null}}}"#
+        try ClaudeProvider.capture(Data(payload.utf8), destination: destination, now: now)
+        let stored = try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: destination))
+        XCTAssertEqual(stored.weekly, try QuotaWindow(usedPercent: 0, durationMinutes: 10080, resetsAt: nil))
+        XCTAssertNil(stored.fiveHour, "A used window without its reset stays unknown")
+        XCTAssertTrue(ClaudeProvider.isTrustedSnapshot(stored))
+        let fetched = try await ClaudeProvider.fetch(from: destination, now: now)
+        XCTAssertEqual(fetched.weekly, stored.weekly, "`--probe` reads it as well")
+        let probe = try ClaudeUsageText.parse("Current week (all models)\n0% used\nEsc to cancel", now: now)
+        XCTAssertEqual(stored.weekly, probe.weekly, "One fact, one value")
+        let status = stored.status(of: stored.weekly, now: now), probed = probe.status(of: probe.weekly, now: now)
+        XCTAssertEqual(status, .inactive(stale: true), "statusLine carries no server observation time")
+        XCTAssertEqual(probed, .inactive(stale: false))
+        XCTAssertEqual(status.note(now: now, language: "ru"), probed.note(now: now, language: "ru"))
+        XCTAssertEqual(status.remaining(of: stored.weekly), 100)
     }
 
     /// Matrix L10: a Codex reply with only a model bucket (Spark) has no account

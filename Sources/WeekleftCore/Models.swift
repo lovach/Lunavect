@@ -323,8 +323,13 @@ public enum UsageParser {
         func window(_ key: String, _ minutes: Int) throws -> QuotaWindow? {
             guard let raw = result[key] as? [String: Any] else { return nil }
             guard let used = number(raw["used_percentage"]), (0...100).contains(used.doubleValue) else { throw UsageError.invalidResponse }
-            // Windows are independent (Q-10): one that has not started (resets_at
-            // null) or carries no usable reset is absent; the other window stays.
+            // Windows are independent (Q-10). One that has not started yet (0 %,
+            // `resets_at` null) is the inactive window, like the same block of
+            // `/usage` (decision 5). A used window or a malformed reset is absent;
+            // the other window stays.
+            if raw["resets_at"] == nil || raw["resets_at"] is NSNull {
+                return used.doubleValue == 0 ? try QuotaWindow(usedPercent: 0, durationMinutes: minutes, resetsAt: nil) : nil
+            }
             guard let epoch = number(raw["resets_at"]), epoch.doubleValue > 0 else { return nil }
             let date = Date(timeIntervalSince1970: epoch.doubleValue)
             return try QuotaWindow(usedPercent: used.doubleValue, durationMinutes: minutes, resetsAt: date)
