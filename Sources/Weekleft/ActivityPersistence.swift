@@ -5,7 +5,10 @@ import WeekleftCore
 #endif
 
 /// History is shared with widgets; session details remain in their private file.
-/// One queue preserves submission order, including the blocking termination flush.
+/// One queue preserves the order of writes, including the blocking termination
+/// flush. Each state holds the complete history and details, so a newer state
+/// replaces one still waiting for the disk: a slow disk keeps at most one waiting
+/// state, and the final flush waits for at most the write in progress (R2-R-02).
 final class ActivityPersistence: @unchecked Sendable {
     struct State: Equatable, Sendable {
         var history: ActivityHistory
@@ -47,7 +50,21 @@ final class ActivityPersistence: @unchecked Sendable {
     private var detailsSynchronized = false
     private var historyRecoveryIssue: String?, detailsRecoveryIssue: String?
     private var counts = PersistenceCounters()
+    /// Waits for the queue: every write submitted before has finished.
     var counters: PersistenceCounters { queue.sync { counts } }
+    /// A state submitted while an earlier one had not started writing yet. Its
+    /// requests get the result of the write that replaced them; replaced requests
+    /// count as submitted and skipped.
+    private struct Waiting {
+        let id: Int
+        var state: State
+        var durable: Bool
+        var requests: Int
+        var completions: [@Sendable (WriteResult) -> Void]
+    }
+    private let waitingLock = NSLock()
+    private var waiting: Waiting?
+    private var waitingIDs = 0
 
     init(historyURL: URL = ActivityHistory.fileURL, detailsURL: URL = ActivityDetails.fileURL,
          readHistory: @escaping (URL) throws -> ActivityHistory = { try ActivityHistory.load(from: $0) },
@@ -116,15 +133,44 @@ final class ActivityPersistence: @unchecked Sendable {
     /// `durable` writes the private details with fsync (before sleep); the periodic
     /// cadence leaves it off.
     func submit(_ state: State, durable: Bool = false, completion: @escaping @Sendable (WriteResult) -> Void) {
+        let scheduled = waitingLock.withLock { () -> Int? in
+            if var next = waiting {
+                next.state = state; next.durable = next.durable || durable
+                next.requests += 1; next.completions.append(completion)
+                waiting = next
+                return nil
+            }
+            waitingIDs += 1
+            waiting = Waiting(id: waitingIDs, state: state, durable: durable, requests: 1, completions: [completion])
+            return waitingIDs
+        }
+        guard let id = scheduled else { return }
         queue.async {
-            let result = self.write(state, durable: durable)
-            self.completionQueue.async { completion(result) }
+            // A flush may have taken this state already; a later one has its own block.
+            guard let next = self.waitingLock.withLock({ () -> Waiting? in
+                guard let value = self.waiting, value.id == id else { return nil }
+                self.waiting = nil
+                return value
+            }) else { return }
+            let result = self.write(next.state, durable: next.durable, replaced: next.requests - 1)
+            self.completionQueue.async { next.completions.forEach { $0(result) } }
         }
     }
+    /// Test support: requests waiting to be written (at most one state).
+    var waitingRequests: Int { waitingLock.withLock { waiting?.requests ?? 0 } }
     /// Termination waits at most `flushTimeout` for the disk; an unresponsive
     /// volume must not block quitting. A late write still completes in order.
     func flush(_ state: State) -> WriteResult {
-        if let result = blocking(timeout: flushTimeout, { self.write(state, durable: true) }) { return result }
+        // The final state replaces a waiting one; its requests get the final result,
+        // also when the write finishes after the deadline.
+        let replaced = waitingLock.withLock { () -> Waiting? in defer { waiting = nil }; return waiting }
+        let completions = replaced?.completions ?? [], requests = replaced?.requests ?? 0
+        let operation: @Sendable () -> WriteResult = {
+            let result = self.write(state, durable: true, replaced: requests)
+            if !completions.isEmpty { self.completionQueue.async { completions.forEach { $0(result) } } }
+            return result
+        }
+        if let result = blocking(timeout: flushTimeout, operation) { return result }
         logger.error("Activity flush exceeded \(self.flushTimeout, privacy: .public) s; quitting without waiting")
         return WriteResult(sequence: 0, historyIssue: "Не удалось сохранить статистику активности.", detailsIssue: nil,
                            historySaved: false, counters: PersistenceCounters())
@@ -160,7 +206,9 @@ final class ActivityPersistence: @unchecked Sendable {
         }
     }
 
-    private func write(_ state: State, durable: Bool = false) -> WriteResult {
+    private func write(_ state: State, durable: Bool = false, replaced: Int = 0) -> WriteResult {
+        // Requests replaced by this newer state were not written on their own.
+        counts.submitted += replaced; counts.skipped += replaced
         counts.submitted += 1
         if readOnly {
             counts.skipped += 1

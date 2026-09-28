@@ -124,6 +124,50 @@ final class ActivityServiceTests: XCTestCase {
         third.stop()
         XCTAssertEqual(try ActivityHistory.load(from: historyURL).summary(now: clock).totals.codex, 50)
     }
+    /// R2-R-02 with an import: on a slow disk the state carrying the import
+    /// boundary can be replaced by a newer checkpoint before it is written. The
+    /// newer state holds the boundary too, both requests get its result, and the
+    /// journals are read only once the boundary is on disk.
+    @MainActor func testImportBoundaryReplacedByANewerCheckpointIsOnDiskBeforeTheRead() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ActivityServiceTests-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let historyURL = root.appendingPathComponent("activity.json")
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), writes = CallCounter()
+        let storage = ActivityPersistence(historyURL: historyURL, detailsURL: root.appendingPathComponent("activity-details.json"),
+            writeHistory: { value, url in
+                if writes.next() == 1 {
+                    entered.signal()
+                    XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+                }
+                try value.save(to: url)
+            })
+        var clock = now
+        let read = expectation(description: "Journals are read")
+        let service = ActivityService(storage: storage, powerNotifications: nil, clock: { clock }, importer: { _, boundary, _ in
+            let saved = try ActivityHistory.load(from: historyURL)
+            XCTAssertEqual(saved.providerImportCutoffs?["codex"], boundary, "The boundary is durable before any journal is read")
+            read.fulfill()
+            return ActivityImportResult()
+        })
+        service.setProviders([.codex])
+        func running() -> AgentSession {
+            AgentSession(provider: .codex, sessionID: "fixture", title: "Synthetic", cwd: "/tmp/fixture", phase: .running,
+                         updatedAt: clock, observedAt: clock, evidence: .localEvent, runtimeConfirmed: true)
+        }
+        service.observe([running()]) // the first checkpoint; its write is slow
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        service.requestImport() // the boundary state waits behind it
+        clock = now.addingTimeInterval(60)
+        service.observe([running()]) // a newer checkpoint replaces the waiting state
+        XCTAssertEqual(storage.waitingRequests, 2)
+        release.signal()
+        await fulfillment(of: [read], timeout: 5)
+        await waitUntilIdle(service)
+        XCTAssertEqual(writes.value, 3, "slow checkpoint, the replacing state, the merged import")
+        XCTAssertNil(service.issue)
+        service.stop()
+    }
     @MainActor func testProviderChangeCancelsOldImportAndKeepsNewSelection() async throws {
         let called = expectation(description: "Both provider selections run"); called.expectedFulfillmentCount = 2
         let gate = Imports { called.fulfill() }
