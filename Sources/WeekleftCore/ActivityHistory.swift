@@ -192,7 +192,9 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
         if let last = intervals.last, last.end > start {
             guard reconcilingClockCorrection else { return }
             intervals = Self.union(intervals + [ActivityInterval(start: start, end: end, providers: providers, observedProviders: observedProviders)])
-            prune(at: max(last.end, end))
+            // Retention follows the corrected present. Pruning at the later, wrong
+            // clock would drop every observation made after a jump back (R2-P-01).
+            prune(at: end)
             return
         }
         if let last = intervals.last, last.end == start, last.providers == providers,
