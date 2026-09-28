@@ -22,6 +22,12 @@ import WeekleftCore
         var allowsClientConfiguration = false
         /// Hands a manually selected client executable to runtime observation.
         var configureRuntime: (ClientExecutableResolver) async -> Void = { _ in }
+        /// Client configuration of one provider; nil keeps connection maintenance inert.
+        var clientSetup: (ProviderID) -> ClientConnection.LocalSetup? = { _ in nil }
+        /// The stable hook helper link refreshed at launch (owner decision 18).
+        var helperLocation: HookHelperLocation?
+        /// Other installed copies of Lunavect, reported at launch (matrix P4).
+        var installedCopies: () -> [URL] = { [] }
 
         static func live(directory: URL) -> Self {
             Self(catalog: { provider, resolver, previous, priorityIDs in
@@ -63,7 +69,8 @@ import WeekleftCore
                  configureRuntime: { resolver in
                      // Automatic discovery is already checked by the runtime reader itself.
                      await CodexActivityReader.shared.useExecutable(resolver.codexPath.isEmpty ? nil : resolver.codexPath)
-                 })
+                 }, clientSetup: { ClientConnection.LocalSetup(provider: $0) }, helperLocation: HookHelperLocation(),
+                 installedCopies: { InstalledCopies.others(running: Bundle.main.bundleURL) })
         }
         private static func readLocal<Value: Sendable>(_ operation: @escaping @Sendable () throws -> Value) async throws -> Value {
             try Task.checkCancellation()
@@ -95,6 +102,21 @@ import WeekleftCore
     /// Fixed codes only; bounded and local to this store's lifetime.
     @Published private(set) var diagnosticEntries: [DiagnosticEntry] = []
     @Published var hooksInstalled: [ProviderID: Bool] = [:]
+    /// Local configuration of each provider, read when connections are shown.
+    @Published private(set) var connectionStates: [ProviderID: ClientConnection.LocalState] = [:]
+    struct SetupNotice: Equatable {
+        let message: String
+        let warning: Bool
+    }
+    /// A launch finding shown on the session panel until dismissed.
+    @Published var setupNotice: SetupNotice?
+    /// Providers whose events the user turned off here (audit H-05). Kept in the
+    /// store's defaults; connecting or turning events on again clears it.
+    @Published private(set) var eventsDisabledByUser: Set<ProviderID> = [] {
+        didSet { defaults.set(eventsDisabledByUser.map(\.rawValue).sorted(), forKey: Self.eventsDisabledKey) }
+    }
+    private static let eventsDisabledKey = "connection.eventsDisabledByUser"
+    func eventsConnected(_ provider: ProviderID) { eventsDisabledByUser.remove(provider) }
     @Published var connectionMessage: String? {
         didSet { titleSaveOwnsConnectionMessage = false }
     }
@@ -157,8 +179,13 @@ import WeekleftCore
         let defaults = defaults ?? (isolated ? UserDefaults(suiteName: "Lunavect.SessionFixture." + UUID().uuidString)! : .standard)
         let base = directory ?? (isolated ? FileManager.default.temporaryDirectory.appendingPathComponent("Lunavect-preview-" + UUID().uuidString) : SessionHooks.directory)
         self.defaults = defaults; self.now = now; self.directory = base
-        self.dependencies = dependencies ?? (isolated ? Dependencies() : .live(directory: base))
+        // Under XCTest a store never selects live client access, even without
+        // `isolated`: no client process, settings file or helper link. It reads
+        // only hook records in its own directory (LiveWriteGuard).
+        self.dependencies = dependencies ?? (isolated ? Dependencies() : LiveWriteGuard.underTestsForStores
+            ? Dependencies(initialEvents: { SessionHooks.load(at: $0) }) : .live(directory: base))
         if isolated { resolveClient = { ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { nil }) } }
+        eventsDisabledByUser = Set((defaults.stringArray(forKey: Self.eventsDisabledKey) ?? []).compactMap(ProviderID.init(rawValue:)))
         let savedMinutes = defaults.integer(forKey: "sessionAutoHideMinutes")
         autoHideMinutes = [5, 10, 20].contains(savedMinutes) ? savedMinutes : 0
         self.undoDelay = undoDelay
@@ -715,35 +742,70 @@ import WeekleftCore
             }
         }
     }
-    func updateHookConfiguration() { publishHookConfiguration(dependencies.hooksState()) }
+    func updateHookConfiguration() {
+        publishHookConfiguration(dependencies.hooksState())
+        var states: [ProviderID: ClientConnection.LocalState] = [:]
+        for provider in ProviderID.allCases { states[provider] = dependencies.clientSetup(provider)?.inspect() }
+        if connectionStates != states { connectionStates = states }
+    }
     /// An unchanged state must not invalidate every observing view on each poll.
     private func publishHookConfiguration(_ state: [ProviderID: Bool]) {
         if hooksInstalled != state { hooksInstalled = state }
     }
+    /// Launch maintenance (owner decisions 17 and 18): point the stable helper link
+    /// at this copy, then move Lunavect's own entries that name another path to it.
+    /// Removed events stay removed, paused (disableAllHooks) or unreadable settings
+    /// are not written, and a translocated copy writes nothing and asks to be moved.
     private func repairMovedConnections() {
         guard dependencies.allowsClientConfiguration else { return }
-        guard let executable = SessionHooks.monitorExecutable() else { return }
+        var notices: [SetupNotice] = []
+        var translocated = false
+        if let location = dependencies.helperLocation {
+            translocated = location.isTranslocated
+            do { try location.refreshLink() }
+            catch { Self.connectionLog.error("Helper link not updated: \(String(describing: error), privacy: .public)") }
+        }
+        if translocated {
+            notices.append(SetupNotice(message: L("macOS запустила Lunavect из временной копии. Перенесите Lunavect в папку «Программы» и откройте его оттуда: до этого команды подключений не обновляются."), warning: true))
+        }
+        var repaired: [ProviderID] = []
+        if let setup = dependencies.clientSetup(.claude) {
+            do { try SessionHooks.restrictOwnBackups(bridgeDirectory: setup.bridgeDirectory, backupDirectory: setup.backupDirectory) }
+            catch { Self.connectionLog.error("Backup permissions not restricted: \(String(describing: error), privacy: .public)") }
+        }
         for provider in providers {
-            let setup = ClientConnection.LocalSetup(provider: provider, executable: executable)
+            guard let setup = dependencies.clientSetup(provider) else { continue }
             do {
-                if SessionHooks.configured(provider), !SessionHooks.installed(provider) {
-                    try SessionHooks.install(provider: provider, executable: executable)
-                }
-                if provider == .claude, ClaudeProvider.statusLineConfigured(), !ClaudeProvider.statusLineInstalled() {
-                    try ClaudeProvider.installStatusLine(executable: executable)
-                }
+                if try setup.repair() == .repaired { repaired.append(provider) }
             } catch {
                 connectionMessage = L("Не удалось восстановить подключение после переноса приложения. Откройте «Подключения» и повторите настройку.")
                     + " " + localConnectionSummary(setup.inspect())
             }
         }
+        if !repaired.isEmpty {
+            Self.connectionLog.notice("Moved Lunavect commands to the helper link: \(repaired.map(\.rawValue).joined(separator: ","), privacy: .public)")
+            notices.append(SetupNotice(message: L("Команды Lunavect в настройках {0} обновлены: теперь они не зависят от расположения приложения.",
+                                                  repaired.map(\.title).joined(separator: ", ")), warning: false))
+        }
+        let copies = translocated ? [] : dependencies.installedCopies()
+        if !copies.isEmpty {
+            notices.append(SetupNotice(message: L("Установлена ещё одна копия Lunavect: {0}. Оставьте одну копию, чтобы виджеты и подключения работали с ней.",
+                                                  copies.map(\.path).joined(separator: ", ")), warning: true))
+        }
+        let warning = notices.contains(where: \.warning)
+        setupNotice = notices.isEmpty ? nil : SetupNotice(message: notices.map(\.message).joined(separator: "\n"), warning: warning)
+    }
+    private static let connectionLog = Logger(subsystem: "com.weekleft.app", category: "connections")
+    /// The provider's client configuration; nil in previews and tests without fixtures.
+    func localSetup(_ provider: ProviderID) -> ClientConnection.LocalSetup? {
+        dependencies.allowsClientConfiguration ? dependencies.clientSetup(provider) : nil
     }
     func disconnect(_ provider: ProviderID) -> Bool {
-        guard dependencies.allowsClientConfiguration else { return false }
-        let setup = ClientConnection.LocalSetup(provider: provider)
+        guard dependencies.allowsClientConfiguration, let setup = dependencies.clientSetup(provider) else { return false }
         defer { updateHookConfiguration() }
         do {
             try setup.apply(.disconnect)
+            eventsDisabledByUser.remove(provider)
             return true
         } catch {
             let state = (error as? ClientConnection.LocalFailure)?.state ?? setup.inspect()
@@ -759,14 +821,19 @@ import WeekleftCore
         return L("События: {0}.", L(state.hooks.message))
     }
     func toggleHooks(_ provider: ProviderID) {
-        guard dependencies.allowsClientConfiguration else { return }
+        guard dependencies.allowsClientConfiguration, let setup = dependencies.clientSetup(provider) else { return }
         do {
             if hooksInstalled[provider] == true {
-                try SessionHooks.remove(provider: provider)
+                try SessionHooks.remove(provider: provider, configURL: setup.configURL, backupDirectory: setup.backupDirectory)
+                eventsDisabledByUser.insert(provider)
                 connectionMessage = L("События {0} отключены. Остальные обработчики сохранены.", provider.title)
             } else {
-                guard let executable = SessionHooks.monitorExecutable() else { throw SessionError.unavailable }
-                try SessionHooks.install(provider: provider, executable: executable)
+                guard let executable = setup.executable else {
+                    throw setup.translocated ? SessionError.translocated : SessionError.unavailable
+                }
+                try SessionHooks.install(provider: provider, executable: executable, configURL: setup.configURL,
+                                         backupDirectory: setup.backupDirectory)
+                eventsDisabledByUser.remove(provider)
                 connectionMessage = provider == .codex
                     ? L("Обработчики добавлены. В Codex откройте /hooks и разрешите команды Lunavect. До первого события статус останется неизвестным.")
                     : L("Обработчики добавлены. События появятся при следующем действии в Claude Code; уже открытой сессии может потребоваться перезапуск.")
@@ -809,6 +876,7 @@ enum SessionNavigation {
             guard FileManager.default.fileExists(atPath: session.cwd, isDirectory: &directoryExists), directoryExists.boolValue else { throw SessionOpeningError.missingProject }
             guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { throw SessionOpeningError.missingTerminal }
             let directory = SessionHooks.directory.appendingPathComponent("Openers")
+            try LiveWriteGuard.check(directory)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             // Best-effort: an old launcher that cannot be removed must not block opening.
             _ = try? SessionHooks.pruneOpeners(in: directory)

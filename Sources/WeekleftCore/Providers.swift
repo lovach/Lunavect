@@ -360,15 +360,21 @@ public enum ClaudeProvider {
               let status = root["statusLine"] as? [String: Any], let command = status["command"] as? String else { return false }
         return ownsStatusLine(command)
     }
-    public static func statusLineInstalled(settingsURL: URL? = nil, executable: String? = SessionHooks.monitorExecutable()) -> Bool {
-        guard let executable, FileManager.default.isExecutableFile(atPath: executable) else { return false }
+    public static func statusLineInstalled(settingsURL: URL? = nil, executable: String?) -> Bool {
+        statusLineInstalled(settingsURL: settingsURL, accepting: executable.map { [$0] } ?? [])
+    }
+    /// The status line names one of `executables`: the stable helper link or, for
+    /// installations made before it existed, the running copy's own helper.
+    public static func statusLineInstalled(settingsURL: URL? = nil,
+                                           accepting executables: [String] = HookHelperLocation().acceptedExecutables) -> Bool {
+        let expected = Set(executables.filter { FileManager.default.isExecutableFile(atPath: $0) }.map(statusLineCommand))
         let config = settingsURL ?? SessionHooks.configURL(.claude)
-        guard let data = try? Data(contentsOf: config),
+        guard !expected.isEmpty, let data = try? Data(contentsOf: config),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               root["disableAllHooks"] as? Bool != true,
               let status = root["statusLine"] as? [String: Any],
               let command = status["command"] as? String else { return false }
-        return command == statusLineCommand(executable) && status["type"] as? String == "command"
+        return expected.contains(command) && status["type"] as? String == "command"
     }
     static func validateStatusLine(settingsURL: URL, bridgeDirectory: URL, connecting: Bool) throws {
         let root = try SessionHooks.readConfiguration(at: settingsURL)
@@ -388,11 +394,12 @@ public enum ClaudeProvider {
     public static func installStatusLine(executable: String, settingsURL: URL? = nil, bridgeDirectory: URL = directory,
                                          checkpoint: (ClientConnection.LocalStep) throws -> Void = { _ in }) throws {
         let settings = settingsURL ?? SessionHooks.configURL(.claude)
+        try LiveWriteGuard.check(settings, bridgeDirectory)
         try validateStatusLine(settingsURL: settings, bridgeDirectory: bridgeDirectory, connecting: true)
         let oldData = try FileManager.default.fileExists(atPath: settings.path) ? Data(contentsOf: settings) : nil
         var root: [String: Any] = [:]
         if let oldData {
-            guard oldData.count < 5_000_000, let object = try JSONSerialization.jsonObject(with: oldData) as? [String: Any] else { throw UsageError.invalidResponse }
+            guard let object = try? SessionHooks.strictObject(oldData) else { throw UsageError.invalidResponse }
             root = object
         }
         guard root["disableAllHooks"] as? Bool != true else { throw UsageError.statusLineDisabled }
@@ -417,7 +424,7 @@ public enum ClaudeProvider {
         let current = try FileManager.default.fileExists(atPath: settings.path) ? Data(contentsOf: settings) : nil
         guard current == oldData else { throw SessionError.changedConfig }
         try SessionHooks.writeConfigurationChange(original: oldData,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+            updated: SessionHooks.serialized(root),
             to: settings, restorationURL: SessionHooks.restorationURL(for: settings, in: bridgeDirectory, prefix: "statusline"),
             disconnecting: false)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")
@@ -425,10 +432,11 @@ public enum ClaudeProvider {
     public static func removeStatusLine(settingsURL: URL? = nil, bridgeDirectory: URL = directory,
                                         checkpoint: (ClientConnection.LocalStep) throws -> Void = { _ in }) throws {
         let settings = settingsURL ?? SessionHooks.configURL(.claude)
+        try LiveWriteGuard.check(settings, bridgeDirectory)
         try validateStatusLine(settingsURL: settings, bridgeDirectory: bridgeDirectory, connecting: false)
         guard FileManager.default.fileExists(atPath: settings.path) else { return }
         let oldData = try Data(contentsOf: settings)
-        guard var root = try JSONSerialization.jsonObject(with: oldData) as? [String: Any] else { throw UsageError.invalidResponse }
+        guard var root = try? SessionHooks.strictObject(oldData) else { throw UsageError.invalidResponse }
         guard let status = root["statusLine"] as? [String: Any], let command = status["command"] as? String, ownsStatusLine(command) else { return }
         // Restore only the two fields owned by the bridge. Metadata edited by the
         // client since installation (padding, refreshInterval, etc.) stays current.
@@ -441,7 +449,7 @@ public enum ClaudeProvider {
         try checkpoint(.statusLineWrite)
         guard try Data(contentsOf: settings) == oldData else { throw SessionError.changedConfig }
         try SessionHooks.writeConfigurationChange(original: oldData,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+            updated: SessionHooks.serialized(root),
             to: settings, restorationURL: SessionHooks.restorationURL(for: settings, in: bridgeDirectory, prefix: "statusline"),
             disconnecting: true)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")

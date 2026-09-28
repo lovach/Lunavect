@@ -105,17 +105,47 @@ final class LocalizationTests: XCTestCase {
         XCTAssertGreaterThan(checked.count, 250, "The scanner must inspect the production source, not an empty directory")
     }
 
+    /// Audit 05 §5 item 14: strings stored in Russian and translated at display
+    /// time through L(variable) (error messages, diagnostics, card titles) must be
+    /// catalog keys too, not only direct L("...") calls. Every line-local Cyrillic
+    /// literal in production source is a key, apart from the language's own name
+    /// and the Russian patterns that parse client output.
+    func testEveryCyrillicSourceLiteralIsACatalogKey() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let literal = try NSRegularExpression(pattern: #"(#*)"((?:\\.|[^"\\\n])*)"\1"#)
+        let allowed: Set<String> = ["Русский"]
+        var checked = 0, missing: [String] = []
+        for folder in ["Sources", "Widget"] {
+            guard let iterator = FileManager.default.enumerator(at: root.appendingPathComponent(folder), includingPropertiesForKeys: nil) else { continue }
+            for case let file as URL in iterator where file.pathExtension == "swift" {
+                for (index, line) in try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n").enumerated() {
+                    guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") else { continue }
+                    for match in literal.matches(in: line, range: NSRange(line.startIndex..., in: line)) {
+                        // Raw strings (#"..."#) hold the regular expressions for Russian client output.
+                        guard match.range(at: 1).length == 0 else { continue }
+                        let encoded = String(line[Range(match.range(at: 2), in: line)!])
+                        guard encoded.range(of: "[А-Яа-яЁё]", options: .regularExpression) != nil, !encoded.contains(#"\("#) else { continue }
+                        let key = (try? JSONDecoder().decode(String.self, from: Data(("\"" + encoded + "\"").utf8))) ?? encoded
+                        checked += 1
+                        if L10n.translations[key] == nil && !allowed.contains(key) { missing.append("\(file.lastPathComponent):\(index + 1) \(key)") }
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(missing, [])
+        XCTAssertGreaterThan(checked, 500, "The scanner must inspect the production source")
+    }
     func testDisabledCodexHooksAreNotReportedAsConfigured() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("hooks.json")
         try SessionHooks.install(provider: .codex, executable: Bundle.main.executablePath!, configURL: url, backupDirectory: directory.appendingPathComponent("backups"))
-        XCTAssertTrue(SessionHooks.installed(.codex, configURL: url))
+        XCTAssertTrue(SessionHooks.installed(.codex, configURL: url, executable: Bundle.main.executablePath!))
         var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         root["disableAllHooks"] = true
         try JSONSerialization.data(withJSONObject: root).write(to: url)
-        XCTAssertFalse(SessionHooks.installed(.codex, configURL: url))
+        XCTAssertFalse(SessionHooks.installed(.codex, configURL: url, executable: Bundle.main.executablePath!))
     }
     func testSetupDetectionDoesNotClaimDisabledBridgeIsConnected() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -134,6 +164,6 @@ final class LocalizationTests: XCTestCase {
         var root = try XCTUnwrap(JSONSerialization.jsonObject(with: before) as? [String: Any])
         root["disableAllHooks"] = true
         try JSONSerialization.data(withJSONObject: root).write(to: url)
-        XCTAssertFalse(ClaudeProvider.statusLineInstalled(settingsURL: url))
+        XCTAssertFalse(ClaudeProvider.statusLineInstalled(settingsURL: url, executable: Bundle.main.executablePath!))
     }
 }

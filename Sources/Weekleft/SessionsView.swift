@@ -126,6 +126,18 @@ struct SessionsView: View {
                 }.padding(.horizontal, 12).padding(.bottom, 8)
                     .accessibilityIdentifier("session-navigation-issue")
             }
+            if let notice = store.setupNotice {
+                HStack(alignment: .top, spacing: 8) {
+                    InterfaceLabel(notice.message, notice.warning ? .warning : .info)
+                        .font(.system(size: 12)).foregroundStyle(notice.warning ? Color.orange : Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button { store.setupNotice = nil } label: {
+                        InterfaceIcon(.close).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityLabel(L("Закрыть сообщение"))
+                }.padding(.horizontal, 12).padding(.bottom, 8)
+                    .accessibilityIdentifier("session-setup-notice")
+            }
             if updates.notice != nil { UpdateNoticeView(updates: updates).padding(.horizontal, 12).padding(.bottom, 8) }
             VStack(spacing: 6) {
                 HStack(spacing: 8) {

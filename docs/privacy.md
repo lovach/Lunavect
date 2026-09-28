@@ -32,6 +32,7 @@ Some paths still use **Weekleft**, the original internal name, to preserve compa
 | --- | --- |
 | `~/Library/Application Support/Weekleft/Sessions/` | Session records, hidden sessions, ordering, resume launchers (removed after a day) and hook configuration backups. A session record that can no longer be read is kept aside as `*.json.corrupt-*` for diagnosis; it and unreadable records are removed after a day |
 | `~/Library/Application Support/Weekleft/ClaudeStatusLine/` | Claude quota caches and the previous status-line configuration |
+| `~/Library/Application Support/Weekleft/bin/LunavectHook` | A symbolic link to the running app's hook helper, named by client settings; it contains no data |
 | `~/Library/Application Support/Weekleft/ConnectionSetup/` | Commands used to install or sign in to an official client |
 | `~/Library/Application Support/Weekleft/QuotaProbe/` | Isolated working directory for Claude's `/usage` command |
 | `~/Library/Application Support/Weekleft/activity-details.json` | Project and session activity breakdowns |
@@ -54,7 +55,7 @@ In **Settings → Statistics → History and data accuracy**, **Find data from a
 
 Connecting Claude adds Lunavect event handlers and a status-line command to Claude's `settings.json`. Connecting Codex adds event handlers to `hooks.json`. Default locations are `~/.claude` and `~/.codex`; the app respects `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when configured in its environment. Codex may require you to approve new handlers through `/hooks`.
 
-Before editing client configuration, Lunavect saves a backup and preserves unrelated settings and handlers. A backup can include other values already present in that configuration file; treat it as private, just like the original. Disconnect removes Lunavect's handlers and restores its saved previous Claude status line when applicable. While connected, the status-line bridge forwards its input to the previous status-line command, if one existed; that command and other preserved handlers retain their own behavior, including any network access.
+Before editing client configuration, Lunavect saves a backup and preserves unrelated settings and handlers. A backup can include other values already present in that configuration file; treat it as private, just like the original. Backups are readable only by your user (mode 0600); copies made by older versions are restricted at launch. The rewritten file keeps its values but uses sorted keys and a final newline, see [how settings files are written](connections.md#how-settings-files-are-written). Disconnect removes Lunavect's handlers and restores its saved previous Claude status line when applicable. While connected, the status-line bridge forwards its input to the previous status-line command, if one existed; that command and other preserved handlers retain their own behavior, including any network access.
 
 Lunavect creates its data directories and sensitive data files with owner-only permissions where it writes them. These files are local data, not an encrypted vault. Other software running as your macOS user may be able to read them.
 

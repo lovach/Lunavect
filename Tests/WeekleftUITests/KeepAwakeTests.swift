@@ -12,6 +12,10 @@ import ServiceManagement
     var failPermission = false
     var gate: CheckedContinuation<Void, Never>?
     var suspendBegin = false
+    var keepAliveError: Error?, releaseCount = 0
+    var startupProblem: Error?, repairError: Error?
+    func registrationProblem() async -> Error? { startupProblem }
+    func repairRegistration() async throws { if let repairError { throw repairError } }
     func requestPermission() throws {
         permissionCount += 1
         if failPermission { throw AwakeFailure.permission }
@@ -23,7 +27,11 @@ import ServiceManagement
         held = true
     }
     func configure(policy: AwakeSafetyPolicy) async throws {}
-    func keepAlive() async throws { if !held { throw AwakeFailure.lost } }
+    func keepAlive() async throws {
+        if let keepAliveError { throw keepAliveError }
+        if !held { throw AwakeFailure.lost }
+    }
+    func releaseAfterLostConnection() async { releaseCount += 1 }
     func end() async throws { if failEnd { throw AwakeFailure.unavailable }; held = false }
     func disconnect() { disconnectCount += 1; held = false }
 }
@@ -53,6 +61,46 @@ final class KeepAwakeTests: XCTestCase {
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path))
+    }
+    /// Opt-in: the registration recovery states of the panel, rendered for review.
+    @MainActor func testRenderRegistrationRecovery() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_AWAKE_REGISTRATION"] else { throw XCTSkip("Opt-in native rendering") }
+        _ = NSApplication.shared
+        let oldLanguage = L10n.selection
+        defer { L10n.defaults.set(oldLanguage, forKey: "languageCode") }
+        L10n.defaults.set(ProcessInfo.processInfo.environment["LUNAVECT_RENDER_LANGUAGE"] ?? "en", forKey: "languageCode")
+        var images: [NSImage] = []
+        for repairFails in [false, true] {
+            let suite = "awake-registration-" + UUID().uuidString
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let client = FakeAwakeClient()
+            client.startupProblem = NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))
+            client.repairError = repairFails ? AwakeFailure.permission : nil
+            let awake = KeepAwake(client: client, defaults: defaults)
+            await awake.waitForRegistrationCheck()
+            if repairFails { await awake.repairRegistration() }
+            let host = NSHostingView(rootView: KeepAwakeControls(awake: awake).padding(10).frame(width: 330)
+                .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark))
+            host.appearance = NSAppearance(named: .darkAqua)
+            host.frame = CGRect(origin: .zero, size: host.fittingSize)
+            let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.contentView = host
+            defer { window.contentView = nil }
+            try await Task.sleep(for: .milliseconds(200))
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let image = NSImage(size: host.bounds.size); image.addRepresentation(bitmap); images.append(image)
+        }
+        let size = NSSize(width: images.map(\.size.width).reduce(0, +) + 10, height: images.map(\.size.height).max() ?? 0)
+        let sheet = NSImage(size: size)
+        sheet.lockFocus()
+        var x: CGFloat = 0
+        for image in images { image.draw(at: NSPoint(x: x, y: size.height - image.size.height), from: .zero, operation: .copy, fraction: 1); x += image.size.width + 10 }
+        sheet.unlockFocus()
+        let data = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(sheet.tiffRepresentation))?.representation(using: .png, properties: [:]))
+        try data.write(to: URL(fileURLWithPath: path))
     }
     @MainActor func testForcedRepairRefreshesAnAlreadyRememberedBuild() async throws {
         let suite = "awake-repair-" + UUID().uuidString
@@ -349,6 +397,22 @@ final class KeepAwakeTests: XCTestCase {
         now += 900; await timed.check(); XCTAssertTrue(timed.isEnabled)
         now += 4000; await timed.check()
         XCTAssertFalse(timed.isEnabled); XCTAssertFalse(client.held); XCTAssertNil(timed.endsAt)
+    }
+    /// launchd no longer restarts a crashed helper (decision 16). A heartbeat
+    /// without any answer asks a new instance to restore sleep; a helper that
+    /// answered with a stop reason already restored it itself.
+    @MainActor func testUnansweredHeartbeatStartsAFreshHelperOnlyWhenNoHelperAnswered() async throws {
+        for (error, releases) in [(AwakeFailure.unavailable as Error, 1), (AwakeCallTimeout(), 1), (AwakeFailure.battery, 0)] {
+            let suite = "awake-release-" + UUID().uuidString
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let client = FakeAwakeClient(), awake = KeepAwake(client: client, defaults: defaults, scheduleTimer: { _, _ in Timer() })
+            await awake.start()
+            client.keepAliveError = error
+            await awake.check()
+            XCTAssertFalse(awake.isEnabled)
+            XCTAssertEqual(client.releaseCount, releases, "\(error)")
+        }
     }
     @MainActor func testLostHelperIsNotDisplayedAsActive() async {
         let client = FakeAwakeClient()

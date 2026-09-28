@@ -170,9 +170,10 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     }
 }
 public enum SessionError: LocalizedError {
-    case invalidResponse, timeout, unavailable, disabled, changedConfig
+    case invalidResponse, timeout, unavailable, disabled, changedConfig, translocated
     public var errorDescription: String? {
         switch self {
+        case .translocated: return "macOS запустила Lunavect из временной копии. Перенесите Lunavect в папку «Программы», откройте его оттуда и повторите подключение."
         case .invalidResponse: return "Источник вернул неизвестный формат данных."
         case .timeout: return "Источник не ответил вовремя."
         case .unavailable: return "Не найден подходящий CLI. Проверьте установку приложения."

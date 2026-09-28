@@ -326,6 +326,13 @@ final class TerminalLocationTests: XCTestCase {
         XCTAssertEqual(client(desktop), .desktop)
         let agent: Table = [40: proc(1, "/Users/u/.local/bin/codex")]
         XCTAssertEqual(client(agent), .unknown, "No terminal, no host: still unknown")
+        // Audit 02 §5.11 (from WP-2): the Codex CLI bundled in a desktop app, run from
+        // a Terminal tab, belongs to Terminal, not to the app that ships it.
+        let bundled: Table = [40: proc(30, "/Applications/ChatGPT.app/Contents/Resources/codex", tty: tty),
+                              30: proc(20, "/bin/zsh", tty: tty), 20: proc(10, "/usr/bin/login", tty: tty),
+                              10: proc(1, "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal")]
+        XCTAssertEqual(client(bundled), .terminal)
+        XCTAssertEqual(client(bundled, terminal: "Apple_Terminal"), .terminal)
     }
 
     /// §4 item 14: the launcher for a finished session survives quotes, newlines

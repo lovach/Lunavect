@@ -87,15 +87,24 @@ import WeekleftCore
 
 struct ConnectionDiagnosticSummary: View {
     let result: ConnectionDiagnostic
+    var eventsDisabled = false
+    /// Missing events that the user turned off on purpose are a choice, not a
+    /// fault to repair (audit H-05). The shared report keeps its fixed state code.
+    static func eventsChoice(for result: ConnectionDiagnostic, eventsDisabled: Bool) -> String? {
+        eventsDisabled && result.state == .eventsMissing ? "События отключены вами" : nil
+    }
     var body: some View {
+        let choice = Self.eventsChoice(for: result, eventsDisabled: eventsDisabled)
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(result.provider.title).font(.headline)
                 Spacer()
-                InterfaceIcon(result.state == .ready ? .checkCircle : .info).foregroundStyle(result.state == .ready ? .green : .orange)
+                InterfaceIcon(result.state == .ready || choice != nil ? .checkCircle : .info)
+                    .foregroundStyle(result.state == .ready ? .green : choice != nil ? .secondary : .orange)
             }
-            Text(L(result.title)).font(.system(size: 13, weight: .semibold))
-            Text(L(result.guidance)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(L(choice ?? result.title)).font(.system(size: 13, weight: .semibold))
+            Text(L(choice == nil ? result.guidance : "Lunavect не получает события сессий этого клиента, пока вы их не включите."))
+                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let note = result.note {
                 InterfaceLabel(L(note), .info).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
@@ -135,8 +144,14 @@ struct ConnectionDiagnosticsView: View {
                     }
                     ForEach(diagnostics.results) { result in
                         VStack(alignment: .leading, spacing: 10) {
-                            ConnectionDiagnosticSummary(result: result)
-                            if let repair = result.repair {
+                            let disabled = sessions.eventsDisabledByUser.contains(result.provider)
+                            ConnectionDiagnosticSummary(result: result, eventsDisabled: disabled)
+                            if ConnectionDiagnosticSummary.eventsChoice(for: result, eventsDisabled: disabled) != nil {
+                                Button(L("Включить события")) {
+                                    sessions.toggleHooks(result.provider)
+                                    actions.start { await diagnostics.check(store: store, sessions: sessions, provider: result.provider) }
+                                }.disabled(diagnostics.busy).accessibilityIdentifier("enable-events-" + result.provider.rawValue)
+                            } else if let repair = result.repair {
                                 Button(L(repair.title)) {
                                     if repair == .refresh || repair == .checkSignIn {
                                         actions.start { await diagnostics.check(store: store, sessions: sessions, provider: result.provider) }

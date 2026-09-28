@@ -55,6 +55,18 @@ Default client configuration files are `~/.claude/settings.json` and `~/.codex/h
 
 Hooks invoke the bundled `LunavectHook` helper. It keeps session identity, project, client, state, tool name and timestamps, not the prompt or tool arguments. The Claude status-line handler stores quota values rather than the full input payload. Setup launchers contain commands and paths, not copied authentication tokens.
 
+### Helper path
+
+Commands in client settings name a stable link, `~/Library/Application Support/Weekleft/bin/LunavectHook`, not the app bundle. Every launch points that link at the running copy's helper, so moving, renaming or updating Lunavect needs no change in `settings.json` or `hooks.json`. With two installed copies, the copy that ran last owns the link; Lunavect reports a second copy in `/Applications` or `~/Applications` on the session panel. The clients run the command with `/bin/sh`; the path is single-quoted, so spaces and apostrophes are safe.
+
+A downloaded app that macOS runs from a temporary App Translocation copy neither updates the link nor installs commands. The session panel and the setup guide ask you to move Lunavect to Applications and open it from there.
+
+At launch Lunavect repairs only its own entries that name another path, including the absolute bundle path written by earlier versions, and shows a notice on the session panel. It never adds back an event handler you removed, never touches other handlers, and does not write while the client's `disableAllHooks` is on or while the file cannot be read. Both the older absolute form and the link form count as connected and are removed on disconnect.
+
+### How settings files are written
+
+Lunavect edits `settings.json` and `hooks.json` as JSON: it rereads the file, changes only its own entries, keeps a backup, writes a temporary file, flushes it to disk and renames it over the original, preserving the file's mode and a link to it. The rewritten file uses sorted keys, two-space indentation and a final newline, so key order and spacing can change even though the values stay the same. A file with comments or trailing commas is reported as unreadable and never rewritten or backed up. Disconnecting restores the exact original bytes while Lunavect's entries are the only change; if you created no file before connecting, the file stays after disconnecting, without Lunavect's entries. Backups and the saved previous status line are private to your user (mode 0600); copies made by older versions are restricted at launch.
+
 For all storage paths, backups, permissions and network behavior, see [Privacy and permissions](privacy.md).
 
 ## Troubleshooting
@@ -62,6 +74,9 @@ For all storage paths, backups, permissions and network behavior, see [Privacy a
 - **Client not found:** use the guide's installation action or check the executable path in advanced settings.
 - **Not signed in:** complete the official client's login step, then retry its status check.
 - **No session events:** check handler installation and, for Codex, handler approval. An already open client session may need to be reopened.
+- **Events turned off:** you turned events off in advanced settings. The card says so and offers **Turn on events**; this is not unfinished setup.
+- **Events paused:** the client's own `disableAllHooks` setting is on. Lunavect does not change it; turn it off in the client's settings.
+- **Command points to a file that no longer exists:** the card shows the path. Launch repair normally fixes it; otherwise complete setup again.
 - **Quota unavailable:** follow the selected provider's diagnostic action. Check whether the official client itself shows that allowance. Missing values remain unavailable.
 - **Claude asks to trust a folder:** Claude Code shows its workspace trust question for Lunavect's probe folder (`~/Library/Application Support/Weekleft/QuotaProbe`) until it is answered once. **Finish Claude Code setup** opens `/usage` in that folder in Terminal; Lunavect never answers the question itself.
 - **Subscription limits unavailable:** `/usage` shows only the session cost panel when Claude Code is not signed in with a subscription or bills through an API key. Sign in with the subscription account in Claude Code.

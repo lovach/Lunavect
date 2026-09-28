@@ -18,7 +18,7 @@ enum AwakeDuration: Int, CaseIterable {
 }
 
 enum AwakePermissionOrigin { case sessions, settings }
-enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
+enum AwakeRecoveryAction { case retryConnection, reviewConditions, repairRegistration, openLoginItems, none }
 
 @MainActor final class KeepAwake: ObservableObject {
     typealias TimerScheduler = @MainActor (TimeInterval, @escaping @Sendable (Timer) -> Void) -> Timer
@@ -57,6 +57,7 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
     private var permissionDuration: AwakeDuration?
     private var permissionGeneration = 0
     private var permissionOrigin = AwakePermissionOrigin.sessions
+    private var registrationCheck: Task<Void, Never>?
     var onPermissionFinished: ((AwakePermissionOrigin) -> Void)?
     /// Worded like the "After sessions finish" choices, not in raw seconds.
     var automaticStopDescription: String {
@@ -101,6 +102,44 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
         }?.normalized ?? .init()
         let grace = defaults.object(forKey: "awake.idleGraceSeconds") as? Int ?? 60
         idleGraceSeconds = [0, 30, 60, 120, 300].contains(grace) ? grace : 60
+        // A renewal of the helper's registration at launch can fail without any
+        // lease request (audit H-01). Show it instead of keeping it internal.
+        registrationCheck = Task { [weak self, client] in
+            guard let problem = await client.registrationProblem() else { return }
+            self?.showRegistrationProblem(problem)
+        }
+    }
+    func waitForRegistrationCheck() async { await registrationCheck?.value }
+    private func showRegistrationProblem(_ error: Error) {
+        refreshPermission()
+        guard issue == nil, !isEnabled else { return }
+        switch error as? AwakeFailure {
+        case .recovery?: issue = message(for: error)
+        case .permission?: return  // The panel already offers "Allow and turn on".
+        default:
+            issue = L("Системный помощник Keep Awake остался зарегистрирован от прежней версии Lunavect и не запускается. Обновите его регистрацию.")
+            recoveryAction = .repairRegistration
+        }
+    }
+    func repairRegistration() async {
+        guard !isBusy else { return }
+        isBusy = true; defer { isBusy = false }
+        do {
+            try await client.repairRegistration()
+            refreshPermission()
+            issue = nil
+            liftSuspension()
+        } catch {
+            refreshPermission()
+            issue = Self.registrationGuidance
+            recoveryAction = .openLoginItems
+        }
+    }
+    func openLoginItems() { client.openLoginItems() }
+    static var registrationGuidance: String { L("Не удалось обновить регистрацию помощника Keep Awake. Закройте Lunavect, выполните скопированную команду в Терминале и откройте Lunavect снова. Либо выключите и снова включите Lunavect в разделе «Объекты входа» → «Разрешить в фоне».") }
+    /// The maintenance command of this exact installation, quoted for a shell.
+    static func unregisterCommand(executable: String? = Bundle.main.executablePath) -> String {
+        SessionHooks.quote(executable ?? "/Applications/Lunavect.app/Contents/MacOS/Lunavect") + " --unregister-awake-helper"
     }
     func setIdleGrace(_ seconds: Int) {
         guard [0, 30, 60, 120, 300].contains(seconds) else { return }
@@ -245,6 +284,7 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
         catch {
             clearState(); client.disconnect()
             issue = L("Нет подтверждения выключения. Системный помощник вернёт обычный сон после потери связи с приложением.")
+            if Self.lostHelper(error) { await client.releaseAfterLostConnection() }
         }
     }
     func check() async {
@@ -258,12 +298,22 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, none }
             guard generation == self.generation else { return }
             suspendAutomatic()
             clearState(); client.disconnect(); issue = message(for: error)
+            if Self.lostHelper(error) { await client.releaseAfterLostConnection() }
         }
+    }
+    /// No answer at all: the helper may have crashed with sleep still disabled.
+    /// launchd does not restart it, so the client starts a new instance.
+    private static func lostHelper(_ error: Error) -> Bool {
+        error is AwakeCallTimeout || error as? AwakeFailure == .unavailable
     }
     /// Invalidation releases the daemon lease even if the UI exits.
     func shutdown() { generation += 1; cancelPermission(); client.disconnect(); clearState() }
     private func clearState() { isEnabled = false; endsAt = nil; idleDeadline = nil; timer?.invalidate(); timer = nil }
     private func message(for error: Error) -> String {
+        if error is AwakeHelperNotStarting {
+            recoveryAction = .openLoginItems
+            return L("Помощник Keep Awake зарегистрирован, но macOS его не запускает.") + " " + Self.registrationGuidance
+        }
         switch error as? AwakeFailure {
         case .battery, .thermal, .power: recoveryAction = .reviewConditions
         case .permission, .external, .recovery, .expired, .busy: recoveryAction = .none
@@ -405,6 +455,18 @@ struct KeepAwakeControls: View {
                     if awake.automatic { Task { await awake.setAutomatic(true) } }
                     else { Task { await awake.start() } }
                 }.disabled(awake.isBusy).accessibilityIdentifier("awake-retry")
+                } else if awake.recoveryAction == .repairRegistration {
+                    Button(L("Обновить регистрацию")) { Task { await awake.repairRegistration() } }
+                        .disabled(awake.isBusy).accessibilityIdentifier("awake-repair-registration")
+                } else if awake.recoveryAction == .openLoginItems {
+                    HStack(spacing: 8) {
+                        Button(L("Скопировать команду")) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(KeepAwake.unregisterCommand(), forType: .string)
+                        }.accessibilityIdentifier("awake-copy-command")
+                        Button(L("Объекты входа")) { awake.openLoginItems() }
+                            .accessibilityIdentifier("awake-login-items")
+                    }
                 } else if awake.recoveryAction == .reviewConditions {
                     if let onReviewConditions {
                         Button(L("Условия остановки"), action: onReviewConditions)

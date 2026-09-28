@@ -147,11 +147,13 @@ final class SessionOrganizationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: foreign), Data("foreign".utf8))
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), foreign.path)
     }
-    func testNewConfigIsRemovedOnUnchangedDisconnectAndReadOnlyConfigIsPreserved() throws {
+    /// Audit H-08: a configuration Lunavect created stays after disconnecting,
+    /// without Lunavect's entries, instead of being deleted.
+    func testNewConfigStaysCleanedOnUnchangedDisconnectAndReadOnlyConfigIsPreserved() throws {
         let root = try directory(), file = root.appendingPathComponent("hooks.json"), backups = root.appendingPathComponent("backups")
         try SessionHooks.install(provider: .codex, executable: "/bin/echo", configURL: file, backupDirectory: backups)
         try SessionHooks.remove(provider: .codex, configURL: file, backupDirectory: backups)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? NSDictionary, [:] as NSDictionary)
         try Data("{}".utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: file.path)
         XCTAssertThrowsError(try SessionHooks.install(provider: .codex, executable: "/bin/echo", configURL: file, backupDirectory: backups))

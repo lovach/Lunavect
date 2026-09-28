@@ -6,12 +6,24 @@ import WeekleftCore
 /// The card uses the same strict executable resolution as fetching and setup.
 /// An empty saved path selects discovery; it does not mean the client is absent.
 struct ConnectionCardState {
+    enum Action: Equatable { case setup, refresh, enableEvents }
     let clientFound: Bool
     let needsSetup: Bool
     let statusTitle: String
-    var actionTitle: String { needsSetup ? "Завершить настройку" : "Проверить данные" }
+    let action: Action
+    var actionTitle: String {
+        switch action {
+        case .setup: return "Завершить настройку"
+        case .refresh: return "Проверить данные"
+        case .enableEvents: return "Включить события"
+        }
+    }
 
-    init(provider: ProviderID, resolver: ClientExecutableResolver, configured: Bool, snapshot: UsageSnapshot?) {
+    /// - Parameters:
+    ///   - local: the provider's local configuration, when known.
+    ///   - eventsDisabled: the user turned events off here on purpose (H-05).
+    init(provider: ProviderID, resolver: ClientExecutableResolver, configured: Bool, snapshot: UsageSnapshot?,
+         local: ClientConnection.LocalState? = nil, eventsDisabled: Bool = false) {
         let issue: ClientIntegrationIssue?
         do {
             _ = try resolver.resolve(provider)
@@ -20,11 +32,22 @@ struct ConnectionCardState {
             issue = ClientIntegrationIssue.classify(error, provider: provider, capability: .initialization)
         }
         clientFound = issue == nil
-        needsSetup = !clientFound || !configured
         if let issue {
             statusTitle = issue.reason == .missingClient ? "Нужно установить приложение" : issue.message
+            needsSetup = true; action = .setup
+        } else if local?.paused == true {
+            // disableAllHooks is the client's own switch; Lunavect never overrides it.
+            statusTitle = "События приостановлены: в настройках клиента включено disableAllHooks"
+            needsSetup = false; action = .refresh
+        } else if eventsDisabled && !configured {
+            statusTitle = "События отключены"
+            needsSetup = false; action = .enableEvents
+        } else if !configured, local?.missingExecutable != nil {
+            statusTitle = "Команда Lunavect указывает на удалённый файл. Завершите настройку, чтобы обновить её."
+            needsSetup = true; action = .setup
         } else {
             statusTitle = snapshot?.connectionQuotaTitle() ?? "Ждём лимиты"
+            needsSetup = !configured; action = configured ? .refresh : .setup
         }
     }
 }
@@ -37,7 +60,6 @@ struct ConnectionsView: View {
     @State private var showingDiagnostics = false
     @State private var repairProvider: ProviderID?
     @State private var selectedRepair: ConnectionDiagnostic.Repair?
-    @State private var claudeBridge = ClaudeProvider.statusLineInstalled()
     @State private var statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
     @State private var disconnectedProvider: ProviderID?
     @State private var disconnectedEventsOnly = false
@@ -103,7 +125,7 @@ struct ConnectionsView: View {
             }.padding(8).fixedSize(horizontal: false, vertical: true)
         }.onAppear { sessions.updateHookConfiguration() }
             .sheet(item: $selectedProvider, onDismiss: {
-                claudeBridge = ClaudeProvider.statusLineInstalled(); statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
+                statusLineObservedAt = ClaudeProvider.statusLineObservedAt()
                 sessions.updateHookConfiguration()
             }) { id in
                 ConnectionSetupView(provider: id, store: store, sessions: sessions, repair: selectedRepair)
@@ -130,8 +152,9 @@ struct ConnectionsView: View {
     }
     private func providerCard(_ id: ProviderID) -> some View {
         let snapshot = store.snapshots.first { $0.provider == id }
-        let configured = sessions.hooksInstalled[id] == true && (id == .codex || claudeBridge)
-        let card = ConnectionCardState(provider: id, resolver: store.clientResolver, configured: configured, snapshot: snapshot)
+        let configured = sessions.hooksInstalled[id] == true && (id == .codex || sessions.connectionStates[.claude]?.statusLine == .ready)
+        let card = ConnectionCardState(provider: id, resolver: store.clientResolver, configured: configured, snapshot: snapshot,
+                                       local: sessions.connectionStates[id], eventsDisabled: sessions.eventsDisabledByUser.contains(id))
         let hasQuota = snapshot?.hasQuota == true
         let freshQuota = snapshot.map { !$0.isStale() && $0.issue == nil && $0.hasQuota } ?? false
         let receivedEvents = sessions.currentSessions.contains { $0.provider == id && [.hook, .localEvent].contains($0.evidence) }
@@ -145,8 +168,10 @@ struct ConnectionsView: View {
                 }
                 Spacer()
                 Button(L(card.actionTitle)) {
-                    if card.needsSetup { selectedRepair = nil; selectedProvider = id }
-                    else {
+                    switch card.action {
+                    case .setup: selectedRepair = nil; selectedProvider = id
+                    case .enableEvents: sessions.toggleHooks(id); disconnectedProvider = nil
+                    case .refresh:
                         refreshingCard = id
                         Task { await store.refresh(provider: id); await sessions.refresh(); refreshingCard = nil }
                     }
@@ -185,6 +210,10 @@ struct ConnectionsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     connectionStep(1, title: L("Приложение найдено"), complete: card.clientFound)
                     connectionStep(2, title: L("Локальные события настроены"), complete: configured)
+                    if let missing = sessions.connectionStates[id]?.missingExecutable {
+                        Text(L("Не найден файл: {0}", missing)).font(.system(size: 11)).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    }
                     Text(L(receivedEvents ? "Получены события текущей сессии" : "Нет подтверждённых событий текущей сессии"))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                     HStack {
