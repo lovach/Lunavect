@@ -81,10 +81,11 @@ class GroupMigrationTests(unittest.TestCase):
         with patch.object(migration.os, 'fsync', side_effect=fail_second):
             with self.assertRaises(OSError):
                 migration.migrate(self.old, self.new, self.home)
-        self.assertEqual((self.destination / 'Weekleft/snapshot.json').read_bytes(), self.snapshot)
+        # R2-P-03: the failed run removes the copy it made.
+        self.assertFalse((self.destination / 'Weekleft/snapshot.json').exists())
         self.assertFalse((self.destination / 'Weekleft/activity.json').exists())
         self.assertEqual({p.relative_to(self.source): p.read_bytes() for p in self.source.rglob('*') if p.is_file()}, originals)
-        self.assertEqual(migration.migrate(self.old, self.new, self.home), 2)
+        self.assertEqual(migration.migrate(self.old, self.new, self.home), 3)
         self.assertEqual(migration.migrate(self.old, self.new, self.home), 0)
 
     def test_destination_created_during_copy_is_never_removed_or_overwritten(self):
