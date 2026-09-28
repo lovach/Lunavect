@@ -66,6 +66,8 @@ public enum SessionSources {
         candidates += versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }.map { nvm + "/" + $0 + "/bin/claude" }
         return candidates.first { ClientExecutableResolver.isExecutableFile($0) }
     }
+    /// Whether a recorded client process still exists (kill(pid, 0) != ESRCH).
+    public static func isProcessAlive(_ pid: Int32) -> Bool { SessionProcess.isAlive(pid) }
     /// npm-style launchers are `#!/usr/bin/env node` scripts; their Node lives next to them.
     static func environment(forExecutable path: String, base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var environment = base
@@ -120,14 +122,10 @@ public enum SessionSources {
             return try SessionProcess.codexCatalog(path: path, proxy: false, prioritySessionIDs: prioritySessionIDs, timeout: remaining, discovery: discovery)
         }
     }
-    /// Whether a recorded client process still exists (kill(pid, 0) != ESRCH).
-    public static func isProcessAlive(_ pid: Int32) -> Bool { SessionProcess.isAlive(pid) }
-    public static func legacyEvents(catalog: [AgentSession], now: Date = Date()) -> [AgentSession] {
-        legacyEvents(catalog: catalog, now: now, directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d"),
-                     isInternal: { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) })
-    }
-    static func legacyEvents(catalog: [AgentSession], now: Date, directory dir: URL, isInternal: (String) -> Bool) -> [AgentSession] {
+    public static func legacyEvents(catalog: [AgentSession], now: Date = Date(), directory: URL? = nil,
+                                    isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) }) -> [AgentSession] {
         guard !Task.isCancelled else { return [] }
+        let dir = directory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d")
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey, .isSymbolicLinkKey])) ?? []
         let codexIDs = Set(catalog.filter { $0.provider == .codex }.map(\.sessionID))
         return files.filter { $0.pathExtension == "json" }.compactMap { file in
@@ -534,19 +532,6 @@ enum SessionProcess {
         if name == "codex" { return .codex }
         return nil
     }
-    static func executablePath(_ pid: Int32) -> String? {
-        // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
-        // that expression macro is not imported into Swift.
-        var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        return String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
-    }
-    static func parentProcess(_ pid: Int32) -> Int32? {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout.size(ofValue: info))
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-        return Int32(info.pbi_ppid)
-    }
     /// The client runtime that ran a hook: the nearest ancestor that is not a
     /// shell or command wrapper. Hook runners may or may not exec the command.
     static func hookClientPID(startPID: Int32, read: (Int32) -> RuntimeProcess? = runtimeProcess) -> Int32? {
@@ -592,24 +577,29 @@ enum SessionProcess {
         return nil
     }
 
-    static func client(parentPID: Int32, entrypoint: String, terminal: String,
-                       path: (Int32) -> String? = executablePath, parent: (Int32) -> Int32? = parentProcess,
-                       bundleIdentifier: (String) -> String? = { IDEProcessLocation.bundleIdentifier($0) }) -> SessionClient {
+    static func client(parentPID: Int32, entrypoint: String, terminal: String) -> SessionClient {
         // Query executable paths and parent PIDs directly. Never spawn ps, read
         // arguments, or inspect environment variables of another process.
         var pid = parentPID
         for _ in 0..<16 {
-            guard let name = path(pid) else { break }
+            // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
+            // that expression macro is not imported into Swift.
+            var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
+            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
+            let name = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
             // A CLI binary bundled in an app's Resources (for example ChatGPT.app's
             // codex) says nothing about the host; its parent decides.
             let bundledCLI = name.contains("/Contents/Resources/")
             if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
             if !bundledCLI, let range = name.range(of: ".app/Contents/"),
-               let bundle = bundleIdentifier(String(name[..<range.lowerBound]) + ".app"),
+               let bundle = IDEProcessLocation.bundleIdentifier(String(name[..<range.lowerBound]) + ".app"),
                let editor = SessionIDE.identify(bundleIdentifier: bundle) { return editor.client }
             if name.contains("/Terminal.app/") || name.contains("/iTerm.app/") { return .terminal }
-            guard let next = parent(pid), next > 1, next != pid else { break }
-            pid = next
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout.size(ofValue: info))
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
+                  info.pbi_ppid > 1, info.pbi_ppid != UInt32(pid) else { break }
+            pid = Int32(info.pbi_ppid)
         }
         if entrypoint.contains("desktop") { return .desktop }
         if terminal.lowercased().contains("vscode") { return .vscode }

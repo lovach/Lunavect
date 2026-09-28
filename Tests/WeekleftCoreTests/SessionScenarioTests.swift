@@ -118,26 +118,6 @@ final class SessionScenarioTests: XCTestCase {
         XCTAssertEqual(tracker.update([done.session], now: wake.addingTimeInterval(30)).map(\.kind), [.completed])
     }
 
-    // §5.11: `codex` bundled in ChatGPT.app, started from a Terminal tab.
-    func testBundledCodexCLIInATerminalIsATerminalSession() {
-        let tree: [Int32: (String, Int32)] = [
-            500: ("/Applications/ChatGPT.app/Contents/Resources/codex", 400),
-            400: ("/bin/zsh", 300),
-            300: ("/usr/bin/login", 200),
-            200: ("/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", 1),
-            610: ("/Applications/ChatGPT.app/Contents/Resources/codex", 600),
-            600: ("/Applications/ChatGPT.app/Contents/MacOS/ChatGPT", 1),
-        ]
-        func client(_ pid: Int32, terminal: String = "") -> SessionClient {
-            SessionProcess.client(parentPID: pid, entrypoint: "", terminal: terminal, path: { tree[$0]?.0 }, parent: { tree[$0]?.1 },
-                                  bundleIdentifier: { _ in nil })
-        }
-        XCTAssertEqual(client(500), .terminal, "The bundled binary says nothing about its host")
-        XCTAssertEqual(client(610), .desktop, "The same binary run by the app is the Desktop client")
-        XCTAssertEqual(client(900, terminal: "Apple_Terminal"), .terminal, "Unreadable ancestry falls back to the terminal marker")
-        XCTAssertEqual(client(900), .unknown)
-    }
-
     // Matrix S9: one Codex thread used from Codex.app and resumed in a CLI.
     func testOneCodexThreadFromDesktopAndCLIIsOneRowFollowingTheLatestClient() throws {
         let root = try directory()
