@@ -563,7 +563,11 @@ public struct SessionRecord: Codable, Sendable {
             // Not a turn boundary: phase, tool and freshness stay as they are.
             // Its list is not authoritative (decision 10): it can lower or confirm
             // what this session launched, never raise it. Stop sets the exact set.
-            guard provider == .claude, previous != nil, payload["background_tasks"] != nil else { throw SessionError.invalidResponse }
+            guard provider == .claude, payload["background_tasks"] != nil else { throw SessionError.invalidResponse }
+            // Nothing to lower without a record. Like an ignored notice it carries no
+            // lifecycle, so capture writes nothing; throwing here made the helper's
+            // record-less first parse reject every SubagentStop (R2-S-01).
+            guard previous != nil else { return record }
             // An empty list does not show whose tasks it describes: the parent's, or
             // the finished subagent's own. It leaves the count to Stop (R2-09).
             guard (payload["background_tasks"] as? [Any])?.isEmpty == false else { return record }
