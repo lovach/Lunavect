@@ -17,6 +17,9 @@ struct SessionsView: View {
     var onConnections: (() -> Void)? = nil
     var onMenuBarSettings: (() -> Void)? = nil
     var onKeepAwakeSettings: (() -> Void)? = nil
+    /// Opens the client's setup step for a signed-out limit source, as the
+    /// Connections card does; without it the button opens Connections.
+    var onRepair: ((ConnectionRepairRequest) -> Void)? = nil
     var onHeightChange: ((CGFloat) -> Void)? = nil
     var onReorderingChange: ((Bool) -> Void)? = nil
     @StateObject private var reorder = SessionReorderState()
@@ -126,6 +129,7 @@ struct SessionsView: View {
                 }.padding(.horizontal, 12).padding(.bottom, 8)
                     .accessibilityIdentifier("session-navigation-issue")
             }
+            ForEach(panelState.signInNotices) { signInNotice($0) }
             if let notice = store.setupNotice {
                 HStack(alignment: .top, spacing: 8) {
                     InterfaceLabel(notice.message, notice.warning ? .warning : .info)
@@ -325,6 +329,34 @@ struct SessionsView: View {
             guard focusedSession != nil else { return .ignored }
             focusedSession = nil; return .handled
         }
+    }
+    /// A signed-out limit source: the Connections card's sentence and button, closable like the other notices.
+    private func signInNotice(_ attention: SignInAttention) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                InterfaceLabel(attention.title, .warning)
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                // The panel stays compact: the consequence here, the full advice in the tooltip.
+                Text(attention.consequence).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    if let onRepair { onRepair(attention.request) } else { (onConnections ?? onSettings)() }
+                } label: {
+                    Text(L(attention.repair.title)).frame(minHeight: 24).contentShape(Rectangle())
+                }.buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundStyle(.blue)
+                    .disabled(isPreview)
+                    .accessibilityIdentifier("session-sign-in-" + attention.provider.rawValue)
+            }
+            Spacer(minLength: 0)
+            Button { panelState.closeSignIn(attention.provider) } label: {
+                InterfaceIcon(.close).frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel(L("Закрыть сообщение"))
+        }.padding(.horizontal, 12).padding(.bottom, 8)
+            .help(attention.message)
+            .accessibilityElement(children: .contain)
+            .accessibilityHint(attention.message)
+            .accessibilityIdentifier("session-sign-in-notice")
     }
     private func overflowControl(rows: [AgentSession], layout: SessionPanelLayout) -> some View {
         SessionOverflowControl(scrollPosition: panelState.scrollPosition, ids: rows.map(\.id),

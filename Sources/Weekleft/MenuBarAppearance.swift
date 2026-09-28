@@ -540,6 +540,8 @@ struct ThinkingPhraseCycle {
     private var openPopoverWidth: CGFloat?
     private var updateObserver: AnyCancellable?
     private var updateNotice: String?
+    /// Signed-out limit sources, named like the update notice (no new drawing).
+    private var signIn: [SignInAttention] = []
     private var lastDiagnosticState: String?
     private let diagnosticsEnabled: Bool
     private let now: () -> TimeInterval
@@ -556,10 +558,17 @@ struct ThinkingPhraseCycle {
         updateNotice = notice
         refreshAccessibility()
     }
+    func setSignInAttention(_ attention: [SignInAttention]) {
+        guard attention != signIn else { return }
+        signIn = attention
+        refreshAccessibility()
+    }
     private func refreshAccessibility() {
         let base = L("Lunavect · {0} в работе · {1} в ожидании", String(running), String(waiting))
-        button?.toolTip = [base, updateNotice].compactMap { $0 }.joined(separator: "\n")
-        button?.setAccessibilityLabel([L("Сессии Lunavect, {0} в работе, {1} в ожидании", String(running), String(waiting)), updateNotice].compactMap { $0 }.joined(separator: ". "))
+        // Localized on every refresh, so a language change renames them too.
+        let notices = signIn.map(\.title) + [updateNotice].compactMap { $0 }
+        button?.toolTip = ([base] + notices).joined(separator: "\n")
+        button?.setAccessibilityLabel(([L("Сессии Lunavect, {0} в работе, {1} в ожидании", String(running), String(waiting))] + notices).joined(separator: ". "))
     }
 
     // NSPopover follows its status button. Keep that anchor's size unchanged

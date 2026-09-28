@@ -127,6 +127,8 @@ struct PanelShortcut: Codable, Equatable {
     @Published private(set) var shortcut: PanelShortcut?
     var onTogglePanel: (() -> Void)?
     var onOpenSession: ((String) -> Void)?
+    /// A click on the signed-out notice opens the client's setup step.
+    var onRepair: ((ConnectionRepairRequest) -> Void)?
     var onPermissionFinished: (() -> Void)?
     private let defaults: UserDefaults
     private let isolated: Bool
@@ -148,6 +150,8 @@ struct PanelShortcut: Codable, Equatable {
     /// Latest quota snapshots, for the time an exhausted limit becomes available again.
     private var snapshots: [UsageSnapshot] = []
     private var limitTracker: LimitAlertTracker
+    /// Providers already told they are signed out; saved, so a restart does not repeat it.
+    private var signInTracker: SignInNoticeTracker
     private var limitTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var limitProviders: Set<ProviderID>?
@@ -177,6 +181,8 @@ struct PanelShortcut: Codable, Equatable {
         limitThreshold = Self.limitThresholds.contains(threshold) ? threshold : 10
         limitTracker = LimitAlertTracker(state: defaults.data(forKey: "noticeLimitState")
             .flatMap { try? JSONDecoder().decode(LimitAlertState.self, from: $0) } ?? LimitAlertState())
+        signInTracker = defaults.data(forKey: "noticeSignInState")
+            .flatMap { try? JSONDecoder().decode(SignInNoticeTracker.self, from: $0) } ?? SignInNoticeTracker()
         let cooldown = defaults.object(forKey: "noticeCompletionCooldown") as? Int ?? AppDefaultSettings.soundCooldown
         completionCooldown = [0, 2, 5, 10, 30].contains(cooldown) ? cooldown : AppDefaultSettings.soundCooldown
         shortcut = defaults.data(forKey: "panelShortcut").flatMap { try? JSONDecoder().decode(PanelShortcut.self, from: $0) }
@@ -336,6 +342,17 @@ struct PanelShortcut: Codable, Equatable {
         useSnapshots(snapshots)
         limitProviders = providers
         evaluateLimits(at: date ?? now())
+        announceSignIn(SignInAttention.all(snapshots, providers: providers ?? Set(ProviderID.allCases)))
+    }
+    /// One notice when a provider's client becomes signed out; the Limits switch and
+    /// the delivery channels decide, as for limit notices (owner report 28.09).
+    private func announceSignIn(_ current: [SignInAttention]) {
+        let before = signInTracker
+        let entered = signInTracker.update(current, announce: limits && (banners || sounds))
+        if signInTracker != before, let data = try? JSONEncoder().encode(signInTracker) { defaults.set(data, forKey: "noticeSignInState") }
+        for attention in entered {
+            deliver(title: attention.title, body: attention.notificationBody, sessionID: nil, kind: .limit, repair: attention.request)
+        }
     }
     private func evaluateLimits(at date: Date) {
         let alerts = limitTracker.update(snapshots, threshold: limitThreshold, now: date,
@@ -414,7 +431,8 @@ struct PanelShortcut: Codable, Equatable {
         lastCompletionSoundAt = date
         return true
     }
-    private func deliver(title: String, body: String, sessionID: String?, kind: SessionNoticeKind, bypassSoundCooldown: Bool = false) {
+    private func deliver(title: String, body: String, sessionID: String?, kind: SessionNoticeKind, bypassSoundCooldown: Bool = false,
+                         repair: ConnectionRepairRequest? = nil) {
         guard !isolated, !stopped else { return }
         let shouldPlaySound = reserveSound(kind, bypassCooldown: bypassSoundCooldown)
         let sender = sendBanner ?? center.map { center in
@@ -428,10 +446,11 @@ struct PanelShortcut: Codable, Equatable {
             content.title = title; content.body = body
             if shouldPlaySound { content.sound = kind == .completed ? UNNotificationSound(named: UNNotificationSoundName(NotificationAudio.completionFilename)) : .default }
             if let sessionID { content.userInfo = ["sessionID": sessionID]; content.threadIdentifier = sessionID }
+            if let repair { content.userInfo = ["repair": repair.rawValue] }
             // A session's newer state replaces its earlier banner instead of
-            // leaving an outdated "approval needed" beside it. Limit notices and
-            // the test notification stay separate entries.
-            let request = UNNotificationRequest(identifier: sessionID.map { "session:" + $0 } ?? UUID().uuidString,
+            // leaving an outdated "approval needed" beside it; so does a provider's
+            // sign-in notice. Limit notices and the test notification stay separate entries.
+            let request = UNNotificationRequest(identifier: sessionID.map { "session:" + $0 } ?? repair.map { "sign-in:" + $0.provider.rawValue } ?? UUID().uuidString,
                                                 content: content, trigger: nil)
             let generation = lifecycleGeneration
             sender(request) { [weak self] error in
@@ -456,13 +475,14 @@ struct PanelShortcut: Codable, Equatable {
         return options
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        // Only a copied, Sendable identifier crosses onto the app's actor.
-        let id = response.notification.request.content.userInfo["sessionID"] as? String
-        await receiveNotificationResponse(sessionID: id)
+        // Only copied, Sendable identifiers cross onto the app's actor.
+        let info = response.notification.request.content.userInfo
+        await receiveNotificationResponse(sessionID: info["sessionID"] as? String, repair: info["repair"] as? String)
     }
-    func receiveNotificationResponse(sessionID: String?) {
-        guard !stopped, !isolated, let sessionID else { return }
-        onOpenSession?(sessionID)
+    func receiveNotificationResponse(sessionID: String?, repair: String? = nil) {
+        guard !stopped, !isolated else { return }
+        if let sessionID { onOpenSession?(sessionID) }
+        else if let request = repair.flatMap(ConnectionRepairRequest.init(rawValue:)) { onRepair?(request) }
     }
     func registerShortcut(_ value: PanelShortcut?, save: Bool = true) {
         guard !isolated, !stopped else { return }
