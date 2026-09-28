@@ -57,7 +57,11 @@ def main():
     parser.add_argument('--key-file', type=Path, required=True, help='Private Sparkle key outside the repository; never printed')
     parser.add_argument('--tools', type=Path, default=Path('.build/artifacts/sparkle/Sparkle/bin'))
     parser.add_argument('--previous-appcast', type=Path, required=True, help='Fresh published appcast used for the archive preflight')
+    parser.add_argument('--test-fixture', action='store_true',
+                        help='Accept LUNAVECT_* registration overrides (script tests only); a release refuses them')
     args = parser.parse_args()
+    # The retirement honours LUNAVECT_* registration overrides; a release must not.
+    preflight.refuse_fixture_overrides(parser, args.test_fixture)
     # Retire the source app after success and failure alike; a cleanup failure
     # must not replace the reason preparation stopped.
     try:

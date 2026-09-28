@@ -22,6 +22,18 @@ def fixture_overrides(environment=None):
             if name in environment]
 
 
+def refuse_fixture_overrides(parser, test_fixture, environment=None):
+    """Exit unless every registration override is explicitly accepted with
+    --test-fixture; announce the accepted ones. Shared by the release tools."""
+    overrides = fixture_overrides(environment)
+    if overrides and not test_fixture:
+        names = ', '.join(name for name, _ in overrides)
+        parser.exit(1, f'Release refused: {names} is set. These overrides are for test fixtures and can turn off the '
+                       'installed-build check or the registration cleanup; unset them for a release.\n')
+    for name, value in overrides:
+        print(f'Override active (test fixture): {name}={value}', file=sys.stderr)
+
+
 def default_installed_apps(environment=None):
     """LUNAVECT_INSTALLED_APPS replaces the standard copies (os.pathsep-separated;
     empty checks none), so fixtures never depend on the host's installations."""
@@ -112,13 +124,7 @@ def main():
     parser.add_argument('--test-fixture', action='store_true',
                         help='Accept LUNAVECT_* registration overrides (script tests only); a release refuses them')
     args = parser.parse_args()
-    overrides = fixture_overrides()
-    if overrides and not args.test_fixture:
-        names = ', '.join(name for name, _ in overrides)
-        parser.exit(1, f'Release refused: {names} is set. These overrides are for test fixtures and can turn off the '
-                       'installed-build check or the registration cleanup; unset them for a release.\n')
-    for name, value in overrides:
-        print(f'Override active (test fixture): {name}={value}', file=sys.stderr)
+    refuse_fixture_overrides(parser, args.test_fixture)
     try:
         validate_previous(args.version, args.build, args.previous_appcast)
         if args.source_root:
