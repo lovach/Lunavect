@@ -86,4 +86,91 @@ final class ActivityClockJumpTests: XCTestCase {
             XCTAssertGreaterThan(active, 0, "seed \(initial): the sequence records some work")
         }
     }
+
+    /// Retention removes only an expired prefix (R2-R-03). That is correct only
+    /// while intervals stay ordered and disjoint, so a seeded run of live
+    /// observations with clock jumps, recovered imports and save/load round
+    /// trips checks that order after every step, and that every step which
+    /// changed the history left nothing older than 35 days before its time.
+    func testRetentionKeepsOrderedIntervalsAndDropsEveryExpiredOne() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ActivityClockJumpTests-" + UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        func assertOrdered(_ history: ActivityHistory, _ context: String) {
+            var previous = Date.distantPast
+            for span in history.intervals {
+                XCTAssertLessThan(span.start, span.end, context)
+                XCTAssertGreaterThanOrEqual(span.start, previous, "ordered and disjoint: \(context)")
+                previous = span.end
+            }
+        }
+        func assertRetained(_ history: ActivityHistory, at date: Date, _ context: String) {
+            let cutoff = date.addingTimeInterval(-35 * 86400)
+            XCTAssertFalse(history.intervals.contains { $0.end <= cutoff }, "nothing expired remains: \(context)")
+        }
+        for initial in [0x70727566 as UInt64, 0x52322D52, 0x31323334] {
+            var seed = initial
+            func next(_ limit: Int) -> Int {
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                return Int((seed >> 33) % UInt64(limit))
+            }
+            var tracker = ActivityTracker(), real: TimeInterval = 0, offset: TimeInterval = 0
+            for step in 0..<4_000 {
+                real += Double(1 + next(12))
+                switch next(1_000) {
+                case 0..<3: offset -= Double(60 + next(7_200))
+                case 3..<6: offset += Double(1 + next(60)) * 86_400   // up to two months ahead
+                case 6..<9: offset = 0
+                case 9..<14: tracker.interruptObservation()
+                default: break
+                }
+                let now = base.addingTimeInterval(real + offset), context = "seed \(initial) step \(step)"
+                if next(200) == 0 {
+                    // A recovered import before the first observation, partly outside the window.
+                    var result = ActivityImportResult()
+                    result.intervals = (0..<5).map { _ in
+                        let start = now.addingTimeInterval(-Double(next(50 * 86_400)))
+                        return ActivityInterval(start: start, end: start.addingTimeInterval(Double(60 + next(7_200))), providers: 1 + next(3), recovered: true)
+                    }
+                    tracker.mergeImport(result, now: now, providers: [.claude, .codex])
+                    assertOrdered(tracker.history, context + " import")
+                    assertRetained(tracker.history, at: now, context + " import")
+                    continue
+                }
+                let before = tracker.history
+                let phase: SessionPhase = next(4) == 0 ? .idle : .running
+                let rows = [AgentSession(provider: next(2) == 0 ? .claude : .codex, sessionID: "fixture", title: "Synthetic", cwd: "/tmp/fixture",
+                                         phase: phase, updatedAt: now, observedAt: now, evidence: .localEvent, runtimeConfirmed: true)]
+                tracker.observe(rows, now: now)
+                assertOrdered(tracker.history, context)
+                // A dropped-gap diagnostic changes the history without an interval (no retention step).
+                if tracker.history.intervals != before.intervals { assertRetained(tracker.history, at: now, context) }
+                if step % 400 == 399 {
+                    try tracker.history.save(to: url)
+                    let loaded = try ActivityHistory.load(from: url)
+                    XCTAssertEqual(loaded, tracker.history, context)
+                    tracker = ActivityTracker(history: loaded, details: tracker.details)
+                }
+            }
+        }
+    }
+
+    func testAJumpBeyondTheWindowDropsEveryOlderIntervalNotOnlyTheFirst() {
+        var history = ActivityHistory()
+        for index in 0..<100 {
+            let start = base.addingTimeInterval(Double(index) * 600)
+            history.append(start: start, end: start.addingTimeInterval(60), providers: 1 + index % 2)
+        }
+        XCTAssertEqual(history.intervals.count, 100)
+        let later = base.addingTimeInterval(36 * 86400)
+        history.append(start: later, end: later.addingTimeInterval(5), providers: 1)
+        XCTAssertEqual(history.intervals.map(\.start), [later])
+        // An interval that crosses the cutoff is kept and starts at the cutoff.
+        var crossing = ActivityHistory()
+        crossing.append(start: base, end: base.addingTimeInterval(7200), providers: 1)
+        crossing.append(start: base.addingTimeInterval(7200), end: base.addingTimeInterval(7200 + 1), providers: 2)
+        let edge = base.addingTimeInterval(35 * 86400 + 3600)
+        crossing.append(start: edge, end: edge.addingTimeInterval(5), providers: 1)
+        XCTAssertEqual(crossing.intervals.first?.start, base.addingTimeInterval(3600 + 5))
+        XCTAssertEqual(crossing.intervals.count, 3)
+    }
 }
