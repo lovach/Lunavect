@@ -47,17 +47,22 @@ final class SignInAttentionTests: XCTestCase {
 
     /// The popover's button closes it and asks for the same repair; an app that did
     /// not wire the route still leads to settings instead of doing nothing.
-    @MainActor func testPopoverButtonOpensTheRepairOrSettings() {
+    @MainActor func testPopoverButtonOpensTheRepairOrSettings() throws {
         _ = NSApplication.shared
+        let suite = "Lunavect.SignInPopover." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let language = LanguageSettings(defaults: defaults, reloadWidgets: {})
         var closes = 0
         let presenter = MenuBarPopoverPresenter(isShown: { _ in false }, show: { _, _ in }, close: { _ in closes += 1 })
         var requests: [ConnectionRepairRequest] = [], settings = 0
-        let routed = MenuBarLimitsController(onRepair: { requests.append($0) }, autosaveName: nil, presenter: presenter) { settings += 1 }
+        let routed = MenuBarLimitsController(onRepair: { requests.append($0) }, language: language, defaults: defaults,
+                                             autosaveName: nil, presenter: presenter) { settings += 1 }
         defer { routed.stop() }
         let request = ConnectionRepairRequest(provider: .claude, repair: .signIn)
         routed.repair(request)
         XCTAssertEqual(requests, [request]); XCTAssertEqual(settings, 0); XCTAssertEqual(closes, 1)
-        let unwired = MenuBarLimitsController(autosaveName: nil, presenter: presenter) { settings += 1 }
+        let unwired = MenuBarLimitsController(language: language, defaults: defaults, autosaveName: nil, presenter: presenter) { settings += 1 }
         defer { unwired.stop() }
         unwired.repair(request)
         XCTAssertEqual(settings, 1)
