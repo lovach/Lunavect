@@ -267,7 +267,7 @@ public enum ClaudeProvider {
         let oldData = try FileManager.default.fileExists(atPath: settings.path) ? Data(contentsOf: settings) : nil
         var root: [String: Any] = [:]
         if let oldData {
-            guard oldData.count < 5_000_000, let object = try JSONSerialization.jsonObject(with: oldData) as? [String: Any] else { throw UsageError.invalidResponse }
+            guard let object = try? SessionHooks.strictObject(oldData) else { throw UsageError.invalidResponse }
             root = object
         }
         guard root["disableAllHooks"] as? Bool != true else { throw UsageError.statusLineDisabled }
@@ -292,7 +292,7 @@ public enum ClaudeProvider {
         let current = try FileManager.default.fileExists(atPath: settings.path) ? Data(contentsOf: settings) : nil
         guard current == oldData else { throw SessionError.changedConfig }
         try SessionHooks.writeConfigurationChange(original: oldData,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+            updated: SessionHooks.serialized(root),
             to: settings, restorationURL: SessionHooks.restorationURL(for: settings, in: bridgeDirectory, prefix: "statusline"),
             disconnecting: false)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")
@@ -304,7 +304,7 @@ public enum ClaudeProvider {
         try validateStatusLine(settingsURL: settings, bridgeDirectory: bridgeDirectory, connecting: false)
         guard FileManager.default.fileExists(atPath: settings.path) else { return }
         let oldData = try Data(contentsOf: settings)
-        guard var root = try JSONSerialization.jsonObject(with: oldData) as? [String: Any] else { throw UsageError.invalidResponse }
+        guard var root = try? SessionHooks.strictObject(oldData) else { throw UsageError.invalidResponse }
         guard let status = root["statusLine"] as? [String: Any], let command = status["command"] as? String, ownsStatusLine(command) else { return }
         // Restore only the two fields owned by the bridge. Metadata edited by the
         // client since installation (padding, refreshInterval, etc.) stays current.
@@ -317,7 +317,7 @@ public enum ClaudeProvider {
         try checkpoint(.statusLineWrite)
         guard try Data(contentsOf: settings) == oldData else { throw SessionError.changedConfig }
         try SessionHooks.writeConfigurationChange(original: oldData,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+            updated: SessionHooks.serialized(root),
             to: settings, restorationURL: SessionHooks.restorationURL(for: settings, in: bridgeDirectory, prefix: "statusline"),
             disconnecting: true)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")

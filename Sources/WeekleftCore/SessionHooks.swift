@@ -209,10 +209,52 @@ public enum SessionHooks {
     }
     static func readConfiguration(at url: URL) throws -> [String: Any] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
-        let data = try Data(contentsOf: url)
-        guard data.count < 5_000_000,
+        return try strictObject(Data(contentsOf: url))
+    }
+    /// Foundation's parser also accepts comments and trailing commas, which a
+    /// rewrite would silently drop. Such settings are unreadable for Lunavect: it
+    /// never rewrites or backs them up (audit 05 §5 item 3).
+    public static func strictObject(_ data: Data) throws -> [String: Any] {
+        guard data.count < 5_000_000, !isLenientJSON(data),
               let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw SessionError.invalidResponse }
         return root
+    }
+    /// A comment or a comma before a closing bracket, outside string literals.
+    static func isLenientJSON(_ data: Data) -> Bool {
+        var inString = false, escaped = false, previous: UInt8 = 0
+        for byte in data {
+            if inString {
+                if escaped { escaped = false } else if byte == 0x5C { escaped = true } else if byte == 0x22 { inString = false }
+                continue
+            }
+            switch byte {
+            case 0x22: inString = true; previous = 0; continue
+            case 0x20, 0x09, 0x0A, 0x0D: continue  // whitespace keeps the previous token
+            case 0x2F where previous == 0x2F, 0x2A where previous == 0x2F: return true
+            case 0x7D where previous == 0x2C, 0x5D where previous == 0x2C: return true
+            default: break
+            }
+            previous = byte
+        }
+        return false
+    }
+    /// Pretty, key-sorted JSON with a final newline (owner decision 19). Sorting
+    /// keeps the bytes deterministic so an untouched connection can be undone exactly.
+    public static func serialized(_ root: [String: Any]) throws -> Data {
+        var data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        data.append(0x0A)
+        return data
+    }
+    /// The file a write through `url` replaces, following links even when the
+    /// final target does not exist yet (a dotfile link to a missing file).
+    static func writeTarget(_ url: URL) -> URL {
+        var current = url.standardizedFileURL
+        for _ in 0..<16 {
+            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: current.path) else { return current }
+            current = (destination.hasPrefix("/") ? URL(fileURLWithPath: destination)
+                : current.deletingLastPathComponent().appendingPathComponent(destination)).standardizedFileURL
+        }
+        return current
     }
     static func validateEdit(provider: ProviderID, executable: String?, url: URL) throws {
         _ = try editedConfiguration(provider: provider, executable: executable, root: readConfiguration(at: url))
@@ -288,11 +330,7 @@ public enum SessionHooks {
         try LiveWriteGuard.check(url, backup)
         let old = try FileManager.default.fileExists(atPath: url.path) ? Data(contentsOf: url) : nil
         let original: [String: Any]
-        if let old {
-            guard old.count < 5_000_000,
-                  let root = try JSONSerialization.jsonObject(with: old) as? [String: Any] else { throw SessionError.invalidResponse }
-            original = root
-        } else { original = [:] }
+        if let old { original = try strictObject(old) } else { original = [:] }
         let root = try change(original)
         if (original as NSDictionary).isEqual(to: root) { return false }
         try checkpoint(.hooksBackup)
@@ -302,8 +340,7 @@ public enum SessionHooks {
         let current = try FileManager.default.fileExists(atPath: url.path) ? Data(contentsOf: url) : nil
         guard current == old else { throw SessionError.changedConfig }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try writeConfigurationChange(original: old,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+        try writeConfigurationChange(original: old, updated: serialized(root),
             to: url, restorationURL: restorationURL(for: url, in: backup, prefix: provider.rawValue),
             disconnecting: disconnecting)
         try pruneOwnedBackups(in: backup, prefix: provider.rawValue + "-")
@@ -325,10 +362,9 @@ public enum SessionHooks {
         let previous = (try? Data(contentsOf: restorationURL)).flatMap { try? JSONDecoder().decode(ConfigurationRestoration.self, from: $0) }
         let ownsSnapshot = previous?.installed == original
         if disconnecting {
-            if ownsSnapshot, let previous {
-                if let bytes = previous.original { try writeConfigurationVerified(bytes, to: url) }
-                else { try FileManager.default.removeItem(at: url.resolvingSymlinksInPath()) }
-            } else { try writeConfigurationVerified(updated, to: url) }
+            // A file that did not exist before connecting stays, without Lunavect's
+            // entries: tools that created it meanwhile keep a valid file (H-08).
+            try writeConfigurationVerified(ownsSnapshot ? previous?.original ?? updated : updated, to: url)
             if FileManager.default.fileExists(atPath: restorationURL.path) { try FileManager.default.removeItem(at: restorationURL) }
         } else if !ownsSnapshot, containsOwnedEntries(original) {
             // These bytes already hold Lunavect's own (older) handlers, e.g. after an app
@@ -348,16 +384,33 @@ public enum SessionHooks {
     }
     /// Client-owned configuration keeps its existing mode. Private monitor data
     /// continues to use secureWriteVerified's 0600 policy.
-    public static func writeConfigurationVerified(_ data: Data, to url: URL) throws {
-        let target = url.resolvingSymlinksInPath()
+    /// Write, flush, then rename (H-07): a power loss leaves either the old or the
+    /// new complete file. A link is kept and its target replaced.
+    public static func writeConfigurationVerified(_ data: Data, to url: URL,
+                                                  synchronize: (Int32) throws -> Void = flush) throws {
+        let target = writeTarget(url)
         try LiveWriteGuard.check(url, target)
         let mode = (try? FileManager.default.attributesOfItem(atPath: target.path)[.posixPermissions]) as? NSNumber
         if let mode, mode.intValue & 0o222 == 0 { throw CocoaError(.fileWriteNoPermission) }
         let temporary = target.deletingLastPathComponent().appendingPathComponent(".lunavect-" + UUID().uuidString + ".tmp")
-        guard FileManager.default.createFile(atPath: temporary.path, contents: data, attributes: [.posixPermissions: mode?.intValue ?? 0o600]) else { throw CocoaError(.fileWriteUnknown) }
+        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode_t(mode?.intValue ?? 0o600))
+        guard descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
         defer { try? FileManager.default.removeItem(at: temporary) }
-        guard rename(temporary.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        do {
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+            try handle.write(contentsOf: data)
+            // open() applies the umask; restore the client file's own mode.
+            guard fchmod(descriptor, mode_t(mode?.intValue ?? 0o600)) == 0 else { throw CocoaError(.fileWriteUnknown) }
+            try synchronize(descriptor)
+        } catch { close(descriptor); throw error }
+        guard close(descriptor) == 0, rename(temporary.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        let folder = open(target.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        if folder >= 0 { _ = fsync(folder); close(folder) }
         guard try Data(contentsOf: target) == data else { throw SessionError.changedConfig }
+    }
+    /// F_FULLFSYNC reaches the storage medium; plain fsync is the fallback.
+    public static func flush(_ descriptor: Int32) throws {
+        guard fcntl(descriptor, F_FULLFSYNC) == 0 || fsync(descriptor) == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
     /// Match only our UUID backup filenames, excluding foreign files, links,
     /// restoration metadata and other providers' backups.
