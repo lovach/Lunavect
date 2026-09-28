@@ -144,6 +144,10 @@ private let otherExtensionFixture = otherFixture.appendingPathComponent("Content
                        ["/Users/fixture/Applications/Lunavect.app/Contents/PlugIns/LunavectWidget.appex",
                         "/Applications/Lunavect 2.app/Contents/PlugIns/LunavectWidget.appex"])
         XCTAssertEqual(WidgetRegistrationSystem.hostExtensions(fromPluginKitOutput: "\n(no matches)\n"), [])
+        XCTAssertEqual(WidgetRegistrationSystem.hostLookup(fromPluginKitOutput: "\n(no matches)\n"), .extensions([]))
+        XCTAssertEqual(WidgetRegistrationSystem.hostLookup(fromPluginKitOutput: output).extensionsCount, 2)
+        XCTAssertEqual(WidgetRegistrationSystem.hostLookup(fromPluginKitOutput: "+    com.weekleft.app.widget(200)\tsomething unexpected\n"), .unknown,
+                       "A listing in an unknown format is never read as no registration")
     }
 }
 
@@ -151,4 +155,8 @@ private final class RegistrationLog: @unchecked Sendable {
     private let lock = NSLock(); private var items: [String] = []
     func add(_ event: String) { lock.withLock { items.append(event) } }
     var events: [String] { lock.withLock { items } }
+}
+
+private extension WidgetHostLookup {
+    var extensionsCount: Int? { if case .extensions(let paths) = self { return paths.count } else { return nil } }
 }

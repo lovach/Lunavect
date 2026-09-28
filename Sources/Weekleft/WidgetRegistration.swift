@@ -212,6 +212,13 @@ enum WidgetRegistrationSystem {
         }
     }
 
+    /// A listing that names the widget without a readable bundle path is an
+    /// answer this code does not understand: unknown, never "none registered".
+    static func hostLookup(fromPluginKitOutput output: String) -> WidgetHostLookup {
+        let paths = hostExtensions(fromPluginKitOutput: output)
+        return paths.isEmpty && output.contains(widgetIdentifier) ? .unknown : .extensions(paths)
+    }
+
     /// Reads which widget extension PlugInKit uses; never changes a registration.
     static func widgetHost() -> WidgetHostLookup {
         let process = Process(), finished = DispatchSemaphore(value: 0), output = Pipe()
@@ -235,7 +242,7 @@ enum WidgetRegistrationSystem {
         }
         guard drained.wait(timeout: .now() + 1) == .success, process.terminationStatus == 0,
               let data = listing.data, data.count < 65_536 else { return .unknown }
-        return .extensions(hostExtensions(fromPluginKitOutput: String(decoding: data, as: UTF8.self)))
+        return hostLookup(fromPluginKitOutput: String(decoding: data, as: UTF8.self))
     }
     private final class PluginKitListing: @unchecked Sendable {
         private let lock = NSLock(); private var stored: Data?
