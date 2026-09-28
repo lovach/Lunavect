@@ -22,9 +22,17 @@ final class DataStorageGuaranteeTests: XCTestCase {
     func testSharedStateRejectsPipesWithoutWaitingForAWriter() throws {
         let file = try root().appendingPathComponent("snapshot.json")
         XCTAssertEqual(mkfifo(file.path, 0o600), 0)
-        XCTAssertThrowsError(try SnapshotStore.loadRecovering(from: file))
-        XCTAssertThrowsError(try ActivityHistory.load(from: file))
-        XCTAssertThrowsError(try ActivityDetails.load(from: file))
+        // Opening a FIFO without O_NONBLOCK waits for a writer forever; fail instead.
+        let release = { TestDeadline.releaseFIFOReader(file) }
+        XCTAssertThrowsError(try TestDeadline.run("SnapshotStore reading a FIFO", release: release) { try SnapshotStore.loadRecovering(from: file) }) {
+            XCTAssertFalse($0 is DeadlineExceeded)
+        }
+        XCTAssertThrowsError(try TestDeadline.run("ActivityHistory reading a FIFO", release: release) { try ActivityHistory.load(from: file) }) {
+            XCTAssertFalse($0 is DeadlineExceeded)
+        }
+        XCTAssertThrowsError(try TestDeadline.run("ActivityDetails reading a FIFO", release: release) { try ActivityDetails.load(from: file) }) {
+            XCTAssertFalse($0 is DeadlineExceeded)
+        }
         var info = stat()
         XCTAssertEqual(lstat(file.path, &info), 0)
         XCTAssertEqual(info.st_mode & S_IFMT, S_IFIFO,

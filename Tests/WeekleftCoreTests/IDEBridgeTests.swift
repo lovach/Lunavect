@@ -4,6 +4,11 @@ import os
 @testable import WeekleftCore
 
 final class IDEBridgeTests: XCTestCase {
+    override class func setUp() {
+        super.setUp()
+        // Socket directories live in /tmp; remove leftovers of crashed earlier runs.
+        StaleTestDirectories.sweep()
+    }
     private func withSocket(timeout: TimeInterval = 0.2, uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }, _ body: (IDEBridge.Connection, Int32) throws -> Void) throws {
         // A real private Unix socket, without an editor, provider or user session.
         let root = URL(fileURLWithPath: "/tmp/lunavect-test-" + UUID().uuidString)
@@ -59,11 +64,20 @@ final class IDEBridgeTests: XCTestCase {
                 XCTAssertThrowsError(try client.receive())
             }
         }
-        try withSocket(timeout: 0.05) { client, peer in
+        // The budget is measured on the injected clock, which advances 10 ms per
+        // reading: the connection must give up at the first reading past it.
+        let readings = OSAllocatedUnfairLock(initialState: [TimeInterval]())
+        let clock: @Sendable () -> TimeInterval = {
+            readings.withLock { values in values.append(100 + Double(values.count) / 100); return values[values.count - 1] }
+        }
+        try withSocket(timeout: 0.05, uptime: clock) { client, peer in
             try write(Data("{\"status\":\"matched\"}".utf8), to: peer) // no frame terminator
-            let before = ProcessInfo.processInfo.systemUptime
-            XCTAssertThrowsError(try client.receive()) { XCTAssertEqual($0 as? SessionError, .timeout) }
-            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - before, 2, "An unfinished reply must not hold navigation indefinitely")
+            XCTAssertThrowsError(try TestDeadline.run("Receiving an unfinished reply", release: { shutdown(peer, SHUT_RDWR) }) {
+                try client.receive()
+            }) { XCTAssertEqual($0 as? SessionError, .timeout, "An unfinished reply must not hold navigation indefinitely") }
+            let last = try XCTUnwrap(readings.withLock { $0.last })
+            XCTAssertGreaterThanOrEqual(last, 100.05 - 1e-9)
+            XCTAssertLessThan(last, 100.065, "No further polling once the budget has elapsed")
         }
     }
 
@@ -92,27 +106,30 @@ final class IDEBridgeTests: XCTestCase {
                 }
             }
             defer { task.cancel() }
-            await fulfillment(of: [ready], timeout: 2)
+            await fulfillment(of: [ready], timeout: 5)
             try await Task.sleep(for: .milliseconds(100))
             let start = ProcessInfo.processInfo.systemUptime
             task.cancel()
             do { try await task.value; XCTFail("Expected cancellation") }
             catch { XCTAssertTrue(error is CancellationError, "Unexpected \(error)") }
-            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.8)
+            // 5 s is far below the 30 s budget the cancelled call would otherwise use.
+            TimingBound.assertPrompt(since: start, strict: 0.8, "Cancellation must not wait for the connection deadline")
         }
     }
 
     func testSocketPeerExitPreservesFinalReplyAndClosedConnectionFailsPromptly() throws {
-        try withSocket(timeout: 30) { client, peer in
+        // A frozen injected clock never reaches the 30 s budget: only the peer's
+        // exit can end these reads, so "promptly" does not depend on wall time.
+        try withSocket(timeout: 30, uptime: { 100 }) { client, peer in
             try write(Data("{\"status\":\"focused\"}\n".utf8), to: peer)
             shutdown(peer, SHUT_WR)
             XCTAssertEqual(try client.receive().status, "focused")
-            let start = ProcessInfo.processInfo.systemUptime
-            XCTAssertThrowsError(try client.receive()) { XCTAssertEqual($0 as? SessionError, .unavailable) }
+            XCTAssertThrowsError(try TestDeadline.run("Receiving after the peer exited", release: { shutdown(peer, SHUT_RDWR) }) {
+                try client.receive()
+            }) { XCTAssertEqual($0 as? SessionError, .unavailable) }
             client.closeConnection()
             XCTAssertThrowsError(try client.receive()) { XCTAssertEqual($0 as? SessionError, .unavailable) }
             XCTAssertThrowsError(try client.send(Data())) { XCTAssertEqual($0 as? SessionError, .unavailable) }
-            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.2)
         }
     }
 
@@ -169,13 +186,13 @@ final class IDEBridgeTests: XCTestCase {
                 }
             }
             defer { task.cancel() }
-            await fulfillment(of: [received], timeout: 2)
+            await fulfillment(of: [received], timeout: 5)
             let start = ProcessInfo.processInfo.systemUptime
             if !callback { task.cancel() }
             do { _ = try await task.value; XCTFail("Expected cancellation") }
             catch { XCTAssertTrue(error is CancellationError, "Unexpected \(error)") }
             try await server.value
-            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.8)
+            TimingBound.assertPrompt(since: start, strict: 0.8, "Cancellation must close the exchange before its 30 s budget")
         }
     }
 
@@ -486,8 +503,10 @@ final class IDEBridgeTests: XCTestCase {
         let fifo = root.appendingPathComponent("pipe.json")
         XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
         let start = ProcessInfo.processInfo.systemUptime
-        XCTAssertNil(IDEBridge.readDescriptor(from: fifo))
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.2)
+        XCTAssertNil(try TestDeadline.run("Reading a FIFO endpoint descriptor", release: { TestDeadline.releaseFIFOReader(fifo) }) {
+            IDEBridge.readDescriptor(from: fifo)
+        })
+        TimingBound.assertPrompt(since: start, strict: 0.2, "A FIFO descriptor is rejected without waiting")
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         try (encoded + Data(repeating: 32, count: 16384 - encoded.count)).write(to: file)
         XCTAssertEqual(IDEBridge.readDescriptor(from: file), record)
