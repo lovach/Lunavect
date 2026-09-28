@@ -93,6 +93,8 @@ import WeekleftCore
     private var refreshPolicy = QuotaRefreshPolicy()
     private var lastSessionEvent: [ProviderID: Date] = [:]
     private var pendingEventProviders: Set<ProviderID> = []
+    /// Automatic requests that arrived while a refresh ran; evaluated after it.
+    private var deferredRequests: [(trigger: QuotaRefreshPolicy.Trigger, providers: Set<ProviderID>?)] = []
     private var cancelEventDebounce: (() -> Void)?
     private var cancelWakeSettle: (() -> Void)?
     private var cancelResetCheck: (() -> Void)?
@@ -283,24 +285,46 @@ import WeekleftCore
             self.snapshots[index] = snapshot; self.persist(); self.scheduleResetCheck()
         }
     }
+    /// An automatic evaluation. One that arrives while a refresh runs is kept and
+    /// evaluated after it: that refresh may not have included its provider.
     private func requestBackgroundRefresh(trigger: QuotaRefreshPolicy.Trigger, only providers: Set<ProviderID>? = nil) {
-        guard started, backgroundRefresh == nil else { return }
+        deferRequest(trigger, providers)
+        runDeferredRequests()
+    }
+    private func deferRequest(_ trigger: QuotaRefreshPolicy.Trigger, _ providers: Set<ProviderID>?) {
+        guard started else { return }
+        guard let index = deferredRequests.firstIndex(where: { $0.trigger == trigger }) else {
+            deferredRequests.append((trigger, providers)); return
+        }
+        // nil asks about every provider.
+        deferredRequests[index].providers = deferredRequests[index].providers.flatMap { old in providers.map { old.union($0) } }
+    }
+    private func runDeferredRequests() {
+        guard started, backgroundRefresh == nil, !refreshing, !deferredRequests.isEmpty else { return }
+        let requests = deferredRequests
+        deferredRequests = []
         let generation = lifecycleGeneration
         backgroundRefresh = Task { [weak self] in
-            guard !Task.isCancelled, self?.started == true, self?.lifecycleGeneration == generation else { return }
-            await self?.refresh(only: providers, trigger: trigger)
-            if self?.lifecycleGeneration == generation { self?.backgroundRefresh = nil }
+            for request in requests {
+                guard !Task.isCancelled, self?.started == true, self?.lifecycleGeneration == generation else { break }
+                await self?.refresh(only: request.providers, trigger: request.trigger)
+            }
+            guard let self, self.lifecycleGeneration == generation else { return }
+            self.backgroundRefresh = nil
+            self.runDeferredRequests()
         }
     }
     /// No quota request is running or waiting to run. Tests wait for this (with a
     /// deadline) instead of yielding a fixed number of times.
-    var quotaRefreshIdle: Bool { !refreshing && backgroundRefresh == nil && localRefresh == nil && !network.recoveryPending }
+    var quotaRefreshIdle: Bool {
+        !refreshing && backgroundRefresh == nil && deferredRequests.isEmpty && localRefresh == nil && !network.recoveryPending
+    }
     func stop() {
         started = false; lifecycleGeneration += 1
         cancelTriggers.forEach { $0() }; cancelTriggers.removeAll()
         for cancel in [cancelEventDebounce, cancelWakeSettle, cancelResetCheck] { cancel?() }
         cancelEventDebounce = nil; cancelWakeSettle = nil; cancelResetCheck = nil
-        pendingEventProviders = []; lastSessionEvent = [:]; refreshPolicy = QuotaRefreshPolicy()
+        pendingEventProviders = []; deferredRequests = []; lastSessionEvent = [:]; refreshPolicy = QuotaRefreshPolicy()
         backgroundRefresh?.cancel(); backgroundRefresh = nil
         localRefresh?.cancel(); localRefresh = nil
         refreshing = false; network.stop()
@@ -316,7 +340,9 @@ import WeekleftCore
         await refresh(only: requestedProvider.map { [$0] }, trigger: force ? .manual : .timer)
     }
     func refresh(only requested: Set<ProviderID>?, trigger: QuotaRefreshPolicy.Trigger) async {
-        guard !Task.isCancelled, !refreshing, !network.isOffline else { return }
+        guard !Task.isCancelled, !network.isOffline else { return }
+        // One refresh at a time; a request during it is evaluated afterwards.
+        guard !refreshing else { deferRequest(trigger, requested); return }
         let now = clock()
         let due = Set(providers.filter { id in
             (requested?.contains(id) ?? true)
@@ -325,7 +351,7 @@ import WeekleftCore
         guard !due.isEmpty else { scheduleResetCheck(); return }
         refreshing = true
         let generation = lifecycleGeneration, selectedGenerations = providerGenerations
-        defer { if lifecycleGeneration == generation { refreshing = false } }
+        defer { if lifecycleGeneration == generation { refreshing = false; runDeferredRequests() } }
         let path = codexPath
         async let codex = fetchIfEnabled(.codex, path: path, due: due)
         async let claude = fetchIfEnabled(.claude, path: path, due: due)

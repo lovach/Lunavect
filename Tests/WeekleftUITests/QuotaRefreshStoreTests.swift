@@ -39,8 +39,9 @@ import XCTest
         var codexFetches: [Date] = []
         var stored: [ProviderID: UsageSnapshot] = [:]
         var result: (ProviderID, Date) throws -> UsageSnapshot = { id, _ in throw UsageError.timeout }
-        /// Keeps a probe in flight until the test releases it.
+        /// Keeps a probe (or a Codex request) in flight until the test releases it.
         var hold: (() async -> Void)?
+        var holdCodex: (() async -> Void)?
         init(now: Date) { self.now = now }
         var pending: [Delay] { delays.filter { !$0.cancelled } }
         /// Pending actions due within the next hour (not the far reset timers).
@@ -97,6 +98,7 @@ import XCTest
                     }
                     // Like CodexProvider.fetch: every call starts the app-server.
                     h.codexFetches.append(h.now)
+                    if let hold = h.holdCodex { await hold() }
                     let snapshot = try h.result(.codex, h.now)
                     h.stored[.codex] = snapshot
                     return snapshot
@@ -457,5 +459,31 @@ import XCTest
             let codex = try XCTUnwrap(store.snapshots.first { $0.provider == .codex })
             XCTAssertEqual(codex.status(of: codex.weekly, now: h.now), .unknown, "\(answer)")
         }
+    }
+
+    /// R1-11: a session event whose debounce ends while another refresh runs is
+    /// evaluated after that refresh, not dropped until the next interval.
+    func testSessionEventDuringAnotherRefreshIsEvaluatedAfterIt() async throws {
+        let h = Harness(now: start)
+        let fresh = try claude(used: 40, fetchedAt: start.addingTimeInterval(-600), reset: start.addingTimeInterval(3 * 86400))
+        func codex(_ date: Date) throws -> UsageSnapshot {
+            try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 10, durationMinutes: 10080, resetsAt: self.start.addingTimeInterval(4 * 86400)),
+                              fetchedAt: date, source: "Codex CLI")
+        }
+        h.result = { id, date in id == .codex ? try codex(date) : try self.claude(used: 45, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
+        var release: CheckedContinuation<Void, Never>?
+        h.holdCodex = { await withCheckedContinuation { release = $0 } }
+        let store = try makeStore(h, snapshots: [fresh, try codex(start.addingTimeInterval(-2 * 3600))], providers: [.claude, .codex])
+        store.start()
+        await wait(until: { h.codexFetches.count == 1 && release != nil })
+        XCTAssertEqual(h.probes.count, 0, "At launch the Claude observation is current")
+        store.observeSessionEvents([row(updatedAt: start.addingTimeInterval(-600))], now: start)
+        h.now = start.addingTimeInterval(60); store.observeSessionEvents([row(updatedAt: h.now)], now: h.now)
+        h.now = start.addingTimeInterval(151); h.fireDue()
+        XCTAssertEqual(h.probes.count, 0, "Codex is still being asked")
+        h.holdCodex = nil; release?.resume()
+        await settle(store)
+        XCTAssertEqual(h.probes.count, 1, "The event is evaluated once the running refresh ends")
+        XCTAssertEqual(h.codexFetches.count, 1)
     }
 }
