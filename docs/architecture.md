@@ -31,9 +31,13 @@ including the trailing quota fetcher closure.
 ## Decisions and tradeoffs
 
 1. **One queue per persistence responsibility.** Snapshot writes are FIFO. History
-   and private details share a second FIFO queue, and each file remembers only
-   its last successful value. `submit` returns before file I/O; `flush` enqueues
-   behind preceding submissions and waits. The queue never waits for a main-actor
+   and private details share a second queue that keeps at most one waiting state:
+   every state carries the whole history and details, so a newer state replaces
+   one that has not started writing. Replaced requests receive the result of the
+   write that replaced them and count as submitted and skipped. Each file
+   remembers only its last successful value. `submit` returns before file I/O;
+   `flush` replaces a waiting state and waits only for the write in progress,
+   so a slow disk cannot build a backlog. The queue never waits for a main-actor
    callback. Result sequence numbers prevent an earlier asynchronous error from
    replacing the result of a later termination flush. There is no transaction
    across all three files: a partial activity write reports the failed side and
