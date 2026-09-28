@@ -258,8 +258,18 @@ final class ClaudeUsageScreenTests: XCTestCase {
         XCTAssertLessThan(result.elapsed, 6)
     }
 
+    /// R2-L-01: the same screen from a signed-in Terminal names the billing state
+    /// instead of an unsupported format.
+    func testAPIBillingInTheOwnersTerminalReportsMissingSubscriptionLimits() async throws {
+        let result = try await probe(printing: ClaudeUsageScreenFixtures.apiBillingInTerminal)
+        let issue = result.error as? ClientIntegrationIssue
+        XCTAssertEqual(issue?.reason, .subscriptionUnavailable)
+        XCTAssertEqual(issue?.repair, .signIn)
+        XCTAssertLessThan(result.elapsed, 6)
+    }
+
     func testCapturedScreensNeverBecomeQuota() {
-        for screen in [ClaudeUsageScreenFixtures.apiBilling, ClaudeUsageScreenFixtures.untrustedFolder] {
+        for screen in [ClaudeUsageScreenFixtures.apiBilling, ClaudeUsageScreenFixtures.apiBillingInTerminal, ClaudeUsageScreenFixtures.untrustedFolder] {
             XCTAssertThrowsError(try ClaudeUsageText.parse(screen, now: now))
         }
     }
