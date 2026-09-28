@@ -172,7 +172,11 @@ import WeekleftCore
         let defaults = defaults ?? (isolated ? UserDefaults(suiteName: "Lunavect.SessionFixture." + UUID().uuidString)! : .standard)
         let base = directory ?? (isolated ? FileManager.default.temporaryDirectory.appendingPathComponent("Lunavect-preview-" + UUID().uuidString) : SessionHooks.directory)
         self.defaults = defaults; self.now = now; self.directory = base
-        self.dependencies = dependencies ?? (isolated ? Dependencies() : .live(directory: base))
+        // Under XCTest a store never selects live client access, even without
+        // `isolated`: no client process, settings file or helper link. It reads
+        // only hook records in its own directory (LiveWriteGuard).
+        self.dependencies = dependencies ?? (isolated ? Dependencies() : LiveWriteGuard.underTestsForStores
+            ? Dependencies(initialEvents: { SessionHooks.load(at: $0) }) : .live(directory: base))
         if isolated { resolveClient = { ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { nil }) } }
         let savedMinutes = defaults.integer(forKey: "sessionAutoHideMinutes")
         autoHideMinutes = [5, 10, 20].contains(savedMinutes) ? savedMinutes : 0
@@ -780,6 +784,10 @@ import WeekleftCore
         setupNotice = notices.isEmpty ? nil : SetupNotice(message: notices.map(\.message).joined(separator: "\n"), warning: warning)
     }
     private static let connectionLog = Logger(subsystem: "com.weekleft.app", category: "connections")
+    /// The provider's client configuration; nil in previews and tests without fixtures.
+    func localSetup(_ provider: ProviderID) -> ClientConnection.LocalSetup? {
+        dependencies.allowsClientConfiguration ? dependencies.clientSetup(provider) : nil
+    }
     func disconnect(_ provider: ProviderID) -> Bool {
         guard dependencies.allowsClientConfiguration, let setup = dependencies.clientSetup(provider) else { return false }
         defer { updateHookConfiguration() }
@@ -853,6 +861,7 @@ enum SessionNavigation {
             guard FileManager.default.fileExists(atPath: session.cwd, isDirectory: &directoryExists), directoryExists.boolValue else { throw SessionOpeningError.missingProject }
             guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { throw SessionOpeningError.missingTerminal }
             let directory = SessionHooks.directory.appendingPathComponent("Openers")
+            try LiveWriteGuard.check(directory)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             // Best-effort: an old launcher that cannot be removed must not block opening.
             _ = try? SessionHooks.pruneOpeners(in: directory)

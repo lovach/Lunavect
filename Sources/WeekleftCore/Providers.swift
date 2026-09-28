@@ -262,6 +262,7 @@ public enum ClaudeProvider {
     public static func installStatusLine(executable: String, settingsURL: URL? = nil, bridgeDirectory: URL = directory,
                                          checkpoint: (ClientConnection.LocalStep) throws -> Void = { _ in }) throws {
         let settings = settingsURL ?? SessionHooks.configURL(.claude)
+        try LiveWriteGuard.check(settings, bridgeDirectory)
         try validateStatusLine(settingsURL: settings, bridgeDirectory: bridgeDirectory, connecting: true)
         let oldData = try FileManager.default.fileExists(atPath: settings.path) ? Data(contentsOf: settings) : nil
         var root: [String: Any] = [:]
@@ -299,6 +300,7 @@ public enum ClaudeProvider {
     public static func removeStatusLine(settingsURL: URL? = nil, bridgeDirectory: URL = directory,
                                         checkpoint: (ClientConnection.LocalStep) throws -> Void = { _ in }) throws {
         let settings = settingsURL ?? SessionHooks.configURL(.claude)
+        try LiveWriteGuard.check(settings, bridgeDirectory)
         try validateStatusLine(settingsURL: settings, bridgeDirectory: bridgeDirectory, connecting: false)
         guard FileManager.default.fileExists(atPath: settings.path) else { return }
         let oldData = try Data(contentsOf: settings)

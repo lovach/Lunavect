@@ -111,11 +111,11 @@ final class LocalizationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("hooks.json")
         try SessionHooks.install(provider: .codex, executable: Bundle.main.executablePath!, configURL: url, backupDirectory: directory.appendingPathComponent("backups"))
-        XCTAssertTrue(SessionHooks.installed(.codex, configURL: url))
+        XCTAssertTrue(SessionHooks.installed(.codex, configURL: url, executable: Bundle.main.executablePath!))
         var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         root["disableAllHooks"] = true
         try JSONSerialization.data(withJSONObject: root).write(to: url)
-        XCTAssertFalse(SessionHooks.installed(.codex, configURL: url))
+        XCTAssertFalse(SessionHooks.installed(.codex, configURL: url, executable: Bundle.main.executablePath!))
     }
     func testSetupDetectionDoesNotClaimDisabledBridgeIsConnected() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -134,6 +134,6 @@ final class LocalizationTests: XCTestCase {
         var root = try XCTUnwrap(JSONSerialization.jsonObject(with: before) as? [String: Any])
         root["disableAllHooks"] = true
         try JSONSerialization.data(withJSONObject: root).write(to: url)
-        XCTAssertFalse(ClaudeProvider.statusLineInstalled(settingsURL: url))
+        XCTAssertFalse(ClaudeProvider.statusLineInstalled(settingsURL: url, executable: Bundle.main.executablePath!))
     }
 }

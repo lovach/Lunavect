@@ -257,6 +257,7 @@ public enum ClientConnection {
     public static func writeLauncher(_ script: String, provider: ProviderID, action: Action, directory: URL? = nil) throws -> URL {
         let directory = directory ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Weekleft/ConnectionSetup", isDirectory: true)
+        try LiveWriteGuard.check(directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let file = directory.appendingPathComponent(provider.rawValue + "-" + action.rawValue + ".command")
         try SessionHooks.secureWrite(Data(script.utf8), to: file)

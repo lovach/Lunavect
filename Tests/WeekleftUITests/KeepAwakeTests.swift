@@ -401,9 +401,12 @@ final class KeepAwakeTests: XCTestCase {
     /// launchd no longer restarts a crashed helper (decision 16). A heartbeat
     /// without any answer asks a new instance to restore sleep; a helper that
     /// answered with a stop reason already restored it itself.
-    @MainActor func testUnansweredHeartbeatStartsAFreshHelperOnlyWhenNoHelperAnswered() async {
+    @MainActor func testUnansweredHeartbeatStartsAFreshHelperOnlyWhenNoHelperAnswered() async throws {
         for (error, releases) in [(AwakeFailure.unavailable as Error, 1), (AwakeCallTimeout(), 1), (AwakeFailure.battery, 0)] {
-            let client = FakeAwakeClient(), awake = KeepAwake(client: client, scheduleTimer: { _, _ in Timer() })
+            let suite = "awake-release-" + UUID().uuidString
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let client = FakeAwakeClient(), awake = KeepAwake(client: client, defaults: defaults, scheduleTimer: { _, _ in Timer() })
             await awake.start()
             client.keepAliveError = error
             await awake.check()

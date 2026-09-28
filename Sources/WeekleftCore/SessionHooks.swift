@@ -1,6 +1,42 @@
 import Foundation
 import Darwin
 import CryptoKit
+import os
+
+/// Under XCTest, refuses writes below the real home folder: client settings,
+/// Lunavect's support folder, the helper link and preferences stay untouched
+/// even when a test forgets to inject a destination. The home folder comes from
+/// the user database because Foundation ignores a `HOME` override. Inert in the
+/// app and its helpers (no XCTest classes are loaded there).
+public enum LiveWriteGuard {
+    public struct Refused: LocalizedError, Equatable {
+        public let path: String
+        public var errorDescription: String? { "Test isolation: refused to write \(path)" }
+    }
+    static let underTests = NSClassFromString("XCTestCase") != nil
+    public static var underTestsForStores: Bool { underTests }
+    static let realHome: String? = {
+        guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else { return nil }
+        return String(cString: directory)
+    }()
+    private static let fixtures = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    /// Test support: also protect a temporary folder, so a fixture can prove that
+    /// a write site is guarded without ever aiming it at the real home folder.
+    public static func protect(_ root: URL) { fixtures.withLock { _ = $0.insert(root.resolvingSymlinksInPath().standardizedFileURL.path) } }
+    public static func unprotect(_ root: URL) { fixtures.withLock { _ = $0.remove(root.resolvingSymlinksInPath().standardizedFileURL.path) } }
+    public static func isProtected(_ url: URL) -> Bool {
+        guard underTests else { return false }
+        let roots = fixtures.withLock { $0 }.union(realHome.map { [$0] } ?? [])
+        let paths = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().standardizedFileURL.path]
+        return roots.contains { root in paths.contains { $0 == root || $0.hasPrefix(root + "/") } }
+    }
+    public static func check(_ urls: URL...) throws {
+        for url in urls where isProtected(url) {
+            fputs("LUNAVECT TEST ISOLATION: refused write to \(url.path)\n", stderr)
+            throw Refused(path: url.path)
+        }
+    }
+}
 
 /// Where Claude Code and Codex find Lunavect's hook helper (owner decision 18).
 /// Commands name a stable symbolic link in Lunavect's support folder; every launch
@@ -48,6 +84,7 @@ public struct HookHelperLocation: Sendable, Equatable {
     @discardableResult public func refreshLink() throws -> LinkUpdate {
         guard !isTranslocated else { return .translocated }
         guard let target = bundledHelper, FileManager.default.isExecutableFile(atPath: target) else { return .missingHelper }
+        try LiveWriteGuard.check(link)
         let current = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)
         if current == target { return .unchanged }
         var info = stat()
@@ -248,6 +285,7 @@ public enum SessionHooks {
     @discardableResult private static func edit(provider: ProviderID, url: URL, backup: URL, disconnecting: Bool,
                                                 checkpoint: (ClientConnection.LocalStep) throws -> Void,
                                                 change: ([String: Any]) throws -> [String: Any]) throws -> Bool {
+        try LiveWriteGuard.check(url, backup)
         let old = try FileManager.default.fileExists(atPath: url.path) ? Data(contentsOf: url) : nil
         let original: [String: Any]
         if let old {
@@ -283,6 +321,7 @@ public enum SessionHooks {
     /// If another tool edited the configuration, use the caller's semantic merge.
     public static func writeConfigurationChange(original: Data?, updated: Data, to url: URL,
                                                  restorationURL: URL, disconnecting: Bool) throws {
+        try LiveWriteGuard.check(url, restorationURL)
         let previous = (try? Data(contentsOf: restorationURL)).flatMap { try? JSONDecoder().decode(ConfigurationRestoration.self, from: $0) }
         let ownsSnapshot = previous?.installed == original
         if disconnecting {
@@ -311,6 +350,7 @@ public enum SessionHooks {
     /// continues to use secureWriteVerified's 0600 policy.
     public static func writeConfigurationVerified(_ data: Data, to url: URL) throws {
         let target = url.resolvingSymlinksInPath()
+        try LiveWriteGuard.check(url, target)
         let mode = (try? FileManager.default.attributesOfItem(atPath: target.path)[.posixPermissions]) as? NSNumber
         if let mode, mode.intValue & 0o222 == 0 { throw CocoaError(.fileWriteNoPermission) }
         let temporary = target.deletingLastPathComponent().appendingPathComponent(".lunavect-" + UUID().uuidString + ".tmp")
@@ -322,6 +362,7 @@ public enum SessionHooks {
     /// Match only our UUID backup filenames, excluding foreign files, links,
     /// restoration metadata and other providers' backups.
     public static func pruneOwnedBackups(in directory: URL, prefix: String, keeping limit: Int = 8) throws {
+        try LiveWriteGuard.check(directory)
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey])
         let backups = files.filter { file in
             let name = file.deletingPathExtension().lastPathComponent
@@ -347,6 +388,7 @@ public enum SessionHooks {
     public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil,
                                runtimePID: Int32? = nil,
                                isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) }) throws {
+        try LiveWriteGuard.check(directory)
         let now = Date()
         let initial = try SessionRecord.event(data, provider: provider, previous: nil, now: now, client: client)
         if provider == .claude, isInternal(initial.session.cwd) { return }
@@ -404,6 +446,7 @@ public enum SessionHooks {
     /// Lifecycle observations expire after a day. Clean only this monitor's
     /// records, under the same lock as capture; never touch provider transcripts.
     @discardableResult public static func prune(at directory: URL = directory, now: Date = Date()) throws -> Int {
+        try LiveWriteGuard.check(directory)
         let stamp = directory.appendingPathComponent(".last-prune")
         if let modified = try? stamp.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
            now.timeIntervalSince(modified) >= 0, now.timeIntervalSince(modified) < 3600 { return 0 }
@@ -471,6 +514,7 @@ public enum SessionHooks {
     /// Terminal runs a launcher once and `exec`s the client, so it is only needed
     /// until Terminal starts it. Remove only Lunavect's own launchers after a day.
     @discardableResult public static func pruneOpeners(in directory: URL, now: Date = Date()) throws -> Int {
+        try LiveWriteGuard.check(directory)
         guard FileManager.default.fileExists(atPath: directory.path) else { return 0 }
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         var removed = 0

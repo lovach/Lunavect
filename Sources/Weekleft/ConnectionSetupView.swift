@@ -227,11 +227,11 @@ struct ConnectionSetupView: View {
         }
     }
     private var configured: Bool {
-        ClientConnection.LocalSetup(provider: provider).inspect().connected
+        sessions.localSetup(provider)?.inspect().connected ?? false
     }
     private func routeToNeededStep() async {
         guard !Task.isCancelled else { return }
-        localState = ClientConnection.LocalSetup(provider: provider).inspect()
+        localState = sessions.localSetup(provider)?.inspect()
         do { _ = try ClientExecutableResolver(codexPath: store.codexPath, discoverCodex: AppStore.discoverCodex).resolve(provider) }
         catch {
             step = 0; issue = selectedCodexUnavailable ? error.localizedDescription : nil
@@ -280,7 +280,8 @@ struct ConnectionSetupView: View {
         guard !busy, !Task.isCancelled else { return }; busy = true; issue = nil
         defer { busy = false; sessions.updateHookConfiguration() }
         do {
-            localState = try ClientConnection.LocalSetup(provider: provider).apply(.connect)
+            guard let setup = sessions.localSetup(provider) else { throw SessionError.unavailable }
+            localState = try setup.apply(.connect)
             store.setProvider(provider, enabled: true); sessions.useProviders(store.providers)
             store.importActivityHistory()
             await waitForRefresh()

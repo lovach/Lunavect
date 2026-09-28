@@ -37,7 +37,6 @@ struct ConnectionsView: View {
     @State private var showingDiagnostics = false
     @State private var repairProvider: ProviderID?
     @State private var selectedRepair: ConnectionDiagnostic.Repair?
-    @State private var claudeBridge = ClaudeProvider.statusLineInstalled()
     @State private var disconnectedProvider: ProviderID?
     @State private var disconnectedEventsOnly = false
     /// The card the user refreshed; background polls do not show progress in every card.
@@ -102,7 +101,7 @@ struct ConnectionsView: View {
             }.padding(8).fixedSize(horizontal: false, vertical: true)
         }.onAppear { sessions.updateHookConfiguration() }
             .sheet(item: $selectedProvider, onDismiss: {
-                claudeBridge = ClaudeProvider.statusLineInstalled(); sessions.updateHookConfiguration()
+                sessions.updateHookConfiguration()
             }) { id in
                 ConnectionSetupView(provider: id, store: store, sessions: sessions, repair: selectedRepair)
             }
@@ -128,7 +127,7 @@ struct ConnectionsView: View {
     }
     private func providerCard(_ id: ProviderID) -> some View {
         let snapshot = store.snapshots.first { $0.provider == id }
-        let configured = sessions.hooksInstalled[id] == true && (id == .codex || claudeBridge)
+        let configured = sessions.hooksInstalled[id] == true && (id == .codex || sessions.connectionStates[.claude]?.statusLine == .ready)
         let card = ConnectionCardState(provider: id, resolver: store.clientResolver, configured: configured, snapshot: snapshot)
         let hasQuota = snapshot?.hasQuota == true
         let freshQuota = snapshot.map { !$0.isStale() && $0.issue == nil && $0.hasQuota } ?? false

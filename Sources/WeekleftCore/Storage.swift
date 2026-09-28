@@ -177,6 +177,7 @@ public enum LocalStateRecovery {
     /// periodically; a crash then loses at most that cadence, never the old file.
     public static func write(_ data: Data, to url: URL, synchronize: Bool = true) throws {
         let target = url.resolvingSymlinksInPath()
+        try LiveWriteGuard.check(url, target)
         let tmp = target.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
         // The private temporary is created exclusively and has restrictive mode
         // before the first byte. Existing migration symlinks keep their target.

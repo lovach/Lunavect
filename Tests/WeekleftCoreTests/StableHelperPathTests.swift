@@ -271,3 +271,45 @@ final class ConnectionRepairTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: link.path), "no link to a temporary copy")
     }
 }
+
+/// Coordinator rule after the 28.09 incident: under XCTest no write site may
+/// reach the real home folder. Wiring is proven on a temporary folder that the
+/// test marks as protected; nothing is ever aimed at the real home folder.
+final class LiveWriteGuardTests: XCTestCase {
+    func testRealHomeIsProtectedAndTemporaryFoldersAreNot() throws {
+        let home = try XCTUnwrap(LiveWriteGuard.realHome)
+        XCTAssertTrue(LiveWriteGuard.isProtected(URL(fileURLWithPath: home + "/.claude/settings.json")))
+        XCTAssertTrue(LiveWriteGuard.isProtected(URL(fileURLWithPath: home + "/.codex/hooks.json")))
+        XCTAssertTrue(LiveWriteGuard.isProtected(HookHelperLocation.defaultLink))
+        XCTAssertTrue(LiveWriteGuard.isProtected(SessionHooks.directory))
+        XCTAssertTrue(LiveWriteGuard.isProtected(ClaudeProvider.directory))
+        XCTAssertFalse(LiveWriteGuard.isProtected(FileManager.default.temporaryDirectory.appendingPathComponent("x.json")))
+        XCTAssertFalse(LiveWriteGuard.isProtected(URL(fileURLWithPath: home + "-other/x")), "a sibling prefix is not inside home")
+    }
+    func testEveryConnectionWriteSiteRefusesAProtectedFolder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("guarded home " + UUID().uuidString).resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let helper = root.appendingPathComponent("outside").appendingPathComponent("LunavectHook")
+        try FileManager.default.createDirectory(at: helper.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        let home = root.appendingPathComponent("home")
+        LiveWriteGuard.protect(home)
+        defer { LiveWriteGuard.unprotect(home); try? FileManager.default.removeItem(at: root) }
+        let settings = home.appendingPathComponent(".claude/settings.json"), bridge = home.appendingPathComponent("bridge")
+        let writes: [(String, () throws -> Void)] = [
+            ("hooks", { try SessionHooks.install(provider: .claude, executable: helper.path, configURL: settings, backupDirectory: home.appendingPathComponent("backups")) }),
+            ("statusLine", { try ClaudeProvider.installStatusLine(executable: helper.path, settingsURL: settings, bridgeDirectory: bridge) }),
+            ("statusLine removal", { try ClaudeProvider.removeStatusLine(settingsURL: settings, bridgeDirectory: bridge) }),
+            ("config", { try SessionHooks.writeConfigurationVerified(Data("{}".utf8), to: settings) }),
+            ("state", { try LocalStateRecovery.write(Data("{}".utf8), to: home.appendingPathComponent("state.json")) }),
+            ("capture", { try SessionHooks.capture(Data(#"{"session_id":"guard","hook_event_name":"Stop"}"#.utf8), provider: .codex, at: home.appendingPathComponent("Sessions")) }),
+            ("launcher", { _ = try ClientConnection.writeLauncher("#!/bin/sh\n", provider: .claude, action: .signIn, directory: home.appendingPathComponent("Setup")) }),
+            ("link", { try HookHelperLocation(link: home.appendingPathComponent("bin/LunavectHook"), bundle: root, fallback: helper.path).refreshLink() }),
+        ]
+        for (name, write) in writes {
+            XCTAssertThrowsError(try write(), name) { XCTAssertTrue($0 is LiveWriteGuard.Refused, "\(name): \($0)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.path), "nothing, not even a folder, was created")
+    }
+}
