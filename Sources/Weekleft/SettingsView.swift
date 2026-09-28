@@ -82,10 +82,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                     }
                     Spacer(minLength: 0)
                     if section == .connections || section == .limits {
-                        Button {
-                            Task { await store.refresh(); await sessions.refresh() }
-                        } label: { InterfaceLabel(L("Обновить"), .refresh) }
-                            .disabled(store.refreshing)
+                        let availability = QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline)
+                        HStack(spacing: 8) {
+                            if availability == .refreshing { ProgressView().controlSize(.small).accessibilityHidden(true) }
+                            Button {
+                                Task { await store.refresh(); await sessions.refresh() }
+                            } label: { InterfaceLabel(L("Обновить"), .refresh) }
+                                .disabled(!availability.allowsCheck)
+                                .help(availability.reason.map { L($0) } ?? "")
+                                .accessibilityHint(availability.reason.map { L($0) } ?? "")
+                                .accessibilityIdentifier("settings-refresh")
+                        }
                     }
                 }.padding(.horizontal, 20).padding(.vertical, 16)
                 Divider()
@@ -198,19 +205,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             Text(L("Изменения сохраняются автоматически."))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             BaseSettingsView(canRestore: !awake.isBusy && !features.busy) {
-                // Keep Awake or a macOS request may have started after the
-                // confirmation appeared. Reset nothing then and say so.
-                guard !awake.isBusy, !features.busy else { return false }
-                let awakeRestored = await awake.restoreDefaults()
-                let featuresRestored = await features.restoreDefaults()
-                menuBarAppearance.restoreDefaults()
-                sessions.autoHideMinutes = 0
-                store.preferences.restoreAppearanceDefaults()
-                updates.setAutomatic(false)
-                updates.setCheckingAutomatically(true)
-                appearance = AppDefaultSettings.appearance
-                language.code = "system"
-                return awakeRestored && featuresRestored
+                await Self.restoreBaseSettings(awake: awake, features: features) {
+                    menuBarAppearance.restoreDefaults()
+                    sessions.autoHideMinutes = 0
+                    store.preferences.restoreAppearanceDefaults()
+                    updates.setAutomatic(false)
+                    updates.setCheckingAutomatically(true)
+                    appearance = AppDefaultSettings.appearance
+                    language.code = "system"
+                }
             }
             GroupBox(L("Начало работы")) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -283,6 +286,20 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 SubscriptionSettingsRow(store: store, provider: id)
             }
         }
+    }
+}
+
+extension SettingsView {
+    /// Keep Awake or a macOS request may have started after the confirmation
+    /// appeared. Reset nothing then and say so. A request can also begin while
+    /// Keep Awake is being reset; the remaining preferences then stay as they are
+    /// (docs/settings.md: the reset is not applied) and a retry applies them all.
+    static func restoreBaseSettings(awake: KeepAwake, features: AppFeatures, applyRest: () -> Void) async -> Bool {
+        guard !awake.isBusy, !features.busy else { return false }
+        guard await awake.restoreDefaults() else { return false }
+        guard await features.restoreDefaults() else { return false }
+        applyRest()
+        return true
     }
 }
 
