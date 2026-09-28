@@ -16,7 +16,7 @@ import WeekleftCore
     @Published private(set) var detailsIssue: String?
     @Published private(set) var importing = false
     /// The shared history could not be read; collection is paused until the user
-    /// keeps a copy and starts over (`requestImport`).
+    /// keeps a copy and starts over (`startOverPreservingHistory`).
     @Published private(set) var unavailable: Bool
     /// Phase transitions are saved after this quiet window, not on every change.
     static let transitionDebounce: TimeInterval = 15
@@ -67,13 +67,22 @@ import WeekleftCore
             // Sleep and wake are explicit breaks, not inferred from the gap tolerance.
             for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification] {
                 let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.interruptObservation() }
+                    MainActor.assumeIsolated {
+                        self?.interruptObservation()
+                        // A Mac that never wakes (battery, panic) must not lose the breakdown (R3-03).
+                        if name == NSWorkspace.willSleepNotification { self?.saveBeforeSleep() }
+                    }
                 }
                 powerObservers.append((center, token))
             }
         }
     }
     func interruptObservation() { tracker.interruptObservation() }
+    /// History and details are written with fsync before the Mac sleeps.
+    func saveBeforeSleep() {
+        guard acceptsWork else { return }
+        save(now: clock(), synchronously: false, forceDetails: true, durable: true)
+    }
     func start(providers: [ProviderID]) {
         guard !isolated, !started else { return }
         started = true; acceptsWork = true
@@ -118,10 +127,15 @@ import WeekleftCore
         flush()
         tracker = ActivityTracker(history: tracker.history, details: tracker.details)
     }
-    /// The user's "Refresh history". With an unreadable history the same action
-    /// keeps a copy of that file, starts a new history and recovers recent logs.
-    func requestImport() {
-        if unavailable { startOver() } else { scheduleImport() }
+    /// "Refresh history" and the connection wizard's import. With an unreadable
+    /// history it does nothing: only the explicit start-over below moves the file
+    /// aside (R3-02).
+    func requestImport() { scheduleImport() }
+    /// The statistics page's **Keep a copy and start over**, the only path that
+    /// moves an unreadable history aside and starts a new one.
+    func startOverPreservingHistory() {
+        guard unavailable else { return }
+        startOver()
     }
     private func startOver() {
         guard !isolated, writesEnabled, acceptsWork, let storage else { return }
@@ -207,7 +221,7 @@ import WeekleftCore
         return .init(history: tracker.history, details: tracker.details)
     }
     /// History is saved at every checkpoint; the private details only every five
-    /// minutes, at import and at quit (decision 23). The UI always sees both.
+    /// minutes, at import, before sleep and at quit (decision 23). The UI always sees both.
     private func submission(_ state: ActivityPersistence.State, now: Date, forceDetails: Bool) -> ActivityPersistence.State {
         var state = state
         if forceDetails || submittedDetails == nil || now < detailsSubmittedAt || now.timeIntervalSince(detailsSubmittedAt) >= Self.detailsInterval {
@@ -215,13 +229,13 @@ import WeekleftCore
         } else if let submittedDetails { state.details = submittedDetails }
         return state
     }
-    private func save(now: Date, synchronously: Bool, forceDetails: Bool = false) {
+    private func save(now: Date, synchronously: Bool, forceDetails: Bool = false, durable: Bool = false) {
         guard !unavailable else { return }
         let state = submission(publish(now: now), now: now, forceDetails: forceDetails || synchronously)
         guard writesEnabled, let storage else { return }
         if synchronously { apply(storage.flush(state)) }
         else {
-            storage.submit(state) { [weak self] result in
+            storage.submit(state, durable: durable) { [weak self] result in
                 Task { @MainActor in self?.apply(result) }
             }
         }

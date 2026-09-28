@@ -131,8 +131,8 @@ struct ActivityStatisticsView: View {
                         ProgressView().controlSize(.small)
                         Text(L("Восстанавливаем историю…"))
                     } else if store.activityUnavailable {
-                        // The same service action keeps a copy of the unreadable file first.
-                        Button(L("Сохранить копию и начать заново")) { store.importActivityHistory() }
+                        // The only action that keeps a copy of the unreadable file and starts over.
+                        Button(L("Сохранить копию и начать заново")) { store.startOverActivityHistory() }
                     } else {
                         Button(L("Обновить историю")) { store.importActivityHistory() }
                         if store.activityHistory.importedAt != nil, store.activityHistory.importReport == nil {

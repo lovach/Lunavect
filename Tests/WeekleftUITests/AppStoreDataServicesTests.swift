@@ -65,7 +65,7 @@ final class AppStoreDataServicesTests: XCTestCase {
         let persistence = SnapshotPersistence(url: URL(fileURLWithPath: "/unused/snapshot"), read: { _ in work.add(); return .init() },
             write: { _, _ in work.add() }, reload: { work.add() })
         let activityStorage = ActivityPersistence(historyURL: URL(fileURLWithPath: "/unused/history"), detailsURL: URL(fileURLWithPath: "/unused/details"),
-            writeHistory: { _, _ in work.add() }, writeDetails: { _, _ in work.add() })
+            writeHistory: { _, _ in work.add() }, writeDetails: { _, _, _ in work.add() })
         let externalActivity = ActivityService(history: .init(), details: .init(), storage: activityStorage, importer: { _, _, _ in work.add(); return .init() })
         var date = now
         var preferences = WidgetPreferences(); preferences.enabledProviders = [.codex]

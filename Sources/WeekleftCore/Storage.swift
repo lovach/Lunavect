@@ -176,7 +176,9 @@ public enum LocalStateRecovery {
         return data
     }
     /// `synchronize: false` skips fsync for private state that is rewritten
-    /// periodically; a crash then loses at most that cadence, never the old file.
+    /// periodically. An app crash then loses at most that cadence; after a power
+    /// loss or kernel panic the renamed file may be empty, so callers flush it at
+    /// quit and before sleep.
     public static func write(_ data: Data, to url: URL, synchronize: Bool = true) throws {
         let target = url.resolvingSymlinksInPath()
         let tmp = target.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
