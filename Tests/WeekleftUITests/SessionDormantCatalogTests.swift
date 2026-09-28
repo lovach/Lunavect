@@ -203,9 +203,12 @@ final class SessionDormantCatalogTests: XCTestCase {
         now += 1; await store.refresh()
         XCTAssertEqual(store.activeCount, 3, "A newer persisted-catalog poll cannot suppress a fresh hook")
         XCTAssertEqual(store.currentSessions.first { $0.sessionID == ids[2] }?.phase, .permission)
+        // The retained state never announced anything; the fresh request, made after
+        // the previous poll, is a live transition and is announced once (R2-S-03).
+        XCTAssertEqual(played, [.permission])
         now += 600; await store.refresh()
         XCTAssertEqual(store.activeCount, 2, "Repeated catalog reads cannot extend the hook lifetime")
         XCTAssertFalse(store.currentSessions.contains { $0.sessionID == ids[2] })
-        XCTAssertTrue(played.isEmpty)
+        XCTAssertEqual(played, [.permission], "Expiry and later catalog reads add no notice")
     }
 }

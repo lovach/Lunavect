@@ -226,7 +226,10 @@ final class ClaudeBackgroundWorkTests: XCTestCase {
         // the finished subagent's own); it no longer clears what the session started.
         XCTAssertEqual(try hook("SubagentStop", ["background_tasks": []], after: working, at: 31).session.backgroundWork,
                        BackgroundWork(agents: 1, monitors: 1))
-        XCTAssertThrowsError(try hook("SubagentStop", ["background_tasks": []], after: nil, at: 0), "no record is created for an unknown session")
+        // Without a record it carries no lifecycle, so capture creates no file
+        // (HookCaptureContractTests); throwing here rejected every SubagentStop (R2-S-01).
+        XCTAssertEqual(try hook("SubagentStop", ["background_tasks": []], after: nil, at: 0).session.phase, .unknown)
+        XCTAssertThrowsError(try hook("SubagentStop", [:], after: working, at: 32), "A payload without the list stays invalid")
         XCTAssertTrue(SessionHooks.events(.claude).contains("SubagentStop"))
     }
 
