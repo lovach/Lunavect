@@ -183,7 +183,7 @@ public enum QuotaProbeReport {
     /// A typed code and fixed message; never a raw client error text.
     public static func describe(_ error: Error) -> String {
         if let issue = error as? ClientIntegrationIssue { return issue.code + " " + issue.message }
-        return (error as? UsageError)?.errorDescription ?? "Не удалось получить данные"
+        return (error as? UsageError)?.errorDescription ?? "unavailable: the client returned no usable data"
     }
 }
 
