@@ -18,7 +18,40 @@ import AwakeService
 }
 
 final class SessionDormantCatalogTests: XCTestCase {
+    /// The header's waiting metric and its filter label come from one summary of
+    /// current sessions; retained catalog rows do not count as waiting.
+    @MainActor func testHeaderWaitingLabelUsesCurrentCount() throws {
+        let uiDependencies = try AppEnvironment.preview(rows: [])
+        defer { uiDependencies.stop() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("CurrentHeaderLabel-" + UUID().uuidString)
+        let suite = "Lunavect.CurrentHeaderLabel." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = SessionStore(directory: root, defaults: defaults, isolated: true, now: { now })
+        defer { store.stop() }
+        let raw: [[String: Any]] = (0..<5).map {
+            ["sessionId": "retained-\($0)", "id": "retained-\($0)", "kind": "background", "state": "blocked"]
+        }
+        let retained = try SessionParser.claude(JSONSerialization.data(withJSONObject: raw), now: now)
+        store.acceptSessions(retained, now: now)
+        let view = SessionsView(store: store, updates: uiDependencies.updates, awake: uiDependencies.awake, isPreview: true, onSettings: {})
+        XCTAssertEqual(store.sessions.count, 5, "The retained rows are in the source collection")
+        XCTAssertEqual(view.headerSummary(at: now), .init(working: 0, waiting: 0))
+        XCTAssertEqual(view.headerSummary(at: now).waitingLabel, L("В ожидании: {0}", "0"))
+        var live = raw[0]; live["pid"] = 123; live["status"] = "waiting"
+        let row = try XCTUnwrap(SessionParser.claude(JSONSerialization.data(withJSONObject: [live]), now: now).first)
+        store.acceptSessions([row] + Array(retained.dropFirst()), now: now)
+        XCTAssertEqual(view.headerSummary(at: now).waiting, 1)
+        XCTAssertEqual(view.headerSummary(at: now).waitingLabel, L("В ожидании: {0}", "1"), "The label follows the live waiting session")
+    }
+
+    /// Opt-in: reads the same label from the rendered header's accessibility tree
+    /// (`LUNAVECT_NATIVE_HEADER_AX=1`); some AppKit test hosts expose no SwiftUI children.
     @MainActor func testNativeHeaderWaitingLabelUsesCurrentCount() throws {
+        guard ProcessInfo.processInfo.environment["LUNAVECT_NATIVE_HEADER_AX"] == "1" else {
+            throw XCTSkip("Opt-in accessibility-tree check (LUNAVECT_NATIVE_HEADER_AX=1)")
+        }
         let uiDependencies = try AppEnvironment.preview(rows: [])
         defer { uiDependencies.stop() }
         _ = NSApplication.shared

@@ -123,7 +123,41 @@ final class MenuBarStatusTests: XCTestCase {
             XCTAssertFalse(animator.content.artwork.image === image)
         }
     }
-    @MainActor func testChangingCharacterDoesNotInheritRestDeadline() async throws {
+    @MainActor func testChangingCharacterDoesNotInheritRestDeadline() throws {
+        _ = NSApplication.shared
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        var clock = 10.0
+        var scheduled: [(timer: Timer, delay: TimeInterval)] = []
+        // Frame timers are captured with their delays and fired by hand, so neither
+        // a visible menu bar nor the host's Reduce Motion setting is involved.
+        let animator = MenuBarAnimator(statusItem: item, now: { clock },
+            scheduleTimer: { scheduled.append(($0, $0.fireDate.timeIntervalSinceNow)) }, canRenderAnimation: { _ in true })
+        animator.update(icon: .claude, onlyWhileWorking: false, thinkingPhrases: false, running: 1, waiting: 0)
+        let typing = try XCTUnwrap(scheduled.last)
+        clock += ClawdAnimation.cycleDuration - 2.5
+        typing.timer.fire()
+        let rest = try XCTUnwrap(scheduled.last)
+        XCTAssertFalse(rest.timer === typing.timer)
+        XCTAssertEqual(rest.delay, 2.5, accuracy: 0.1, "Claude's next frame waits out the rest of its cycle")
+        animator.update(icon: .codex, onlyWhileWorking: false, thinkingPhrases: false, running: 1, waiting: 0)
+        XCTAssertFalse(rest.timer.isValid, "Changing the character cancels the pending rest")
+        let codex = try XCTUnwrap(scheduled.last)
+        XCTAssertFalse(codex.timer === rest.timer)
+        XCTAssertEqual(codex.delay, CodexAnimation.durations[0], accuracy: 0.05,
+                       "Codex must advance after 120ms, without waiting for the previous Claude rest")
+        let initial = animator.content.artwork.image
+        clock += 0.14
+        codex.timer.fire()
+        XCTAssertFalse(animator.content.artwork.image === initial, "The next Codex frame is drawn")
+    }
+
+    /// Opt-in: the same rest-deadline check with real run-loop timers on a
+    /// visible status item (`LUNAVECT_NATIVE_MENU_BAR=1`).
+    @MainActor func testNativeChangingCharacterDoesNotInheritRestDeadline() async throws {
+        guard ProcessInfo.processInfo.environment["LUNAVECT_NATIVE_MENU_BAR"] == "1" else {
+            throw XCTSkip("Opt-in native status item check (LUNAVECT_NATIVE_MENU_BAR=1)")
+        }
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             throw XCTSkip("Animation is disabled by the system Reduce Motion preference")
         }
