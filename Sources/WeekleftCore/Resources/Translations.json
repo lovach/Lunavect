@@ -2988,6 +2988,20 @@
     "fr": "Les dernières limites reçues sont affichées. Elles seront actualisées dès que la source transmettra de nouvelles données.",
     "zh-Hans": "当前显示上次收到的限额数据。来源提供新数据后，将自动更新。"
   },
+  "Идёт обновление лимитов. Проверка станет доступна, когда оно закончится.": {
+    "de": "Limits werden aktualisiert. Sie können erneut prüfen, sobald dies abgeschlossen ist.",
+    "en": "Updating limits. You can check again when this finishes.",
+    "es": "Actualizando los límites. Podrás comprobarlos de nuevo cuando termine.",
+    "fr": "Actualisation des limites en cours. Vous pourrez vérifier de nouveau une fois terminée.",
+    "zh-Hans": "正在更新限额，完成后可再次检查。"
+  },
+  "Не выполнено": {
+    "de": "Nicht erledigt",
+    "en": "Not done",
+    "es": "Sin completar",
+    "fr": "Non terminé",
+    "zh-Hans": "未完成"
+  },
   "Показать обучение": {
     "de": "Einführung anzeigen",
     "en": "Show introduction",

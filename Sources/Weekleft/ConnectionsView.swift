@@ -51,25 +51,41 @@ struct ConnectionCardState {
         }
     }
 
-    /// The sentence under limits that are shown but not fresh.
+    /// The sentence under limits that are shown but not fresh. A client answer in a
+    /// format Lunavect cannot read never updates them by itself, so it gets no promise.
     static func savedQuotaNote(provider: ProviderID, snapshot: UsageSnapshot?, now: Date = Date()) -> String? {
         guard let snapshot, snapshot.hasQuota else { return nil }
         guard snapshot.isStale(now: now) || snapshot.issue != nil else { return nil }
+        guard issueGuidance(provider: provider, issue: snapshot.issue) == nil else { return nil }
         return "Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."
     }
-    /// What to do about the source issue shown on the card, when the card offers no button for it.
-    static func issueGuidance(provider: ProviderID, issue: String?) -> String? { nil }
+    /// What to do about the source issue shown on the card, when the card offers no
+    /// button for it: the same advice as the diagnostics for an unsupported format.
+    static func issueGuidance(provider: ProviderID, issue: String?) -> String? {
+        let reason = ClientIntegrationIssue.legacy(issue, provider: provider, capability: provider == .codex ? .rateLimits : .usageProbe)?.reason
+        guard reason == .unsupportedResponse || reason == .unsupportedOperation else { return nil }
+        return "Проверьте обновления официального клиента и Lunavect. До поддержки этого формата сохранённые данные остаются на месте; повторный вход не требуется."
+    }
 }
 
-/// Whether the quota check controls can ask the provider now.
+/// Whether the quota check controls can ask the provider now. A disabled control
+/// always carries its reason (owner report 28.09: «Проверить данные» and «Обновить»
+/// looked inactive without one while a background probe ran). Offline,
+/// `AppStore.refresh` returns without asking, so the controls say so instead.
 enum QuotaCheckAvailability: Equatable {
     case available, refreshing, offline
     init(refreshing: Bool, offline: Bool) {
-        self = refreshing ? .refreshing : .available
+        self = offline ? .offline : refreshing ? .refreshing : .available
     }
     var allowsCheck: Bool { self == .available }
     /// Shown beside disabled controls; nil when they are available.
-    var reason: String? { nil }
+    var reason: String? {
+        switch self {
+        case .available: return nil
+        case .refreshing: return "Идёт обновление лимитов. Проверка станет доступна, когда оно закончится."
+        case .offline: return "Ждём соединение. Данные обновятся автоматически."
+        }
+    }
 }
 
 /// One step of a card's connection details.
@@ -89,6 +105,10 @@ struct ConnectionStepRow: View {
             }
             Text(title).foregroundStyle(complete && !stale ? Color.primary : .secondary)
         }.font(.system(size: 11))
+            // The check mark and the number are drawing; VoiceOver hears the title and its state.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityValue(L(complete ? "Готово" : "Не выполнено"))
     }
 }
 
@@ -105,12 +125,22 @@ struct ConnectionsView: View {
     @State private var disconnectedEventsOnly = false
     /// The card the user refreshed; background polls do not show progress in every card.
     @State private var refreshingCard: ProviderID?
+    private var availability: QuotaCheckAvailability {
+        QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline)
+    }
 
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 14) {
                 Text(L("Достаточно одного подключения. Второе можно добавить в любое время."))
                     .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                // Offline is already explained by the network banner above the page.
+                if availability == .refreshing, let reason = availability.reason {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(L(reason)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }.accessibilityElement(children: .combine).accessibilityIdentifier("connection-quota-refreshing")
+                }
                 ForEach(store.providers) { id in providerCard(id) }
                 ForEach(ProviderID.allCases.filter { !store.providers.contains($0) }) { id in optionalProviderCard(id) }
                 if let id = disconnectedProvider {
@@ -213,7 +243,11 @@ struct ConnectionsView: View {
                         refreshingCard = id
                         Task { await store.refresh(provider: id); await sessions.refresh(); refreshingCard = nil }
                     }
-                }.disabled(!QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline).allowsCheck || refreshingCard != nil)
+                }
+                    // Setup and turning events on do not ask the provider; only a check waits.
+                    .disabled(card.action == .refresh && (!availability.allowsCheck || refreshingCard != nil))
+                    .help(card.action == .refresh ? availability.reason.map { L($0) } ?? "" : "")
+                    .accessibilityHint(card.action == .refresh ? availability.reason.map { L($0) } ?? "" : "")
                     .accessibilityIdentifier("connect-" + id.rawValue)
             }
             if refreshingCard == id { ProgressView().controlSize(.small) }

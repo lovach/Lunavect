@@ -82,10 +82,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                     }
                     Spacer(minLength: 0)
                     if section == .connections || section == .limits {
-                        Button {
-                            Task { await store.refresh(); await sessions.refresh() }
-                        } label: { InterfaceLabel(L("Обновить"), .refresh) }
-                            .disabled(!QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline).allowsCheck)
+                        let availability = QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline)
+                        HStack(spacing: 8) {
+                            if availability == .refreshing { ProgressView().controlSize(.small).accessibilityHidden(true) }
+                            Button {
+                                Task { await store.refresh(); await sessions.refresh() }
+                            } label: { InterfaceLabel(L("Обновить"), .refresh) }
+                                .disabled(!availability.allowsCheck)
+                                .help(availability.reason.map { L($0) } ?? "")
+                                .accessibilityHint(availability.reason.map { L($0) } ?? "")
+                                .accessibilityIdentifier("settings-refresh")
+                        }
                     }
                 }.padding(.horizontal, 20).padding(.vertical, 16)
                 Divider()
