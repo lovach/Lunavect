@@ -232,7 +232,7 @@ enum StatusItemClick {
         popoverDismissal.stop()
         environment.stop()
     }
-    private func statusMenu() -> NSMenu {
+    func statusMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(withTitle: L("Статус в строке меню…"), action: #selector(showMenuBarSettings), keyEquivalent: "")
         menu.addItem(withTitle: L("Открыть сессии"), action: #selector(showSessions), keyEquivalent: "")
@@ -252,7 +252,7 @@ enum StatusItemClick {
         } else if popover.isShown { popover.performClose(nil) }
         else { showSessions() }
     }
-    private func configureMainMenu() {
+    func configureMainMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem(); let appMenu = NSMenu(title: "Lunavect"); appItem.submenu = appMenu
         let settings = appMenu.addItem(withTitle: L("Настройки Lunavect…"), action: #selector(showSettings), keyEquivalent: ","); settings.target = self

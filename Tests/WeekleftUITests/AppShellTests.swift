@@ -1,5 +1,6 @@
 import XCTest
 import WeekleftCore
+import AppKit
 @testable import Weekleft
 
 /// App shell findings of audit 05 (H-09, H-10, H-12) and matrix P6, on pure
@@ -71,5 +72,29 @@ final class AppShellTests: XCTestCase {
         InstanceHandover.reopen(Copy(processIdentifier: 40, isTerminated: false, isFinishedLaunching: true, bundleURL: nil),
                                 open: { _ in events.append("unexpected"); return true }, activate: { events.append("activate") })
         XCTAssertEqual(events, ["open /Applications/Lunavect.app", "open failed", "activate", "activate"])
+    }
+}
+
+/// Audit 05 §5 item 13: menus are built from the current interface language, so
+/// the language observer's rebuild shows the new language without a restart.
+@MainActor final class MenuLanguageTests: XCTestCase {
+    func testMainAndStatusMenusFollowTheSelectedLanguage() throws {
+        _ = NSApplication.shared
+        let previousMenu = NSApp.mainMenu, previousLanguage = L10n.selection
+        defer { NSApp.mainMenu = previousMenu; L10n.defaults.set(previousLanguage, forKey: "languageCode") }
+        let environment = try AppEnvironment.preview(rows: [])
+        defer { environment.stop() }
+        let delegate = AppDelegate(environment: environment)
+        var titles: [String: [String]] = [:]
+        for code in ["en", "de"] {
+            L10n.defaults.set(code, forKey: "languageCode")
+            delegate.configureMainMenu()
+            let main = NSApp.mainMenu?.items.first?.submenu?.items.map(\.title) ?? []
+            titles[code] = main + delegate.statusMenu().items.map(\.title).filter { !$0.isEmpty }
+            XCTAssertTrue(titles[code]!.contains(L("Проверить обновления")))
+            XCTAssertTrue(titles[code]!.contains(L("Открыть сессии")))
+            XCTAssertFalse(titles[code]!.contains { $0.range(of: "[А-Яа-яЁё]", options: .regularExpression) != nil }, "\(code): \(titles[code]!)")
+        }
+        XCTAssertNotEqual(titles["en"], titles["de"])
     }
 }
