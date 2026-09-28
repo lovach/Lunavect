@@ -15,27 +15,37 @@ public enum ClientConnection {
         case beforeHooks, hooksBackup, hooksWrite, verify
     }
     public enum LocalComponentState: Equatable, Sendable {
-        case absent, ready, partial, unavailable
+        /// `paused`: Lunavect's entries are present, but the client's own
+        /// `disableAllHooks` setting turns them off (owner decision 17).
+        case absent, ready, partial, unavailable, paused
         public var message: String {
             switch self {
             case .absent: return "Не настроено"
             case .ready: return "Настроено"
             case .partial: return "Требуется завершить настройку"
             case .unavailable: return "Не удалось прочитать настройки"
+            case .paused: return "Приостановлено настройкой disableAllHooks"
             }
         }
     }
     public struct LocalState: Equatable, Sendable {
         public let statusLine: LocalComponentState?
         public let hooks: LocalComponentState
-        public init(statusLine: LocalComponentState?, hooks: LocalComponentState) {
-            self.statusLine = statusLine; self.hooks = hooks
+        /// A path Lunavect's own entries name that no longer leads to an executable.
+        public let missingExecutable: String?
+        public init(statusLine: LocalComponentState?, hooks: LocalComponentState, missingExecutable: String? = nil) {
+            self.statusLine = statusLine; self.hooks = hooks; self.missingExecutable = missingExecutable
         }
         public var connected: Bool { hooks == .ready && (statusLine == nil || statusLine == .ready) }
         public var disconnected: Bool { hooks == .absent && (statusLine == nil || statusLine == .absent) }
+        public var paused: Bool { hooks == .paused || statusLine == .paused }
         public var hasConfiguration: Bool {
-            hooks == .ready || hooks == .partial || statusLine == .ready || statusLine == .partial
+            [.ready, .partial, .paused].contains(hooks) || [.ready, .partial, .paused].contains(statusLine)
         }
+    }
+    public enum RepairOutcome: Equatable, Sendable {
+        /// `paused`: disableAllHooks; `refused`: a translocated copy; nothing was written.
+        case unchanged, repaired, paused, refused, unreadable
     }
     public struct LocalFailure: LocalizedError {
         public let operation: LocalOperation
@@ -47,39 +57,84 @@ public enum ClientConnection {
     /// Every component rereads current settings and touches only Lunavect-owned entries.
     public struct LocalSetup: Sendable {
         public let provider: ProviderID
+        /// The executable new commands name; nil when none may be installed.
         public let executable: String?
+        /// Executables whose existing commands count as a working connection.
+        public let accepted: [String]
+        /// The running copy is a temporary App Translocation copy (Q-06).
+        public let translocated: Bool
         public let configURL: URL
         public let bridgeDirectory: URL
         public let backupDirectory: URL
-        public init(provider: ProviderID, executable: String? = SessionHooks.monitorExecutable(),
+        public init(provider: ProviderID, executable: String?,
                     configURL: URL? = nil, bridgeDirectory: URL = ClaudeProvider.directory,
                     backupDirectory: URL = SessionHooks.directory.appendingPathComponent("backups")) {
             self.provider = provider; self.executable = executable
+            accepted = executable.map { [$0] } ?? []; translocated = false
+            self.configURL = configURL ?? SessionHooks.configURL(provider)
+            self.bridgeDirectory = bridgeDirectory; self.backupDirectory = backupDirectory
+        }
+        /// Commands name the stable helper link (owner decision 18).
+        public init(provider: ProviderID, location: HookHelperLocation = HookHelperLocation(),
+                    configURL: URL? = nil, bridgeDirectory: URL = ClaudeProvider.directory,
+                    backupDirectory: URL = SessionHooks.directory.appendingPathComponent("backups")) {
+            self.provider = provider; executable = location.commandExecutable
+            accepted = location.acceptedExecutables; translocated = location.isTranslocated
             self.configURL = configURL ?? SessionHooks.configURL(provider)
             self.bridgeDirectory = bridgeDirectory; self.backupDirectory = backupDirectory
         }
         public func inspect() -> LocalState {
-            let readable = (try? SessionHooks.readConfiguration(at: configURL)) != nil
-            guard readable else {
+            guard let root = try? SessionHooks.readConfiguration(at: configURL) else {
                 return LocalState(statusLine: provider == .claude ? .unavailable : nil, hooks: .unavailable)
             }
+            let paused = root["disableAllHooks"] as? Bool == true
             let hooks: LocalComponentState
             do {
                 try SessionHooks.validateEdit(provider: provider, executable: nil, url: configURL)
-                hooks = SessionHooks.installed(provider, configURL: configURL, executable: executable) ? .ready :
-                    SessionHooks.configured(provider, configURL: configURL) ? .partial : .absent
+                let configured = SessionHooks.configured(provider, configURL: configURL)
+                hooks = paused ? (configured ? .paused : .absent) :
+                    SessionHooks.installed(provider, configURL: configURL, accepting: accepted) ? .ready : configured ? .partial : .absent
             } catch { hooks = .unavailable }
             var status: LocalComponentState?
             if provider == .claude {
+                let configured = ClaudeProvider.statusLineConfigured(settingsURL: configURL)
                 do {
                     try ClaudeProvider.validateStatusLine(settingsURL: configURL, bridgeDirectory: bridgeDirectory, connecting: false)
-                    status = ClaudeProvider.statusLineInstalled(settingsURL: configURL, executable: executable) ? .ready :
-                        ClaudeProvider.statusLineConfigured(settingsURL: configURL) ? .partial : .absent
+                    status = paused ? (configured ? .paused : .absent) :
+                        ClaudeProvider.statusLineInstalled(settingsURL: configURL, accepting: accepted) ? .ready : configured ? .partial : .absent
                 } catch {
-                    status = ClaudeProvider.statusLineConfigured(settingsURL: configURL) ? .partial : .unavailable
+                    status = configured ? .partial : .unavailable
                 }
             }
-            return LocalState(statusLine: status, hooks: hooks)
+            return LocalState(statusLine: status, hooks: hooks,
+                              missingExecutable: SessionHooks.missingCommandExecutable(provider, configURL: configURL))
+        }
+        /// Launch repair: rewrites only Lunavect's own entries that name another path.
+        /// Events the user removed are not returned, paused (`disableAllHooks`) and
+        /// unreadable settings are not written, and a translocated copy writes nothing.
+        public func repair() throws -> RepairOutcome {
+            guard FileManager.default.fileExists(atPath: configURL.path) else { return .unchanged }
+            guard let root = try? SessionHooks.readConfiguration(at: configURL) else { return .unreadable }
+            let hooks = SessionHooks.configured(provider, configURL: configURL)
+            let status = provider == .claude && ClaudeProvider.statusLineConfigured(settingsURL: configURL)
+            guard hooks || status else { return .unchanged }
+            if root["disableAllHooks"] as? Bool == true { return .paused }
+            guard let executable else {
+                return translocated && !SessionHooks.installed(provider, configURL: configURL, accepting: accepted) ? .refused : .unchanged
+            }
+            var changed = false
+            if hooks {
+                changed = try SessionHooks.retarget(provider: provider, executable: executable, configURL: configURL,
+                                                    backupDirectory: backupDirectory)
+            }
+            if status, !ClaudeProvider.statusLineInstalled(settingsURL: configURL, accepting: [executable]) {
+                // Lunavect's own status line names another path: the install step
+                // rewrites its command and keeps the saved previous status line.
+                let before = try? Data(contentsOf: configURL)
+                try ClaudeProvider.installStatusLine(executable: executable, settingsURL: configURL, bridgeDirectory: bridgeDirectory)
+                changed = (try? Data(contentsOf: configURL)) != before || changed
+            }
+            return changed ? .repaired : .unchanged
         }
         @discardableResult public func apply(_ operation: LocalOperation,
                                              checkpoint: (LocalStep) throws -> Void = { _ in }) throws -> LocalState {
@@ -87,7 +142,9 @@ public enum ClientConnection {
                 try checkpoint(.prepare)
                 let connecting = operation == .connect
                 if connecting {
-                    guard let executable, FileManager.default.isExecutableFile(atPath: executable) else { throw SessionError.unavailable }
+                    guard let executable, FileManager.default.isExecutableFile(atPath: executable) else {
+                        throw translocated ? SessionError.translocated : SessionError.unavailable
+                    }
                 }
                 // Validate both components before the first write. Each edit revalidates
                 // fresh bytes, so a user's changes between steps are retained.

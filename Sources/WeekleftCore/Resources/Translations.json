@@ -1721,6 +1721,41 @@
     "fr": "Impossible de rétablir la connexion après le déplacement de l’application. Ouvrez Connexions et recommencez la configuration.",
     "zh-Hans": "移动应用后未能恢复连接。请打开“连接”并重新设置。"
   },
+  "macOS запустила Lunavect из временной копии. Перенесите Lunavect в папку «Программы», откройте его оттуда и повторите подключение.": {
+    "de": "macOS hat Lunavect aus einer temporären Kopie gestartet. Verschieben Sie Lunavect in den Ordner „Programme“, öffnen Sie es dort und verbinden Sie erneut.",
+    "en": "macOS started Lunavect from a temporary copy. Move Lunavect to the Applications folder, open it from there and connect again.",
+    "es": "macOS abrió Lunavect desde una copia temporal. Mueve Lunavect a la carpeta Aplicaciones, ábrelo desde allí y vuelve a conectarlo.",
+    "fr": "macOS a lancé Lunavect depuis une copie temporaire. Déplacez Lunavect dans le dossier Applications, ouvrez-le depuis cet emplacement et reconnectez-le.",
+    "zh-Hans": "macOS 从临时副本启动了 Lunavect。请将 Lunavect 移到“应用程序”文件夹，从那里打开后重新连接。"
+  },
+  "macOS запустила Lunavect из временной копии. Перенесите Lunavect в папку «Программы» и откройте его оттуда: до этого команды подключений не обновляются.": {
+    "de": "macOS hat Lunavect aus einer temporären Kopie gestartet. Verschieben Sie Lunavect in den Ordner „Programme“ und öffnen Sie es dort; bis dahin werden die Verbindungsbefehle nicht aktualisiert.",
+    "en": "macOS started Lunavect from a temporary copy. Move Lunavect to the Applications folder and open it from there; until then connection commands are not updated.",
+    "es": "macOS abrió Lunavect desde una copia temporal. Mueve Lunavect a la carpeta Aplicaciones y ábrelo desde allí; hasta entonces los comandos de conexión no se actualizan.",
+    "fr": "macOS a lancé Lunavect depuis une copie temporaire. Déplacez Lunavect dans le dossier Applications et ouvrez-le depuis cet emplacement ; d’ici là, les commandes de connexion ne sont pas mises à jour.",
+    "zh-Hans": "macOS 从临时副本启动了 Lunavect。请将 Lunavect 移到“应用程序”文件夹并从那里打开；在此之前不会更新连接命令。"
+  },
+  "Команды Lunavect в настройках {0} обновлены: теперь они не зависят от расположения приложения.": {
+    "de": "Die Lunavect-Befehle in den Einstellungen von {0} wurden aktualisiert: Sie hängen nicht mehr vom Speicherort der App ab.",
+    "en": "Lunavect’s commands in the {0} settings were updated: they no longer depend on where the app is located.",
+    "es": "Se actualizaron los comandos de Lunavect en los ajustes de {0}: ya no dependen de la ubicación de la app.",
+    "fr": "Les commandes Lunavect des réglages de {0} ont été mises à jour : elles ne dépendent plus de l’emplacement de l’app.",
+    "zh-Hans": "已更新 {0} 设置中的 Lunavect 命令：它们不再依赖于应用的位置。"
+  },
+  "Установлена ещё одна копия Lunavect: {0}. Оставьте одну копию, чтобы виджеты и подключения работали с ней.": {
+    "de": "Eine weitere Kopie von Lunavect ist installiert: {0}. Behalten Sie nur eine Kopie, damit Widgets und Verbindungen sie verwenden.",
+    "en": "Another copy of Lunavect is installed: {0}. Keep one copy so widgets and connections use it.",
+    "es": "Hay otra copia de Lunavect instalada: {0}. Conserva una sola copia para que los widgets y las conexiones la usen.",
+    "fr": "Une autre copie de Lunavect est installée : {0}. Gardez une seule copie pour que les widgets et les connexions l’utilisent.",
+    "zh-Hans": "已安装另一个 Lunavect 副本：{0}。请只保留一个副本，以便小组件和连接使用它。"
+  },
+  "Приостановлено настройкой disableAllHooks": {
+    "de": "Durch die Einstellung disableAllHooks pausiert",
+    "en": "Paused by the disableAllHooks setting",
+    "es": "En pausa por el ajuste disableAllHooks",
+    "fr": "En pause par le réglage disableAllHooks",
+    "zh-Hans": "已被 disableAllHooks 设置暂停"
+  },
   "Не удалось выполнить действие": {
     "de": "Aktion konnte nicht ausgeführt werden",
     "en": "Couldn’t complete the action",

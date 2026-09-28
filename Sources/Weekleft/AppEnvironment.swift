@@ -40,6 +40,23 @@ final class AppInstanceLease {
     deinit { close(descriptor) }
 }
 
+/// Copies of Lunavect in the two install locations other than the running one.
+/// A second copy confuses widget registration, the hook helper link and install
+/// scripts (audit matrix P4); the app reports it at launch.
+enum InstalledCopies {
+    static func others(running bundle: URL, applications: URL = URL(fileURLWithPath: "/Applications"),
+                       home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
+        let running = bundle.resolvingSymlinksInPath().standardizedFileURL.path
+        return [applications, home.appendingPathComponent("Applications")].map { $0.appendingPathComponent("Lunavect.app") }.filter { copy in
+            // Read Info.plist directly: Bundle caches instances of deleted paths.
+            guard copy.resolvingSymlinksInPath().standardizedFileURL.path != running,
+                  let data = try? Data(contentsOf: copy.appendingPathComponent("Contents/Info.plist")),
+                  let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return false }
+            return info["CFBundleIdentifier"] as? String == "com.weekleft.app"
+        }
+    }
+}
+
 /// Protect observation and helper heartbeats from App Nap while requested work
 /// is active, without preventing idle system/display sleep.
 @MainActor final class ActivityContinuity {

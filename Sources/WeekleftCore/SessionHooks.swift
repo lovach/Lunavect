@@ -2,6 +2,69 @@ import Foundation
 import Darwin
 import CryptoKit
 
+/// Where Claude Code and Codex find Lunavect's hook helper (owner decision 18).
+/// Commands name a stable symbolic link in Lunavect's support folder; every launch
+/// points it at the running copy's helper, so moving, renaming or updating the app
+/// never requires rewriting client configuration. A copy that macOS runs from App
+/// Translocation is temporary: it neither retargets the link nor installs commands.
+public struct HookHelperLocation: Sendable, Equatable {
+    public static var defaultLink: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Weekleft/bin/LunavectHook")
+    }
+    public let link: URL
+    public let bundle: URL
+    /// Command-line development builds have no embedded helper.
+    public let fallback: String?
+    public init(link: URL = HookHelperLocation.defaultLink, bundle: URL = Bundle.main.bundleURL,
+                fallback: String? = Bundle.main.executablePath) {
+        self.link = link; self.bundle = bundle; self.fallback = fallback
+    }
+    public static func isTranslocated(_ bundle: URL) -> Bool { bundle.path.contains("/AppTranslocation/") }
+    public var isTranslocated: Bool { Self.isTranslocated(bundle) }
+    /// The running copy's helper, or the development fallback.
+    public var bundledHelper: String? { SessionHooks.monitorExecutable(bundle: bundle, fallback: fallback) }
+    /// A symbolic link (never a file placed there) that leads to an executable.
+    public var linkIsUsable: Bool {
+        (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil
+            && FileManager.default.isExecutableFile(atPath: link.path)
+    }
+    /// The executable new or repaired commands name; nil from a translocated copy.
+    public var commandExecutable: String? {
+        guard !isTranslocated else { return nil }
+        return linkIsUsable ? link.path : bundledHelper
+    }
+    /// Executables whose commands count as a working connection: the link and,
+    /// for installations made before it existed, the running copy's own helper.
+    public var acceptedExecutables: [String] {
+        var result: [String] = []
+        if linkIsUsable { result.append(link.path) }
+        if !isTranslocated, let helper = bundledHelper, FileManager.default.isExecutableFile(atPath: helper) { result.append(helper) }
+        return result
+    }
+    public enum LinkUpdate: Equatable, Sendable { case unchanged, updated, translocated, missingHelper }
+    /// Points the link at this copy's helper, atomically. Only a symbolic link is
+    /// ever replaced; any other file at that path is left untouched and reported.
+    @discardableResult public func refreshLink() throws -> LinkUpdate {
+        guard !isTranslocated else { return .translocated }
+        guard let target = bundledHelper, FileManager.default.isExecutableFile(atPath: target) else { return .missingHelper }
+        let current = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)
+        if current == target { return .unchanged }
+        var info = stat()
+        if current == nil, lstat(link.path, &info) == 0 { throw CocoaError(.fileWriteFileExists) }
+        let directory = link.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let temporary = directory.appendingPathComponent(".LunavectHook-" + UUID().uuidString)
+        try FileManager.default.createSymbolicLink(atPath: temporary.path, withDestinationPath: target)
+        guard rename(temporary.path, link.path) == 0 else {
+            let code = errno
+            unlink(temporary.path)
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
+        return .updated
+    }
+}
+
 public enum SessionHooks {
     public static func monitorExecutable(bundle: URL = Bundle.main.bundleURL, fallback: String? = Bundle.main.executablePath) -> String? {
         let helper = bundle.appendingPathComponent("Contents/Helpers/LunavectHook").path
@@ -42,18 +105,60 @@ public enum SessionHooks {
             (group["hooks"] as? [[String: Any]] ?? []).contains { ($0["command"] as? String)?.hasSuffix(marker(provider)) == true }
         }
     }
-    public static func installed(_ provider: ProviderID, configURL: URL? = nil, executable: String? = SessionHooks.monitorExecutable()) -> Bool {
-        guard let executable, FileManager.default.isExecutableFile(atPath: executable) else { return false }
-        let expected = "\(quote(executable)) --session-hook \(provider.rawValue) \(marker(provider))"
-        guard let data = try? Data(contentsOf: configURL ?? self.configURL(provider)),
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            root["disableAllHooks"] as? Bool != true, let hooks = root["hooks"] as? [String: [[String: Any]]]
+    /// The exact command Lunavect installs for one provider's lifecycle events.
+    /// Claude Code and Codex run it with /bin/sh; the path is single-quoted.
+    public static func command(_ provider: ProviderID, executable: String) -> String {
+        "\(quote(executable)) --session-hook \(provider.rawValue) \(marker(provider))"
+    }
+    public static func installed(_ provider: ProviderID, configURL: URL? = nil, executable: String?) -> Bool {
+        installed(provider, configURL: configURL, accepting: executable.map { [$0] } ?? [])
+    }
+    /// Every event has a Lunavect handler naming one of `executables`: the stable
+    /// link or, for older installations, the running copy's own helper path.
+    public static func installed(_ provider: ProviderID, configURL: URL? = nil,
+                                 accepting executables: [String] = HookHelperLocation().acceptedExecutables) -> Bool {
+        let expected = Set(executables.filter { FileManager.default.isExecutableFile(atPath: $0) }.map { command(provider, executable: $0) })
+        guard !expected.isEmpty,
+              let data = try? Data(contentsOf: configURL ?? self.configURL(provider)),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              root["disableAllHooks"] as? Bool != true, let hooks = root["hooks"] as? [String: [[String: Any]]]
         else { return false }
         return events(provider).allSatisfy { event in
             (hooks[event] ?? []).contains { group in
-                (group["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == expected && $0["type"] as? String == "command" }
+                (group["hooks"] as? [[String: Any]] ?? []).contains {
+                    ($0["command"] as? String).map(expected.contains) == true && $0["type"] as? String == "command"
+                }
             }
         }
+    }
+    /// The path a Lunavect command names, from its leading single-quoted word.
+    static func quotedExecutable(_ command: String) -> String? {
+        guard command.hasPrefix("'") else { return nil }
+        var result = "", rest = command.dropFirst()
+        while let close = rest.firstIndex(of: "'") {
+            result += rest[..<close]
+            rest = rest[rest.index(after: close)...]
+            guard rest.hasPrefix("\"'\"'") else { return result }
+            result += "'"; rest = rest.dropFirst(4)
+        }
+        return nil
+    }
+    /// The first path named by Lunavect's own handlers that no longer leads to an
+    /// executable, for example after the app was moved or ran from a temporary copy.
+    public static func missingCommandExecutable(_ provider: ProviderID, configURL: URL? = nil) -> String? {
+        guard let root = try? readConfiguration(at: configURL ?? self.configURL(provider)),
+              let hooks = root["hooks"] as? [String: [[String: Any]]] else { return nil }
+        for event in events(provider) {
+            for handler in (hooks[event] ?? []).flatMap({ $0["hooks"] as? [[String: Any]] ?? [] }) {
+                guard let command = handler["command"] as? String, command.hasSuffix(marker(provider)),
+                      let path = quotedExecutable(command) else { continue }
+                if !FileManager.default.isExecutableFile(atPath: path) { return path }
+            }
+        }
+        if provider == .claude, let command = (root["statusLine"] as? [String: Any])?["command"] as? String,
+           command.hasSuffix(" --claude-statusline"), let path = quotedExecutable(command),
+           !FileManager.default.isExecutableFile(atPath: path) { return path }
+        return nil
     }
     public static func install(provider: ProviderID, executable: String, configURL: URL? = nil, backupDirectory: URL? = nil,
                                checkpoint: (ClientConnection.LocalStep) throws -> Void = { _ in }) throws {
@@ -98,8 +203,51 @@ public enum SessionHooks {
         if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
         return root
     }
+    /// Launch repair (owner decision 17): each Lunavect handler that names another
+    /// path is rewritten in place to `executable`. Events without a Lunavect handler
+    /// stay without one, foreign handlers and their order are untouched, and a
+    /// duplicate Lunavect handler within one event is dropped.
+    /// - Returns: whether the configuration changed.
+    @discardableResult public static func retarget(provider: ProviderID, executable: String, configURL: URL? = nil,
+                                                   backupDirectory: URL? = nil) throws -> Bool {
+        let url = configURL ?? self.configURL(provider)
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        let desired = command(provider, executable: executable)
+        return try edit(provider: provider, url: url, backup: backupDirectory ?? directory.appendingPathComponent("backups"),
+                        disconnecting: false, checkpoint: { _ in }) { original in
+            var root = original
+            if root["disableAllHooks"] as? Bool == true { throw SessionError.disabled }
+            guard root["hooks"] == nil || root["hooks"] is [String: [[String: Any]]] else { throw SessionError.invalidResponse }
+            var hooks = root["hooks"] as? [String: [[String: Any]]] ?? [:]
+            for (event, groups) in hooks {
+                var seen = false, kept: [[String: Any]] = []
+                for var group in groups {
+                    guard let handlers = group["hooks"] as? [[String: Any]] else { throw SessionError.invalidResponse }
+                    var updated: [[String: Any]] = []
+                    for var handler in handlers {
+                        guard (handler["command"] as? String)?.hasSuffix(marker(provider)) == true else { updated.append(handler); continue }
+                        guard !seen else { continue }
+                        seen = true
+                        handler["command"] = desired; handler["type"] = "command"
+                        updated.append(handler)
+                    }
+                    if !updated.isEmpty || handlers.isEmpty { group["hooks"] = updated; kept.append(group) }
+                }
+                if kept.isEmpty { hooks.removeValue(forKey: event) } else { hooks[event] = kept }
+            }
+            if !hooks.isEmpty { root["hooks"] = hooks }
+            return root
+        }
+    }
     private static func edit(provider: ProviderID, executable: String?, url: URL, backup: URL,
                              checkpoint: (ClientConnection.LocalStep) throws -> Void) throws {
+        try edit(provider: provider, url: url, backup: backup, disconnecting: executable == nil, checkpoint: checkpoint) {
+            try editedConfiguration(provider: provider, executable: executable, root: $0)
+        }
+    }
+    @discardableResult private static func edit(provider: ProviderID, url: URL, backup: URL, disconnecting: Bool,
+                                                checkpoint: (ClientConnection.LocalStep) throws -> Void,
+                                                change: ([String: Any]) throws -> [String: Any]) throws -> Bool {
         let old = try FileManager.default.fileExists(atPath: url.path) ? Data(contentsOf: url) : nil
         let original: [String: Any]
         if let old {
@@ -107,8 +255,8 @@ public enum SessionHooks {
                   let root = try JSONSerialization.jsonObject(with: old) as? [String: Any] else { throw SessionError.invalidResponse }
             original = root
         } else { original = [:] }
-        let root = try editedConfiguration(provider: provider, executable: executable, root: original)
-        if (original as NSDictionary).isEqual(to: root) { return }
+        let root = try change(original)
+        if (original as NSDictionary).isEqual(to: root) { return false }
         try checkpoint(.hooksBackup)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if let old { try secureWriteVerified(old, to: backup.appendingPathComponent("\(provider.rawValue)-\(UUID().uuidString).json")) }
@@ -119,8 +267,9 @@ public enum SessionHooks {
         try writeConfigurationChange(original: old,
             updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
             to: url, restorationURL: restorationURL(for: url, in: backup, prefix: provider.rawValue),
-            disconnecting: executable == nil)
+            disconnecting: disconnecting)
         try pruneOwnedBackups(in: backup, prefix: provider.rawValue + "-")
+        return true
     }
     private struct ConfigurationRestoration: Codable {
         var original: Data?

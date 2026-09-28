@@ -228,15 +228,21 @@ public enum ClaudeProvider {
               let status = root["statusLine"] as? [String: Any], let command = status["command"] as? String else { return false }
         return ownsStatusLine(command)
     }
-    public static func statusLineInstalled(settingsURL: URL? = nil, executable: String? = SessionHooks.monitorExecutable()) -> Bool {
-        guard let executable, FileManager.default.isExecutableFile(atPath: executable) else { return false }
+    public static func statusLineInstalled(settingsURL: URL? = nil, executable: String?) -> Bool {
+        statusLineInstalled(settingsURL: settingsURL, accepting: executable.map { [$0] } ?? [])
+    }
+    /// The status line names one of `executables`: the stable helper link or, for
+    /// installations made before it existed, the running copy's own helper.
+    public static func statusLineInstalled(settingsURL: URL? = nil,
+                                           accepting executables: [String] = HookHelperLocation().acceptedExecutables) -> Bool {
+        let expected = Set(executables.filter { FileManager.default.isExecutableFile(atPath: $0) }.map(statusLineCommand))
         let config = settingsURL ?? SessionHooks.configURL(.claude)
-        guard let data = try? Data(contentsOf: config),
+        guard !expected.isEmpty, let data = try? Data(contentsOf: config),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               root["disableAllHooks"] as? Bool != true,
               let status = root["statusLine"] as? [String: Any],
               let command = status["command"] as? String else { return false }
-        return command == statusLineCommand(executable) && status["type"] as? String == "command"
+        return expected.contains(command) && status["type"] as? String == "command"
     }
     static func validateStatusLine(settingsURL: URL, bridgeDirectory: URL, connecting: Bool) throws {
         let root = try SessionHooks.readConfiguration(at: settingsURL)
