@@ -316,7 +316,8 @@ public enum TerminalLocation {
             self.uid = uid; self.device = device; self.executable = executable; self.pid = pid
         }
     }
-    /// An npm-installed CLI runs inside one of these; it cannot be told apart from other scripts.
+    /// An npm-installed CLI runs inside one of these. A Claude Code package script is
+    /// recognized from its arguments; any other script there is not told apart.
     static let interpreters: Set<String> = ["node", "bun", "deno"]
 
     /// Only the user's own processes on exactly this device count. The session's
@@ -327,20 +328,21 @@ public enum TerminalLocation {
     /// anything running there, including another Claude session in a tab that
     /// received the device, is another task (R2-N-01).
     public static func occupancy(device: dev_t, provider: ProviderID, processes: [DeviceProcess], uid: uid_t = getuid(),
-                                 runtimePID: Int32? = nil) -> DeviceOccupancy {
+                                 runtimePID: Int32? = nil, arguments: (Int32) -> [String]? = { _ in nil }) -> DeviceOccupancy {
         let own = processes.filter { $0.uid == uid && $0.device == device }
         if let runtimePID, runtimePID > 1 { return own.contains { $0.pid == runtimePID } ? .provider : .vacant }
         var interpreter = false, unreadable = false
         for process in own {
             guard let executable = process.executable else { unreadable = true; continue }
-            if SessionProcess.runtimeProvider(ofExecutable: executable) == provider { return .provider }
+            if SessionProcess.runtimeProvider(pid: process.pid, executable: executable, arguments: arguments) == provider { return .provider }
             if interpreters.contains(URL(fileURLWithPath: executable).lastPathComponent) { interpreter = true }
         }
         return interpreter ? .interpreter : unreadable ? .unknown : .vacant
     }
 
-    /// Reads owner, controlling device and executable path with libproc; never
-    /// arguments, environment or terminal contents.
+    /// Reads owner, controlling device and executable path with libproc, and the
+    /// arguments of an interpreter only (npm-installed Claude); never environment
+    /// or terminal contents.
     public static func occupancy(of tty: String, provider: ProviderID, runtimePID: Int32? = nil) -> DeviceOccupancy {
         guard valid(tty) else { return .unknown }
         var node = stat()
@@ -363,7 +365,8 @@ public enum TerminalLocation {
                 ? String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self) : nil
             processes.append(.init(uid: info.pbi_uid, device: device, executable: executable, pid: pid))
         }
-        return occupancy(device: device, provider: provider, processes: processes, runtimePID: runtimePID)
+        return occupancy(device: device, provider: provider, processes: processes, runtimePID: runtimePID,
+                         arguments: SessionProcess.processArguments)
     }
 
     // MARK: Automation permission
@@ -419,7 +422,8 @@ public enum TerminalLocation {
     }
     /// Fallback for sessions whose hook did not record a device: the controlling
     /// terminal of a running claude/codex process in the same project folder.
-    /// Reads process metadata only (executable path, working directory, device).
+    /// Reads process metadata only (executable path, working directory, device; the
+    /// script argument of an interpreter, for an npm-installed Claude).
     public static func runningTarget(provider: ProviderID, cwd: String) -> Target? {
         guard cwd.hasPrefix("/") else { return nil }
         let canonicalDirectory = URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path
@@ -430,13 +434,17 @@ public enum TerminalLocation {
             var info = proc_bsdinfo()
             let size = Int32(MemoryLayout.size(ofValue: info))
             guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid(),
-                  info.e_tdev != UInt32.max, let process = SessionProcess.runtimeProcess(pid),
-                  SessionProcess.runtimeProvider(ofExecutable: process.executable) == provider else { continue }
+                  info.e_tdev != UInt32.max, let process = SessionProcess.runtimeProcess(pid) else { continue }
+            let name = URL(fileURLWithPath: process.executable).lastPathComponent
+            guard SessionProcess.runtimeProvider(ofExecutable: process.executable) == provider ||
+                    SessionProcess.scriptInterpreters.contains(name) else { continue }
             var vnode = proc_vnodepathinfo()
             let vsize = Int32(MemoryLayout.size(ofValue: vnode))
             guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vnode, vsize) == vsize else { continue }
             let dir = withUnsafeBytes(of: vnode.pvi_cdir.vip_path) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
+            // An interpreter's arguments are read only for a process in this folder.
             guard URL(fileURLWithPath: dir).resolvingSymlinksInPath().path == canonicalDirectory,
+                  SessionProcess.runtimeProvider(pid: pid, executable: process.executable) == provider,
                   let dev = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { continue }
             let tty = "/dev/" + String(cString: dev)
             guard valid(tty) else { continue }

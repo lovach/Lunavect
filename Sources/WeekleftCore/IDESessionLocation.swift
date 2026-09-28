@@ -51,7 +51,8 @@ public enum IDEProcessLocation {
     }
 
     /// Reads only executable paths, process identities and the controlling-device flag.
-    /// No foreign environment, command arguments or terminal contents are read.
+    /// No foreign environment or terminal contents are read; `locate` asks for the
+    /// arguments of an interpreter process only (npm-installed Claude).
     static func process(_ pid: Int32) -> ProcessInfo? {
         guard pid > 1 else { return nil }
         var info = proc_bsdinfo()
@@ -86,15 +87,19 @@ public enum IDEProcessLocation {
     }
 
     public static func locate(parentPID: Int32, provider: ProviderID) -> IDESessionLocation? {
-        locate(parentPID: parentPID, provider: provider, read: process, bundle: bundleIdentifier)
+        locate(parentPID: parentPID, provider: provider, read: process, bundle: bundleIdentifier,
+               arguments: SessionProcess.processArguments)
     }
 
+    /// `arguments` is asked only for interpreter processes (an npm-installed Claude
+    /// runs as node); fixtures without it never read another process.
     static func locate(parentPID: Int32, provider: ProviderID, read: (Int32) -> ProcessInfo?,
-                       bundle: (String) -> String?) -> IDESessionLocation? {
+                       bundle: (String) -> String?, arguments: (Int32) -> [String]? = { _ in nil }) -> IDESessionLocation? {
         var pid = parentPID, seen = Set<Int32>(), runtime: SessionProcessIdentity?, hasTerminal = false
         for _ in 0..<24 {
             guard pid > 1, seen.insert(pid).inserted, let current = read(pid) else { return nil }
-            if runtime == nil, SessionProcess.runtimeProvider(ofExecutable: current.executable) == provider {
+            if runtime == nil,
+               SessionProcess.runtimeProvider(pid: current.identity.pid, executable: current.executable, arguments: arguments) == provider {
                 runtime = current.identity
             }
             if let range = current.executable.range(of: ".app/Contents/") {
