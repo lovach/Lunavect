@@ -353,6 +353,21 @@ public struct SignInAttention: Hashable, Identifiable, Sendable {
             snapshots.first { $0.provider == id }.flatMap(Self.init)
         }
     }
+    /// Providers that certainly left the state: disconnected, or with a reading the
+    /// account answered (no issue, or the subscription's own limit screen). The
+    /// "waiting for data" placeholder after a launch or a transient failure between
+    /// two sign-in failures is not leaving (R26-V2-01).
+    public static func left(_ snapshots: [UsageSnapshot], providers: some Sequence<ProviderID>) -> Set<ProviderID> {
+        let connected = Set(providers)
+        let recovered = snapshots.filter { snapshot in
+            guard connected.contains(snapshot.provider) else { return false }
+            guard let issue = snapshot.issue else { return true }
+            let reason = ClientIntegrationIssue.legacy(issue, provider: snapshot.provider,
+                                                       capability: snapshot.provider == .codex ? .rateLimits : .usageProbe)?.reason
+            return reason == .limitReached || reason == .windowInactive
+        }.map(\.provider)
+        return Set(ProviderID.allCases.filter { !connected.contains($0) }).union(recovered)
+    }
     public var client: String { provider == .claude ? "Claude Code" : "Codex" }
     /// The heading, as in Connections → diagnostics for the same state.
     public var title: String {
@@ -397,19 +412,20 @@ public struct ConnectionRepairRequest: Hashable, Sendable {
     }
 }
 
-/// One notification when a provider enters the signed-out state. Polls and
-/// restarts (the state is saved) do not repeat it; only leaving the state and
-/// entering it again does.
+/// One notification when a provider enters the signed-out state. Polls, restarts
+/// (the state is saved) and states that do not prove a sign-in do not repeat it;
+/// only leaving the state (`SignInAttention.left`) and entering it again does.
 public struct SignInNoticeTracker: Codable, Equatable, Sendable {
     public private(set) var notified: Set<ProviderID>
     public init(notified: Set<ProviderID> = []) { self.notified = notified }
     /// - Parameters:
     ///   - current: providers in the state now (`SignInAttention.all`).
+    ///   - left: providers that certainly left it (`SignInAttention.left`).
     ///   - announce: false while such notifications cannot be delivered; the entry is
     ///     then not consumed and is announced once they can.
     /// - Returns: the states to announce now.
-    public mutating func update(_ current: [SignInAttention], announce: Bool) -> [SignInAttention] {
-        notified.formIntersection(current.map(\.provider))
+    public mutating func update(_ current: [SignInAttention], left: Set<ProviderID>, announce: Bool) -> [SignInAttention] {
+        notified.subtract(left)
         guard announce else { return [] }
         let entered = current.filter { !notified.contains($0.provider) }
         notified.formUnion(entered.map(\.provider))
