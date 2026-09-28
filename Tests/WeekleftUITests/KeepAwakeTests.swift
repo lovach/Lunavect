@@ -433,6 +433,39 @@ final class KeepAwakeTests: XCTestCase {
             XCTAssertEqual(client.releaseCount, releases, "\(error)")
         }
     }
+    /// Matrix M12 (audit r2): repeated failure and recovery never leaves more than
+    /// one heartbeat timer or one permission poll running.
+    @MainActor func testRepeatedFailureAndRecoveryKeepsAtMostOneTimerOfEachKind() async throws {
+        let defaults = try isolatedDefaults()
+        var timers: [(interval: TimeInterval, timer: Timer)] = []
+        let client = FakeAwakeClient()
+        let awake = KeepAwake(client: client, defaults: defaults, scheduleTimer: { interval, action in
+            let timer = Timer(timeInterval: interval, repeats: true, block: action)
+            RunLoop.main.add(timer, forMode: .common)
+            timers.append((interval, timer))
+            return timer
+        })
+        defer { awake.shutdown() }
+        func running(_ interval: TimeInterval) -> Int { timers.filter { $0.interval == interval && $0.timer.isValid }.count }
+        for cycle in 0..<5 {
+            await awake.start(for: .untilStopped)
+            await awake.start(for: .oneHour)  // a new duration while on keeps the same heartbeat
+            XCTAssertEqual(running(10), 1, "cycle \(cycle)")
+            client.keepAliveError = AwakeFailure.unavailable
+            await awake.check()
+            client.keepAliveError = nil
+            XCTAssertFalse(awake.isEnabled)
+            XCTAssertEqual(running(10), 0, "a lost helper stops the heartbeat, cycle \(cycle)")
+            client.isAvailable = false
+            awake.requestPermission(); awake.requestPermission()
+            XCTAssertEqual(running(1), 1, "one permission poll, cycle \(cycle)")
+            awake.cancelPermission()
+            client.isAvailable = true
+            XCTAssertEqual(running(1), 0)
+        }
+        XCTAssertEqual(client.releaseCount, 5)
+        XCTAssertEqual(timers.filter(\.timer.isValid).count, 0)
+    }
     @MainActor func testLostHelperIsNotDisplayedAsActive() async throws {
         let defaults = try isolatedDefaults()
         let client = FakeAwakeClient()
