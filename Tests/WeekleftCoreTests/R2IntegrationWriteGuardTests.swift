@@ -10,11 +10,7 @@ import Darwin
 /// state with the real home folder by default.
 ///
 /// Every case works in a temporary folder that the test marks as protected;
-/// nothing is ever aimed at the real home folder. Cases whose production code
-/// still acts before the guard are wrapped in a strict `XCTExpectFailure` named
-/// after the finding (R2-X-02). Once the proposed guard lands, the wrapper
-/// reports "expected failure did not occur": remove it and the case becomes an
-/// ordinary regression test.
+/// nothing is ever aimed at the real home folder (finding R2-X-02).
 final class R2IntegrationWriteGuardTests: XCTestCase {
     private var root: URL!
     private var home: URL!
@@ -69,11 +65,9 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
         let url = try write("{damaged", to: "state.json")
         let before = try tree()
         LiveWriteGuard.protect(home)
-        XCTExpectFailure("R2-X-02: LocalStateRecovery.load moves the file before any LiveWriteGuard check") {
-            try? assertRefusedWithoutSideEffects("recovery move", before: before) {
-                _ = try LocalStateRecovery.load(from: url, empty: [String: Int]()) {
-                    try JSONDecoder().decode([String: Int].self, from: Data(contentsOf: $0))
-                }
+        try assertRefusedWithoutSideEffects("recovery move", before: before) {
+            _ = try LocalStateRecovery.load(from: url, empty: [String: Int]()) {
+                try JSONDecoder().decode([String: Int].self, from: Data(contentsOf: $0))
             }
         }
     }
@@ -82,10 +76,8 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
         _ = try write("partial", to: "." + UUID().uuidString + ".tmp", age: 7200)
         let before = try tree()
         LiveWriteGuard.protect(home)
-        XCTExpectFailure("R2-X-02: removeAbandonedTemporaries deletes without a LiveWriteGuard check") {
-            try? assertRefusedWithoutSideEffects("temporary cleanup", before: before) {
-                _ = try LocalStateRecovery.removeAbandonedTemporaries(in: home, now: Date())
-            }
+        try assertRefusedWithoutSideEffects("temporary cleanup", before: before) {
+            _ = try LocalStateRecovery.removeAbandonedTemporaries(in: home, now: Date())
         }
     }
 
@@ -103,10 +95,8 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
         let before = try tree()
         LiveWriteGuard.protect(home)
         let payload = try statusLinePayload
-        XCTExpectFailure("R2-X-02: ClaudeProvider.capture creates its folder and lock file before the guarded write") {
-            try? assertRefusedWithoutSideEffects("status line capture", before: before) {
-                try ClaudeProvider.capture(payload, destination: destination, now: now)
-            }
+        try assertRefusedWithoutSideEffects("status line capture", before: before) {
+            try ClaudeProvider.capture(payload, destination: destination, now: now)
         }
     }
 
@@ -115,10 +105,8 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
         let before = try tree()
         LiveWriteGuard.protect(home)
         let payload = try statusLinePayload
-        XCTExpectFailure("R2-X-02: ClaudeProvider.capture moves a damaged quota.json aside before the guarded write") {
-            try? assertRefusedWithoutSideEffects("status line recovery", before: before) {
-                try ClaudeProvider.capture(payload, destination: destination, now: now)
-            }
+        try assertRefusedWithoutSideEffects("status line recovery", before: before) {
+            try ClaudeProvider.capture(payload, destination: destination, now: now)
         }
     }
 
@@ -128,10 +116,8 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
             fetchedAt: now, source: ClaudeUsageProbe.source)
         let before = try tree()
         LiveWriteGuard.protect(home)
-        XCTExpectFailure("R2-X-02: ClaudeProvider.saveUsage creates its folder before the guarded write") {
-            try? assertRefusedWithoutSideEffects("probe save", before: before) {
-                try ClaudeProvider.saveUsage(snapshot, destination: home.appendingPathComponent("ClaudeStatusLine/usage.json"))
-            }
+        try assertRefusedWithoutSideEffects("probe save", before: before) {
+            try ClaudeProvider.saveUsage(snapshot, destination: home.appendingPathComponent("ClaudeStatusLine/usage.json"))
         }
     }
 
@@ -140,16 +126,14 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
     func testActivityWritersCreateNoFolderInAProtectedFolder() throws {
         let before = try tree()
         LiveWriteGuard.protect(home)
-        XCTExpectFailure("R2-X-02: ActivityHistory/ActivityDetails/ActivityWidgetSelection create folders before the guarded write") {
-            try? assertRefusedWithoutSideEffects("history", before: before) {
-                try ActivityHistory().save(to: home.appendingPathComponent("Shared/activity.json"))
-            }
-            try? assertRefusedWithoutSideEffects("details", before: before) {
-                try ActivityDetails().save(to: home.appendingPathComponent("Private/activity-details.json"))
-            }
-            try? assertRefusedWithoutSideEffects("widget selection", before: before) {
-                try ActivityWidgetSelection.write(now, kind: "LunavectActivityWidget", period: .week, source: .all, directory: home)
-            }
+        try assertRefusedWithoutSideEffects("history", before: before) {
+            try ActivityHistory().save(to: home.appendingPathComponent("Shared/activity.json"))
+        }
+        try assertRefusedWithoutSideEffects("details", before: before) {
+            try ActivityDetails().save(to: home.appendingPathComponent("Private/activity-details.json"))
+        }
+        try assertRefusedWithoutSideEffects("widget selection", before: before) {
+            try ActivityWidgetSelection.write(now, kind: "LunavectActivityWidget", period: .week, source: .all, directory: home)
         }
     }
 
@@ -157,10 +141,8 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
         _ = try write("0", to: "ActivitySelection/LunavectActivityWidget-week-all.json")
         let before = try tree()
         LiveWriteGuard.protect(home)
-        XCTExpectFailure("R2-X-02: ActivityWidgetSelection.write(nil) removes the file without a LiveWriteGuard check") {
-            try? assertRefusedWithoutSideEffects("widget selection clear", before: before) {
-                try ActivityWidgetSelection.write(nil, kind: "LunavectActivityWidget", period: .week, source: .all, directory: home)
-            }
+        try assertRefusedWithoutSideEffects("widget selection clear", before: before) {
+            try ActivityWidgetSelection.write(nil, kind: "LunavectActivityWidget", period: .week, source: .all, directory: home)
         }
     }
 
@@ -171,14 +153,12 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
                                updatedAt: now, observedAt: now, evidence: .hook)
         let before = try tree()
         LiveWriteGuard.protect(home)
-        XCTExpectFailure("R2-X-02: SessionVisibility/SessionArrangement create their folder before the guarded write") {
-            try? assertRefusedWithoutSideEffects("hidden sessions", before: before) {
-                var visibility = try SessionVisibility(url: home.appendingPathComponent("Sessions/hidden-sessions.json"), now: now)
-                try visibility.hide(row, now: now)
-            }
-            try? assertRefusedWithoutSideEffects("arrangement", before: before) {
-                try SessionArrangement().save(to: home.appendingPathComponent("Order/arrangement.json"))
-            }
+        try assertRefusedWithoutSideEffects("hidden sessions", before: before) {
+            var visibility = try SessionVisibility(url: home.appendingPathComponent("Sessions/hidden-sessions.json"), now: now)
+            try visibility.hide(row, now: now)
+        }
+        try assertRefusedWithoutSideEffects("arrangement", before: before) {
+            try SessionArrangement().save(to: home.appendingPathComponent("Order/arrangement.json"))
         }
     }
 
@@ -198,9 +178,7 @@ final class R2IntegrationWriteGuardTests: XCTestCase {
         LiveWriteGuard.protect(home)
         let endpoints = IDEBridge.scan(at: bridge, now: Date(), process: { _ in nil }, bundle: { _ in nil }, socketDirectories: [])
         XCTAssertTrue(endpoints.isEmpty, "A stopped editor is never an endpoint")
-        XCTExpectFailure("R2-X-02: IDEBridge.scan removes expired descriptors without a LiveWriteGuard check") {
-            XCTAssertEqual(try? tree(), before, "The sweep changed a protected folder")
-        }
+        XCTAssertEqual(try tree(), before, "The sweep changed a protected folder")
     }
 
     // MARK: The guard itself still refuses what it covers

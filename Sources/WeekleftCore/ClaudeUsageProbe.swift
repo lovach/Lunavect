@@ -30,6 +30,7 @@ public enum ClaudeUsageProbe {
         var isDirectory: ObjCBool = false
         guard FileManager.default.isExecutableFile(atPath: cliPath), FileManager.default.fileExists(atPath: cliPath, isDirectory: &isDirectory),
               !isDirectory.boolValue else { throw UsageError.claudeCLIUnavailable }
+        try LiveWriteGuard.check(directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         var master: Int32 = -1, slave: Int32 = -1
         var size = winsize(ws_row: 80, ws_col: 160, ws_xpixel: 0, ws_ypixel: 0)

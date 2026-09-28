@@ -342,33 +342,46 @@ import Darwin
 
     // MARK: X-I2 — one window state on every limits surface
 
-    /// `QuotaWindowStatus` promises "one sentence per state, identical on every
-    /// surface"; the menu bar says "an exhausted window keeps its countdown and is
-    /// not marked: 0 % cannot change before the reset". The observation age of an
-    /// exhausted window therefore changes nothing anywhere. The small limits
-    /// widget (`SmallLimitsCard`) and the "All together" widget (`OverviewLimitsCard`)
-    /// decide with `UsageSnapshot.isStale(window:)` instead (ActivityWidgetView.swift
-    /// lines 99, 122, 129, 131, 217, 223), which marks the same value as outdated.
-    func testExhaustedWindowReadsTheSameOnEverySurfaceWhateverItsObservationAge() throws {
+    /// Metamorphic check (R2-X-01): the observation age of an exhausted window or
+    /// of a plan without limits changes nothing on any surface, because neither
+    /// value can change before the next reset. Every limits card and the menu bar
+    /// must show exactly the same thing for a fresh and a two-hour-old reading.
+    func testObservationAgeOfExhaustedOrUnlimitedWindowChangesNoSurface() throws {
         let now = instant
-        let ages: [TimeInterval] = [0, 7200]
-        for age in ages {
-            let snapshot = try UsageSnapshot(provider: .codex,
-                weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3 * 86400)),
-                fetchedAt: now.addingTimeInterval(-age), source: "Codex CLI")
-            let status = snapshot.status(of: snapshot.weekly, now: now)
-            XCTAssertEqual(status, .exhausted)
+        struct Surface: Equatable { var value: String; var dimmed: Bool; var status: Bool; var attention: Bool }
+        func surfaces(_ snapshot: UsageSnapshot) throws -> [String: Surface] {
+            let claude = UsageSnapshot(provider: .claude,
+                weekly: try QuotaWindow(usedPercent: 10, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400), resetPrecision: .minute),
+                fetchedAt: now, source: ClaudeUsageProbe.source)
+            var both = WidgetPreferences(); both.enabledProviders = [.claude, .codex]
+            var single = WidgetPreferences(); single.enabledProviders = [.codex]
             let entry = try XCTUnwrap(MenuBarLimitEntry.make(snapshots: [snapshot], providers: [.codex],
                                                               preferences: MenuBarLimitsPreferences(enabled: true), now: now).first)
-            XCTAssertFalse(entry.stale, "Menu bar, \(Int(age)) s: an exhausted value is never marked")
-            XCTAssertEqual(entry.value, PercentText.format(0))
-            let widgetMarksOutdated = snapshot.isStale(window: snapshot.weekly, now: now)
-            if age == 0 {
-                XCTAssertEqual(widgetMarksOutdated, status.isStale, "A fresh observation agrees on every surface")
-            } else {
-                XCTExpectFailure("R2-X-01: small and overview widgets mark an aged exhausted window as outdated") {
-                    XCTAssertEqual(widgetMarksOutdated, status.isStale, "Widget predicate, \(Int(age)) s: must agree with the shared window state")
-                }
+            func surface(_ display: WidgetQuotaDisplay) -> Surface {
+                Surface(value: display.value, dimmed: display.dimmed, status: display.showsStatus, attention: display.needsAttention)
+            }
+            return [
+                "menu bar": Surface(value: entry.value, dimmed: entry.stale, status: entry.note != nil, attention: entry.stale),
+                "medium": surface(WeekleftCard(snapshots: [claude, snapshot], preferences: both, now: now).display(snapshot)),
+                "small": surface(SmallLimitsCard(snapshots: [claude, snapshot], preferences: both, now: now).display(snapshot)),
+                "single": surface(SingleProviderLimitsCard(snapshot: snapshot, preferences: single, now: now).display),
+                "overview": surface(OverviewLimitsCard(snapshots: [claude, snapshot], preferences: both, now: now).display(snapshot)),
+            ]
+        }
+        let exhausted = { (age: TimeInterval) in
+            try UsageSnapshot(provider: .codex,
+                weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3 * 86400)),
+                fetchedAt: now.addingTimeInterval(-age), source: "Codex CLI")
+        }
+        let unlimited = { (age: TimeInterval) in
+            UsageSnapshot(provider: .codex, fetchedAt: now.addingTimeInterval(-age), source: "Codex CLI", unlimited: true)
+        }
+        for (name, make) in [("exhausted", exhausted), ("unlimited", unlimited)] {
+            let fresh = try surfaces(make(0)), aged = try surfaces(make(7200))
+            XCTAssertEqual(aged, fresh, "\(name): a two-hour-old reading shows the same on every surface")
+            for (surface, shown) in fresh where surface != "menu bar" {
+                XCTAssertEqual(shown.value, name == "exhausted" ? PercentText.format(0) : "∞", "\(name): \(surface)")
+                XCTAssertFalse(shown.dimmed, "\(name): \(surface) is not marked as saved data")
             }
         }
     }
@@ -403,9 +416,7 @@ import Darwin
                                 detailsURL: home.appendingPathComponent("activity-details.json")).load()
         let store = SessionStore(directory: sessions, defaults: try defaults(), isolated: true, now: { self.instant })
         store.stop()
-        XCTExpectFailure("R2-X-02: startup repair moves damaged files and removes temporaries before any LiveWriteGuard check") {
-            XCTAssertEqual(tree(), before, "Startup repair changed a protected folder")
-        }
+        XCTAssertEqual(tree(), before, "Startup repair changed a protected folder")
     }
 }
 

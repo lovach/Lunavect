@@ -232,6 +232,8 @@ public enum IDEBridge {
                 guard let data = read(file), let header = try? JSONDecoder().decode(Header.self, from: data),
                       header.id == stem, running(header) == nil else { continue }
             }
+            // Under XCTest the real descriptor folder is never swept (R2-X-02).
+            guard !LiveWriteGuard.isProtected(file) else { continue }
             try? FileManager.default.removeItem(at: file)
         }
         // Heartbeats replace descriptors. Old records left by forced quits must

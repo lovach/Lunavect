@@ -345,6 +345,7 @@ public enum ClaudeProvider {
     public static func saveUsage(_ snapshot: UsageSnapshot, destination: URL = usageCacheURL) throws {
         try Task.checkCancellation()
         guard isTrustedSnapshot(snapshot), snapshot.source == ClaudeUsageProbe.source else { throw UsageError.invalidResponse }
+        try LiveWriteGuard.check(destination)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try Task.checkCancellation()
         try LocalStateRecovery.write(JSONEncoder().encode(snapshot), to: destination)
@@ -357,6 +358,8 @@ public enum ClaudeProvider {
         do { snapshot = try UsageParser.claude(limits, now: now) }
         catch { throw ClientIntegrationIssue.classify(error, provider: .claude, capability: .statusLine) ?? error }
         guard snapshot.weekly != nil || snapshot.fiveHour != nil else { return }
+        // Before the folder, the lock file and the recovery move, not only the final write.
+        try LiveWriteGuard.check(destination)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         // Quota values alone do not identify a replay: a later API response may
         // legitimately contain identical (or lower) values. Include documented

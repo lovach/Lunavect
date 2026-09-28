@@ -146,6 +146,7 @@ public struct SessionVisibility {
     }
     public mutating func restoreAll() throws { try save([:]) }
     private mutating func save(_ next: [String: HiddenSession]) throws {
+        try LiveWriteGuard.check(url)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try SessionHooks.secureWrite(JSONEncoder().encode(Saved(sessions: next)), to: url)
         records = next
