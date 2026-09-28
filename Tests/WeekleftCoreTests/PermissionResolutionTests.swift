@@ -262,6 +262,29 @@ final class PermissionResolutionTests: XCTestCase {
         XCTAssertEqual(try capture("Stop", [:]), .ready)
     }
 
+    /// Hooks carry no event time. The helper stamps an event when it starts, before
+    /// it reads its input and inspects processes, so a reminder that started first
+    /// but reached the record last is still the older event (S-I3).
+    func testCaptureOrdersEventsByTheirOwnTime() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r26-S2-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        func capture(_ name: String, _ extra: [String: Any], at seconds: Double) throws -> AgentSession? {
+            var payload: [String: Any] = ["session_id": "parent-session", "cwd": "/Users/fixture/Projects/lunavect", "hook_event_name": name]
+            payload.merge(extra) { $1 }
+            try SessionHooks.capture(JSONSerialization.data(withJSONObject: payload), provider: .claude, at: root, now: start.addingTimeInterval(seconds),
+                                     client: .terminal, runtimePID: 4242, isInternal: { _ in false }, isAlive: { _ in true })
+            return SessionHooks.load(at: root).first
+        }
+        XCTAssertEqual(try capture("UserPromptSubmit", [:], at: 0)?.phase, .running)
+        XCTAssertEqual(try capture("PreToolUse", call("Bash", "x"), at: 1)?.phase, .running)
+        XCTAssertEqual(try capture("PermissionRequest", request("Bash"), at: 2)?.phase, .permission)
+        XCTAssertEqual(try capture("PostToolUse", call("Bash", "x"), at: 8)?.phase, .running)
+        let late = try capture("Notification", ["notification_type": "permission_prompt"], at: 7.9)
+        XCTAssertEqual(late?.phase, .running)
+        XCTAssertEqual(late?.observedAt, start.addingTimeInterval(8))
+    }
+
     /// Records written by earlier releases keep their wait until progress.
     func testOlderRecordsKeepTheirWaitUntilProgress() throws {
         var identified = try play([("UserPromptSubmit", [:]), ("PermissionRequest", ["tool_name": "Bash", "tool_use_id": "first"])]).last!
