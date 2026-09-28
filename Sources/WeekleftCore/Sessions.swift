@@ -116,6 +116,14 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// Latest `SessionStart` with source resume or fork (decision 13, R2-08): the
     /// user reopened this task, which also shows it again if it was hidden.
     public var reopenedAt: Date?
+    /// A Claude limits check started with the exact command line of Lunavect's own
+    /// `/usage` probe, for example by hand in another folder. It stays listed with a
+    /// neutral state, but is not work, waiting, a notice or activity (decision 28.09).
+    public var isLimitsCheck: Bool?
+    /// The application a catalog runtime runs in when Lunavect has no route to it
+    /// (the embedded terminal of Claude or Codex, a VS Code fork…): opening it then
+    /// names that place instead of a generic failure.
+    public var launchHost: SessionLaunchHost?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -169,6 +177,8 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         let lifetime: TimeInterval = evidence == .catalog ? Self.catalogLifetime : evidence == .localEvent && phase.isActive ? 120
             : phase == .running && awaitingBackground == true ? 3600 : 600
         guard age >= -60, age < lifetime else { return .unknown }
+        // The check waits at its /usage screen; that is not a session waiting for the user.
+        if isLimitsCheck == true, phase.isActive { return .idle }
         return phase
     }
     public func isCurrent(now: Date = Date()) -> Bool {
@@ -252,7 +262,9 @@ public enum SessionParser {
     public static func claude(_ data: Data, now: Date = Date(), isInternal: (String, Int32?) -> Bool = { _, _ in false },
                               nestedRuntime: (Int32) -> Bool? = { _ in nil },
                               terminal: (Int32) -> TerminalLocation.Target? = { _ in nil },
-                              ide: (Int32) -> IDESessionLocation? = { _ in nil }) throws -> [AgentSession] {
+                              ide: (Int32) -> IDESessionLocation? = { _ in nil },
+                              limitsCheck: (Int32) -> Bool = { _ in false },
+                              host: (Int32) -> SessionLaunchHost? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
         // The JSON listing is not a documented contract. When no row carries a
         // session identifier, report the changed shape instead of an empty list.
@@ -299,11 +311,14 @@ public enum SessionParser {
                 session.isNestedClaudeSession = false
             } else if let safePID = rowPID {
                 session.isNestedClaudeSession = nestedRuntime(safePID)
+                if limitsCheck(safePID) { session.isLimitsCheck = true }
                 if let location = ide(safePID) {
                     session.ideLocation = location; session.client = location.editor.client
                 } else if let location = terminal(safePID), TerminalLocation.valid(location.tty) {
                     session.client = .terminal
                     session.terminalTTY = location.tty; session.terminalApp = location.app
+                } else {
+                    session.launchHost = host(safePID)
                 }
             }
             let livePresence = ["busy", "waiting", "idle"].contains(status) || (row["pid"] as? Int ?? 0) > 0
@@ -350,7 +365,10 @@ public enum SessionList {
                 let idleDuringCompaction = fresh && row.phase == .idle && event.compactionTrigger != nil
                 // Between task events Claude is idle, but its background tasks will wake it.
                 let backgroundPause = fresh && row.phase == .idle && event.phase == .running && event.awaitingBackground == true
-                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && !idleDuringCompaction && !backgroundPause && row.phase != .unknown && row.observedAt > event.observedAt
+                // Claude's list reports every wait as waiting (no waitingFor since 2.1.280):
+                // it confirms an open permission dialog, not a different question.
+                let waitingDialog = fresh && row.provider == .claude && row.phase == .input && event.phase == .permission
+                let newerClaudeCatalog = row.provider == .claude && !dormantClaudeWait && !idleAfterQuestion && !idleDuringCompaction && !backgroundPause && !waitingDialog && row.phase != .unknown && row.observedAt > event.observedAt
                 let moreSpecificApproval = !newerClaudeCatalog && row.effectivePhase(now: now) == .input && event.phase == .permission
                 if fresh && !newerClaudeCatalog && (idleAfterQuestion || idleDuringCompaction || backgroundPause || dormantClaudeWait || row.effectivePhase(now: now) == .unknown || event.observedAt >= row.observedAt || moreSpecificApproval) {
                     row.phase = event.phase; row.observedAt = event.observedAt; row.evidence = event.evidence; row.tool = event.tool
@@ -450,11 +468,54 @@ public enum SessionList {
         }
     }
 }
+/// A tool permission dialog the hooks reported and nothing has answered yet
+/// (S-06). Only the tool name and opaque identifiers are kept, never the input.
+public struct PendingApproval: Codable, Equatable, Sendable {
+    /// The tool PermissionRequest names; empty when unknown.
+    public var tool: String
+    /// "" for the main conversation, a Claude subagent's `agent_id`, or nil when the
+    /// dialog's origin is unknown (a permission reminder, an older record).
+    public var context: String?
+    /// `tool_use_id` when the request carries one. Documented requests do not.
+    public var id: String?
+    /// When the request was recorded; nil in records from before 0.2.6.
+    public var at: Date?
+    public init(tool: String, context: String?, id: String?, at: Date? = nil) {
+        self.tool = tool; self.context = context; self.id = id; self.at = at
+    }
+}
 public struct SessionRecord: Codable, Sendable {
     public var session: AgentSession
+    /// Summary of `approvals` that earlier releases read: identified requests, and
+    /// whether any request is not identified.
     public var pendingApprovals: Set<String> = []
     public var unidentifiedApproval: Bool?
     public var approvalVersion: Int?
+    /// Open permission requests (version 3). A request ends with its own tool call,
+    /// or with the first event that cannot happen while its dialog is open (S-06).
+    public var approvals: [PendingApproval]? {
+        didSet {
+            pendingApprovals = Set(approvals?.compactMap(\.id) ?? [])
+            unidentifiedApproval = approvals?.contains { $0.id == nil } == true ? true : nil
+        }
+    }
+    /// Tool calls whose PreToolUse was seen and whose result was not, oldest first.
+    /// Such a call finishing while a request is open ran alongside it: not an answer.
+    public var runningTools: [String]?
+    static let approvalLimit = 32, runningToolLimit = 32
+    /// Remembers a call whose PreToolUse was seen; the oldest are forgotten first.
+    mutating func noteRunning(_ id: String) {
+        guard !id.isEmpty else { return }
+        var running = runningTools ?? []
+        if !running.contains(id) { running.append(id) }
+        runningTools = Array(running.suffix(Self.runningToolLimit))
+    }
+    /// Closes the requests `matching` selects; returns whether any closed.
+    @discardableResult mutating func closeApprovals(where matching: (PendingApproval) -> Bool) -> Bool {
+        guard let open = approvals, open.contains(where: matching) else { return false }
+        approvals = open.filter { !matching($0) }
+        return true
+    }
     /// Hook input is parsed for lifecycle fields and never stored. Tool results
     /// (a large Read, Edit or Bash output) and long final messages must not drop
     /// the transition; the bound only keeps the short-lived helper's memory finite.
@@ -467,7 +528,7 @@ public struct SessionRecord: Codable, Sendable {
         guard record.session.provider == .claude, record.session.phase.isActive, let recorded = record.session.runtimePID,
               let runtimePID, recorded != runtimePID, !isAlive(recorded) else { return record }
         var record = record
-        record.pendingApprovals = []; record.unidentifiedApproval = nil
+        record.approvals = []; record.runningTools = nil
         record.session.phase = .interrupted; record.session.tool = nil
         record.session.turnStartedAt = nil
         record.session.backgroundWork = nil; record.session.awaitingBackground = nil
@@ -481,26 +542,44 @@ public struct SessionRecord: Codable, Sendable {
             let name = payload["hook_event_name"] as? String
         else { throw SessionError.invalidResponse }
         let cwd = payload["cwd"] as? String ?? previous?.session.cwd ?? ""
+        let tool = SessionParser.text(payload["tool_name"])
+        let toolID = SessionParser.text(payload["tool_use_id"])
+        // A Claude subagent reports the parent's session_id with its own agent_id.
+        // Codex subagent tool events carry no agent_id and Lunavect receives no Codex
+        // SubagentStop, so Codex requests share one context: any later call ends them.
+        let context = provider == .claude ? SessionParser.text(payload["agent_id"]) : ""
         var record = previous ?? SessionRecord(session: AgentSession(provider: provider, sessionID: id, title: "", cwd: cwd, phase: .unknown, updatedAt: now, observedAt: now, evidence: .hook))
         guard record.session.sessionID == id, record.session.provider == provider else { throw SessionError.invalidResponse }
         if record.session.observedAt > now {
             // Preserve ordering for concurrently delivered hooks, but rebase after
             // a substantial wall-clock correction so Stop is never lost for hours.
-            guard record.session.observedAt.timeIntervalSince(now) > 300 else { return record }
+            guard record.session.observedAt.timeIntervalSince(now) > 300 else {
+                // R26-V2-02: parallel calls' helpers write in either order. A call that
+                // started before every open request of its conversation ran alongside
+                // them, and its result must not answer them. Only this is noted; the
+                // phase and the requests stay as the newer events left them.
+                if name == "PreToolUse", record.approvalVersion == 3,
+                   !(record.approvals ?? []).contains(where: { ($0.context == nil || $0.context == context) && ($0.at.map { $0 < now } ?? true) }) {
+                    record.noteRunning(toolID)
+                }
+                return record
+            }
             record.session.turnStartedAt = nil
-            record.pendingApprovals = []
-            record.unidentifiedApproval = nil
+            record.approvals = []; record.runningTools = nil
         }
-        if record.approvalVersion != 2 {
-            // Older records mixed IDs and tool names in the same set. Retain
-            // their wait conservatively until progress, without guessing which
-            // strings are real IDs or leaving a tool-name wait stuck forever.
-            if !record.pendingApprovals.isEmpty { record.unidentifiedApproval = true }
-            record.pendingApprovals = []
-            record.approvalVersion = 2
+        if record.approvalVersion != 3 {
+            // Version 2 kept tool_use_ids. Version 1 mixed IDs and tool names: retain
+            // that wait until progress, without guessing which strings are IDs.
+            let legacy = record.pendingApprovals, unidentified = record.unidentifiedApproval == true
+            let unknown = PendingApproval(tool: "", context: nil, id: nil)
+            if record.approvalVersion == 2 {
+                record.approvals = legacy.sorted().map { PendingApproval(tool: "", context: "", id: $0) } + (unidentified ? [unknown] : [])
+            } else {
+                record.approvals = legacy.isEmpty && !unidentified ? [] : [unknown]
+            }
+            record.runningTools = nil
+            record.approvalVersion = 3
         }
-        let tool = SessionParser.text(payload["tool_name"])
-        let toolID = SessionParser.text(payload["tool_use_id"])
         switch name {
         case "SessionStart":
             if provider == .claude, payload["source"] as? String == "compact", let trigger = record.session.compactionTrigger {
@@ -510,11 +589,11 @@ public struct SessionRecord: Codable, Sendable {
             }
             // Hooks run concurrently: startup may finish after the first prompt/tool event.
             if previous?.session.effectivePhase(now: now).isActive == true { return record }
-            record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .idle
-        case "UserPromptSubmit": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .running; record.session.turnStartedAt = now
+            record.approvals = []; record.runningTools = nil; record.session.phase = .idle
+        case "UserPromptSubmit": record.approvals = []; record.session.phase = .running; record.session.turnStartedAt = now
         case "PreCompact", "PostCompact":
             guard provider == .claude, let trigger = payload["trigger"] as? String, ["manual", "auto"].contains(trigger) else { throw SessionError.invalidResponse }
-            record.pendingApprovals = []; record.unidentifiedApproval = nil
+            record.approvals = []
             if name == "PreCompact" {
                 record.session.phase = .running
                 record.session.compactionTrigger = trigger
@@ -524,8 +603,13 @@ public struct SessionRecord: Codable, Sendable {
                 if trigger == "manual" { record.session.turnStartedAt = nil }
             }
         case "PermissionRequest":
-            if toolID.isEmpty { record.unidentifiedApproval = true }
-            else { record.pendingApprovals.insert(toolID) }
+            // Documented requests name the tool but not the call; one that names the
+            // call and arrives again is the same dialog.
+            var open = record.approvals ?? []
+            if toolID.isEmpty || !open.contains(where: { $0.id == toolID }) {
+                open.append(PendingApproval(tool: tool, context: context, id: toolID.isEmpty ? nil : toolID, at: now))
+                record.approvals = Array(open.suffix(Self.approvalLimit))
+            }
             record.session.phase = .permission
         case "Notification":
             guard let type = payload["notification_type"] as? String else { throw SessionError.invalidResponse }
@@ -534,40 +618,75 @@ public struct SessionRecord: Codable, Sendable {
             guard ["permission_prompt", "idle_prompt", "elicitation_dialog", "elicitation_url_dialog",
                    "elicitation_complete", "elicitation_response", "agent_needs_input"].contains(type) else { return previous ?? record }
             if type == "permission_prompt" {
-                if record.pendingApprovals.isEmpty { record.unidentifiedApproval = true }
+                // About six seconds into a dialog, or a sandboxed command's network
+                // request, which has no PermissionRequest: its origin is unknown.
+                if (record.approvals ?? []).isEmpty { record.approvals = [PendingApproval(tool: "", context: nil, id: nil, at: now)] }
                 record.session.phase = .permission
             }
             else if type == "idle_prompt" {
-                // Reminder about an already finished response, not a new request.
-                // Do not refresh stale work evidence from a delayed notification.
-                if previous != nil { return record }
-                record.session.phase = .idle
+                // The input prompt has been idle for about a minute; an open dialog sends
+                // permission_prompt instead. So the main conversation's requests are over
+                // («No» without a comment and Esc report nothing else). A subagent's are not.
+                let answered = previous != nil && record.closeApprovals(where: { $0.context == nil || $0.context == "" })
+                // Otherwise a reminder about an already finished response, not a new
+                // request: do not refresh stale work evidence from a delayed notification.
+                if previous != nil && !answered { return record }
+                if (record.approvals ?? []).isEmpty { record.session.phase = .idle }
             } else if type == "elicitation_complete" || type == "elicitation_response" {
                 // The MCP form or link was answered; the same reply continues.
                 record.session.phase = .running
             } else { record.session.phase = .input }
         case "PreToolUse", "PostToolUse", "PostToolUseFailure":
-            if name != "PreToolUse" {
-                record.pendingApprovals.remove(toolID)
-                // Migrate tool-name/unknown keys written by older versions.
-                record.pendingApprovals.remove(tool); record.pendingApprovals.remove("unknown")
-                record.unidentifiedApproval = nil
+            // S-06: a declined call reports nothing (no PostToolUse, PostToolUseFailure
+            // or PermissionDenied), so what ends its request is later progress.
+            var running = record.runningTools ?? []
+            if name == "PreToolUse" {
+                // A new call of the same conversation starts after its dialog was
+                // answered. A request of unknown origin ends with any call.
+                record.closeApprovals { $0.context == nil || ($0.context == context && $0.id != toolID) }
+                if !toolID.isEmpty, !running.contains(toolID) { running.append(toolID) }
+            } else {
+                let started = !toolID.isEmpty && running.contains(toolID)
+                running.removeAll { $0 == toolID }
+                var open = record.approvals ?? []
+                // Its own request: by id, else the oldest one for its tool in its context.
+                if let own = open.firstIndex(where: { !toolID.isEmpty && $0.id == toolID })
+                    ?? open.firstIndex(where: { $0.id == nil && !tool.isEmpty && $0.tool == tool && $0.context == context }) {
+                    open.remove(at: own)
+                } else if !started {
+                    // A call Lunavect never saw start (a lost PreToolUse, an older
+                    // record) is progress. One that started earlier ran alongside.
+                    open.removeAll { $0.context == context }
+                }
+                open.removeAll { $0.context == nil }
+                record.approvals = open
             }
-            record.session.phase = record.pendingApprovals.isEmpty && record.unidentifiedApproval != true ? .running : .permission
+            record.runningTools = running.isEmpty ? nil : Array(running.suffix(Self.runningToolLimit))
+            record.session.phase = (record.approvals ?? []).isEmpty ? .running : .permission
             if provider == .claude, name == "PostToolUse", let launched = ClaudeBackgroundWork.launched(tool: tool, payload: payload) {
                 var work = record.session.backgroundWork ?? BackgroundWork()
                 work.add(launched)
                 record.session.backgroundWork = work
             }
         case "SubagentStop":
-            // Not a turn boundary: phase, tool and freshness stay as they are.
+            // Not a turn boundary: phase, tool and freshness stay as they are, unless
+            // the subagent's own dialogs end with it (declined, then it stopped).
+            guard provider == .claude else { throw SessionError.invalidResponse }
+            var answered = false
+            if previous != nil, !context.isEmpty { answered = record.closeApprovals { $0.context == context } }
+            if answered, (record.approvals ?? []).isEmpty, record.session.phase == .permission {
+                record.session.phase = .running; record.session.observedAt = now; record.session.updatedAt = now
+            }
             // Its list is not authoritative (decision 10): it can lower or confirm
             // what this session launched, never raise it. Stop sets the exact set.
-            guard provider == .claude, payload["background_tasks"] != nil else { throw SessionError.invalidResponse }
             // Nothing to lower without a record. Like an ignored notice it carries no
             // lifecycle, so capture writes nothing; throwing here made the helper's
             // record-less first parse reject every SubagentStop (R2-S-01).
             guard previous != nil else { return record }
+            guard payload["background_tasks"] != nil else {
+                if answered { return record }
+                throw SessionError.invalidResponse
+            }
             // An empty list does not show whose tasks it describes: the parent's, or
             // the finished subagent's own. It leaves the count to Stop (R2-09).
             guard (payload["background_tasks"] as? [Any])?.isEmpty == false else { return record }
@@ -580,7 +699,7 @@ public struct SessionRecord: Codable, Sendable {
             }
             return record
         case "Stop":
-            record.pendingApprovals = []; record.unidentifiedApproval = nil
+            record.approvals = []
             let asksForReply = provider == .claude && ClaudeResponseQuestion.requiresReply(payload["last_assistant_message"] as? String)
             // Work that will wake Claude again keeps the task running: no
             // "response ready" for every interim reply to a task event.
@@ -593,13 +712,13 @@ public struct SessionRecord: Codable, Sendable {
             // A pause for background work has not answered the turn yet.
             record.session.replyFinished = waiting ? nil : true
         case "SessionEnd":
-            record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
+            record.approvals = []; record.runningTools = nil; record.session.phase = .finished
             record.session.endReason = (payload["reason"] as? String).flatMap {
                 $0.range(of: "^[a-z_]{1,40}$", options: .regularExpression) != nil ? $0 : nil
             }
-        case "Interrupt": record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .interrupted
+        case "Interrupt": record.approvals = []; record.session.phase = .interrupted
         case "StopFailure":
-            record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .failed
+            record.approvals = []; record.session.phase = .failed
             if provider == .claude {
                 let texts = [payload["last_assistant_message"], payload["error_details"]].compactMap { $0 as? String }
                 record.session.failure = SessionFailure.classify(error: payload["error"] as? String, message: texts.joined(separator: " "))

@@ -11,6 +11,20 @@ public enum ClaudeUsageProbe {
     /// Opt-in diagnostics: the plain text of a failed screen is saved here (0600).
     public static let dumpDirectoryVariable = "LUNAVECT_PROBE_DUMP_DIR"
 
+    /// The probe's command line. The same markers identify that command when someone
+    /// runs it by hand (`isCommandLine`), so both are defined only here.
+    static let safeModeFlag = "--safe-mode", toolsOption = "--tools", usageCommand = "/usage"
+    static let arguments = [safeModeFlag, "--ax-screen-reader", toolsOption, "", "--strict-mcp-config",
+                            "--mcp-config", "{\"mcpServers\":{}}", "--no-chrome", usageCommand]
+    /// Exactly the probe's markers in an argument vector (argv[0] first): safe mode, an
+    /// empty tool list and `/usage` as the last argument. An interactive `claude` in
+    /// which someone types /usage has none of these.
+    static func isCommandLine(_ arguments: [String]) -> Bool {
+        let rest = Array(arguments.dropFirst())
+        guard rest.last == usageCommand, rest.contains(safeModeFlag) else { return false }
+        return zip(rest, rest.dropFirst()).contains { $0 == toolsOption && $1.isEmpty }
+    }
+
     /// - Parameters:
     ///   - settle: how long a fully drawn but unparsed screen may stay unchanged
     ///     before the probe ends with a typed reason instead of waiting for `timeout`.
@@ -41,8 +55,7 @@ public enum ClaudeUsageProbe {
         _ = fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: cliPath)
-        process.arguments = ["--safe-mode", "--ax-screen-reader", "--tools", "", "--strict-mcp-config",
-                             "--mcp-config", "{\"mcpServers\":{}}", "--no-chrome", "/usage"]
+        process.arguments = Self.arguments
         process.currentDirectoryURL = directory
         var environment = SessionSources.environment(forExecutable: cliPath)
         environment["TERM"] = "xterm-256color"

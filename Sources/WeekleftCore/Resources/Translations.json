@@ -5661,5 +5661,82 @@
     "es": "Claude Code no ha iniciado sesión",
     "fr": "Claude Code n’est pas connecté",
     "zh-Hans": "Claude Code 未登录"
+  },
+  "{0} ждёт входа или настройки": {
+    "en": "{0} needs sign-in or setup",
+    "de": "{0} wartet auf Anmeldung oder Einrichtung",
+    "es": "{0} necesita que inicies sesión o termines la configuración",
+    "fr": "{0} attend une connexion ou une configuration",
+    "zh-Hans": "{0} 需要登录或完成设置"
+  },
+  "{0} не вошёл в аккаунт": {
+    "en": "{0} is not signed in",
+    "de": "{0} ist nicht angemeldet",
+    "es": "{0} no ha iniciado sesión",
+    "fr": "{0} n’est pas connecté",
+    "zh-Hans": "{0} 未登录"
+  },
+  "Лимиты {0} не обновляются. Нажмите, чтобы войти снова.": {
+    "en": "{0} limits are not updating. Click to sign in again.",
+    "de": "Die Limits von {0} werden nicht aktualisiert. Klicken Sie, um sich erneut anzumelden.",
+    "es": "Los límites de {0} no se actualizan. Haz clic para volver a iniciar sesión.",
+    "fr": "Les limites de {0} ne sont pas mises à jour. Cliquez pour vous reconnecter.",
+    "zh-Hans": "{0} 的额度未更新。点击重新登录。"
+  },
+  "Лимиты {0} не обновляются. Нажмите, чтобы завершить настройку.": {
+    "en": "{0} limits are not updating. Click to finish setup.",
+    "de": "Die Limits von {0} werden nicht aktualisiert. Klicken Sie, um die Einrichtung abzuschließen.",
+    "es": "Los límites de {0} no se actualizan. Haz clic para terminar la configuración.",
+    "fr": "Les limites de {0} ne sont pas mises à jour. Cliquez pour terminer la configuration.",
+    "zh-Hans": "{0} 的额度未更新。点击完成设置。"
+  },
+  "Лимиты {0} не обновляются.": {
+    "en": "{0} limits are not updating.",
+    "de": "Die Limits von {0} werden nicht aktualisiert.",
+    "es": "Los límites de {0} no se actualizan.",
+    "fr": "Les limites de {0} ne sont pas mises à jour.",
+    "zh-Hans": "{0} 的额度未更新。"
+  },
+  "Служебная проверка лимитов": {
+    "en": "Service limit check",
+    "de": "Interne Limitprüfung",
+    "es": "Comprobación interna de límites",
+    "fr": "Vérification interne des limites",
+    "zh-Hans": "内部额度检查"
+  },
+  "Это служебная проверка лимитов Claude (команда /usage), а не рабочая сессия. Открывать её не нужно: завершите её в окне, где она запущена, клавишей Esc, затем дважды Ctrl+C.": {
+    "en": "This is a Claude limit check (the /usage command), not a work session. There is no need to open it: end it in the window where it runs by pressing Esc, then Ctrl+C twice.",
+    "de": "Dies ist eine interne Limitprüfung von Claude (Befehl /usage), keine Arbeitssitzung. Sie müssen sie nicht öffnen: Beenden Sie sie in dem Fenster, in dem sie läuft, mit Esc und dann zweimal Ctrl+C.",
+    "es": "Es una comprobación interna de límites de Claude (el comando /usage), no una sesión de trabajo. No hace falta abrirla: termínala en la ventana donde se ejecuta pulsando Esc y luego Ctrl+C dos veces.",
+    "fr": "Il s’agit d’une vérification interne des limites de Claude (commande /usage), pas d’une session de travail. Inutile de l’ouvrir : arrêtez-la dans la fenêtre où elle s’exécute en appuyant sur Échap, puis deux fois sur Ctrl+C.",
+    "zh-Hans": "这是 Claude 的内部额度检查（/usage 命令），不是工作会话，无需打开：请在其运行的窗口中按 Esc，然后按两次 Ctrl+C 结束它。"
+  },
+  "Сессия запущена во встроенном терминале {0}. Lunavect не может переключить его вкладку: откройте окно {0}.": {
+    "en": "This session runs in the built-in terminal of {0}. Lunavect cannot switch to its tab: open the {0} window.",
+    "de": "Diese Sitzung läuft im integrierten Terminal von {0}. Lunavect kann nicht zu ihrem Tab wechseln: Öffnen Sie das Fenster von {0}.",
+    "es": "Esta sesión se ejecuta en el terminal integrado de {0}. Lunavect no puede cambiar a su pestaña: abre la ventana de {0}.",
+    "fr": "Cette session s’exécute dans le terminal intégré de {0}. Lunavect ne peut pas basculer vers son onglet : ouvrez la fenêtre de {0}.",
+    "zh-Hans": "此会话运行在 {0} 的内置终端中。Lunavect 无法切换到它的标签页：请打开 {0} 窗口。"
+  },
+  "Сессия запущена в {0}. Lunavect пока не умеет переходить к сессиям в этом приложении: откройте окно {0}.": {
+    "en": "This session runs in {0}. Lunavect cannot switch to sessions in this app yet: open the {0} window.",
+    "de": "Diese Sitzung läuft in {0}. Lunavect kann noch nicht zu Sitzungen in dieser App wechseln: Öffnen Sie das Fenster von {0}.",
+    "es": "Esta sesión se ejecuta en {0}. Lunavect aún no puede cambiar a sesiones de esta app: abre la ventana de {0}.",
+    "fr": "Cette session s’exécute dans {0}. Lunavect ne peut pas encore basculer vers les sessions de cette app : ouvrez la fenêtre de {0}.",
+    "zh-Hans": "此会话运行在 {0} 中。Lunavect 暂时无法切换到此应用中的会话：请打开 {0} 窗口。"
+  },
+  "Неделя · {0}": {
+    "en": "Week · {0}",
+    "de": "Woche · {0}",
+    "es": "Semana · {0}",
+    "fr": "Semaine · {0}",
+    "zh-Hans": "每周 · {0}"
+  },
+  "Тратится быстрее общего недельного лимита": {
+    "en": "Running out faster than the weekly limit for all models",
+    "de": "Wird schneller verbraucht als das Wochenlimit für alle Modelle",
+    "es": "Se agota más rápido que el límite semanal de todos los modelos",
+    "fr": "S’épuise plus vite que la limite hebdomadaire de tous les modèles",
+    "zh-Hans": "比所有模型的每周额度消耗得更快"
   }
 }

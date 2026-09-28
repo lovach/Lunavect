@@ -176,6 +176,50 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
+    /// Decision 28.09: a limits check run by hand is explained, never opened, whatever
+    /// origin it has; a row in a place without a route names that place before any
+    /// generic route (Terminal launch, Claude Desktop link) is tried.
+    @MainActor func testLimitsCheckAndUnroutableHostsAreExplainedWithoutAnyRoute() async throws {
+        let resolver = ClientExecutableResolver(discoverCodex: { XCTFail("No client resolution"); return nil },
+                                                discoverClaude: { XCTFail("No client resolution"); return nil })
+        var check = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "fixture-a3", cwd: "/Users/fixture",
+                                 client: .terminal, phase: .input, updatedAt: Date(), observedAt: Date(), evidence: .catalog)
+        check.isLimitsCheck = true
+        check.terminalTTY = "/dev/ttys004"; check.terminalApp = "Terminal"
+        for row in [check, { var ide = check; ide.ideLocation = .init(editor: .jetbrains, bundleIdentifier: "com.jetbrains.pycharm", appPath: "/Applications/PyCharm.app",
+                                                                  runtime: .init(pid: 42, startedAtMicroseconds: 1), usesTerminal: true); return ide }()] {
+            do {
+                try await SessionNavigation.open(row, resolver: resolver, focus: { _ in XCTFail("No tab is selected for a limits check"); return false },
+                                                 openIDE: { _ in XCTFail("No editor is asked") })
+                XCTFail("A limits check is not opened")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, .limitsCheck) }
+        }
+        let cases: [(SessionLaunchHost, SessionClient, SessionOpeningError)] = [
+            (.init(kind: .embeddedTerminal, name: "Claude"), .unknown, .embeddedTerminal("Claude")),
+            (.init(kind: .embeddedTerminal, name: "Claude"), .desktop, .embeddedTerminal("Claude")),
+            (.init(kind: .embeddedTerminal, name: "Codex"), .unknown, .embeddedTerminal("Codex")),
+            (.init(kind: .terminal, name: "ghostty"), .unknown, .terminalUnsupported("Ghostty")),
+            (.init(kind: .application, name: "Cursor"), .unknown, .hostUnsupported("Cursor")),
+        ]
+        for (host, client, expected) in cases {
+            var row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture", cwd: "/tmp",
+                                   client: client, phase: .input, updatedAt: Date(), observedAt: Date(), evidence: .catalog)
+            row.launchHost = host
+            do {
+                try await SessionNavigation.open(row, resolver: resolver, focus: { _ in XCTFail("No known tab"); return false },
+                                                 openIDE: { _ in XCTFail("No editor") })
+                XCTFail("Expected \(expected)")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, expected, "Before, this reached the Desktop link or a Terminal launch") }
+        }
+        // A recorded tab is still tried first.
+        var tab = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture", cwd: "/tmp",
+                               client: .terminal, phase: .input, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        tab.terminalTTY = "/dev/ttys004"; tab.terminalApp = "Terminal"; tab.launchHost = .init(kind: .embeddedTerminal, name: "Claude")
+        var focused = 0
+        try await SessionNavigation.open(tab, resolver: resolver, focus: { _ in focused += 1; return true })
+        XCTAssertEqual(focused, 1)
+    }
+
     @MainActor func testTerminalFocusFailureReachesThePanelWithoutLaunchingAnotherClient() async throws {
         let row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture",
                                cwd: "/tmp", client: .terminal, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)

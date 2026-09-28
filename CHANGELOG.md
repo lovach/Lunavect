@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Limits
+
+- The current `/usage` screen of a signed-in subscription is pinned by a test on a real capture: the session and weekly windows, the separate weekly Fable window, the usage breakdown and Usage credits are read correctly.
+- When a Claude model's weekly limit (for example Fable) has less left than the weekly limit for all models, the limits popover shows it under Claude with its own meter; otherwise the popover is unchanged.
+- When Claude Code is not signed in, the limits popover and the sessions panel say so with **Sign in again**, and one notification is sent when this starts; previously only Connections said it.
+
+### Sessions
+
+- Declining a permission no longer keeps a session at **Needs permission**: a request ends with its own tool result, a new tool call in the same context, the end of a subagent, the end of the turn or Claude's idle prompt. A request of one subagent is no longer cleared by another, and a newer "waiting" listing no longer turns **Needs permission** into a second waiting notification.
+- A `/usage` check started by hand with the probe's command appears as **Service limit check**: it is not counted, sends no notifications, and clicking it explains how to close it.
+- When a session cannot be opened, the message names where it runs (the terminal built into Claude or Codex, an unsupported terminal or another app) instead of a generic "tab not found".
+
+### Editors
+
+- Claude Code installed with npm is recognized in Terminal, VS Code and JetBrains (`claude.exe` inside the package, or `node`/`bun` running the package's script); other `node` programs are not sessions.
+- The JetBrains companion 0.1.2 ships with the app: its socket follows your temporary folder and is recreated after cleanup, start-up failures are shown in the IDE, and a busy IDE answers "busy" instead of timing out. Lunavect offers the update to installed 0.1.1 companions.
+- JetBrains sessions are always matched through the process chain, including a Reworked terminal tab whose process has no controlling terminal. PyCharm, WebStorm, GoLand and other JetBrains 2026.2 IDEs take the same path as IntelliJ IDEA.
+
 ## 0.2.5 — 2026-09-28
 
 ### Activity, storage and widgets

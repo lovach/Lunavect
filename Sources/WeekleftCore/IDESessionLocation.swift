@@ -18,6 +18,23 @@ public enum SessionIDE: String, Codable, Sendable {
     public var client: SessionClient { self == .vscode ? .vscode : .jetbrains }
 }
 
+/// Where a runtime runs when Lunavect has no navigation route to it.
+public struct SessionLaunchHost: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        /// The terminal built into Claude or Codex: its tabs cannot be selected from outside.
+        case embeddedTerminal
+        /// Another application's terminal (Ghostty, kitty, a VS Code fork…).
+        case terminal
+        /// An application without a terminal (for example an editor extension panel).
+        case application
+    }
+    public let kind: Kind
+    /// The application's name as its bundle folder spells it (at most 64 characters).
+    public let name: String
+
+    public init(kind: Kind, name: String) { self.kind = kind; self.name = name }
+}
+
 /// Birth time prevents a recycled PID from identifying a different session.
 public struct SessionProcessIdentity: Codable, Equatable, Sendable {
     public let pid: Int32
@@ -51,7 +68,8 @@ public enum IDEProcessLocation {
     }
 
     /// Reads only executable paths, process identities and the controlling-device flag.
-    /// No foreign environment, command arguments or terminal contents are read.
+    /// No foreign environment or terminal contents are read; `locate` asks for the
+    /// arguments of an interpreter process only (npm-installed Claude).
     static func process(_ pid: Int32) -> ProcessInfo? {
         guard pid > 1 else { return nil }
         var info = proc_bsdinfo()
@@ -86,15 +104,19 @@ public enum IDEProcessLocation {
     }
 
     public static func locate(parentPID: Int32, provider: ProviderID) -> IDESessionLocation? {
-        locate(parentPID: parentPID, provider: provider, read: process, bundle: bundleIdentifier)
+        locate(parentPID: parentPID, provider: provider, read: process, bundle: bundleIdentifier,
+               arguments: SessionProcess.processArguments)
     }
 
+    /// `arguments` is asked only for interpreter processes (an npm-installed Claude
+    /// runs as node); fixtures without it never read another process.
     static func locate(parentPID: Int32, provider: ProviderID, read: (Int32) -> ProcessInfo?,
-                       bundle: (String) -> String?) -> IDESessionLocation? {
+                       bundle: (String) -> String?, arguments: (Int32) -> [String]? = { _ in nil }) -> IDESessionLocation? {
         var pid = parentPID, seen = Set<Int32>(), runtime: SessionProcessIdentity?, hasTerminal = false
         for _ in 0..<24 {
             guard pid > 1, seen.insert(pid).inserted, let current = read(pid) else { return nil }
-            if runtime == nil, SessionProcess.runtimeProvider(ofExecutable: current.executable) == provider {
+            if runtime == nil,
+               SessionProcess.runtimeProvider(pid: current.identity.pid, executable: current.executable, arguments: arguments) == provider {
                 runtime = current.identity
             }
             if let range = current.executable.range(of: ".app/Contents/") {

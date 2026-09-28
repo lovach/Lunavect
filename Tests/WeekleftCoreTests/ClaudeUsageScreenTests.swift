@@ -281,13 +281,30 @@ final class ClaudeUsageScreenTests: XCTestCase {
     }
 
     func testRealSubscriptionScreenFixture() throws {
-        // TODO(real-subscription-capture): see ClaudeUsageScreenFixtures.subscription.
         guard let screen = ClaudeUsageScreenFixtures.subscription, let captured = ClaudeUsageScreenFixtures.subscriptionCapturedAt else {
             throw XCTSkip("No real subscription /usage capture yet (owner's manual step)")
         }
         let result = try ClaudeUsageText.parse(screen, now: captured)
-        XCTAssertNotNil(result.weekly)
         XCTAssertNil(ClaudeUsageText.failure(in: ClaudeUsageText.plain(screen)), "A readable screen is not a failure state")
+        // Values as the screen shows them (Europe/Vienna, CEST = UTC+2); a reset shown
+        // to the minute is stored as the end of that minute.
+        func utc(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+        XCTAssertEqual(result.fiveHour?.usedPercent, 2)
+        XCTAssertEqual(result.fiveHour?.resetsAt, utc("2026-09-28T13:00:00Z"), "Resets 2:59pm (Europe/Vienna)")
+        XCTAssertEqual(result.weekly?.usedPercent, 27)
+        XCTAssertEqual(result.weekly?.resetsAt, utc("2026-10-04T22:00:00Z"), "Resets Oct 4 at 11:59pm (Europe/Vienna)")
+        XCTAssertEqual(result.modelQuotas?.map(\.name), ["Fable"], "The new weekly Fable limit is read as its own window")
+        XCTAssertEqual(result.modelQuotas?.first?.window.usedPercent, 16)
+        XCTAssertEqual(result.modelQuotas?.first?.window.resetsAt, utc("2026-10-04T22:00:00Z"))
+    }
+
+    /// The whole probe accepts the real screen: the usage breakdown and Usage credits
+    /// sections after the windows neither end the wait early nor become windows.
+    func testRealSubscriptionScreenThroughTheProbe() async throws {
+        guard let screen = ClaudeUsageScreenFixtures.subscription else { throw XCTSkip("No real subscription capture") }
+        let result = try await probe(printing: screen)
+        XCTAssertNil(result.error, "\(String(describing: result.error))")
+        XCTAssertLessThan(result.elapsed, 6, "A complete screen is accepted without waiting for the deadline")
     }
 
     // MARK: Typed reason survives on the saved quota and in diagnostics

@@ -223,21 +223,50 @@ final class IDEBridgeTests: XCTestCase {
         return .init(editor: editor, bundleIdentifier: "com.jetbrains.pycharm", appPath: Self.appPath, companion: companion,
                      state: state, descriptor: state == .incompatible ? nil : descriptor)
     }
-    private func row() -> AgentSession {
+    private func row(usesTerminal: Bool = true) -> AgentSession {
         var row = AgentSession(provider: .claude, sessionID: UUID().uuidString, title: "Fixture", cwd: "/tmp",
                                client: .jetbrains, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
         row.ideLocation = .init(editor: .jetbrains, bundleIdentifier: "com.jetbrains.pycharm", appPath: Self.appPath,
-                                runtime: .init(pid: 42, startedAtMicroseconds: 1), usesTerminal: true)
+                                runtime: .init(pid: 42, startedAtMicroseconds: 1), usesTerminal: usesTerminal)
         return row
     }
-    private func open(_ endpoints: [IDEBridge.Endpoint], calls: Calls = Calls(), activated: Bool = true,
+    private func open(_ endpoints: [IDEBridge.Endpoint], calls: Calls = Calls(), activated: Bool = true, usesTerminal: Bool = true,
+                      targets: Targets = Targets(),
                       reply: @escaping @Sendable (IDEBridge.Descriptor, String) throws -> IDEBridge.Reply) async throws {
         let environment = IDEBridge.Environment(
             endpoints: { endpoints }, ancestry: { _ in [42, 30] },
-            exchange: { descriptor, action, _, timeout, _ in calls.record(descriptor.id, action, timeout); return try reply(descriptor, action) },
+            exchange: { descriptor, action, target, timeout, _ in
+                calls.record(descriptor.id, action, timeout); targets.record(target); return try reply(descriptor, action)
+            },
             displayName: { _ in "PyCharm" })
-        try await IDEBridge.open(row(), activateApp: { _ in activated }, openURL: { _, _ in XCTFail("JetBrains has no callback"); return false },
-                                 environment: environment)
+        try await IDEBridge.open(row(usesTerminal: usesTerminal), activateApp: { _ in activated },
+                                 openURL: { _, _ in XCTFail("JetBrains has no callback"); return false }, environment: environment)
+    }
+    private final class Targets: @unchecked Sendable {
+        private let lock = OSAllocatedUnfairLock(initialState: [IDEBridge.Target]())
+        func record(_ target: IDEBridge.Target) { lock.withLock { $0.append(target) } }
+        var all: [IDEBridge.Target] { lock.withLock { $0 } }
+    }
+
+    /// A Reworked JetBrains tab can start Claude without a controlling terminal (seen in the
+    /// 0.2.5 IDEA check: `usesTerminal: false`). The companion matches tabs by process
+    /// ancestry, so the row is still opened; outside every tab it is an unsupported panel.
+    func testJetBrainsRuntimeWithoutControllingTerminalIsMatchedByAncestry() async throws {
+        let targets = Targets(), calls = Calls()
+        try await open([endpoint(.live)], calls: calls, usesTerminal: false, targets: targets) { _, action in
+            .init(status: action == "probe" ? "matched" : "focused")
+        }
+        XCTAssertEqual(calls.all.map(\.action), ["probe", "open"])
+        XCTAssertEqual(targets.all, Array(repeating: IDEBridge.Target(kind: "terminal", ancestors: [42, 30]), count: 2),
+                       "Never a provider-panel target, which the JetBrains companion does not support")
+        do {
+            try await open([endpoint(.live)], usesTerminal: false) { _, _ in .init(status: "notFound") }
+            XCTFail("Expected a failure")
+        } catch { XCTAssertEqual(error as? SessionOpeningError, .ideUnsupported("PyCharm"), "Not in any Terminal tab: an AI chat or agent panel") }
+        do {
+            try await open([endpoint(.live)], usesTerminal: true) { _, _ in .init(status: "notFound") }
+            XCTFail("Expected a failure")
+        } catch { XCTAssertEqual(error as? SessionOpeningError, .ideSessionUnavailable("PyCharm"), "A terminal session whose tab closed") }
     }
 
     /// N-04: a busy editor that does not answer the probe is a timeout, not a missing session.
@@ -453,6 +482,20 @@ final class IDEBridgeTests: XCTestCase {
         let manifest = Data(#"{"companionVersion":{"vscode":"0.1.2","jetbrains":"0.1.1","other":"1.0","bad":"x"},"version":1}"#.utf8)
         XCTAssertEqual(IDEBridge.bundledCompanionVersions(manifest: manifest), [.vscode: "0.1.2", .jetbrains: "0.1.1"])
         XCTAssertEqual(IDEBridge.bundledCompanionVersions(manifest: Data(#"{"version":1}"#.utf8)), [:])
+    }
+
+    /// The installers actually bundled with this build: a JetBrains 0.1.1 companion
+    /// (which reports no version) is offered the bundled 0.1.2, and 0.1.2 is current.
+    func testBundledManifestOffersJetBrainsCompanionUpdate() throws {
+        let manifest = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/Weekleft/Resources/IDEConnectors/manifest.json")
+        let bundled = IDEBridge.bundledCompanionVersions(manifest: try Data(contentsOf: manifest))
+        XCTAssertEqual(bundled, [.vscode: "0.1.2", .jetbrains: "0.1.2"])
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: nil, bundled: bundled[.jetbrains]), .available(installed: nil, bundled: "0.1.2"),
+                       "An installed 0.1.1 plugin is asked to reinstall")
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: "0.1.2", bundled: bundled[.jetbrains]), .current)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
+        XCTAssertNil(object["pendingSources"], "A release bundles the JetBrains installer built from the current sources")
     }
 
     func testEndpointIdentityRejectsForeignPathsAndStaleRecords() throws {

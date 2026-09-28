@@ -178,6 +178,23 @@ final class TerminalFocusPolicyTests: XCTestCase {
         XCTAssertEqual(TerminalLocation.occupancy(of: "/dev/console\n", provider: .claude), .unknown, "Only validated devices are inspected")
     }
 
+    /// An npm-installed Claude on the device: the native package binary and the older
+    /// node-run package script are this provider; another node program stays an interpreter.
+    func testNpmInstalledClaudeOccupiesItsDevice() {
+        let uid = getuid()
+        let shell = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/bin/zsh", pid: 30)
+        let native = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe", pid: 31)
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, native]), .provider,
+                       "Before, a catalog row without a hook runtime was reported as ended")
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .codex, processes: [shell, native]), .vacant)
+        let node = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/opt/homebrew/bin/node", pid: 32)
+        let claude = ["node", "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js"]
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, node], arguments: { $0 == 32 ? claude : nil }), .provider)
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, node], arguments: { _ in ["node", "/Users/u/app/server.js"] }),
+                       .interpreter, "Another script keeps the old interpreter state")
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .codex, processes: [shell, node], arguments: { _ in claude }), .interpreter)
+    }
+
     /// R2-06: a live session whose CLI binary was replaced by an update (path no
     /// longer readable) or runs under a name the rule does not know must not be
     /// reported as gone. The hook's recorded runtime PID identifies it directly.

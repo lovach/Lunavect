@@ -321,6 +321,118 @@ public enum ClaudeStatusLineReach {
     }
 }
 
+extension ConnectionDiagnostic.Repair: Sendable {}
+
+/// A limit source that stopped because its client is signed out of the account
+/// (owner report 28.09: Claude Code showed "API Usage Billing" and the state was
+/// visible only in Settings → Connections). The sessions panel, the limits popover,
+/// the menu bar tooltips and one notification read this value. It is recognized
+/// from the saved issue exactly as the Connections card does, and its action is
+/// the repair that card offers.
+public struct SignInAttention: Hashable, Identifiable, Sendable {
+    /// Signed out of a subscription, a sign-in the client asks for, and Claude
+    /// Code's own login or setup prompt (`UsageError.claudeSignInRequired`).
+    public static let reasons: Set<ClientIntegrationIssue.Reason> = [.subscriptionUnavailable, .signInRequired, .setupRequired]
+    public let provider: ProviderID
+    public let reason: ClientIntegrationIssue.Reason
+    /// The saved issue: a catalog key, localized for display by `message`.
+    public let issue: String
+    public var id: ProviderID { provider }
+
+    public init?(_ snapshot: UsageSnapshot) {
+        guard let issue = snapshot.issue,
+              let typed = ClientIntegrationIssue.legacy(issue, provider: snapshot.provider,
+                                                        capability: snapshot.provider == .codex ? .rateLimits : .usageProbe),
+              Self.reasons.contains(typed.reason) else { return nil }
+        provider = snapshot.provider; reason = typed.reason; self.issue = issue
+    }
+    /// Connected providers only, in the order the app lists providers.
+    public static func all(_ snapshots: [UsageSnapshot], providers: some Sequence<ProviderID>) -> [Self] {
+        let connected = Set(providers)
+        return ProviderID.allCases.filter(connected.contains).compactMap { id in
+            snapshots.first { $0.provider == id }.flatMap(Self.init)
+        }
+    }
+    /// Providers that certainly left the state: disconnected, or with a reading the
+    /// account answered (no issue, or the subscription's own limit screen). The
+    /// "waiting for data" placeholder after a launch or a transient failure between
+    /// two sign-in failures is not leaving (R26-V2-01).
+    public static func left(_ snapshots: [UsageSnapshot], providers: some Sequence<ProviderID>) -> Set<ProviderID> {
+        let connected = Set(providers)
+        let recovered = snapshots.filter { snapshot in
+            guard connected.contains(snapshot.provider) else { return false }
+            guard let issue = snapshot.issue else { return true }
+            let reason = ClientIntegrationIssue.legacy(issue, provider: snapshot.provider,
+                                                       capability: snapshot.provider == .codex ? .rateLimits : .usageProbe)?.reason
+            return reason == .limitReached || reason == .windowInactive
+        }.map(\.provider)
+        return Set(ProviderID.allCases.filter { !connected.contains($0) }).union(recovered)
+    }
+    public var client: String { provider == .claude ? "Claude Code" : "Codex" }
+    /// The heading, as in Connections → diagnostics for the same state.
+    public var title: String {
+        if let heading = reason.diagnosticTitle { return L(heading) }
+        return L(reason == .setupRequired ? "{0} ждёт входа или настройки" : "{0} не вошёл в аккаунт", client)
+    }
+    public var message: String { L(issue) }
+    /// What the user loses: one line where the full advice would not fit.
+    public var consequence: String { L("Лимиты {0} не обновляются.", provider.title) }
+    public var repair: ConnectionDiagnostic.Repair { reason.repair }
+    public var request: ConnectionRepairRequest { ConnectionRepairRequest(provider: provider, repair: repair) }
+    /// What a click on the notification does.
+    public var notificationBody: String {
+        L(repair == .signIn ? "Лимиты {0} не обновляются. Нажмите, чтобы войти снова."
+                            : "Лимиты {0} не обновляются. Нажмите, чтобы завершить настройку.", provider.title)
+    }
+}
+
+/// "Open this client's setup for this repair": how the sessions panel, the limits
+/// popover and a notification ask Settings → Connections to open the same
+/// `ConnectionSetupView` step as the card's own button. Kept in the app defaults
+/// under `defaultsKey` until Connections consumes it.
+public struct ConnectionRepairRequest: Hashable, Sendable {
+    public static let defaultsKey = "connectionRepairRequest"
+    public let provider: ProviderID
+    public let repair: ConnectionDiagnostic.Repair
+    public init(provider: ProviderID, repair: ConnectionDiagnostic.Repair) { self.provider = provider; self.repair = repair }
+    public init?(rawValue: String) {
+        let parts = rawValue.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 2, let provider = ProviderID(rawValue: String(parts[0])),
+              let repair = ConnectionDiagnostic.Repair(rawValue: String(parts[1])) else { return nil }
+        self.init(provider: provider, repair: repair)
+    }
+    public var rawValue: String { provider.rawValue + "." + repair.rawValue }
+    /// Takes the stored request once. A request for a provider that is no longer
+    /// connected, or one that cannot be read, is dropped rather than opened.
+    public static func take(_ stored: inout String, connected providers: some Sequence<ProviderID>) -> Self? {
+        guard !stored.isEmpty else { return nil }
+        defer { stored = "" }
+        guard let request = Self(rawValue: stored), Set(providers).contains(request.provider) else { return nil }
+        return request
+    }
+}
+
+/// One notification when a provider enters the signed-out state. Polls, restarts
+/// (the state is saved) and states that do not prove a sign-in do not repeat it;
+/// only leaving the state (`SignInAttention.left`) and entering it again does.
+public struct SignInNoticeTracker: Codable, Equatable, Sendable {
+    public private(set) var notified: Set<ProviderID>
+    public init(notified: Set<ProviderID> = []) { self.notified = notified }
+    /// - Parameters:
+    ///   - current: providers in the state now (`SignInAttention.all`).
+    ///   - left: providers that certainly left it (`SignInAttention.left`).
+    ///   - announce: false while such notifications cannot be delivered; the entry is
+    ///     then not consumed and is announced once they can.
+    /// - Returns: the states to announce now.
+    public mutating func update(_ current: [SignInAttention], left: Set<ProviderID>, announce: Bool) -> [SignInAttention] {
+        notified.subtract(left)
+        guard announce else { return [] }
+        let entered = current.filter { !notified.contains($0.provider) }
+        notified.formUnion(entered.map(\.provider))
+        return entered
+    }
+}
+
 public enum ConnectionSetupRoute {
     public static func next(clientFound: Bool, signIn: ClientConnection.SignInState,
                             configured: Bool, enabled: Bool) -> Int {
