@@ -344,6 +344,33 @@ final class IDEBridgeTests: XCTestCase {
         XCTAssertTrue(IDEBridge.descriptors(at: root, now: now).isEmpty, "A second reader, such as another app copy, is harmless")
     }
 
+    /// N-10 (docs: "never records of a running editor"): a record whose heartbeat
+    /// stalled for over a day (for example a long sleep) is kept while its editor
+    /// still runs from the recorded bundle; the same record of an exited editor goes.
+    func testPruningKeepsTheOldRecordOfAStillRunningEditor() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r2-N-" + UUID().uuidString).resolvingSymlinksInPath()
+        let records = root.appendingPathComponent("IDEBridge"), app = root.appendingPathComponent("Fixture.app")
+        try FileManager.default.createDirectory(at: records, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date()
+        func write(pid: Int32) throws -> URL {
+            let id = UUID().uuidString, file = records.appendingPathComponent(id + ".json")
+            try JSONEncoder().encode(IDEBridge.Descriptor(version: 1, id: id, editor: .vscode, pid: pid, appPath: app.path,
+                                                          bundleIdentifier: "com.microsoft.VSCode", socketPath: "/tmp/lunavect-ide-\(getuid())/\(id).sock",
+                                                          updatedAt: now.addingTimeInterval(-2 * 86_400).timeIntervalSince1970)).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600, .modificationDate: now.addingTimeInterval(-2 * 86_400)], ofItemAtPath: file.path)
+            return file
+        }
+        let running = try write(pid: 4242), exited = try write(pid: 4343)
+        _ = IDEBridge.scan(at: records, now: now, process: { pid in
+            pid == 4242 ? .init(identity: .init(pid: 4242, startedAtMicroseconds: 1), parentPID: 1,
+                                executable: app.path + "/Contents/MacOS/Electron", hasTerminal: false) : nil
+        }, bundle: { $0 == app.path ? "com.microsoft.VSCode" : nil }, socketDirectories: ["/tmp/lunavect-ide-\(getuid())"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: running.path), "The running editor's record is kept")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: exited.path), "An exited editor's day-old record is removed")
+    }
+
     /// N-05 / N-09 / N-16 / T-20 / §4 items 10-12: descriptors are classified for a
     /// running editor: live, late heartbeat, missing socket, other protocol version.
     /// Installed 0.1.1 descriptors (no version field, /tmp sockets) stay live.

@@ -81,6 +81,18 @@ final class LocalizationTests: XCTestCase {
         }
     }
 
+    func testSpanishAddressesTheUserInformallyThroughout() throws {
+        // docs/localization.md: Spanish uses a consistent tú form. Formal imperatives,
+        // "usted" and formal enclitics (confírmelo) must not mix into the catalog.
+        let formal = try NSRegularExpression(pattern:
+            #"\b(usted|ustedes|Abra|abra|Active|Añada|Compruebe|Configúrelo|Confirme|confírmelo|Conecte|Desactive|guarde|Inténtelo|Mantenga|Permita|Pulse|Repita|Revise)\b|^Puede (conectar|omitir)|\bsu contraseña\b|\bsus aplicaciones\b"#,
+            options: [.anchorsMatchLines])
+        for (key, values) in L10n.translations {
+            let text = values["es"] ?? ""
+            XCTAssertNil(formal.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), "\(key): \(text)")
+        }
+    }
+
     /// Direct literal calls are exhaustive here. Dynamic L(variable) and
     /// persisted error keys are intentionally retained, never inferred dead.
     func testDirectSourceLookupKeysExistInCatalog() throws {

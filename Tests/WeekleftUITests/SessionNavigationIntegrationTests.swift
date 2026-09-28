@@ -8,6 +8,8 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_IDE_NAVIGATION_FIXTURE"] else {
             throw XCTSkip("Explicit opt-in required: focuses operator-owned IDE terminal fixtures")
         }
+        SessionNavigation.allowsLiveSystemInTests = true
+        defer { SessionNavigation.allowsLiveSystemInTests = false }
         struct Fixture: Decodable { let terminals: [Int32]; let providers: [ProviderID]?; let cwd: String }
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
         var lastLocation: IDESessionLocation?
@@ -30,6 +32,44 @@ final class SessionNavigationIntegrationTests: XCTestCase {
             try await SessionNavigation.open(classic)
         }
     }
+    /// R2-N-02: the guard itself, checked before any route is exercised with its defaults.
+    @MainActor func testLiveSystemGuardRefusesUnderTestsUnlessATestOptsIn() throws {
+        XCTAssertFalse(SessionNavigation.allowsLiveSystemInTests)
+        XCTAssertThrowsError(try SessionNavigation.checkLiveSystem("fixture")) {
+            XCTAssertEqual($0 as? SessionNavigation.LiveSystemRefused, .init(action: "fixture"))
+        }
+        SessionNavigation.allowsLiveSystemInTests = true
+        defer { SessionNavigation.allowsLiveSystemInTests = false }
+        XCTAssertNoThrow(try SessionNavigation.checkLiveSystem("fixture"))
+    }
+
+    /// R2-N-02: with its default system steps, navigation in a test stops before it
+    /// scripts Terminal, connects to an editor companion, reads Claude Desktop
+    /// records or opens a Claude/Codex link. A routing regression elsewhere in the
+    /// suite therefore fails here instead of opening the user's applications.
+    @MainActor func testDefaultSystemStepsNeverRunUnderTests() async throws {
+        let id = "01234567-89ab-cdef-0123-456789abcdef"
+        var terminal = AgentSession(provider: .claude, sessionID: id, title: "Fixture", cwd: "/tmp", client: .terminal,
+                                    phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        terminal.terminalTTY = "/dev/ttys004"; terminal.terminalApp = "Terminal"
+        var editor = terminal
+        editor.client = .vscode; editor.terminalTTY = nil; editor.terminalApp = nil
+        editor.ideLocation = .init(editor: .vscode, bundleIdentifier: "com.microsoft.VSCode", appPath: "/Applications/Visual Studio Code.app",
+                                   runtime: .init(pid: 42, startedAtMicroseconds: 1), usesTerminal: true)
+        var desktop = terminal
+        desktop.client = .desktop; desktop.terminalTTY = nil; desktop.terminalApp = nil
+        var codexDesktop = desktop
+        codexDesktop.provider = .codex
+        let resolver = ClientExecutableResolver(discoverCodex: { XCTFail("No client resolution"); return nil },
+                                                discoverClaude: { XCTFail("No client resolution"); return nil })
+        for (row, action) in [(terminal, "terminal focus"), (editor, "editor bridge"), (desktop, "desktop link"), (codexDesktop, "desktop link")] {
+            do {
+                try await SessionNavigation.open(row, resolver: resolver)
+                XCTFail("\(action): a test reached the user's applications")
+            } catch { XCTAssertEqual(error as? SessionNavigation.LiveSystemRefused, .init(action: action)) }
+        }
+    }
+
     @MainActor func testIDEOriginWinsOverStaleTerminalAndNeverFallsBackToDesktop() async throws {
         for provider in ProviderID.allCases {
             for client in [SessionClient.vscode, .jetbrains] {
@@ -51,6 +91,8 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_TERMINAL_NAVIGATION_FIXTURE"] else {
             throw XCTSkip("Explicit opt-in required: focuses an operator-owned Terminal fixture")
         }
+        SessionNavigation.allowsLiveSystemInTests = true
+        defer { SessionNavigation.allowsLiveSystemInTests = false }
         // `windowID` enables post-focus checks; `otherSpace` (§6.3 N2) additionally requires the
         // window, placed on another Space or in full screen beforehand, to be on screen afterwards.
         struct Fixture: Decodable { let clientPID: Int32; let hookPID: Int32; let tty: String; let windowID: Int?; let otherSpace: Bool? }
@@ -217,6 +259,8 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_OPEN_SESSION_FIXTURE"] else {
             throw XCTSkip("Explicit opt-in required: opens an existing session in its real app")
         }
+        SessionNavigation.allowsLiveSystemInTests = true
+        defer { SessionNavigation.allowsLiveSystemInTests = false }
         let session = try JSONDecoder().decode(AgentSession.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
         try await SessionNavigation.open(session)
     }

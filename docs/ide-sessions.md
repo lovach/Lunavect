@@ -51,7 +51,7 @@ The packager requires IntelliJ IDEA 2026.2 with its bundled `javac`; it does not
 
 Without the SDK, `python3 scripts/package-ide-connectors.py --vscode-only` rebuilds only the VS Code installer and keeps the bundled JetBrains one. JetBrains sources changed since that build are then listed in the manifest's `pendingSources` with their current hashes; the checks accept this only for JetBrains sources and only while those hashes are current. A release must be built after a full `--jetbrains-sdk` run, which clears `pendingSources`.
 
-Opt-in native checks (skipped by default; they focus only operator-owned fixture windows):
+Opt-in native checks (skipped by default; they focus only operator-owned fixture windows). Every other test that reaches navigation's default system steps (Terminal or iTerm2 scripting, the companion bridge, Claude Desktop records, Claude or Codex links) fails with `SessionNavigation.LiveSystemRefused` instead of touching your applications; only these tests opt in:
 
 | Variable | Test | What it checks |
 | --- | --- | --- |
@@ -62,6 +62,6 @@ Opt-in native checks (skipped by default; they focus only operator-owned fixture
 
 `SessionNavigationIntegrationTests.testExplicitIDEFixtureFromProcessOriginThroughNativeFocus` is an opt-in native test. Set `LUNAVECT_IDE_NAVIGATION_FIXTURE` to a JSON file describing operator-owned dummy processes (`terminals`, optional `providers`, and `cwd`). It inspects their actual origins and calls the real app navigation. It must never target an unrelated user session.
 
-The September 26 implementation was exercised in real local VS Code and IntelliJ IDEA 2026.2.3 with inert Claude/Codex-named fixture processes, including Classic and Reworked terminals. These tests make no model requests. The provider-panel routes have contract tests against the inspected official extension interfaces; authenticated, end-to-end provider-panel behavior is **not yet verified**. Linux/Windows, remote editors, older JetBrains builds and other JetBrains products were not exercised.
+The September 26 implementation was exercised in real local VS Code and IntelliJ IDEA 2026.2.3 with inert Claude/Codex-named fixture processes, including Classic and Reworked terminals. These tests make no model requests. The provider-panel routes have contract tests against the inspected official extension interfaces (VS Code reports an extension's webview panel tab with the workbench's `mainThreadWebview-` prefix, which the Claude panel check accepts); authenticated, end-to-end provider-panel behavior is **not yet verified**. Linux/Windows, remote editors, older JetBrains builds and other JetBrains products were not exercised.
 
 Reference interfaces: [VS Code extension API](https://code.visualstudio.com/api/references/vscode-api), [JetBrains embedded terminal API](https://plugins.jetbrains.com/docs/intellij/embedded-terminal.html), [JetBrains Codex integration and separate home](https://youtrack.jetbrains.com/projects/AI4SE/articles/SUPPORT-A-3134/How-does-Codex-CLI-integration-Codex-Agent-work-in-JetBrains-IDEs).

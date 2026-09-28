@@ -77,7 +77,7 @@ run_check unsigned_build xcodebuild -quiet \
   build
 
 run_check hook_helper python3 "$PROJECT_ROOT/scripts/verify-hook-helper.py" "$DERIVED_DIR/Build/Products/Release/Lunavect.app"
-run_check product_resources python3 "$PROJECT_ROOT/scripts/verify-product-resources.py" "$DERIVED_DIR/Build/Products/Release/Lunavect.app" --source-root "$PROJECT_ROOT"
+run_check product_resources python3 "$PROJECT_ROOT/scripts/verify-product-resources.py" "$DERIVED_DIR/Build/Products/Release/Lunavect.app" --source-root "$PROJECT_ROOT" --universal
 INTENT_BUNDLE_PATHS=$(python3 - "$DERIVED_DIR/Build/Products/Release/Lunavect.app" "$DERIVED_DIR/Build/Products/Release/Lunavect.app/Contents/PlugIns/LunavectWidget.appex" <<'PY'
 import json, sys
 print(json.dumps(sys.argv[1:]))

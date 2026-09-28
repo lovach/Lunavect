@@ -83,7 +83,11 @@ enum TimingBound {
 final class NativeFixtures: @unchecked Sendable {
     let directory: URL
     private let lock = NSLock()
-    private var roots: [Int32] = []
+    /// Each registered process with its start time, read when it was registered.
+    /// A process is killed only while that pid still has the same start time: a
+    /// pid the system reused for another program after the fixture exited is never
+    /// signalled (audit r2 R2-B-11).
+    private var roots: [(pid: Int32, start: UInt64?)] = []
     private var processes: [Process] = []
 
     init(prefix: String) {
@@ -137,24 +141,43 @@ final class NativeFixtures: @unchecked Sendable {
         if let directory { process.currentDirectoryURL = directory }
         if let output { process.standardOutput = output }
         try process.run()
-        lock.withLock { processes.append(process); roots.append(process.processIdentifier) }
+        let pid = process.processIdentifier, start = Self.startTime(of: pid)
+        lock.withLock { processes.append(process); roots.append((pid, start)) }
         return process
     }
 
     /// Registers a process the fixture reported but did not start directly
     /// (a daemonised grandchild whose parent may already have exited).
-    func track(_ pid: Int32) { guard pid > 1 else { return }; lock.withLock { roots.append(pid) } }
+    func track(_ pid: Int32) { track(pid, recordedStart: Self.startTime(of: pid)) }
+    /// `recordedStart` is the start time the pid had when it was reported; tests
+    /// pass an outdated one to model a pid that was reused since.
+    func track(_ pid: Int32, recordedStart: UInt64?) {
+        guard pid > 1 else { return }
+        lock.withLock { roots.append((pid, recordedStart)) }
+    }
+
+    /// The process's start time in microseconds, or nil once it no longer exists.
+    static func startTime(of pid: Int32) -> UInt64? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
+    }
 
     /// Kills every registered process and all of its descendants. The tree is
     /// collected before any kill: a killed parent's children move to launchd.
     func stopAll() {
-        let (pids, started) = lock.withLock { () -> ([Int32], [Process]) in
+        let (registered, started) = lock.withLock { () -> ([(pid: Int32, start: UInt64?)], [Process]) in
             defer { roots = []; processes = [] }
             return (roots, processes)
         }
-        var all = Set<Int32>(), pending = pids
+        // Only a registered pid that still names the same process, and its current
+        // descendants; never this test process or its parent.
+        let own: Set<Int32> = [getpid(), getppid()]
+        var all = Set<Int32>()
+        var pending = registered.filter { $0.start != nil && Self.startTime(of: $0.pid) == $0.start }.map(\.pid)
         while let pid = pending.popLast() {
-            guard pid > 1, all.insert(pid).inserted else { continue }
+            guard pid > 1, !own.contains(pid), all.insert(pid).inserted else { continue }
             pending += Self.children(of: pid)
         }
         for pid in all { kill(pid, SIGKILL) }

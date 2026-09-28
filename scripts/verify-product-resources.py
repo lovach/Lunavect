@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import plistlib
+import subprocess
 
 
 # Explicit per-bundle resource contract. Retain approved source artwork unchanged.
@@ -20,6 +21,10 @@ IDE_PACKAGES = {'lunavect-vscode.vsix', 'lunavect-jetbrains.zip', 'manifest.json
 APP_INTENTS = {'SelectActivityPointIntent'}
 WIDGET_INTENTS = APP_INTENTS | {'ActivityConfiguration'}
 INTENT_ENUMS = {'ActivityPeriod', 'ActivitySource'}
+# A universal Release product (check.sh, distribution archive) carries both
+# slices in every executable it runs: app, widget, hook and keep-awake helper.
+UNIVERSAL = {'arm64', 'x86_64'}
+HELPERS = ('Contents/Helpers/LunavectHook', 'Contents/Library/LaunchServices/LunavectAwakeHelper')
 
 
 def resource_source(root, name):
@@ -54,6 +59,24 @@ def verify_intent_metadata(bundle, actions):
         raise ValueError(f'{bundle.name}: App Intents metadata lacks the activity intents')
 
 
+def architectures(path):
+    """Slices of one Mach-O file as reported by lipo; a non-Mach-O file fails."""
+    result = subprocess.run(['/usr/bin/lipo', '-archs', str(path)], capture_output=True, text=True, check=True)
+    return set(result.stdout.split())
+
+
+def verify_universal(app, widget, infos, read):
+    executables = [bundle / 'Contents/MacOS' / info.get('CFBundleExecutable', '')
+                   for bundle, info in ((app, infos[0]), (widget, infos[1]))]
+    executables += [app / helper for helper in HELPERS]
+    for path in executables:
+        if not path.name or not path.is_file():
+            raise ValueError(f'{path.relative_to(app)}: missing executable')
+        missing = UNIVERSAL - read(path)
+        if missing:
+            raise ValueError(f'{path.relative_to(app)} lacks {", ".join(sorted(missing))}: not a universal build')
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -68,10 +91,12 @@ def icon_path(bundle, info):
     return path
 
 
-def verify(app, source_root=None):
+def verify(app, source_root=None, universal=False, architectures=architectures):
     widget = app / 'Contents/PlugIns/LunavectWidget.appex'
     bundles = (app, widget)
     infos = [plistlib.loads((bundle / 'Contents/Info.plist').read_bytes()) for bundle in bundles]
+    if universal:
+        verify_universal(app, widget, infos, architectures)
     for key in ('CFBundleName', 'CFBundleDisplayName'):
         if any(info.get(key) != 'Lunavect' for info in infos):
             raise ValueError(f'App and widget must use the current Lunavect {key}')
@@ -131,9 +156,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('app', type=Path)
     parser.add_argument('--source-root', type=Path)
+    parser.add_argument('--universal', action='store_true',
+                        help='Also require arm64 and x86_64 slices in the app, widget and helper executables')
     args = parser.parse_args()
     try:
-        build = verify(args.app, args.source_root)
-    except (OSError, ValueError, KeyError) as error:
+        build = verify(args.app, args.source_root, args.universal)
+    except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'Product resource verification failed: {error}\n')
-    print(f'Product resources verified: app/widget build {build}, matching icons, translations and intent metadata')
+    print(f'Product resources verified: app/widget build {build}, matching icons, translations and intent metadata'
+          + ('; universal arm64/x86_64 executables' if args.universal else ''))

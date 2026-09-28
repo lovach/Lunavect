@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import plistlib
 import platform
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -40,7 +41,7 @@ if name == os.environ.get('INSTALL_FIXTURE_FAIL') and matches and not (root / 'f
 @unittest.skipUnless(platform.system() == 'Darwin', 'Installer uses macOS tools')
 class InstallTransactionTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='lunavect-install-fixture-')
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect install fixture 'q' ")  # a HOME with spaces and a quote
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.bin = self.root / 'bin'; self.bin.mkdir()
@@ -50,10 +51,11 @@ class InstallTransactionTests(unittest.TestCase):
         scripts = self.root / 'scripts'; scripts.mkdir()
         source = (ROOT / 'scripts/install.sh').read_text().replace('$HOME', '$INSTALL_FIXTURE_HOME')
         # Both the rewritten default and LUNAVECT_LSREGISTER below point at the shim.
-        source = source.replace(REGISTER, str(self.bin / 'lsregister')).replace('/usr/bin/pkill', str(self.bin / 'pkill'))
+        # Quoted: the fixture may live below a TMPDIR with spaces or quotes, like a real HOME.
+        source = source.replace(REGISTER, str(self.bin / 'lsregister')).replace('/usr/bin/pkill', shlex.quote(str(self.bin / 'pkill')))
         self.global_app = self.root / 'global/Lunavect.app'
         assert 'GLOBAL_APP=/Applications/Lunavect.app\n' in source
-        source = source.replace('GLOBAL_APP=/Applications/Lunavect.app\n', 'GLOBAL_APP=' + str(self.global_app) + '\n')
+        source = source.replace('GLOBAL_APP=/Applications/Lunavect.app\n', 'GLOBAL_APP=' + shlex.quote(str(self.global_app)) + '\n')
         (scripts / 'install.sh').write_text(source)
         for name in ('verify-product-resources.py', 'verify-hook-helper.py', 'verify-app-groups.py', 'migrate-app-group.py'):
             (scripts / name).write_text('raise SystemExit(0)\n')

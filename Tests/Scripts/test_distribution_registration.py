@@ -66,7 +66,7 @@ def cleanup_source():
 
 class DistributionRegistrationTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='lunavect-distribution-fixture-')
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect distribution fixture 'q' ")  # a release root with spaces
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.bin = self.root / 'bin'

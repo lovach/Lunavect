@@ -114,7 +114,11 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, repairRegistr
         refreshPermission()
         guard issue == nil, !isEnabled else { return }
         switch error as? AwakeFailure {
-        case .recovery?: issue = message(for: error)
+        // The launch check found sleep already off (after one attempt to let the
+        // helper restore it); no helper retry runs here (audit r2 R2-Y-06).
+        case .recovery?:
+            issue = L("Сон на Mac сейчас отключён. Регистрация помощника Keep Awake обновится, когда обычный сон вернётся.")
+            recoveryAction = .none
         case .permission?: return  // The panel already offers "Allow and turn on".
         default:
             issue = L("Системный помощник Keep Awake остался зарегистрирован от прежней версии Lunavect и не запускается. Обновите его регистрацию.")
@@ -313,6 +317,10 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, repairRegistr
         if error is AwakeHelperNotStarting {
             recoveryAction = .openLoginItems
             return L("Помощник Keep Awake зарегистрирован, но macOS его не запускает.") + " " + Self.registrationGuidance
+        }
+        if error is AwakeRegistrationRefused {
+            recoveryAction = .openLoginItems
+            return Self.registrationGuidance
         }
         switch error as? AwakeFailure {
         case .battery, .thermal, .power: recoveryAction = .reviewConditions

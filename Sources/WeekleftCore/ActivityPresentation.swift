@@ -70,6 +70,7 @@ public enum ActivityWidgetSelection {
     }
     public static func write(_ date: Date?, kind: String, period: ActivityPeriod, source: ActivitySource, directory: URL = SnapshotStore.directory) throws {
         guard let url = url(kind: kind, period: period, source: source, directory: directory) else { return }
+        try LiveWriteGuard.check(url)
         if let date {
             guard date.timeIntervalSince1970.isFinite else { return }
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

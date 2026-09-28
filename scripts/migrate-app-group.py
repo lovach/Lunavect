@@ -3,6 +3,7 @@
 
 Only our shared files move. Originals remain in their old container. Existing
 destination data is never overwritten; a conflicting migration stops installation.
+A run that fails removes the copies it made, so it can simply be repeated.
 """
 import argparse
 import json
@@ -68,20 +69,31 @@ def migrate(old_app, new_app, home):
                 raise ValueError('New container already has different data; review before migrating')
         else:
             pending.append((new, data))
-    for new, data in pending:
-        new.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        reject_links(new, containers)
-        descriptor = os.open(new, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        try:
+    created = []
+    try:
+        for new, data in pending:
+            new.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            reject_links(new, containers)
+            descriptor = os.open(new, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            created.append((new, data))
             with os.fdopen(descriptor, 'wb') as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-        except BaseException:
-            new.unlink(missing_ok=True)
-            raise
-        if new.read_bytes() != data:
-            raise ValueError('Shared data copy verification failed')
+            if new.read_bytes() != data:
+                raise ValueError('Shared data copy verification failed')
+    except BaseException:
+        # A failed run leaves the new container as it found it, so a retry after
+        # the previous app saved newer data is not a conflict. Only this run's
+        # own copies go, and only while they still hold what it wrote.
+        # A copy cut short holds a prefix of what it was writing.
+        for path, data in reversed(created):
+            try:
+                if not path.is_symlink() and data.startswith(path.read_bytes()):
+                    path.unlink()
+            except OSError:
+                pass
+        raise
     return len(pending)
 
 

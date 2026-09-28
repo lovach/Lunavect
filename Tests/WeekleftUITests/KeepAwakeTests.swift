@@ -37,6 +37,27 @@ import ServiceManagement
 }
 
 final class KeepAwakeTests: XCTestCase {
+    /// Each test owns its preferences; nothing is left in the test runner's standard domain.
+    private func isolatedDefaults() throws -> UserDefaults {
+        let name = "Lunavect.KeepAwakeTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        addTeardownBlock { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
+        return defaults
+    }
+    /// At launch the registration check can find sleep already off, for example
+    /// turned off by another program. No helper retry runs then; the panel must
+    /// not say one does (audit r2 R2-Y-06).
+    @MainActor func testSleepAlreadyOffAtLaunchNeverClaimsTheHelperIsRetrying() async throws {
+        let client = FakeAwakeClient()
+        client.startupProblem = AwakeFailure.recovery
+        let awake = KeepAwake(client: client, defaults: try isolatedDefaults())
+        await awake.waitForRegistrationCheck()
+        let issue = try XCTUnwrap(awake.issue)
+        XCTAssertNotEqual(issue, L("Не удалось подтвердить возврат обычного сна. Системный помощник повторяет попытку."))
+        XCTAssertEqual(issue, L("Сон на Mac сейчас отключён. Регистрация помощника Keep Awake обновится, когда обычный сон вернётся."))
+        XCTAssertEqual(awake.recoveryAction, .none)
+    }
+
     @MainActor func testRenderAutomaticControls() async throws {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_AWAKE_CONTROLS"] else { throw XCTSkip("Opt-in native rendering") }
         _ = NSApplication.shared
@@ -276,9 +297,10 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertThrowsError(try AwakePermissionAccess.request(status: { .notRegistered }, register: { throw AwakeFailure.system }, openSettings: { opened = true }))
         XCTAssertFalse(opened)
     }
-    @MainActor func testPermissionApprovalStartsOnceWithChosenDurationAndReturnsToPanel() async {
+    @MainActor func testPermissionApprovalStartsOnceWithChosenDurationAndReturnsToPanel() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.isAvailable = false
-        let now = Date(), awake = KeepAwake(client: client)
+        let now = Date(), awake = KeepAwake(client: client, defaults: defaults)
         var returned = 0
         awake.onPermissionFinished = { _ in returned += 1 }
         awake.duration = .oneHour; awake.requestPermission()
@@ -291,47 +313,53 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(awake.endsAt ?? .distantPast, now.addingTimeInterval(3600))
         await awake.stop()
     }
-    @MainActor func testCancelPreventsActivationAfterLaterApproval() async {
+    @MainActor func testCancelPreventsActivationAfterLaterApproval() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.isAvailable = false
-        let awake = KeepAwake(client: client)
+        let awake = KeepAwake(client: client, defaults: defaults)
         awake.requestPermission(); awake.cancelPermission()
         client.isAvailable = true; await awake.checkPermission()
         XCTAssertTrue(awake.isAvailable); XCTAssertFalse(awake.isEnabled)
         XCTAssertEqual(client.beginCount, 0)
     }
-    @MainActor func testExpiredPermissionIntentDoesNotStartHoursLater() async {
+    @MainActor func testExpiredPermissionIntentDoesNotStartHoursLater() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.isAvailable = false
         var now = Date()
-        let awake = KeepAwake(client: client, now: { now })
+        let awake = KeepAwake(client: client, now: { now }, defaults: defaults)
         awake.requestPermission(); now += 601
         client.isAvailable = true; await awake.checkPermission()
         XCTAssertFalse(awake.isAwaitingPermission); XCTAssertFalse(awake.isEnabled)
         XCTAssertNotNil(awake.issue); XCTAssertEqual(client.beginCount, 0)
     }
-    @MainActor func testPermissionGrantedButHelperFailureDoesNotClaimActive() async {
+    @MainActor func testPermissionGrantedButHelperFailureDoesNotClaimActive() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.isAvailable = false
-        let awake = KeepAwake(client: client)
+        let awake = KeepAwake(client: client, defaults: defaults)
         var returned = 0; awake.onPermissionFinished = { _ in returned += 1 }
         awake.requestPermission(); client.isAvailable = true; client.failBegin = true
         await awake.checkPermission()
         XCTAssertFalse(awake.isEnabled); XCTAssertNotNil(awake.issue); XCTAssertEqual(returned, 1)
     }
-    @MainActor func testFailedPermissionRequestEndsWaiting() async {
+    @MainActor func testFailedPermissionRequestEndsWaiting() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.isAvailable = false; client.failPermission = true
-        let awake = KeepAwake(client: client)
+        let awake = KeepAwake(client: client, defaults: defaults)
         awake.requestPermission(); await awake.checkPermission()
         XCTAssertFalse(awake.isAwaitingPermission); XCTAssertNotNil(awake.issue)
         XCTAssertEqual(client.beginCount, 0)
     }
-    @MainActor func testNoPermissionDoesNotStartOrPretendEnabled() async {
+    @MainActor func testNoPermissionDoesNotStartOrPretendEnabled() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.isAvailable = false
-        let awake = KeepAwake(client: client)
+        let awake = KeepAwake(client: client, defaults: defaults)
         await awake.start()
         XCTAssertEqual(client.beginCount, 0); XCTAssertFalse(awake.isEnabled); XCTAssertNotNil(awake.issue)
     }
-    @MainActor func testEnabledOnlyAfterHelperConfirmation() async {
+    @MainActor func testEnabledOnlyAfterHelperConfirmation() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.suspendBegin = true
-        let awake = KeepAwake(client: client)
+        let awake = KeepAwake(client: client, defaults: defaults)
         let task = Task { await awake.start() }
         while client.gate == nil { await Task.yield() }
         XCTAssertFalse(awake.isEnabled); XCTAssertTrue(awake.isBusy)
@@ -339,9 +367,10 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertTrue(awake.isEnabled); XCTAssertFalse(awake.isBusy)
         await awake.stop()
     }
-    @MainActor func testLateConfirmationAfterShutdownCannotEnableUI() async {
+    @MainActor func testLateConfirmationAfterShutdownCannotEnableUI() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.suspendBegin = true
-        let awake = KeepAwake(client: client)
+        let awake = KeepAwake(client: client, defaults: defaults)
         let task = Task { await awake.start() }
         while client.gate == nil { await Task.yield() }
         awake.shutdown(); client.gate?.resume(); await task.value
@@ -365,32 +394,36 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertFalse(awake.isEnabled); XCTAssertFalse(client.held)
         XCTAssertEqual(awake.duration, AppDefaultSettings.awakeDuration)
     }
-    @MainActor func testDurationSelectionDoesNotStartUntilSwitchIsEnabled() async {
+    @MainActor func testDurationSelectionDoesNotStartUntilSwitchIsEnabled() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(), now = Date()
-        let awake = KeepAwake(client: client, now: { now })
+        let awake = KeepAwake(client: client, now: { now }, defaults: defaults)
         awake.duration = .oneHour
         XCTAssertEqual(client.beginCount, 0)
         await awake.toggle()
         XCTAssertTrue(client.held); XCTAssertEqual(awake.endsAt, now.addingTimeInterval(3600))
         await awake.toggle(); XCTAssertFalse(client.held)
-        XCTAssertFalse(KeepAwake(client: client).isEnabled)
+        XCTAssertFalse(KeepAwake(client: client, defaults: defaults).isEnabled)
     }
-    @MainActor func testFailedBeginDoesNotClaimEnabled() async {
+    @MainActor func testFailedBeginDoesNotClaimEnabled() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient(); client.failBegin = true
-        let awake = KeepAwake(client: client)
+        let awake = KeepAwake(client: client, defaults: defaults)
         await awake.start(for: .oneHour)
         XCTAssertFalse(awake.isEnabled); XCTAssertNil(awake.endsAt); XCTAssertNotNil(awake.issue)
     }
-    @MainActor func testFailedStopInvalidatesLeaseAndShowsUnconfirmedResult() async {
+    @MainActor func testFailedStopInvalidatesLeaseAndShowsUnconfirmedResult() async throws {
+        let defaults = try isolatedDefaults()
         let client = FakeAwakeClient()
-        let subject = KeepAwake(client: client)
+        let subject = KeepAwake(client: client, defaults: defaults)
         await subject.start(); client.failEnd = true; await subject.stop()
         XCTAssertFalse(subject.isEnabled); XCTAssertNotNil(subject.issue); XCTAssertEqual(client.disconnectCount, 1)
     }
-    @MainActor func testAbsoluteExpiryAndRenewal() async {
+    @MainActor func testAbsoluteExpiryAndRenewal() async throws {
+        let defaults = try isolatedDefaults()
         var now = Date()
         let client = FakeAwakeClient()
-        let timed = KeepAwake(client: client, now: { now })
+        let timed = KeepAwake(client: client, now: { now }, defaults: defaults)
         await timed.start(for: .fifteenMinutes)
         now += 899; await timed.check(); XCTAssertTrue(timed.isEnabled)
         await timed.start(for: .oneHour)
@@ -414,13 +447,48 @@ final class KeepAwakeTests: XCTestCase {
             XCTAssertEqual(client.releaseCount, releases, "\(error)")
         }
     }
-    @MainActor func testLostHelperIsNotDisplayedAsActive() async {
+    /// Matrix M12 (audit r2): repeated failure and recovery never leaves more than
+    /// one heartbeat timer or one permission poll running.
+    @MainActor func testRepeatedFailureAndRecoveryKeepsAtMostOneTimerOfEachKind() async throws {
+        let defaults = try isolatedDefaults()
+        var timers: [(interval: TimeInterval, timer: Timer)] = []
         let client = FakeAwakeClient()
-        let subject = KeepAwake(client: client)
+        let awake = KeepAwake(client: client, defaults: defaults, scheduleTimer: { interval, action in
+            let timer = Timer(timeInterval: interval, repeats: true, block: action)
+            RunLoop.main.add(timer, forMode: .common)
+            timers.append((interval, timer))
+            return timer
+        })
+        defer { awake.shutdown() }
+        func running(_ interval: TimeInterval) -> Int { timers.filter { $0.interval == interval && $0.timer.isValid }.count }
+        for cycle in 0..<5 {
+            await awake.start(for: .untilStopped)
+            await awake.start(for: .oneHour)  // a new duration while on keeps the same heartbeat
+            XCTAssertEqual(running(10), 1, "cycle \(cycle)")
+            client.keepAliveError = AwakeFailure.unavailable
+            await awake.check()
+            client.keepAliveError = nil
+            XCTAssertFalse(awake.isEnabled)
+            XCTAssertEqual(running(10), 0, "a lost helper stops the heartbeat, cycle \(cycle)")
+            client.isAvailable = false
+            awake.requestPermission(); awake.requestPermission()
+            XCTAssertEqual(running(1), 1, "one permission poll, cycle \(cycle)")
+            awake.cancelPermission()
+            client.isAvailable = true
+            XCTAssertEqual(running(1), 0)
+        }
+        XCTAssertEqual(client.releaseCount, 5)
+        XCTAssertEqual(timers.filter(\.timer.isValid).count, 0)
+    }
+    @MainActor func testLostHelperIsNotDisplayedAsActive() async throws {
+        let defaults = try isolatedDefaults()
+        let client = FakeAwakeClient()
+        let subject = KeepAwake(client: client, defaults: defaults)
         await subject.start(); client.held = false; await subject.check()
         XCTAssertFalse(subject.isEnabled); XCTAssertNotNil(subject.issue)
     }
     @MainActor func testRenderNativeButtonInPanel() async throws {
+        let defaults = try isolatedDefaults()
         let uiDependencies = try AppEnvironment.preview(rows: [])
         defer { uiDependencies.stop() }
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_AWAKE"] else { throw XCTSkip("Opt-in native rendering") }
@@ -434,7 +502,7 @@ final class KeepAwakeTests: XCTestCase {
                 client: .desktop, phase: .running, updatedAt: now, observedAt: now)
         ])
         let backend = FakeAwakeClient()
-        let awake = KeepAwake(client: backend)
+        let awake = KeepAwake(client: backend, defaults: defaults)
         for (available, enabled, expanded, waiting) in [
             (false, false, true, false), (false, false, true, true), (true, false, false, false),
             (true, false, true, false), (true, true, true, false), (true, true, false, false),

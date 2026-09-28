@@ -142,6 +142,7 @@ final class ActivityPersistence: @unchecked Sendable {
                     var copy: URL?
                     if FileManager.default.fileExists(atPath: target.path) {
                         let backup = target.appendingPathExtension("unreadable-\(Int(self.clock().timeIntervalSince1970))-\(UUID().uuidString)")
+                        try LiveWriteGuard.check(target, backup)
                         try FileManager.default.moveItem(at: target, to: backup)
                         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
                         copy = backup

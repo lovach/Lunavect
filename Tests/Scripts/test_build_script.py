@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,7 @@ sys.exit(42 if name == 'xcodebuild' else 0)
 @unittest.skipUnless(platform.system() == 'Darwin', 'build.sh uses macOS tools')
 class BuildScriptTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='lunavect-build-fixture-')
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect build fixture 'q' ")  # a checkout and HOME with spaces
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         (self.root / 'scripts').mkdir()
@@ -38,9 +39,11 @@ class BuildScriptTests(unittest.TestCase):
         self.env = dict(os.environ, HOME=str(self.root / 'home'), WEEKLEFT_DERIVED_DATA=str(self.root / 'derived'),
                         WEEKLEFT_SIGNING_CONFIG=str(self.root / 'Signing.xcconfig'), BUILD_FIXTURE_TRACE=str(self.root / 'trace'),
                         PATH=str(self.bin) + os.pathsep + os.environ['PATH'])
-        # Kernel isolation: the script may write only inside this fixture.
+        # Kernel isolation: the script may write only inside this fixture, and it
+        # may not read the host's installed copy, which would decide the build number.
         self.profile = self.root / 'sandbox.sb'
         self.profile.write_text('(version 1) (deny default) (allow process*) (allow sysctl-read) (allow file-read*) '
+                                '(deny file-read* (subpath "/Applications/Lunavect.app")) '
                                 '(allow file-write* (literal "/dev/null") (subpath ' + json.dumps(str(self.root)) + '))')
 
     def build(self, xcodegen_version):
@@ -55,6 +58,27 @@ class BuildScriptTests(unittest.TestCase):
         result, calls = self.build('2.45.1')
         self.assertNotIn(['xcodegen', ['generate']], calls)
         self.assertIn('XcodeGen 2.46.0 is required', result.stderr)
+
+    def build_number(self, calls):
+        build = next(args for name, args in calls if name == 'xcodebuild')
+        return next(item.split('=', 1)[1] for item in build if item.startswith('CURRENT_PROJECT_VERSION='))
+
+    def installed(self, path, build):
+        (path / 'Contents').mkdir(parents=True)
+        (path / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleVersion': build}))
+
+    def test_local_build_number_exceeds_the_project_and_every_local_copy(self):
+        # WidgetKit keys descriptors by build number, so a local build must pass
+        # the project value, the copy in ~/Applications and earlier products;
+        # the host's /Applications copy is unreadable in this sandbox.
+        _, calls = self.build('2.46.0')
+        self.assertEqual(self.build_number(calls), '101')
+        self.installed(self.root / 'home/Applications/Lunavect.app', '150')
+        self.installed(self.root / 'derived/Build/Products/Release/Lunavect.app', '170')
+        self.installed(self.root / 'derived/Build/Products/Debug/Lunavect.app', 'not-a-number')
+        (self.root / 'trace').unlink()
+        _, calls = self.build('2.46.0')
+        self.assertEqual(self.build_number(calls), '171')
 
     def test_pinned_xcodegen_regenerates_project(self):
         result, calls = self.build('2.46.0')

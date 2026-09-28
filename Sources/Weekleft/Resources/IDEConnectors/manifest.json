@@ -1,7 +1,7 @@
 {
   "artifacts": {
     "lunavect-jetbrains.zip": "518ef4cf00486c3fffe36385d1cd952e6ec5d8444df4f9bf311ba91921edd1a5",
-    "lunavect-vscode.vsix": "d47023752d8bc442b1827930166802eed1ae5ab1eb15d34befe356ed9f5783f8"
+    "lunavect-vscode.vsix": "e17c44aac73ad10dc5003fdc51aa657bc763279e457dbaf445f357140bbd4912"
   },
   "companionVersion": {
     "jetbrains": "0.1.1",
@@ -20,7 +20,7 @@
     "integrations/vscode/README.md": "dac081831db4b86896f54ad91570530eb4a2e4a12c3f23fe16861404116fd340",
     "integrations/vscode/extension.js": "f7c12da33e57cd40a6e4b30caeb2cbabc5813dc359bdc10da6be07f71c0723bc",
     "integrations/vscode/package.json": "c3f10bed86b70c90c85dcd119fb972b06d0c05e6409091a33cf413735189da5a",
-    "integrations/vscode/routing.js": "f0089a26a469c692f27db1471614b2b370ecd7700694f77e90e61baa2aa7e517"
+    "integrations/vscode/routing.js": "fc33c980c1e983f13e062811d4dc0c9d1ae355d6b7f3cfbd1d1b55846516e1f6"
   },
   "version": 1
 }

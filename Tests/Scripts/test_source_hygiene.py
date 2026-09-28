@@ -43,6 +43,17 @@ class SourceHygieneTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('Sources/WeekleftCore/IDESessionLocation 2.swift', result.stderr)
 
+    def test_conflict_copies_that_github_would_run_or_publish_are_named(self):
+        # GitHub runs every workflow file and Pages publishes every docs file, so
+        # an iCloud copy there acts even though nothing compiles it.
+        for name in ('.github/workflows/ci 2.yml', 'docs/faq 2.md', 'design/selected/selection 2.json'):
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text('x')
+        (self.root / 'docs/images/showcase 2').mkdir(parents=True)
+        found = [str(path) for path in HYGIENE.conflict_copies(self.root)]
+        self.assertEqual(found, ['.github/workflows/ci 2.yml', 'docs/faq 2.md', 'docs/images/showcase 2',
+                                 'design/selected/selection 2.json'])
+
     def test_ordinary_names_with_digits_are_not_conflicts(self):
         for name in ('Sources/Weekleft/Resources/claude-2x.png', 'Sources/WeekleftCore/V2Parser.swift', 'Tests/Scripts/fixture_2.json',
                      'Sources/Weekleft/Resources/Icon 1024x1024.png'):

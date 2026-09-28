@@ -365,6 +365,11 @@ def main() -> int:
                 raise ValueError("Source provenance checkpoint failed")
             report.pop("_active_stage", None)
         check(output, enabled=args.run, baseline=args.baseline.resolve() if args.baseline else None, report=report, suite=args.suite)
+        if args.baseline and report.get("comparison", {}).get("status") == "skipped":
+            # A supplied reference that cannot be compared is not a pass: after a runner
+            # update the weekly job would otherwise stay green comparing nothing (R2-U-07).
+            reason = report["comparison"].get("reason", "Baseline cannot be compared")
+            report["comparison"] = {"status": "failed", "reason": f"{reason}. Review this gallery and record a new baseline."}
         if args.record_baseline:
             record_baseline(report)
     except BlockingIOError:
