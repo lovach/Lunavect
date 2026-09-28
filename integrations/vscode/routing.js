@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CLAUDE_PANEL = ['mainThreadWebview-claudeVSCodePanel', 'claudeVSCodePanel'];
 
 function validateTarget(target) {
   if (!target || !['terminal', 'claude', 'codex'].includes(target.kind)) return false;
@@ -84,8 +85,10 @@ async function focusTarget(vscode, target, signal) {
   while (performance.now() < deadline) {
     if (cancelled()) return { status: 'cancelled' };
     const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    // Extension webview panels report the workbench's 'mainThreadWebview-' prefix in
+    // TabInputWebview.viewType; the bare name is accepted as well.
     const selected = target.kind === 'claude'
-      ? input instanceof vscode.TabInputWebview && input.viewType === 'claudeVSCodePanel'
+      ? input instanceof vscode.TabInputWebview && CLAUDE_PANEL.includes(input.viewType)
       : input instanceof vscode.TabInputCustom && input.uri.toString() ===
         vscode.Uri.from({ scheme: 'openai-codex', authority: 'route', path: '/local/' + target.sessionID }).toString();
     if (selected && vscode.window.state.focused) return { status: 'focused' };
