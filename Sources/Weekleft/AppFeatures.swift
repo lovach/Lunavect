@@ -342,13 +342,14 @@ struct PanelShortcut: Codable, Equatable {
         useSnapshots(snapshots)
         limitProviders = providers
         evaluateLimits(at: date ?? now())
-        announceSignIn(SignInAttention.all(snapshots, providers: providers ?? Set(ProviderID.allCases)))
+        let connected = providers ?? Set(ProviderID.allCases)
+        announceSignIn(SignInAttention.all(snapshots, providers: connected), left: SignInAttention.left(snapshots, providers: connected))
     }
     /// One notice when a provider's client becomes signed out; the Limits switch and
     /// the delivery channels decide, as for limit notices (owner report 28.09).
-    private func announceSignIn(_ current: [SignInAttention]) {
+    private func announceSignIn(_ current: [SignInAttention], left: Set<ProviderID>) {
         let before = signInTracker
-        let entered = signInTracker.update(current, announce: limits && (banners || sounds))
+        let entered = signInTracker.update(current, left: left, announce: limits && (banners || sounds))
         if signInTracker != before, let data = try? JSONEncoder().encode(signInTracker) { defaults.set(data, forKey: "noticeSignInState") }
         for attention in entered {
             deliver(title: attention.title, body: attention.notificationBody, sessionID: nil, kind: .limit, repair: attention.request)

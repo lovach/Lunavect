@@ -97,30 +97,57 @@ final class SignInAttentionTests: XCTestCase {
         XCTAssertEqual(stored, "")
     }
 
-    /// State machine: entering announces, polls and a restart do not, leaving re-arms.
+    /// Leaving is proven by a recovered reading or a disconnected provider, never by
+    /// the launch placeholder or a transient failure between two sign-in failures (R26-V2-01).
+    func testOnlyRecoveryOrDisconnectingLeavesTheState() throws {
+        let out = snapshot(.claude, issue: ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .subscriptionUnavailable).message)
+        var recovered = out; recovered.issue = nil
+        let limit = snapshot(.claude, issue: ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .limitReached).message)
+        let inactive = snapshot(.claude, issue: ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .windowInactive).message)
+        XCTAssertEqual(SignInAttention.left([out], providers: ProviderID.allCases), [])
+        XCTAssertEqual(SignInAttention.left([recovered], providers: ProviderID.allCases), [.claude])
+        XCTAssertEqual(SignInAttention.left([limit], providers: [.claude]), [.codex, .claude], "The subscription's own limit screen answered")
+        XCTAssertEqual(SignInAttention.left([inactive], providers: [.claude]), [.codex, .claude])
+        XCTAssertEqual(SignInAttention.left([recovered], providers: [.codex]), [.claude], "Disconnected; its snapshot is not read")
+        for issue in [UsageError.waitingForClaude, .timeout, .claudeQuotaStale, .claudeUsageUnavailable, .invalidResponse] {
+            XCTAssertEqual(SignInAttention.left([snapshot(.claude, issue: issue.errorDescription)], providers: ProviderID.allCases), [], "\(issue)")
+        }
+        for reason in [ClientIntegrationIssue.Reason.usageFetchFailed, .sourceUnavailable, .timedOut, .workspaceTrustRequired] {
+            let issue = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: reason).message
+            XCTAssertEqual(SignInAttention.left([snapshot(.claude, issue: issue)], providers: ProviderID.allCases), [], "\(reason)")
+        }
+        XCTAssertEqual(SignInAttention.left([], providers: ProviderID.allCases), [], "No snapshot yet proves nothing")
+    }
+
+    /// State machine: entering announces; polls, a restart and states that prove no
+    /// sign-in do not; recovering or disconnecting re-arms.
     func testNoticeTrackerAnnouncesOnceForEachEntry() throws {
         let signedOut = try XCTUnwrap(SignInAttention(snapshot(.claude, issue:
             ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .subscriptionUnavailable).message)))
         let prompt = try XCTUnwrap(SignInAttention(snapshot(.claude, issue: UsageError.claudeSignInRequired.errorDescription)))
         let codex = try XCTUnwrap(SignInAttention(snapshot(.codex, issue: UsageError.notSignedIn.errorDescription)))
         var tracker = SignInNoticeTracker()
-        XCTAssertEqual(tracker.update([signedOut], announce: true), [signedOut])
-        XCTAssertEqual(tracker.update([signedOut], announce: true), [], "Every poll sees the same state")
-        XCTAssertEqual(tracker.update([prompt], announce: true), [], "Another sign-in reason is the same state")
+        XCTAssertEqual(tracker.update([signedOut], left: [], announce: true), [signedOut])
+        XCTAssertEqual(tracker.update([signedOut], left: [], announce: true), [], "Every poll sees the same state")
+        XCTAssertEqual(tracker.update([prompt], left: [], announce: true), [], "Another sign-in reason is the same state")
+        XCTAssertEqual(tracker.update([], left: [], announce: true), [], "Launch placeholder or a timeout")
         tracker = try JSONDecoder().decode(SignInNoticeTracker.self, from: JSONEncoder().encode(tracker))
-        XCTAssertEqual(tracker.update([prompt, codex], announce: true), [codex], "A restart keeps Claude told; Codex enters now")
-        XCTAssertEqual(tracker.update([codex], announce: true), [], "Claude left the state")
-        XCTAssertEqual(tracker.update([signedOut, codex], announce: true), [signedOut], "and entered it again")
-        XCTAssertEqual(tracker.update([], announce: false), [])
-        XCTAssertEqual(tracker.update([signedOut], announce: false), [], "Notifications off: nothing is sent")
-        XCTAssertEqual(tracker.update([signedOut], announce: true), [signedOut], "and nothing was used up")
+        XCTAssertEqual(tracker.update([prompt, codex], left: [], announce: true), [codex], "A restart keeps Claude told; Codex enters now")
+        XCTAssertEqual(tracker.update([codex], left: [.claude], announce: true), [], "Claude recovered")
+        XCTAssertEqual(tracker.update([signedOut, codex], left: [], announce: true), [signedOut], "and was signed out again")
+        XCTAssertEqual(tracker.update([signedOut], left: [.codex], announce: true), [], "Codex disconnected")
+        XCTAssertEqual(tracker.update([signedOut, codex], left: [], announce: true), [codex], "and connected again, still signed out")
+        XCTAssertEqual(tracker.update([], left: [.claude, .codex], announce: false), [])
+        XCTAssertEqual(tracker.update([signedOut], left: [], announce: false), [], "Notifications off: nothing is sent")
+        XCTAssertEqual(tracker.update([signedOut], left: [], announce: true), [signedOut], "and nothing was used up")
         XCTAssertEqual(tracker.notified, [.claude])
     }
 
-    /// Properties over random sequences (fixed seed), instead of a copy of the rule:
-    /// an announcement needs presence and permission; no second one without leaving;
-    /// a present, announceable state has been announced since it was last absent;
-    /// saving and reading the tracker between steps changes nothing.
+    /// Properties over random sequences (fixed seed), instead of a copy of the rule.
+    /// Each step a provider is signed out, recovered (leaves), or neither (placeholder,
+    /// transient failure). An announcement needs presence and permission and never
+    /// repeats without leaving; a present, announceable state has been announced since
+    /// it last left; saving and reading the tracker between steps changes nothing.
     func testNoticeTrackerPropertiesOverRandomSequences() throws {
         var generator = SplitMix64(seed: 0x5EED_2809)
         let attention: [ProviderID: SignInAttention] = [
@@ -128,21 +155,33 @@ final class SignInAttentionTests: XCTestCase {
             .codex: try XCTUnwrap(SignInAttention(snapshot(.codex, issue: UsageError.notSignedIn.errorDescription)))]
         for _ in 0..<300 {
             var tracker = SignInNoticeTracker(), restarted = SignInNoticeTracker()
-            var announcedSinceAbsent: [ProviderID: Bool] = [:]
+            var announcedSinceLeft: [ProviderID: Bool] = [:]
             for _ in 0..<Int(generator.next() % 40) {
-                let present = ProviderID.allCases.filter { _ in generator.next() % 3 != 0 }
+                var present: [ProviderID] = [], left: Set<ProviderID> = []
+                for provider in ProviderID.allCases {
+                    switch generator.next() % 3 {
+                    case 0: present.append(provider)
+                    case 1: left.insert(provider)
+                    default: break
+                    }
+                }
                 let announce = generator.next() % 4 != 0
                 let current = present.compactMap { attention[$0] }
-                let sent = tracker.update(current, announce: announce)
+                let sent = tracker.update(current, left: left, announce: announce)
                 restarted = try JSONDecoder().decode(SignInNoticeTracker.self, from: JSONEncoder().encode(restarted))
-                XCTAssertEqual(restarted.update(current, announce: announce), sent)
+                XCTAssertEqual(restarted.update(current, left: left, announce: announce), sent)
                 XCTAssertEqual(Set(sent.map(\.provider)).count, sent.count)
                 for provider in ProviderID.allCases {
-                    guard present.contains(provider) else { announcedSinceAbsent[provider] = false; continue }
+                    if left.contains(provider) { announcedSinceLeft[provider] = false }
                     let now = sent.contains { $0.provider == provider }
-                    if now { XCTAssertTrue(announce); XCTAssertFalse(announcedSinceAbsent[provider] ?? false, "Repeated without leaving") }
-                    announcedSinceAbsent[provider] = (announcedSinceAbsent[provider] ?? false) || now
-                    if announce { XCTAssertTrue(announcedSinceAbsent[provider] ?? false, "A present state was never announced") }
+                    if now {
+                        XCTAssertTrue(announce && present.contains(provider))
+                        XCTAssertFalse(announcedSinceLeft[provider] ?? false, "Repeated without leaving")
+                    }
+                    announcedSinceLeft[provider] = (announcedSinceLeft[provider] ?? false) || now
+                    if announce && present.contains(provider) {
+                        XCTAssertTrue(announcedSinceLeft[provider] ?? false, "A present state was never announced")
+                    }
                 }
             }
         }

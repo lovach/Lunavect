@@ -159,6 +159,10 @@ import WeekleftCore
             let result = persistence.load(readOnly: !self.savesChanges)
             loadedState = result.state; storageIssue = result.issue
         }
+        // A failed /usage without any saved reading leaves only its issue. Of that, only a
+        // sign-in state is kept, so it stays visible after a restart (R26-V2-01).
+        let signedOut = loadedState.snapshots.first { $0.provider == .claude && !ClaudeProvider.isTrustedSnapshot($0) }
+            .flatMap(SignInAttention.init)
         loadedState.snapshots.removeAll { $0.provider == .claude && !ClaudeProvider.isTrustedSnapshot($0) }
         if loadedState.preferences.enabledProviders == nil {
             loadedState.preferences.migrateConnections(snapshots: loadedState.snapshots, configured: isolated ? [] : ProviderID.allCases.filter {
@@ -166,7 +170,7 @@ import WeekleftCore
             })
         }
         if !loadedState.snapshots.contains(where: { $0.provider == .claude }) {
-            loadedState.snapshots.append(UsageSnapshot(provider: .claude, issue: UsageError.waitingForClaude.errorDescription))
+            loadedState.snapshots.append(UsageSnapshot(provider: .claude, issue: signedOut?.issue ?? UsageError.waitingForClaude.errorDescription))
         }
         snapshots = loadedState.snapshots; preferences = loadedState.preferences
         activityService.setProviders(preferences.providers)

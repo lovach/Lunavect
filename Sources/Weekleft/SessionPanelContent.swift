@@ -152,13 +152,14 @@ struct SessionOverflowPosition {
     }
 
     /// Limit sources whose client is signed out, shown above the sessions. One the
-    /// user closed stays closed until its provider leaves the state; this is not
-    /// cleared with the panel, since the state outlives one presentation.
+    /// user closed stays closed until its provider leaves the state
+    /// (`SignInAttention.left`); this is not cleared with the panel, since the state
+    /// outlives one presentation.
     @Published private(set) var signInNotices: [SignInAttention] = []
     private var closedSignIn: Set<ProviderID> = []
     func observeSignIn(_ snapshots: [UsageSnapshot], providers: [ProviderID]) {
         let current = SignInAttention.all(snapshots, providers: providers)
-        closedSignIn.formIntersection(current.map(\.provider))
+        closedSignIn.subtract(SignInAttention.left(snapshots, providers: providers))
         let shown = current.filter { !closedSignIn.contains($0.provider) }
         if shown != signInNotices { signInNotices = shown }
     }

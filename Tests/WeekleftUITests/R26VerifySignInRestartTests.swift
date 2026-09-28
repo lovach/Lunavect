@@ -43,9 +43,7 @@ final class R26VerifySignInRestartTests: XCTestCase {
         defer { second.stop() }
         second.observeLimits(loaded, providers: [.claude])   // first emission after launch
         second.observeLimits([failed], providers: [.claude]) // the first /usage after launch fails the same way
-        XCTExpectFailure("R26-V2-01: AppStore drops the untrusted Claude snapshot at launch and shows 'waiting for data'; the tracker takes that as leaving the state and announces it again", strict: true) {
-            XCTAssertEqual(loaded.map(\.issue), [signedOut], "The saved signed-out state survives the restart")
-            XCTAssertEqual(requests.count, 1, "A restart in the same state stays quiet")
-        }
+        XCTAssertEqual(loaded.map(\.issue), [signedOut], "The saved signed-out state survives the restart")
+        XCTAssertEqual(requests.count, 1, "A restart in the same state stays quiet")
     }
 }

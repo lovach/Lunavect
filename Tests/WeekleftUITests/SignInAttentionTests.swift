@@ -86,6 +86,10 @@ final class SignInAttentionTests: XCTestCase {
         var prompt = out; prompt[0].issue = UsageError.claudeSignInRequired.errorDescription
         panel.observeSignIn(prompt, providers: ProviderID.allCases)
         XCTAssertEqual(panel.signInNotices, [], "Closed while the client stays signed out")
+        var timeout = out; timeout[0].issue = UsageError.timeout.errorDescription
+        panel.observeSignIn(timeout, providers: ProviderID.allCases)
+        panel.observeSignIn(out, providers: ProviderID.allCases)
+        XCTAssertEqual(panel.signInNotices, [], "A timeout between two sign-in failures proves no sign-in (R26-V2-01)")
         panel.observeSignIn([try claude(issue: nil), try codex()], providers: ProviderID.allCases)
         XCTAssertEqual(panel.signInNotices, [])
         panel.observeSignIn(out, providers: ProviderID.allCases)
@@ -119,6 +123,11 @@ final class SignInAttentionTests: XCTestCase {
         for _ in 0..<3 { first.observeLimits(out, providers: [.claude]) }
         var prompt = out; prompt[0].issue = UsageError.claudeSignInRequired.errorDescription
         first.observeLimits(prompt, providers: [.claude])
+        // Neither a timeout nor the launch placeholder is a sign-in (R26-V2-01).
+        for issue in [UsageError.timeout, .waitingForClaude] {
+            first.observeLimits([try claude(issue: issue.errorDescription, saved: false)], providers: [.claude])
+            first.observeLimits(out, providers: [.claude])
+        }
         XCTAssertEqual(requests.count, 1)
         first.stop()
 
@@ -147,6 +156,46 @@ final class SignInAttentionTests: XCTestCase {
         isolated.banners = true; isolated.notificationAllowed = true
         isolated.observeLimits(recovered, providers: [.claude]); isolated.observeLimits(out, providers: [.claude])
         XCTAssertEqual(requests.count, 3, "Previews and fixtures never notify")
+    }
+
+    /// Signed out → signed in → signed out, across restarts of an isolated store that
+    /// loads what the app saved: the second exit is announced again, the restarts are
+    /// quiet, and the state is shown right after launch (R26-V2-01).
+    @MainActor func testRestartsKeepTheStateAndOnlyASignInRearmsTheNotice() throws {
+        let suite = "Lunavect.SignInCycle." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var requests: [UNNotificationRequest] = []
+        var preferences = WidgetPreferences(); preferences.enabledProviders = [.claude]
+        /// Launches with the saved state, then the first /usage after launch answers with `probe`.
+        func run(saved: [UsageSnapshot], probe: UsageSnapshot) -> [UsageSnapshot] {
+            let store = AppStore(state: SharedState(snapshots: saved, preferences: preferences), savesChanges: false, isolated: true, defaults: defaults)
+            defer { store.stop() }
+            let features = AppFeatures(defaults: defaults, now: { self.now }, playSound: { _ in },
+                                       sendBanner: { request, callback in requests.append(request); callback(nil) })
+            defer { features.stop() }
+            features.banners = true; features.notificationAllowed = true
+            let launched = store.snapshots.filter { $0.provider == .claude }
+            let panel = SessionPanelState(isVisible: true)
+            panel.observeSignIn(launched, providers: [.claude])
+            features.observeLimits(launched, providers: [.claude])
+            features.observeLimits([probe], providers: [.claude])
+            return panel.signInNotices.isEmpty ? [] : launched
+        }
+        let out = try claude(issue: signedOut, saved: false), signedIn = try claude(issue: nil)
+        XCTAssertEqual(run(saved: [], probe: out), [], "A new install shows nothing before the first /usage")
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(run(saved: [out], probe: out).map(\.issue), [signedOut], "Shown at once after a restart")
+        XCTAssertEqual(requests.count, 1, "and not announced again")
+        _ = run(saved: [out], probe: signedIn)
+        XCTAssertEqual(requests.count, 1)
+        _ = run(saved: [signedIn], probe: out)
+        XCTAssertEqual(requests.count, 2, "Signed out again after a sign-in")
+        // Only a recognized sign-in message is carried: other untrusted content is dropped.
+        var forged = out; forged.issue = "API Usage Billing"
+        let store = AppStore(state: SharedState(snapshots: [forged], preferences: preferences), savesChanges: false, isolated: true, defaults: defaults)
+        defer { store.stop() }
+        XCTAssertEqual(store.snapshots.first { $0.provider == .claude }?.issue, UsageError.waitingForClaude.errorDescription)
     }
 
     /// A click on the notice opens the same repair; session notices keep their route.
