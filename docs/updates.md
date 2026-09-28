@@ -10,7 +10,7 @@ Lunavect checks for updates once a day (Sparkle's default interval, 86,400 secon
 
 Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](privacy.md#network-requests).
 
-The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.4) is 0.2.4 (191). It improves cancellable Terminal/IDE navigation, local-file recovery and quota freshness, and bundles companion version 0.1.1. Reinstall the editor companions from Settings → Connections to receive their fixes. See [IDE setup and compatibility](ide-sessions.md) for supported surfaces and remaining verification limits. Settings and client connections are retained.
+The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.5) is 0.2.5 (192). It improves Claude limit checks, session state and navigation, Keep Awake registration recovery, and hook paths after moving or updating the app. It retains companion version 0.1.1; reinstall the editor companions from Settings → Connections if you have an older companion. See [IDE setup and compatibility](ide-sessions.md) for supported surfaces and remaining verification limits. Settings and client connections are retained.
 
 ## Preparing a release
 
@@ -32,10 +32,10 @@ Public build configuration is in `Config/Distribution.xcconfig` and `Config/Upda
 First refresh release tags and download the currently published appcast into a private evidence directory. Review that baseline; the tools do not fetch it automatically. Use a new version/tag and a build and marketing version above every published entry. For example, after replacing these illustrative values with the intended release:
 
 ```sh
-./scripts/distribute.sh archive 0.2.4 191 /path/to/published-appcast.xml
-./scripts/distribute.sh submit 0.2.4 191
+./scripts/distribute.sh archive 0.2.5 192 /path/to/published-appcast.xml
+./scripts/distribute.sh submit 0.2.5 192
 # After Apple's notarization completes:
-./scripts/distribute.sh export 0.2.4 191
+./scripts/distribute.sh export 0.2.5 192
 ```
 
 Run these from a shell without `LUNAVECT_INSTALLED_APPS`, `LUNAVECT_LSREGISTER` or `LUNAVECT_PLUGINKIT`: they exist for script tests, and `distribute.sh` refuses to run while one is set (`Release refused: …`).
@@ -86,8 +86,8 @@ Keep packaging dependencies and output outside the repository:
 python3 -m venv /path/outside-repository/dmg-venv
 /path/outside-repository/dmg-venv/bin/pip install -r scripts/dmg/requirements.txt
 /path/outside-repository/dmg-venv/bin/python scripts/package-dmg.py \
-  --app '/path/to/Notarized-191/Lunavect.app' \
-  --output '/path/to/release-assets/Lunavect-0.2.4.dmg'
+  --app '/path/to/Notarized-192/Lunavect.app' \
+  --output '/path/to/release-assets/Lunavect-0.2.5.dmg'
 ```
 
 Replace these paths and version numbers with your exported app and intended output. The DMG is a read-only image containing the app and an Applications link. Its Finder layout uses `scripts/dmg/layout.json`; the AppKit background renderer provides 1× and 2× artwork. The pinned `dmgbuild` dependencies write the layout metadata without automating Finder. See the [installer screenshot](images/installer.jpg).
@@ -118,7 +118,7 @@ References: [Sparkle setup](https://sparkle-project.org/documentation/), [custom
 
 `scripts/distribute.sh archive` passes `LUNAVECT_DISTRIBUTION` to both XPC peers. The signing xcconfig itself does not select this policy: it can also be needed for a compatible local Apple Development upgrade with the existing team and App Group. That policy requires the expected bundle identifier, the same signing team, a Developer ID Application certificate and no enabled `com.apple.security.get-task-allow` entitlement. Local Debug **and Release** builds deliberately accept Apple Development from their own team, including local builds that explicitly select `Config/Distribution.xcconfig` to preserve an installed team/App Group. Build configuration names alone do not select the public-distribution policy. Unsigned callers and other teams remain rejected in both policies. Archive and update packaging invoke the embedded helper with `--signing-policy`; this read-only probe exits before root-service initialization and requires `developer-id` for a public candidate. See Apple's [requirement syntax](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/RequirementLang/RequirementLang.html) and [Developer ID requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
 
-The daemon definition has no `KeepAlive` rule since the release after 0.2.4: launchd starts the helper at system start and on demand only. Existing installations pick up the new definition through the registration refresh on the first launch of the new build (below). The owner-side check after installing is in [Keep Awake](keep-awake.md#updating-from-a-build-with-the-older-daemon-definition). A refresh that fails is shown in the Keep Awake panel with a repair action instead of only being recorded.
+The daemon definition has no `KeepAlive` rule since 0.2.5: launchd starts the helper at system start and on demand only. Existing installations pick up the new definition through the registration refresh on the first launch of the new build (below). The owner-side check after installing is in [Keep Awake](keep-awake.md#updating-from-a-build-with-the-older-daemon-definition). A refresh that fails is shown in the Keep Awake panel with a repair action instead of only being recorded.
 
 An enabled helper is refreshed at client startup when the recorded build differs, even when Keep Awake is off. This replaces the 0.1.0 daemon definition without waiting for the first lease. Unregistered or approval-pending services remain untouched; startup does not open Settings or acquire a lease. Before unregistering an old helper, startup and reconnect both verify that system sleep has been restored. If it is still disabled, they first connect once to the registered helper, whose start restores sleep from its recovery marker, and check again. An interrupted old lease that is still not restored keeps its recovery service registered and records a retryable failure until restoration succeeds. Migration and removal tests use injected ServiceManagement boundaries. The recorded build-145-to-147 update required a repeated registration refresh on the test Mac; the helper then started and exited normally while system sleep stayed enabled. This local repair does not establish an unattended 0.1.0-to-current transition or every signing-identity migration. See [verification](verification.md).
 

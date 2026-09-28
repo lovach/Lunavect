@@ -1,8 +1,22 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.2.4 (191)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.2.5 (192)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.4)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.5)
+
+## 0.2.5 release checks — September 28, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `c225996674aa9fa6b33139e1c8b61c39424a1125`, tagged `v0.2.5`, merged through [PR #40](https://github.com/lovach/Lunavect/pull/40). Merge `35bc3c35b0a74ce55086a564b65aa24f9e01b795` has exactly the archived source tree. Archive, signed export and provenance checks passed; no application code changed during release packaging. |
+| Automated checks | The saved local check for this exact source passed: 1,110 Swift tests passed, 78 skipped and zero failures (1,188 total); 169 Python tests passed, one skipped and zero failures (170 total). Editor companion checks, unsigned universal app/widget/helpers, resources and the built intent-resource test passed. [PR source CI](https://github.com/lovach/Lunavect/actions/runs/36388896281) passed; the optional native-render, thread-sanitizer and synthetic-performance jobs were skipped. The release run reused this evidence and did not rerun tests against client settings. |
+| Distribution | Developer ID signed and Apple notarized, build 192. Anonymous downloads of all four release assets match packaged bytes, sizes and SHA-256 digests. The downloaded DMG app passed strict codesign, Gatekeeper, stapler, resources, hook-helper, App Group and awake-policy checks. Universal arm64/x86_64 app and widget slices were verified. |
+| Update signatures | ZIP and appcast signatures verify with the public key from the previous installed app. Deliberately damaged ZIP and feed copies are rejected. The latest public feed points to build 192 and the exact `v0.2.5` ZIP URL. |
+| Existing downloads | All 15 previous releases retain their 62 asset identities, URLs, sizes and digests. |
+| Claude sign-in | Claude Code that is not signed in can report “API Usage Billing” without plan limits. Sign in using `claude` then `/login` in Terminal; absent plan limits in this state are not a release failure. The release checks did not sign in to a provider account. |
+| Scope | These are source, packaging and public-download checks. Installed updates, desktop rendering, Keep Awake behavior and the wider hardware/OS/client compatibility matrix require their own live evidence; earlier version-specific checks below remain historical. |
+
+The 0.2.5 DMG SHA-256 is `99053cf690aa503f16d9002d40ce3404f0626beeb76ff82373097ccea1c9241d`.
 
 ## 0.2.4 release checks — September 27, 2026
 
@@ -289,7 +303,7 @@ Test counts above belong to the release source, not subsequent documentation or 
 
 ## Homebrew and installer
 
-The cask points to the 0.2.4 DMG and the SHA-256 recorded in the 0.2.4 checks above. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
+The cask points to the 0.2.5 DMG and the SHA-256 recorded in the 0.2.5 checks above. The branded Finder layout retains its application icon, Applications link and transfer arrow. [Installer layout](images/installer.jpg).
 
 The earlier 0.1.0 (103) package passed an isolated Homebrew install and uninstall on September 12. That exercise preserved the existing application and validated the downloaded signature and notarization. A Homebrew upgrade between distinct versions is a separate scenario; the real Sparkle update above does not establish it.
 
@@ -301,7 +315,7 @@ The README and website showcase scenes are composed from 4× native renders with
 
 ## Compatibility and remaining checks
 
-The deployment minimum is macOS 14. The 0.2.4 release checks were performed on macOS 26.6.2 with Apple silicon; the release source was built with Xcode 26.6 and Swift 6.3.3. A deployment target and universal binary slices express supported build targets, not proof of every runtime scenario.
+The deployment minimum is macOS 14. The 0.2.5 release checks were performed on macOS 26.6.2 with Apple silicon; the release source was built with Xcode 26.6 and Swift 6.3.3. A deployment target and universal binary slices express supported build targets, not proof of every runtime scenario.
 
 | Area | Remaining limit |
 | --- | --- |
