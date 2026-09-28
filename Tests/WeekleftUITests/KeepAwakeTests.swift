@@ -44,6 +44,20 @@ final class KeepAwakeTests: XCTestCase {
         addTeardownBlock { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
         return defaults
     }
+    /// At launch the registration check can find sleep already off, for example
+    /// turned off by another program. No helper retry runs then; the panel must
+    /// not say one does (audit r2 R2-Y-06).
+    @MainActor func testSleepAlreadyOffAtLaunchNeverClaimsTheHelperIsRetrying() async throws {
+        let client = FakeAwakeClient()
+        client.startupProblem = AwakeFailure.recovery
+        let awake = KeepAwake(client: client, defaults: try isolatedDefaults())
+        await awake.waitForRegistrationCheck()
+        let issue = try XCTUnwrap(awake.issue)
+        XCTAssertNotEqual(issue, L("Не удалось подтвердить возврат обычного сна. Системный помощник повторяет попытку."))
+        XCTAssertEqual(issue, L("Сон на Mac сейчас отключён. Регистрация помощника Keep Awake обновится, когда обычный сон вернётся."))
+        XCTAssertEqual(awake.recoveryAction, .none)
+    }
+
     @MainActor func testRenderAutomaticControls() async throws {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_AWAKE_CONTROLS"] else { throw XCTSkip("Opt-in native rendering") }
         _ = NSApplication.shared

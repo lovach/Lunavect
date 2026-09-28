@@ -5633,5 +5633,12 @@
     "es": "Actualizar conexión",
     "fr": "Actualiser la connexion",
     "zh-Hans": "刷新连接"
+  },
+  "Сон на Mac сейчас отключён. Регистрация помощника Keep Awake обновится, когда обычный сон вернётся.": {
+    "en": "Sleep is currently turned off on this Mac. The Keep Awake helper registration will be updated when normal sleep returns.",
+    "de": "Der Ruhezustand ist auf diesem Mac derzeit deaktiviert. Die Registrierung des Keep-Awake-Helfers wird aktualisiert, sobald der normale Ruhezustand zurückkehrt.",
+    "es": "El reposo está desactivado en este Mac. El registro del asistente de Keep Awake se actualizará cuando vuelva el reposo normal.",
+    "fr": "La veille est actuellement désactivée sur ce Mac. L’enregistrement de l’assistant Keep Awake sera mis à jour au retour de la veille normale.",
+    "zh-Hans": "此 Mac 当前已禁用睡眠。恢复正常睡眠后，将更新 Keep Awake 辅助程序的注册。"
   }
 }
