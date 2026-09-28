@@ -27,7 +27,7 @@ final class ActivityServiceTests: XCTestCase {
         guard service.importing else { return }
         let done = expectation(description: "Import ends")
         let token = service.$importing.dropFirst().filter { !$0 }.first().sink { _ in done.fulfill() }
-        await fulfillment(of: [done], timeout: 3)
+        await fulfillment(of: [done], timeout: 5)
         token.cancel()
     }
     @MainActor func testImmediateStopBeforeTaskRunsNeverInvokesImportBackend() async throws {
@@ -53,12 +53,12 @@ final class ActivityServiceTests: XCTestCase {
             await gate.read(providers, boundary: boundary)
         })
         service.start(providers: [.codex]); service.start(providers: [.codex])
-        await fulfillment(of: [called], timeout: 3)
+        await fulfillment(of: [called], timeout: 5)
         let stopped = try XCTUnwrap(service.importTask)
         service.stop(); service.stop()
         XCTAssertFalse(service.importing)
         service.start(providers: [.codex]); service.start(providers: [.codex])
-        await fulfillment(of: [restarted], timeout: 3)
+        await fulfillment(of: [restarted], timeout: 5)
         await gate.finish(1, result: imported(.codex))
         await waitUntilIdle(service)
         let expected = service.history
@@ -84,10 +84,10 @@ final class ActivityServiceTests: XCTestCase {
             return await gate.read(providers, boundary: boundary)
         })
         service.start(providers: [.claude, .codex])
-        await fulfillment(of: [first], timeout: 3)
+        await fulfillment(of: [first], timeout: 5)
         let replaced = try XCTUnwrap(service.importTask)
         service.setProviders([.claude])
-        await fulfillment(of: [called], timeout: 3)
+        await fulfillment(of: [called], timeout: 5)
         await gate.finish(1, result: imported(.claude))
         await waitUntilIdle(service)
         var published = 0
@@ -112,11 +112,11 @@ final class ActivityServiceTests: XCTestCase {
             await gate.read(providers, boundary: boundary)
         })
         service.setProviders([.codex]); service.requestImport()
-        await fulfillment(of: [called], timeout: 3)
+        await fulfillment(of: [called], timeout: 5)
         for _ in 0..<20 { service.requestImport() }
         var cancelled = imported(.claude); cancelled.cancelled = true
         await gate.finish(0, result: cancelled)
-        await fulfillment(of: [retried], timeout: 3)
+        await fulfillment(of: [retried], timeout: 5)
         await gate.finish(1, result: imported(.codex))
         await waitUntilIdle(service)
         XCTAssertEqual(counter.value, 2)

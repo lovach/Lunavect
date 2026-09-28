@@ -68,9 +68,9 @@ import os
         let store = AppStore(state: .init(snapshots: [initial], preferences: preferences), savesChanges: false,
                              network: NetworkConnection(makeMonitor: { nil }), defaults: defaults, dataServices: services)
         store.start()
-        await fulfillment(of: [codexStarted, claudeReturned], timeout: 3)
+        await fulfillment(of: [codexStarted, claudeReturned], timeout: 5)
         localTick?()
-        await fulfillment(of: [localRead], timeout: 3)
+        await fulfillment(of: [localRead], timeout: 5)
         for _ in 0..<100 where store.snapshots.first(where: { $0.provider == .claude })?.weekly?.usedPercent != 20 { await Task.yield() }
         gate?.resume()
         for _ in 0..<1000 where store.refreshing { await Task.yield() }

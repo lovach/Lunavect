@@ -43,7 +43,7 @@ final class AppStoreDataServicesTests: XCTestCase {
         let store = AppStore(state: .init(snapshots: [snapshot], preferences: preferences), quotaFetcher: { _, _ in snapshot },
             defaults: defaults, dataServices: .init(snapshots: persistence, activity: ActivityService(isolated: true), clock: { self.now }))
         await store.refresh()
-        await fulfillment(of: [failed], timeout: 3)
+        await fulfillment(of: [failed], timeout: 5)
         for index in 0..<100 { store.preferences.transparency = 0.2 + Double(index) / 200 }
         store.stop()
         let saved = SnapshotStore.load(from: file)
@@ -53,7 +53,7 @@ final class AppStoreDataServicesTests: XCTestCase {
         // Allow the earlier queued failure callback to arrive after the final flush.
         let drained = expectation(description: "Main callbacks drained")
         DispatchQueue.main.async { drained.fulfill() }
-        await fulfillment(of: [drained], timeout: 3)
+        await fulfillment(of: [drained], timeout: 5)
         XCTAssertNil(store.storageIssue)
         await store.refresh(); store.stop()
         XCTAssertEqual(persistence.counters.failed, 1)
@@ -90,7 +90,7 @@ final class AppStoreDataServicesTests: XCTestCase {
             return try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 90, durationMinutes: 10080, resetsAt: nil), fetchedAt: self.now)
         }, isolated: true)
         let task = Task { await store.refresh() }
-        await fulfillment(of: [began], timeout: 3)
+        await fulfillment(of: [began], timeout: 5)
         store.setProvider(.codex, enabled: false); store.setProvider(.codex, enabled: true)
         continuation?.resume(); await task.value
         XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 10)

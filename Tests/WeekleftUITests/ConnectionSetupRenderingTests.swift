@@ -67,7 +67,7 @@ extension ConnectionSetupRenderingTests {
 
 final class ConnectionViewTaskCancellationTests: XCTestCase {
     @MainActor private func eventually(_ condition: () -> Bool) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        let deadline = ProcessInfo.processInfo.systemUptime + TimingBound.prompt
         while !condition(), ProcessInfo.processInfo.systemUptime < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }

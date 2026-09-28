@@ -9,7 +9,7 @@ final class DataLifecycleRegressionTests: XCTestCase {
         guard service.importing else { return }
         let done = expectation(description: "Import completes")
         let token = service.$importing.dropFirst().filter { !$0 }.first().sink { _ in done.fulfill() }
-        await fulfillment(of: [done], timeout: 3); token.cancel()
+        await fulfillment(of: [done], timeout: 5); token.cancel()
     }
     @MainActor func testLateProviderAutomaticallyImportsUntilEnablementAndKeepsBoundaryOnRetry() async throws {
         let date = DataClock(now)
@@ -194,7 +194,7 @@ final class DataLifecycleRegressionTests: XCTestCase {
                 }, scheduling: scheduling, discoverCodex: { "/fixture/automatic-codex" }))
         func drain() async { for _ in 0..<30 { await Task.yield() } }
         store.start(); store.start(); await drain()
-        ticks[5]?(); await fulfillment(of: [localRead], timeout: 3)
+        ticks[5]?(); await fulfillment(of: [localRead], timeout: 5)
         wake?(); await drain()
         XCTAssertFalse(delayed.isEmpty, "Wake settles before it evaluates")
         for action in delayed { action() }

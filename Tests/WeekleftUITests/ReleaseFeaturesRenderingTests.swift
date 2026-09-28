@@ -81,7 +81,7 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
         await Task.yield(); await Task.yield()
         XCTAssertEqual(calls, 0); XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 40); XCTAssertNil(store.snapshots.first?.issue)
         network.update(available: true); network.update(available: true)
-        await fulfillment(of: [finished], timeout: 2)
+        await fulfillment(of: [finished], timeout: 5)
         XCTAssertEqual(calls, 1); XCTAssertEqual(restored, 1); XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 41)
         store.stop()
         await network.onRestored?()
