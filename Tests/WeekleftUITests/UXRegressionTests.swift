@@ -675,3 +675,46 @@ final class UXRegressionTests: XCTestCase {
         }
     }
 }
+
+/// Audit r2 (R2-U-06, reported by agent Y): a macOS request that starts while Keep
+/// Awake is being reset makes the notification reset refuse. Nothing else may then
+/// change: docs/settings.md promises that the reset is not applied.
+@MainActor final class BaseSettingsResetTests: XCTestCase {
+    private final class StoppingClient: AwakeClient {
+        var isAvailable = true
+        var onEnd: () -> Void = {}
+        func requestPermission() throws {}
+        func begin(seconds: Int, policy: AwakeSafetyPolicy) async throws {}
+        func configure(policy: AwakeSafetyPolicy) async throws {}
+        func keepAlive() async throws {}
+        func end() async throws { onEnd() }
+        func disconnect() {}
+    }
+
+    func testARefusedPartOfTheResetLeavesTheOtherPreferencesUntouched() async throws {
+        let suite = "Lunavect.BaseReset." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let client = StoppingClient()
+        let awake = KeepAwake(client: client, defaults: defaults)
+        defer { awake.shutdown() }
+        let features = AppFeatures(defaults: defaults, isolated: true)
+        await awake.start()
+        XCTAssertTrue(awake.isEnabled)
+        // Stopping Keep Awake is when a login or notification request begins elsewhere.
+        client.onEnd = { features.busy = true }
+        var applied = 0
+        let restored = await SettingsView.restoreBaseSettings(awake: awake, features: features) { applied += 1 }
+        XCTAssertFalse(restored, "The notification reset refused while its request ran")
+        XCTAssertEqual(applied, 0, "Menu bar, widgets, updates, theme and language must not reset after a refusal")
+        features.busy = false; client.onEnd = {}
+        let retried = await SettingsView.restoreBaseSettings(awake: awake, features: features) { applied += 1 }
+        XCTAssertTrue(retried)
+        XCTAssertEqual(applied, 1, "A retry a few seconds later applies the whole reset")
+        features.busy = true
+        let busy = await SettingsView.restoreBaseSettings(awake: awake, features: features) { applied += 1 }
+        XCTAssertFalse(busy)
+        XCTAssertEqual(applied, 1, "Busy before the start: nothing is reset")
+        features.busy = false
+    }
+}

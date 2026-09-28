@@ -291,13 +291,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 extension SettingsView {
     /// Keep Awake or a macOS request may have started after the confirmation
-    /// appeared. Reset nothing then and say so.
+    /// appeared. Reset nothing then and say so. A request can also begin while
+    /// Keep Awake is being reset; the remaining preferences then stay as they are
+    /// (docs/settings.md: the reset is not applied) and a retry applies them all.
     static func restoreBaseSettings(awake: KeepAwake, features: AppFeatures, applyRest: () -> Void) async -> Bool {
         guard !awake.isBusy, !features.busy else { return false }
-        let awakeRestored = await awake.restoreDefaults()
-        let featuresRestored = await features.restoreDefaults()
+        guard await awake.restoreDefaults() else { return false }
+        guard await features.restoreDefaults() else { return false }
         applyRest()
-        return awakeRestored && featuresRestored
+        return true
     }
 }
 
