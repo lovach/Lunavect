@@ -27,12 +27,14 @@ final class ClaudeUsageScreenTests: XCTestCase {
 
     /// A stand-in for Claude Code: prints one screen into the PTY and then waits,
     /// like the interactive CLI, ignoring SIGTERM. No real client is started.
-    private func probe(printing screen: String, timeout: TimeInterval = 8) async throws -> (error: Error?, elapsed: TimeInterval) {
+    /// `redrawing` (a printf format) is printed every 0.5 s after the screen.
+    private func probe(printing screen: String, timeout: TimeInterval = 8, redrawing: String? = nil) async throws -> (error: Error?, elapsed: TimeInterval) {
         let root = try temporaryDirectory()
         let screenFile = root.appendingPathComponent("screen"), pidFile = root.appendingPathComponent("pid")
         let executable = root.appendingPathComponent("cli")
         try Data(screen.utf8).write(to: screenFile)
-        try Data("#!/bin/sh\necho $$ > '\(pidFile.path)'\n/bin/cat '\(screenFile.path)'\ntrap '' TERM\nexec /bin/sleep 30\n".utf8).write(to: executable)
+        let wait = redrawing.map { "while :; do printf '\($0)'; /bin/sleep 0.5; done\n" } ?? "exec /bin/sleep 30\n"
+        try Data("#!/bin/sh\necho $$ > '\(pidFile.path)'\n/bin/cat '\(screenFile.path)'\ntrap '' TERM\n\(wait)".utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let started = Date()
         var failure: Error?
@@ -95,6 +97,66 @@ final class ClaudeUsageScreenTests: XCTestCase {
             XCTAssertEqual(issue?.repair, .refresh, screen)
             XCTAssertLessThan(result.elapsed, 6, screen)
         }
+    }
+
+    /// R1-07: a block that is still loading when the deadline passes is a timeout,
+    /// never the statement that the window has not started.
+    func testUnfinishedScreenAtTheDeadlineIsATimeoutNotAnInactiveWindow() async throws {
+        let loading = "Settings  Status   Config   Usage   Stats\nCurrent week (all models)\nLoading usage data…\n"
+        XCTAssertNil(ClaudeUsageText.failure(in: loading), "No footer: not drawn")
+        XCTAssertNil(ClaudeUsageText.failure(in: loading + "Esc to cancel\n"), "A loading indicator in the last lines: not drawn")
+        XCTAssertEqual((ClaudeUsageText.failure(in: "Current week (all models)\n\nEsc to cancel\n") as? ClientIntegrationIssue)?.reason,
+                       .windowInactive, "A drawn empty block is the inactive window")
+        let result = try await probe(printing: loading + "Esc to cancel\n", timeout: 3)
+        let issue = result.error as? ClientIntegrationIssue
+        XCTAssertEqual(issue?.reason, .timedOut)
+        XCTAssertNotEqual(issue?.reason, .windowInactive)
+    }
+
+    /// R1-08: blocks the CLI shows next to "Could not refresh usage data" (or "Failed
+    /// to load usage data") are its cached values, not an observation made now. The
+    /// probe fails and the saved observation keeps its own time.
+    func testBlocksShownWithARefreshFailureAreNotAFreshObservation() async throws {
+        let blocks = "Current session\n12% used\nResets in 2h 15m\nCurrent week (all models)\n40% used\nResets in 3d 2h\n"
+        for line in ["Could not refresh usage data", "Failed to load usage data"] {
+            let screen = blocks + line + "\nEsc to cancel\n"
+            XCTAssertThrowsError(try ClaudeUsageText.parse(screen, now: now), line) {
+                XCTAssertEqual(($0 as? ClientIntegrationIssue)?.reason, .usageFetchFailed, line)
+            }
+            let result = try await probe(printing: screen)
+            XCTAssertEqual((result.error as? ClientIntegrationIssue)?.reason, .usageFetchFailed, line)
+            XCTAssertLessThan(result.elapsed, 6, line)
+        }
+        let root = try temporaryDirectory()
+        let executable = root.appendingPathComponent("cli-cached")
+        let screenFile = root.appendingPathComponent("cached-screen")
+        try Data((blocks + "Could not refresh usage data\nEsc to cancel\n").utf8).write(to: screenFile)
+        try Data("#!/bin/sh\n/bin/cat '\(screenFile.path)'\nexec /bin/sleep 30\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let saved = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 30, durationMinutes: 10080, resetsAt: Date().addingTimeInterval(86400), resetPrecision: .minute),
+            fetchedAt: Date().addingTimeInterval(-3600), source: ClaudeUsageProbe.source)
+        var writes = 0
+        let result = try await ClaudeProvider.refresh(cached: { saved }, probe: {
+            try await ClaudeUsageProbe.fetch(cliPath: executable.path, timeout: 8, directory: root.appendingPathComponent("probe"))
+        }, save: { _ in writes += 1 })
+        XCTAssertEqual(writes, 0, "Cached blocks are never stored as a new observation")
+        XCTAssertEqual(result.fetchedAt, saved.fetchedAt)
+        XCTAssertEqual(result.weekly, saved.weekly)
+        XCTAssertEqual(result.issue, ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .usageFetchFailed).message)
+    }
+
+    /// R1-09: the early exit measures quiet time on the plain screen. Cursor and
+    /// spinner redraws after the screen is complete bring no new text.
+    func testRedrawsWithoutNewTextDoNotKeepTheProbeAlive() async throws {
+        for redraw in [#"\033[?25h"#, #"\342\240\213\033[1D"#, #"\033]0;claude\007"#] {
+            let result = try await probe(printing: "Settings  Status   Config   Usage   Stats\nSomething the parser does not know\nEsc to cancel\n",
+                                         redrawing: redraw)
+            XCTAssertEqual((result.error as? ClientIntegrationIssue)?.reason, .unsupportedResponse, redraw)
+            XCTAssertLessThan(result.elapsed, 6, redraw)
+        }
+        XCTAssertEqual(ClaudeUsageText.quietSignature("Esc to cancel\n⠋ "), ClaudeUsageText.quietSignature("Esc to cancel\n⠙\n"))
+        XCTAssertNotEqual(ClaudeUsageText.quietSignature("Esc to cancel"), ClaudeUsageText.quietSignature("Esc to cancel\nResets"))
     }
 
     /// Q-12: every service line named in 01-quota.md Q-12 ends the probe with a

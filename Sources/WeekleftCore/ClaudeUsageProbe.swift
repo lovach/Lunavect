@@ -55,7 +55,7 @@ public enum ClaudeUsageProbe {
         return try SessionProcess.withRunningProcess(process) {
             let deadline = ProcessInfo.processInfo.systemUptime + timeout
             var output = Data(), bytes = [UInt8](repeating: 0, count: 16384)
-            var text = "", lastOutput = ProcessInfo.processInfo.systemUptime
+            var text = "", signature = "", lastOutput = ProcessInfo.processInfo.systemUptime
             // A screen with a window that has no reset yet is accepted only once
             // it stops changing: a partial render must not look like an inactive window.
             var tentative: UsageSnapshot?
@@ -75,15 +75,21 @@ public enum ClaudeUsageProbe {
                         output.append(contentsOf: bytes.prefix(count))
                         guard output.count < 512_000 else { throw finish(UsageError.claudeUsageUnavailable) }
                         text = ClaudeUsageText.plain(String(decoding: output, as: UTF8.self))
-                        lastOutput = ProcessInfo.processInfo.systemUptime
-                        tentative = nil
-                        if let snapshot = try? ClaudeUsageText.parse(text) {
-                            guard ClaudeUsageText.awaitsReset(snapshot) else { screen?(text); return snapshot }
-                            tentative = snapshot
+                        // Quiet time is measured on the text: cursor, title and spinner
+                        // redraws of a finished screen are not new content.
+                        let next = ClaudeUsageText.quietSignature(text)
+                        if next != signature {
+                            signature = next
+                            lastOutput = ProcessInfo.processInfo.systemUptime
+                            tentative = nil
+                            if let snapshot = try? ClaudeUsageText.parse(text) {
+                                guard ClaudeUsageText.awaitsReset(snapshot) else { screen?(text); return snapshot }
+                                tentative = snapshot
+                            }
+                            // Prompts wait for an answer that only the user may give.
+                            if let prompt = ClaudeUsageText.blockingPrompt(in: text) { throw finish(prompt) }
+                            settles = ClaudeUsageText.isDrawn(text) || ClaudeUsageText.state(in: text) != nil
                         }
-                        // Prompts wait for an answer that only the user may give.
-                        if let prompt = ClaudeUsageText.blockingPrompt(in: text) { throw finish(prompt) }
-                        settles = ClaudeUsageText.isDrawn(text) || ClaudeUsageText.state(in: text) != nil
                     } else if !process.isRunning { break }
                 }
                 if !process.isRunning { break }
@@ -143,6 +149,9 @@ public enum ClaudeUsageText {
             else { throw UsageError.claudeUsageUnavailable }
             return try QuotaWindow(usedPercent: used, durationMinutes: minutes, resetsAt: shown.date, resetPrecision: shown.precision)
         }
+        // Blocks drawn next to a failed refresh are the CLI's cached values: they
+        // were not observed now and must not be stored as a fresh observation.
+        if ClaudeUsageText.refreshFailed(text) { throw issue(.usageFetchFailed) }
         guard let weekly = try window(label: "Current week (all models)", minutes: 10080) else { throw UsageError.claudeUsageUnavailable }
         let fiveHour = try window(label: "Current session", minutes: 300)
         // Wait for the complete command, not a partially rendered weekly block.
@@ -393,6 +402,23 @@ extension ClaudeUsageText {
     private static func issue(_ reason: ClientIntegrationIssue.Reason) -> ClientIntegrationIssue {
         ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: reason)
     }
+    /// What the early exit compares to decide that the screen stopped changing: the
+    /// plain text without whitespace and spinner glyphs (Braille dots, Claude's
+    /// asterisk-like frames, quarter circles). Escape sequences are already gone.
+    static func quietSignature(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars where !CharacterSet.whitespacesAndNewlines.contains(scalar) && !isSpinner(scalar) {
+            scalars.append(scalar)
+        }
+        return String(scalars)
+    }
+    private static func isSpinner(_ scalar: Unicode.Scalar) -> Bool {
+        (0x2800...0x28FF).contains(scalar.value) || "·✢✳✶✻✽*◐◓◑◒".unicodeScalars.contains(scalar)
+    }
+    /// The CLI could not load or refresh its usage data; blocks on such a screen are cached.
+    static func refreshFailed(_ text: String) -> Bool {
+        text.contains("Failed to load usage data") || text.contains("Could not refresh usage data")
+    }
     /// The footer is drawn last; a loading indicator means more is coming.
     static func isDrawn(_ text: String) -> Bool {
         guard text.contains("Esc to cancel") || text.contains("Escape to cancel") else { return false }
@@ -414,8 +440,7 @@ extension ClaudeUsageText {
     }
     /// Known states of a drawn `/usage` screen that carry no subscription quota.
     static func state(in text: String) -> ClientIntegrationIssue.Reason? {
-        if text.contains("Failed to load usage data") || text.contains("Could not refresh usage data")
-            || text.contains("No model usage data available") { return .usageFetchFailed }
+        if refreshFailed(text) || text.contains("No model usage data available") { return .usageFetchFailed }
         if text.contains("Usage limit reached") || text.contains("You've hit your") || text.contains("You\u{2019}ve hit your") { return .limitReached }
         // Header of a CLI without a subscription sign-in or with API-key billing:
         // `/usage` then shows only the session cost panel.
@@ -426,6 +451,9 @@ extension ClaudeUsageText {
     static func failure(in text: String) -> Error? {
         if let prompt = blockingPrompt(in: text) { return prompt }
         if let reason = state(in: text) { return issue(reason) }
+        // An empty block means "not started" only on a finished screen. A block that
+        // is still loading (or cut off) when the deadline passes is a timeout.
+        guard isDrawn(text) else { return nil }
         let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
         if let start = lines.lastIndex(of: "Current week (all models)") {
             let section = lines[(start + 1)..<min(lines.count, start + 6)].prefix { !endsSection($0) }
