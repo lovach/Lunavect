@@ -255,6 +255,13 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                         Toggle(L("Показывать 5-часовой лимит"), isOn: $store.preferences.showFiveHour)
                             .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("widget-shared-five-hour")
                     }
+                    if let models = claudeModelLimitNames(store.snapshots) {
+                        Divider()
+                        SettingsRow(L("Показывать лимит {0}", models)) {
+                            Toggle(L("Показывать лимит {0}", models), isOn: $store.preferences.showModelLimits)
+                                .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("widget-shared-model-limits")
+                        }
+                    }
                     Divider()
                     SettingsRow(L("Стеклянный фон")) {
                         Toggle(L("Стеклянный фон"), isOn: $store.preferences.transparentBackground)
@@ -564,6 +571,12 @@ struct LimitsOverview: View {
                     Toggle(L("Показывать 5-часовой лимит"), isOn: $store.preferences.showFiveHour)
                         .labelsHidden().toggleStyle(.switch)
                 }
+                if let models = claudeModelLimitNames(store.snapshots) {
+                    SettingsRow(L("Показывать лимит {0} в виджете", models)) {
+                        Toggle(L("Показывать лимит {0} в виджете", models), isOn: $store.preferences.showModelLimits)
+                            .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("limits-model-limits")
+                    }
+                }
                 Button(L("Проверить подключение"), action: onConnections).buttonStyle(.link)
             }
         }.accessibilityIdentifier("limits-overview")
@@ -713,4 +726,10 @@ private struct SettingsSidebarMaterial: NSViewRepresentable {
         return view
     }
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+/// Claude's weekly model limits by name ("Fable"), or nil while none is known.
+func claudeModelLimitNames(_ snapshots: [UsageSnapshot]) -> String? {
+    let names = snapshots.first { $0.provider == .claude }?.modelQuotas?.map(\.name) ?? []
+    return names.isEmpty ? nil : names.joined(separator: ", ")
 }

@@ -15,7 +15,73 @@ public enum SessionIDE: String, Codable, Sendable {
         return ["toolbox", "gateway", "fleet"].contains(product) ? nil : .jetbrains
     }
 
+    /// Also an editor built from VS Code (Cursor, Windsurf, VSCodium…): its
+    /// `product.json` names the same bundle identifier as the app at `appPath`.
+    public static func identify(bundleIdentifier: String, appPath: String?,
+                                product: (String) -> VSCodeFamily.Product? = VSCodeFamily.product(appPath:)) -> SessionIDE? {
+        if let editor = identify(bundleIdentifier: bundleIdentifier) { return editor }
+        guard let appPath, let product = product(appPath),
+              product.bundleIdentifier.lowercased() == bundleIdentifier.lowercased() else { return nil }
+        return .vscode
+    }
+
     public var client: SessionClient { self == .vscode ? .vscode : .jetbrains }
+}
+
+/// Editors built from VS Code keep its `Contents/Resources/app/product.json`,
+/// with the product name, URL scheme and bundle identifier. Reading it avoids a
+/// guessed list of identifiers; the identifier must match the app's own.
+public enum VSCodeFamily {
+    public struct Product: Equatable, Sendable {
+        public let name: String
+        public let urlProtocol: String
+        public let bundleIdentifier: String
+        public init(name: String, urlProtocol: String, bundleIdentifier: String) {
+            self.name = name; self.urlProtocol = urlProtocol; self.bundleIdentifier = bundleIdentifier
+        }
+    }
+    /// Microsoft's own builds keep the names and schemes the app always used.
+    public static let microsoft = ["com.microsoft.vscode": "vscode", "com.microsoft.vscodeinsiders": "vscode-insiders"]
+
+    public static func product(appPath: String) -> Product? {
+        let url = URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Resources/app/product.json")
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+              let size = values.fileSize, size <= 1 << 20 else { return nil }
+        return cache.value(for: appPath, version: values.contentModificationDate) {
+            (try? Data(contentsOf: url)).flatMap(parse)
+        }
+    }
+
+    static func parse(_ data: Data) -> Product? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let scheme = object["urlProtocol"] as? String,
+              scheme.range(of: #"^[a-z][a-z0-9.+-]{0,39}\z"#, options: .regularExpression) != nil,
+              let identifier = object["darwinBundleIdentifier"] as? String, !identifier.isEmpty, identifier.count <= 255,
+              let name = (object["nameLong"] as? String) ?? (object["nameShort"] as? String),
+              !name.isEmpty, name.count <= 64, !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+        else { return nil }
+        return Product(name: name, urlProtocol: scheme, bundleIdentifier: identifier)
+    }
+
+    /// The URL schemes a companion in this editor may call back with.
+    public static func callbackSchemes(bundleIdentifier: String, appPath: String,
+                                       product: (String) -> Product? = product(appPath:)) -> Set<String> {
+        if let scheme = microsoft[bundleIdentifier.lowercased()] { return [scheme] }
+        guard let product = product(appPath), product.bundleIdentifier.lowercased() == bundleIdentifier.lowercased() else { return [] }
+        return [product.urlProtocol]
+    }
+
+    private static let cache = ProductCache()
+    private final class ProductCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [String: (version: Date?, product: Product?)] = [:]
+        func value(for path: String, version: Date?, read: () -> Product?) -> Product? {
+            if let entry = lock.withLock({ entries[path] }), entry.version == version { return entry.product }
+            let product = read()
+            lock.withLock { if entries.count > 32 { entries.removeAll() }; entries[path] = (version, product) }
+            return product
+        }
+    }
 }
 
 /// Where a runtime runs when Lunavect has no navigation route to it.
@@ -85,9 +151,13 @@ public enum IDEProcessLocation {
     }
 
     /// The product name for messages: CFBundleName of a JetBrains IDE (for example
-    /// "PyCharm CE"), or its bundle folder; VS Code keeps its client title.
+    /// "PyCharm CE"), or its bundle folder; VS Code keeps its client title, and an
+    /// editor built from it uses its own product name ("Cursor").
     public static func displayName(_ location: IDESessionLocation) -> String {
-        guard location.editor == .jetbrains else { return location.editor.client.title }
+        guard location.editor == .jetbrains else {
+            if VSCodeFamily.microsoft[location.bundleIdentifier.lowercased()] != nil { return location.editor.client.title }
+            return VSCodeFamily.product(appPath: location.appPath)?.name ?? location.editor.client.title
+        }
         let app = URL(fileURLWithPath: location.appPath)
         if let data = try? Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")),
            let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
@@ -105,13 +175,14 @@ public enum IDEProcessLocation {
 
     public static func locate(parentPID: Int32, provider: ProviderID) -> IDESessionLocation? {
         locate(parentPID: parentPID, provider: provider, read: process, bundle: bundleIdentifier,
-               arguments: SessionProcess.processArguments)
+               arguments: SessionProcess.processArguments, product: VSCodeFamily.product(appPath:))
     }
 
     /// `arguments` is asked only for interpreter processes (an npm-installed Claude
     /// runs as node); fixtures without it never read another process.
     static func locate(parentPID: Int32, provider: ProviderID, read: (Int32) -> ProcessInfo?,
-                       bundle: (String) -> String?, arguments: (Int32) -> [String]? = { _ in nil }) -> IDESessionLocation? {
+                       bundle: (String) -> String?, arguments: (Int32) -> [String]? = { _ in nil },
+                       product: (String) -> VSCodeFamily.Product? = { _ in nil }) -> IDESessionLocation? {
         var pid = parentPID, seen = Set<Int32>(), runtime: SessionProcessIdentity?, hasTerminal = false
         for _ in 0..<24 {
             guard pid > 1, seen.insert(pid).inserted, let current = read(pid) else { return nil }
@@ -123,7 +194,7 @@ public enum IDEProcessLocation {
                 let appPath = String(current.executable[..<range.lowerBound]) + ".app"
                 // Bundled CLI executables do not identify their actual launch host.
                 if !current.executable.contains("/Contents/Resources/"),
-                   let identifier = bundle(appPath), let editor = SessionIDE.identify(bundleIdentifier: identifier),
+                   let identifier = bundle(appPath), let editor = SessionIDE.identify(bundleIdentifier: identifier, appPath: appPath, product: product),
                    let runtime {
                     return .init(editor: editor, bundleIdentifier: identifier, appPath: appPath,
                                  runtime: runtime, usesTerminal: hasTerminal)

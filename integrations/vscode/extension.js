@@ -30,6 +30,18 @@ function socketDirectory(id) {
   return '/tmp/lunavect-ide-' + process.getuid();
 }
 
+// The editor's own bundle identifier from its product.json: Cursor and other
+// editors built on VS Code name theirs there. Companions up to 0.1.2 always
+// reported VS Code's, which Lunavect rejected for any other editor.
+async function bundleIdentifier(env, readFile = fs.readFile) {
+  try {
+    const product = JSON.parse(await readFile(path.join(env.appRoot, 'product.json'), 'utf8'));
+    const identifier = product && product.darwinBundleIdentifier;
+    if (typeof identifier === 'string' && /^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/.test(identifier)) return identifier;
+  } catch {}
+  return env.uriScheme === 'vscode-insiders' ? 'com.microsoft.VSCodeInsiders' : 'com.microsoft.VSCode';
+}
+
 async function isSocket(file) {
   try { return (await fs.lstat(file)).isSocket(); } catch { return false; }
 }
@@ -62,7 +74,7 @@ async function start(context) {
   const appPath = path.resolve(vscode.env.appRoot, '../../..');
   const descriptor = {
     version: 1, id, editor: 'vscode', companion: version, pid: process.pid, appPath,
-    bundleIdentifier: vscode.env.uriScheme === 'vscode-insiders' ? 'com.microsoft.VSCodeInsiders' : 'com.microsoft.VSCode',
+    bundleIdentifier: await bundleIdentifier(vscode.env),
     socketPath, updatedAt: Date.now() / 1000
   };
   const handler = vscode.window.registerUriHandler({

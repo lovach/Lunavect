@@ -580,7 +580,7 @@ struct SessionRow: View {
     var menuItems: [SessionMenuAnchor.Item] {
         [
             .init(title: L("Открыть сессию"), enabled: !isOpening, action: openSession),
-            session.client == .vscode ? .init(title: L("В VS Code должен быть открыт проект этой сессии."), enabled: false, action: {}) : nil,
+            session.client == .vscode ? .init(title: L("В {0} должен быть открыт проект этой сессии.", hostTitle), enabled: false, action: {}) : nil,
             .separator,
             onPin.map { .init(title: L(isPinned ? "Открепить" : "Закрепить"), action: $0) },
         ].compactMap { $0 } + reorderMenuItems + [
@@ -594,6 +594,8 @@ struct SessionRow: View {
         ].compactMap { $0 }
     }
     private func showActions() { menuAnchor.show(menuItems) }
+    /// The editor by its product name (Cursor, PyCharm), otherwise the client.
+    private var hostTitle: String { session.ideLocation.map(IDEProcessLocation.displayName) ?? session.client.title }
     private func openSession() {
         guard !isOpening else { return }
         onOpen?()
@@ -607,7 +609,7 @@ struct SessionRow: View {
         var lines = [displayTitle, statusTitle]
         if let background { lines.append(background.summary) }
         lines.append(session.cwd.isEmpty ? session.project : session.cwd)
-        lines.append(session.provider.title + " · " + session.client.title)
+        lines.append(session.provider.title + " · " + hostTitle)
         return lines.joined(separator: "\n")
     }
     /// The pin glyph is decorative; VoiceOver hears the pinned state with the status.

@@ -25,7 +25,7 @@ final class WidgetDataTests: XCTestCase {
         XCTAssertEqual(dates.first, now, "The first entry is the current state")
         XCTAssertEqual(dates, dates.sorted()); XCTAssertEqual(Set(dates).count, dates.count)
         XCTAssertTrue(dates.contains(reset), "An entry at the reset stops showing the old quota")
-        XCTAssertTrue(dates.contains(fetched.addingTimeInterval(901)), "An entry marks the observation stale")
+        XCTAssertTrue(dates.contains(fetched.addingTimeInterval(QuotaFreshness.maximumAge + 1)), "An entry marks the observation stale")
         XCTAssertTrue(dates.contains(calendar.startOfDay(for: now.addingTimeInterval(86400))))
         XCTAssertTrue(dates.contains(now.addingTimeInterval(900)))
         XCTAssertTrue(dates.allSatisfy { $0 >= now && $0 <= now.addingTimeInterval(86400) })

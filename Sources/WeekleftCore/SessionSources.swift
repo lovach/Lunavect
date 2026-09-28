@@ -253,6 +253,12 @@ enum CodexSessionDiscovery {
     }
 }
 
+/// Process facts the app needs outside session discovery.
+public enum ProcessInspection {
+    /// The path a process of this user was started from, even after the file moved or was deleted.
+    public static func launchPath(_ pid: Int32) -> String? { SessionProcess.processExecutablePath(pid) }
+}
+
 enum SessionProcess {
     /// Synchronous pipe/PTY work stays off the caller's actor, while cancellation
     /// follows the detached worker and remains CancellationError at the boundary.
@@ -596,11 +602,10 @@ enum SessionProcess {
         defer { free(resolved) }
         return String(cString: resolved)
     }
-    /// The argument vector of one of the user's own processes, read with
-    /// `sysctl(KERN_PROCARGS2)`; no program is run. Another user's process yields nil.
-    /// The kernel returns the environment after the arguments in the same block; it is
-    /// discarded unparsed.
-    static func processArguments(_ pid: Int32) -> [String]? {
+    /// The `sysctl(KERN_PROCARGS2)` block of one of the user's own processes; no
+    /// program is run. Another user's process yields nil. The kernel returns the
+    /// environment after the arguments in the same block; it is discarded unparsed.
+    static func processArgumentBlock(_ pid: Int32) -> [UInt8]? {
         guard pid > 1 else { return nil }
         func identity() -> (uid: uid_t, start: UInt64)? {
             var info = proc_bsdinfo()
@@ -621,7 +626,20 @@ enum SessionProcess {
         guard sysctl(&mib, 3, &bytes, &length, nil, 0) == 0 else { return nil }
         // The PID must still name the process whose owner was checked (R26-V2-03).
         guard let after = identity(), after.uid == before.uid, after.start == before.start else { return nil }
-        return parseProcessArguments(Array(bytes.prefix(length)))
+        return Array(bytes.prefix(length))
+    }
+    static func processArguments(_ pid: Int32) -> [String]? {
+        processArgumentBlock(pid).flatMap(parseProcessArguments)
+    }
+    /// The path the process was started from. Unlike `proc_pidpath`, it survives an
+    /// update that moved or deleted the executable while the process kept running.
+    static func processExecutablePath(_ pid: Int32) -> String? {
+        processArgumentBlock(pid).flatMap(parseExecutablePath)
+    }
+    static func parseExecutablePath(_ bytes: [UInt8]) -> String? {
+        guard bytes.count > 4 else { return nil }
+        let path = bytes[4...].prefix { $0 != 0 }
+        return path.isEmpty ? nil : String(decoding: path, as: UTF8.self)
     }
     /// KERN_PROCARGS2 layout: argc as Int32, the executable path, NUL padding to an
     /// 8-byte boundary of the string area, then argc NUL-terminated strings (followed by
@@ -660,7 +678,8 @@ enum SessionProcess {
     /// and JetBrains IDEs, a Claude Desktop task without a terminal, and an unreadable
     /// or detached ancestry return nil. Only parents, devices and executable paths are read.
     static func launchHost(runtimePID: Int32, read: (Int32) -> TerminalProcess? = terminalProcess,
-                           bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> SessionLaunchHost? {
+                           bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier,
+                           product: (String) -> VSCodeFamily.Product? = VSCodeFamily.product(appPath:)) -> SessionLaunchHost? {
         var pid = runtimePID, seen = Set<Int32>(), hasTerminal: Bool?
         for _ in 0..<16 {
             guard pid > 1, seen.insert(pid).inserted, let process = read(pid) else { return nil }
@@ -671,7 +690,7 @@ enum SessionProcess {
                !path.contains("/Contents/Resources/"), let range = path.range(of: ".app/Contents/") {
                 let app = String(path[..<range.lowerBound]) + ".app"
                 if path.contains("/Terminal.app/") || path.contains("/iTerm.app/") { return nil }
-                if let identifier = bundle(app), SessionIDE.identify(bundleIdentifier: identifier) != nil { return nil }
+                if let identifier = bundle(app), SessionIDE.identify(bundleIdentifier: identifier, appPath: app, product: product) != nil { return nil }
                 let terminal = hasTerminal == true
                 if path.contains("/Claude.app/") { return terminal ? .init(kind: .embeddedTerminal, name: "Claude") : nil }
                 for name in ["Codex", "ChatGPT"] where path.contains("/\(name).app/") {
@@ -767,7 +786,8 @@ enum SessionProcess {
 
     static func client(parentPID: Int32, entrypoint: String, terminal: String,
                        read: (Int32) -> TerminalProcess? = terminalProcess,
-                       bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> SessionClient {
+                       bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier,
+                       product: (String) -> VSCodeFamily.Product? = VSCodeFamily.product(appPath:)) -> SessionClient {
         // Query executable paths and parent PIDs directly. Never spawn ps, read
         // arguments, or inspect environment variables of another process.
         var pid = parentPID, device: String?, otherHost = false
@@ -781,11 +801,11 @@ enum SessionProcess {
             let bundledCLI = name.contains("/Contents/Resources/")
             if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
             if !bundledCLI, let range = name.range(of: ".app/Contents/"),
-               let identifier = bundle(String(name[..<range.lowerBound]) + ".app"),
-               let editor = SessionIDE.identify(bundleIdentifier: identifier) { return editor.client }
+               case let app = String(name[..<range.lowerBound]) + ".app", let identifier = bundle(app),
+               let editor = SessionIDE.identify(bundleIdentifier: identifier, appPath: app, product: product) { return editor.client }
             if name.contains("/Terminal.app/") || name.contains("/iTerm.app/") { return .terminal }
-            // Another application owning the session's device (a VS Code fork, Ghostty,
-            // kitty…) hosts a terminal, whatever TERM_PROGRAM it passed on.
+            // Another application owning the session's device (Ghostty, kitty, an editor
+            // without VS Code's product file…) hosts a terminal, whatever TERM_PROGRAM it passed on.
             if outsideSession, terminalHostApp(name) != nil { otherHost = true; break }
             guard let parent = process.parentPID, parent > 1, parent != pid else { break }
             pid = parent
@@ -818,7 +838,8 @@ enum SessionProcess {
     /// navigation route), or empty when a root-owned login hides the host.
     static func terminalLocation(parentPID: Int32, termProgram: String,
                                  read: (Int32) -> TerminalProcess? = terminalProcess,
-                                 bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> (tty: String, app: String)? {
+                                 bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier,
+                                 product: (String) -> VSCodeFamily.Product? = VSCodeFamily.product(appPath:)) -> (tty: String, app: String)? {
         // Hook runners may call setsid(), losing their own controlling TTY.
         // Follow their parents to the client rather than giving up at the hook.
         // Read only process metadata; never arguments, environment or terminal text.
@@ -827,8 +848,10 @@ enum SessionProcess {
         func isEditorOrDesktop(_ path: String) -> Bool {
             guard !path.contains("/Contents/Resources/") else { return false }
             if ["/Claude.app/", "/ChatGPT.app/", "/Codex.app/", "/Visual Studio Code.app/"].contains(where: path.contains) { return true }
-            guard let range = path.range(of: ".app/Contents/"), let identifier = bundle(String(path[..<range.lowerBound]) + ".app") else { return false }
-            return SessionIDE.identify(bundleIdentifier: identifier) != nil
+            guard let range = path.range(of: ".app/Contents/") else { return false }
+            let app = String(path[..<range.lowerBound]) + ".app"
+            guard let identifier = bundle(app) else { return false }
+            return SessionIDE.identify(bundleIdentifier: identifier, appPath: app, product: product) != nil
         }
         for _ in 0..<16 {
             // launchd, a cycle or an unreadable process ends the walk; the device is kept.

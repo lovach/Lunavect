@@ -99,7 +99,7 @@ final class QuotaWindowStateTests: XCTestCase {
             weekly: try QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: now.addingTimeInterval(4 * 86400)),
             fetchedAt: now, source: "Claude Code statusLine", modelQuotas: [bucket])])
         XCTAssertEqual(features.limitResetTime(for: .claude, now: now), reset)
-        let old = ModelQuota(name: "Model", window: bucket.window, fetchedAt: now.addingTimeInterval(-901))
+        let old = ModelQuota(name: "Model", window: bucket.window, fetchedAt: now.addingTimeInterval(-(QuotaFreshness.maximumAge + 1)))
         features.useSnapshots([UsageSnapshot(provider: .claude, fetchedAt: now, source: "Claude Code statusLine", modelQuotas: [old])])
         XCTAssertNil(features.limitResetTime(for: .claude, now: now), "An old bucket stays old")
     }

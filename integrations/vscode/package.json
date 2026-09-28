@@ -1,8 +1,8 @@
 {
   "name": "lunavect",
   "displayName": "Lunavect Sessions",
-  "description": "Let Lunavect focus the existing Claude or Codex session in this VS Code window.",
-  "version": "0.1.2",
+  "description": "Let Lunavect focus the existing Claude or Codex session in this VS Code or Cursor window.",
+  "version": "0.1.3",
   "publisher": "lovach",
   "license": "MIT",
   "engines": { "vscode": "^1.94.0" },

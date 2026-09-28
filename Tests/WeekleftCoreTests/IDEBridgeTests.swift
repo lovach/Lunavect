@@ -485,12 +485,14 @@ final class IDEBridgeTests: XCTestCase {
     }
 
     /// The installers actually bundled with this build: a JetBrains 0.1.1 companion
-    /// (which reports no version) is offered the bundled 0.1.2, and 0.1.2 is current.
+    /// (which reports no version) is offered the bundled 0.1.2, and 0.1.2 is current;
+    /// a VS Code 0.1.2 companion is offered 0.1.3, which reports the editor it runs in.
     func testBundledManifestOffersJetBrainsCompanionUpdate() throws {
         let manifest = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/Weekleft/Resources/IDEConnectors/manifest.json")
         let bundled = IDEBridge.bundledCompanionVersions(manifest: try Data(contentsOf: manifest))
-        XCTAssertEqual(bundled, [.vscode: "0.1.2", .jetbrains: "0.1.2"])
+        XCTAssertEqual(bundled, [.vscode: "0.1.3", .jetbrains: "0.1.2"])
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: "0.1.2", bundled: bundled[.vscode]), .available(installed: "0.1.2", bundled: "0.1.3"))
         XCTAssertEqual(IDEBridge.companionUpdate(installed: nil, bundled: bundled[.jetbrains]), .available(installed: nil, bundled: "0.1.2"),
                        "An installed 0.1.1 plugin is asked to reinstall")
         XCTAssertEqual(IDEBridge.companionUpdate(installed: "0.1.2", bundled: bundled[.jetbrains]), .current)

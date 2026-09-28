@@ -88,7 +88,7 @@ public struct QuotaRefreshPolicy: Sendable {
     public enum Trigger: String, Sendable { case launch, timer, sessionEvent, wake, networkRestored, resetDue, manual }
     public struct Timing: Sendable, Equatable {
         public var activeInterval: TimeInterval = 900
-        public var idleInterval: TimeInterval = 3600
+        public var idleInterval: TimeInterval = QuotaFreshness.idleRefreshInterval
         public var activityWindow: TimeInterval = 3600
         public var eventMinimumAge: TimeInterval = 120
         public var eventDebounce: TimeInterval = 90
@@ -122,7 +122,7 @@ public struct QuotaRefreshPolicy: Sendable {
         // Usage within a window never decreases, and no request is possible while
         // a window is used up: nothing changes before its reset, including another
         // window whose reset has passed (both are confirmed together afterwards).
-        if windows.contains(where: { $0.remaining < 1 && ($0.resetsAt.map { $0 > now } ?? false) }) { return false }
+        if windows.contains(where: { $0.isUsedUp && ($0.resetsAt.map { $0 > now } ?? false) }) { return false }
         // A passed reset: the saved values belong to the previous window, also when
         // an answer after the reset still showed it. Confirm the new windows once the
         // grace (minute rounding of the CLI) after the latest passed reset is over;

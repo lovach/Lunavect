@@ -27,7 +27,7 @@ final class LimitAlertTrackerTests: XCTestCase {
 
     func testIgnoresStaleOrFailedObservations() throws {
         var tracker = LimitAlertTracker()
-        XCTAssertTrue(tracker.update([try snapshot(fiveHourUsed: 99, fetched: -901)], threshold: 10, now: now).isEmpty)
+        XCTAssertTrue(tracker.update([try snapshot(fiveHourUsed: 99, fetched: -(QuotaFreshness.maximumAge + 1))], threshold: 10, now: now).isEmpty)
         XCTAssertTrue(tracker.update([try snapshot(fiveHourUsed: 99, issue: "Claude usage unavailable")], threshold: 10, now: now).isEmpty)
         XCTAssertTrue(tracker.update([try snapshot(fiveHourUsed: 99, fiveHourReset: -60)], threshold: 10, now: now).isEmpty)
         XCTAssertEqual(tracker.update([try snapshot(.codex, weeklyUsed: 95)], threshold: 10, now: now).map(\.window), [.weekly])
@@ -104,5 +104,48 @@ final class LimitAlertTrackerTests: XCTestCase {
         let atOldReset = tracker.update([try snapshot(weeklyUsed: 97, weeklyReset: 4 * 86400, fetched: 3 * 86400)], threshold: 10, now: now.addingTimeInterval(3 * 86400 + 5))
         XCTAssertTrue(atOldReset.isEmpty, "the moved window has not reset yet")
         XCTAssertEqual(tracker.update([], threshold: 10, now: now.addingTimeInterval(4 * 86400 + 5)).map(\.kind), [.restored])
+    }
+
+
+    private func fable(used: Double, fetched: TimeInterval = 0) throws -> UsageSnapshot {
+        var snapshot = try snapshot(weeklyUsed: 40)
+        snapshot.modelQuotas = [ModelQuota(name: "Fable", window: try QuotaWindow(usedPercent: used, durationMinutes: 10080,
+                                                                                  resetsAt: now.addingTimeInterval(3 * 86400)),
+                                           fetchedAt: now.addingTimeInterval(fetched))]
+        return snapshot
+    }
+
+    func testModelLimitWarnsOnlyWhenItsSwitchIsOn() throws {
+        var off = LimitAlertTracker()
+        XCTAssertTrue(off.update([try fable(used: 93)], threshold: 10, now: now).isEmpty)
+        var on = LimitAlertTracker()
+        XCTAssertEqual(on.update([try fable(used: 93)], threshold: 10, now: now, models: true),
+                       [LimitAlert(provider: .claude, window: .model("Fable"), kind: .low(remaining: 7), resetsAt: now.addingTimeInterval(3 * 86400))])
+        XCTAssertTrue(on.update([try fable(used: 95)], threshold: 10, now: now, models: true).isEmpty, "one alert per cycle")
+        XCTAssertEqual(LimitWindowKind.model("Fable").modelName, "Fable")
+        XCTAssertNil(LimitWindowKind.weekly.modelName)
+    }
+
+    func testModelLimitUsesItsOwnObservationTime() throws {
+        var tracker = LimitAlertTracker()
+        XCTAssertTrue(tracker.update([try fable(used: 95, fetched: -(QuotaFreshness.maximumAge + 1))], threshold: 10, now: now, models: true).isEmpty)
+    }
+
+    func testModelLimitReturnIsAnnouncedOnlyWhileItsSwitchIsOn() throws {
+        var tracker = LimitAlertTracker()
+        XCTAssertEqual(tracker.update([try fable(used: 95)], threshold: 10, now: now, models: true).count, 1)
+        let after = now.addingTimeInterval(3 * 86400 + 60)
+        var silent = tracker
+        XCTAssertTrue(silent.update([], threshold: 10, now: after, models: false).isEmpty)
+        XCTAssertEqual(tracker.update([], threshold: 10, now: after, models: true).map(\.kind), [.restored])
+    }
+
+    func testStatesSavedBeforeModelLimitsStillDecode() throws {
+        let saved = #"{"cycles":[{"provider":"claude","window":"weekly","resetsAt":0,"warned":true,"closed":false}]}"#
+        let state = try JSONDecoder().decode(LimitAlertState.self, from: Data(saved.utf8))
+        XCTAssertEqual(state.cycles.first?.window, .weekly)
+        let model = LimitAlertState(cycles: [.init(provider: .claude, window: .model("Fable"), resetsAt: now)])
+        XCTAssertEqual(try JSONDecoder().decode(LimitAlertState.self, from: JSONEncoder().encode(model)), model)
+        XCTAssertTrue(String(decoding: try JSONEncoder().encode(model), as: UTF8.self).contains(#""window":"model:Fable""#))
     }
 }

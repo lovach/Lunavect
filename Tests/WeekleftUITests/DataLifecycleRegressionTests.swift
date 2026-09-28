@@ -104,7 +104,7 @@ final class DataLifecycleRegressionTests: XCTestCase {
             reload: { reloads.increment() }, clock: { date.now })
         let quota = try QuotaWindow(usedPercent: 99, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400))
         var state = SharedState(snapshots: [UsageSnapshot(provider: .claude, weekly: quota,
-            fetchedAt: now.addingTimeInterval(-890), source: ClaudeUsageProbe.source)])
+            fetchedAt: now.addingTimeInterval(-(QuotaFreshness.maximumAge - 10)), source: ClaudeUsageProbe.source)])
         _ = persistence.flush(state)
         let delivered = state.snapshots[0]
         date.now = now.addingTimeInterval(20)
@@ -133,7 +133,7 @@ final class DataLifecycleRegressionTests: XCTestCase {
         date.now = now.addingTimeInterval(600)
         _ = persistence.flush(state)
         XCTAssertEqual(reloads.value, 2, "No new receipt means no periodic reload")
-        date.now = now.addingTimeInterval(1000)
+        date.now = now.addingTimeInterval(QuotaFreshness.maximumAge + 100)
         _ = persistence.flush(state)
         XCTAssertTrue(SnapshotStore.load(from: url).snapshots[0].isStale(now: date.now))
         XCTAssertEqual(SnapshotStore.load(from: url).snapshots[0].fetchedAt, now.addingTimeInterval(60))

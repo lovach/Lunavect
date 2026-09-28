@@ -29,16 +29,18 @@ public enum ClaudeUsageProbe {
     ///   - settle: how long a fully drawn but unparsed screen may stay unchanged
     ///     before the probe ends with a typed reason instead of waiting for `timeout`.
     ///   - screen: receives the final plain screen text (diagnostic `--usage-probe`).
+    ///   - now: the clock the screen's reset times are read against (a captured screen in tests).
     public static func fetch(cliPath: String, timeout: TimeInterval = 25, directory: URL = ClaudeUsageProbe.directory,
-                             settle: TimeInterval = 2, screen: (@Sendable (String) -> Void)? = nil) async throws -> UsageSnapshot {
+                             settle: TimeInterval = 2, screen: (@Sendable (String) -> Void)? = nil,
+                             now: @escaping @Sendable () -> Date = { Date() }) async throws -> UsageSnapshot {
         let dump = getenv(dumpDirectoryVariable).map { String(cString: $0) }.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         return try await SessionProcess.detached {
-            try read(cliPath: cliPath, timeout: timeout, directory: directory, settle: settle, dumpDirectory: dump, screen: screen)
+            try read(cliPath: cliPath, timeout: timeout, directory: directory, settle: settle, dumpDirectory: dump, screen: screen, now: now)
         }
     }
 
     private static func read(cliPath: String, timeout: TimeInterval, directory: URL, settle: TimeInterval,
-                             dumpDirectory: URL?, screen: (@Sendable (String) -> Void)?) throws -> UsageSnapshot {
+                             dumpDirectory: URL?, screen: (@Sendable (String) -> Void)?, now: () -> Date) throws -> UsageSnapshot {
         try Task.checkCancellation()
         // Removed, replaced by a folder or no longer executable since the last probe.
         var isDirectory: ObjCBool = false
@@ -96,7 +98,7 @@ public enum ClaudeUsageProbe {
                             signature = next
                             lastOutput = ProcessInfo.processInfo.systemUptime
                             tentative = nil
-                            if let snapshot = try? ClaudeUsageText.parse(text) {
+                            if let snapshot = try? ClaudeUsageText.parse(text, now: now()) {
                                 guard ClaudeUsageText.awaitsReset(snapshot) else { screen?(text); return snapshot }
                                 tentative = snapshot
                             }

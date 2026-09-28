@@ -139,7 +139,7 @@ final class UsageParserTests: XCTestCase {
     func testFutureObservationNeverClaimsFreshnessButNormalFreshnessWindowRemains() throws {
         let now = Date(timeIntervalSince1970: 1_900_000_000)
         let quota = try QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3600))
-        for (age, stale) in [(-1.0, true), (0.0, false), (900.0, false), (901.0, true)] {
+        for (age, stale) in [(-1.0, true), (0.0, false), (QuotaFreshness.maximumAge, false), (QuotaFreshness.maximumAge + 1, true)] {
             let date = now.addingTimeInterval(-age)
             let snapshot = UsageSnapshot(provider: .codex, weekly: quota, fetchedAt: date)
             let model = ModelQuota(name: "Sonnet", window: quota, fetchedAt: date)

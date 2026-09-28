@@ -34,7 +34,7 @@ final class ReleaseFeaturesTests: XCTestCase {
         XCTAssertEqual(diagnostic(try quota(), signIn: .signedOut).state, .signedOut)
         XCTAssertEqual(diagnostic(try quota(), signIn: .unavailable).state, .authUnknown)
         XCTAssertEqual(diagnostic(try quota(issue: UsageError.timeout.errorDescription)).state, .sourceError)
-        XCTAssertEqual(diagnostic(try quota(at: now.addingTimeInterval(-901))).state, .staleQuota)
+        XCTAssertEqual(diagnostic(try quota(at: now.addingTimeInterval(-(QuotaFreshness.maximumAge + 1)))).state, .staleQuota)
         XCTAssertEqual(diagnostic(UsageSnapshot(provider: .claude, fetchedAt: now)).state, .waitingForQuota)
         XCTAssertEqual(diagnostic(try quota(), hooks: false).state, .eventsMissing)
         XCTAssertEqual(diagnostic(try quota(), sessionIssue: "private path").state, .eventsMissing)

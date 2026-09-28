@@ -94,9 +94,14 @@ import WeekleftCore
     }
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
         if let error {
-            let error = error as NSError
-            phase = error.domain == SUSparkleErrorDomain && error.code == SUError.noUpdateError.rawValue ? .idle : .failed
+            phase = Self.endsQuietly(error as NSError) ? .idle : .failed
         } else if phase == .checking { phase = .idle }
+    }
+    /// No update, or the user cancelled or postponed the installer's authorization:
+    /// none of these is a failed check (R2-Y-07).
+    nonisolated static func endsQuietly(_ error: NSError) -> Bool {
+        error.domain == SUSparkleErrorDomain && [SUError.noUpdateError, .installationCanceledError, .installationAuthorizeLaterError]
+            .map { Int($0.rawValue) }.contains(error.code)
     }
 }
 

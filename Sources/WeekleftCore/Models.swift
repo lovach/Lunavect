@@ -13,8 +13,25 @@ private enum UsageDate {
     }
     static func isStale(_ date: Date, now: Date) -> Bool {
         let age = now.timeIntervalSince(date)
-        return !isValid(date) || !age.isFinite || age < 0 || age > 900
+        return !isValid(date) || !age.isFinite || age < 0 || age > QuotaFreshness.maximumAge
     }
+}
+
+/// How long a verified quota observation counts as current on every surface. It
+/// covers the longest wait `QuotaRefreshPolicy` plans (an idle hour), its evaluation
+/// tick and one request, so values the app was not yet due to ask for again are
+/// never shown as outdated. 0.2.5 and 0.2.6 marked idle data after 15 minutes while
+/// asking hourly (owner report 28.09): three quarters of every idle hour said
+/// "outdated". A failed request still marks its provider at once through `issue`.
+/// Defined here, not beside the policy, because the widget compiles this file alone.
+public enum QuotaFreshness {
+    /// How long `QuotaRefreshPolicy` reuses a verified observation without active sessions.
+    public static let idleRefreshInterval: TimeInterval = 3600
+    /// The app's evaluation tick: the policy is asked at most this long after a provider is due.
+    public static let evaluationTick: TimeInterval = 300
+    /// A `/usage` probe or a Codex request, including its timeout.
+    public static let requestMargin: TimeInterval = 300
+    public static let maximumAge: TimeInterval = idleRefreshInterval + evaluationTick + requestMargin
 }
 
 /// How a source reported a reset. Nil: an exact timestamp (status line, Codex).
@@ -32,6 +49,9 @@ public struct QuotaWindow: Codable, Equatable, Sendable {
     public let resetsAt: Date?
     public let resetPrecision: ResetPrecision?
     public var remaining: Double { max(0, min(100, 100 - usedPercent)) }
+    /// Used up as every surface shows it: the whole percentage left is 0. At 99.4 %
+    /// used a surface shows "1%", so the window is neither exhausted nor waited out (R2-Q-09).
+    public var isUsedUp: Bool { remaining < 0.5 }
     public init(usedPercent: Double, durationMinutes: Int, resetsAt: Date?, resetPrecision: ResetPrecision? = nil) throws {
         guard usedPercent.isFinite, (0...100).contains(usedPercent), durationMinutes > 0,
               resetsAt.map(UsageDate.isValid) ?? true else { throw UsageError.invalidResponse }
@@ -212,7 +232,7 @@ public enum QuotaWindowStatus: Equatable, Sendable {
         guard let window else { return unlimited ? .unlimited : .unknown }
         if let reset = window.resetsAt {
             if reset <= now { return .resetPassed(reset) }
-            return window.remaining < 1 ? .exhausted : .current(stale: stale)
+            return window.isUsedUp ? .exhausted : .current(stale: stale)
         }
         return window.usedPercent == 0 ? .inactive(stale: stale) : .current(stale: stale)
     }

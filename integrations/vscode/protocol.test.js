@@ -276,3 +276,27 @@ test('at most eight connections are served at once; a freed slot is reused (§4 
       assert.equal((await probe(socketPath)).status, 'matched');
     } finally { for (const socket of held) socket.destroy(); await companion.cleanup(); }
   });
+
+test('an editor built on VS Code reports its own bundle identifier from product.json',
+  { skip: process.platform !== 'darwin' }, async () => {
+    const home = await fs.mkdtemp('/tmp/lv-');
+    const appRoot = path.join(home, 'Cursor.app/Contents/Resources/app');
+    await fs.mkdir(appRoot, { recursive: true });
+    await fs.writeFile(path.join(appRoot, 'product.json'), JSON.stringify({ darwinBundleIdentifier: 'com.todesktop.230313mzl4w4u92', urlProtocol: 'cursor' }));
+    const api = { env: { appRoot, uriScheme: 'cursor' }, window: { registerUriHandler: () => ({ dispose() {} }), terminals: [] } };
+    const source = await fs.readFile(path.join(__dirname, 'extension.js'), 'utf8');
+    const module = { exports: {} };
+    const load = name => name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => home, tmpdir: () => home } : require(name);
+    vm.runInThisContext('(function(require,module){' + source + '\n})')(load, module);
+    try {
+      await module.exports.activate({ subscriptions: [] });
+      const directory = path.join(home, 'Library/Application Support/Lunavect/IDEBridge');
+      const [name] = await fs.readdir(directory);
+      const descriptor = JSON.parse(await fs.readFile(path.join(directory, name), 'utf8'));
+      assert.equal(descriptor.bundleIdentifier, 'com.todesktop.230313mzl4w4u92');
+      assert.equal(descriptor.appPath, path.join(home, 'Cursor.app'));
+    } finally {
+      await module.exports.deactivate();
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });

@@ -35,7 +35,7 @@ final class MenuBarLimitsTests: XCTestCase {
     func testUnavailableExpiredAndSavedValuesStayDistinct() throws {
         let preferences = MenuBarLimitsPreferences(enabled: true)
         for (snapshot, expected) in [(UsageSnapshot(provider: .codex), "—"), (try snapshot(resetAfter: 0), "—"),
-                                     (try snapshot(fetchedAgo: 901), "72%*"), (try snapshot(fetchedAgo: 900), "72%") ] {
+                                     (try snapshot(fetchedAgo: QuotaFreshness.maximumAge + 1), "72%*"), (try snapshot(fetchedAgo: QuotaFreshness.maximumAge), "72%") ] {
             let entry = try XCTUnwrap(MenuBarLimitEntry.make(snapshots: [snapshot], providers: [.codex], preferences: preferences, now: now).first)
             XCTAssertEqual(entry.value, expected)
         }
@@ -48,7 +48,7 @@ final class MenuBarLimitsTests: XCTestCase {
     }
     @MainActor func testPercentagesFollowTheInterfaceLanguageWithoutTruncation() throws {
         L10n.defaults.set("de", forKey: "languageCode")
-        let entries = MenuBarLimitEntry.make(snapshots: try [snapshot(.claude, used: 0), snapshot(.codex, fetchedAgo: 901)],
+        let entries = MenuBarLimitEntry.make(snapshots: try [snapshot(.claude, used: 0), snapshot(.codex, fetchedAgo: QuotaFreshness.maximumAge + 1)],
                                              providers: ProviderID.allCases, preferences: .init(enabled: true), now: now)
         XCTAssertEqual(entries.map(\.value), ["100\u{a0}%", "72\u{a0}%*"])
         _ = NSApplication.shared
@@ -137,7 +137,8 @@ final class MenuBarLimitsTests: XCTestCase {
                                                  language: LanguageSettings(defaults: defaults, reloadWidgets: {}), defaults: defaults,
                                                  autosaveName: nil, presenter: recorder.presenter) {}
         defer { controller.stop() }
-        let data = try [snapshot()]
+        // The week resets after the moment the saved value becomes outdated.
+        let data = try [snapshot(resetAfter: 86400)]
         controller.update(snapshots: data, providers: [.codex], preferences: .init(), now: now)
         XCTAssertNil(controller.statusItem)
         controller.update(snapshots: data, providers: [.codex], preferences: .init(enabled: true), now: now)
@@ -149,13 +150,13 @@ final class MenuBarLimitsTests: XCTestCase {
         XCTAssertTrue(controller.isPopoverShown)
         XCTAssertTrue(recorder.anchors.last === button, "The popover is anchored to the status item")
         XCTAssertEqual(opened, 1)
-        controller.refresh(now: now.addingTimeInterval(901))
+        controller.refresh(now: now.addingTimeInterval(QuotaFreshness.maximumAge + 1))
         XCTAssertEqual(controller.content.entries.first?.value, "72%*")
         XCTAssertEqual(item.length, width, "An open popover keeps its anchor width")
         XCTAssertTrue(button.sendAction(button.action, to: button.target))
         XCTAssertFalse(controller.isPopoverShown)
         XCTAssertEqual(opened, 1); XCTAssertEqual(hidden, 1)
-        controller.refresh(now: now.addingTimeInterval(3600))
+        controller.refresh(now: now.addingTimeInterval(86400))
         XCTAssertEqual(controller.content.entries.first?.value, "—")
         XCTAssertEqual(item.length, width)
         controller.update(snapshots: [try snapshot(used: 0)], providers: [.codex], preferences: .init(enabled: true, showsResetCountdown: true), now: now)
