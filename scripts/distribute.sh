@@ -52,7 +52,7 @@ case "$ACTION" in
       -xcconfig Config/Distribution.xcconfig -allowProvisioningUpdates \
       SWIFT_ACTIVE_COMPILATION_CONDITIONS=LUNAVECT_DISTRIBUTION \
       CURRENT_PROJECT_VERSION="$BUILD" MARKETING_VERSION="$VERSION" REGISTER_APP_WITH_LAUNCH_SERVICES=NO archive
-    python3 "$ROOT/scripts/verify-product-resources.py" "$ARCHIVE/Products/Applications/Lunavect.app" --source-root "$ROOT"
+    python3 "$ROOT/scripts/verify-product-resources.py" "$ARCHIVE/Products/Applications/Lunavect.app" --source-root "$ROOT" --universal
     python3 "$ROOT/scripts/verify-awake-policy.py" "$ARCHIVE/Products/Applications/Lunavect.app" --policy developer-id
     python3 "$ROOT/scripts/build-manifest.py" finalize --source-root "$ROOT" --manifest "$MANIFEST" --app "$ARCHIVE/Products/Applications/Lunavect.app"
     ;;

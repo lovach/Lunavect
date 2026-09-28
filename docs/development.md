@@ -31,7 +31,9 @@ Public branding is Lunavect. Compatibility-facing targets and identifiers retain
 `design/selected/selection.json` identifies the approved artwork. App and widget
 declare `LunavectTide.icns` through `CFBundleIconFile`; packaging reads that key
 instead of assuming an icon filename. Build, distribution and installation checks
-compare their icons, translations, version numbers and App Group. A per-bundle allowlist checks provider PDFs, animation/sound formats and intent localizations; app-only artwork/animations/audio are excluded from the widget. Both bundles must contain the extracted `Metadata.appintents` with the activity intents; the optional built-bundle intent test also requires a translation for every label that metadata shows. Source checks hash every packaged source resource, including interface marks.
+compare their icons, translations, version numbers and App Group. `check.sh` and the
+distribution archive also require arm64 and x86_64 slices in the app, widget, hook and keep-awake helper
+executables (`verify-product-resources.py --universal`); local builds and installs skip that, since Debug builds are thin. A per-bundle allowlist checks provider PDFs, animation/sound formats and intent localizations; app-only artwork/animations/audio are excluded from the widget. Both bundles must contain the extracted `Metadata.appintents` with the activity intents; the optional built-bundle intent test also requires a translation for every label that metadata shows. Source checks hash every packaged source resource, including interface marks.
 New builds also compare those resources against the current source. These checks cannot certify
 that macOS has refreshed every cached gallery icon.
 
