@@ -534,6 +534,19 @@ enum SessionProcess {
         if name == "codex" { return .codex }
         return nil
     }
+    static func executablePath(_ pid: Int32) -> String? {
+        // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
+        // that expression macro is not imported into Swift.
+        var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+    }
+    static func parentProcess(_ pid: Int32) -> Int32? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout.size(ofValue: info))
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return Int32(info.pbi_ppid)
+    }
     /// The client runtime that ran a hook: the nearest ancestor that is not a
     /// shell or command wrapper. Hook runners may or may not exec the command.
     static func hookClientPID(startPID: Int32, read: (Int32) -> RuntimeProcess? = runtimeProcess) -> Int32? {
@@ -579,29 +592,24 @@ enum SessionProcess {
         return nil
     }
 
-    static func client(parentPID: Int32, entrypoint: String, terminal: String) -> SessionClient {
+    static func client(parentPID: Int32, entrypoint: String, terminal: String,
+                       path: (Int32) -> String? = executablePath, parent: (Int32) -> Int32? = parentProcess,
+                       bundleIdentifier: (String) -> String? = { IDEProcessLocation.bundleIdentifier($0) }) -> SessionClient {
         // Query executable paths and parent PIDs directly. Never spawn ps, read
         // arguments, or inspect environment variables of another process.
         var pid = parentPID
         for _ in 0..<16 {
-            // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
-            // that expression macro is not imported into Swift.
-            var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
-            let name = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+            guard let name = path(pid) else { break }
             // A CLI binary bundled in an app's Resources (for example ChatGPT.app's
             // codex) says nothing about the host; its parent decides.
             let bundledCLI = name.contains("/Contents/Resources/")
             if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
             if !bundledCLI, let range = name.range(of: ".app/Contents/"),
-               let bundle = IDEProcessLocation.bundleIdentifier(String(name[..<range.lowerBound]) + ".app"),
+               let bundle = bundleIdentifier(String(name[..<range.lowerBound]) + ".app"),
                let editor = SessionIDE.identify(bundleIdentifier: bundle) { return editor.client }
             if name.contains("/Terminal.app/") || name.contains("/iTerm.app/") { return .terminal }
-            var info = proc_bsdinfo()
-            let size = Int32(MemoryLayout.size(ofValue: info))
-            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
-                  info.pbi_ppid > 1, info.pbi_ppid != UInt32(pid) else { break }
-            pid = Int32(info.pbi_ppid)
+            guard let next = parent(pid), next > 1, next != pid else { break }
+            pid = next
         }
         if entrypoint.contains("desktop") { return .desktop }
         if terminal.lowercased().contains("vscode") { return .vscode }

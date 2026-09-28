@@ -1,5 +1,6 @@
 import XCTest
 import Combine
+import os
 @testable import Weekleft
 @testable import WeekleftCore
 
@@ -309,5 +310,110 @@ import Combine
         XCTAssertEqual(sessions.hiddenCount, 0)
         clock += 1; await sessions.readEvents()
         XCTAssertEqual(sessions.hiddenCount, 3, "The chosen interval still applies from the correction")
+    }
+
+    // §5.5 / matrix S4: /rename in the middle of a reply.
+    func testRenameDuringAReplyKeepsItsTimerAndReachesHiddenEntryAndNotice() async throws {
+        var clock = instant, name = "Old name", status = "busy"
+        let id = "5d7a4a33-1c1e-4b0c-8a60-6f2d7c1b9e01"
+        var hook = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": id, "hook_event_name": "UserPromptSubmit", "cwd": "/Users/fixture/Projects/lunavect"]),
+            provider: .claude, previous: nil, now: clock)
+        let sessions = try store(.init(catalog: { _, _, _, _ in
+            (try self.claudeRows([["pid": 51_234, "cwd": "/Users/fixture/Projects/lunavect", "kind": "interactive", "name": name,
+                                   "sessionId": id, "startedAt": 1_795_000_100_000, "status": status]], at: clock), false)
+        }, events: { _, _, _ in [hook.session] }), now: { clock })
+        var tracker = SessionNoticeTracker(), notices: [SessionNotice] = []
+        let subscription = sessions.observations.sink { notices += tracker.update($0.rows, now: $0.date) }
+        defer { subscription.cancel(); sessions.stop() }
+        sessions.useProviders([.claude])
+        await sessions.refresh()
+        let row = try XCTUnwrap(sessions.sessions.first)
+        XCTAssertEqual(row.title, "Old name")
+        try sessions.hide(row)
+        clock += 20; name = "New name"
+        await sessions.refresh()
+        XCTAssertEqual(sessions.hiddenSessions.first?.title, "New name", "The hidden list shows the current name")
+        try sessions.restore(row.id)
+        clock += 20
+        await sessions.refresh()
+        let renamed = try XCTUnwrap(sessions.sessions.first)
+        XCTAssertEqual(renamed.title, "New name")
+        XCTAssertEqual(renamed.turnStartedAt, instant, "The reply's timer survives the rename")
+        clock += 5; status = "idle"
+        hook = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": id, "hook_event_name": "Stop", "cwd": "/Users/fixture/Projects/lunavect", "last_assistant_message": "Готово."]),
+            provider: .claude, previous: hook, now: clock)
+        clock += 1
+        await sessions.refresh()
+        XCTAssertEqual(notices.map(\.kind), [.completed])
+        XCTAssertEqual(notices.first?.session.displayTitle, "New name")
+    }
+
+    // §5.10: 500 retained history rows and 100 hook files on every tick.
+    func testLargeHistoryAndManyHookRecordsStayCheapPerTick() async throws {
+        let root = try directory(), hooks = root.appendingPathComponent("Sessions", isDirectory: true)
+        for index in 0..<100 {
+            let data = try JSONSerialization.data(withJSONObject: ["session_id": "hook-\(index)", "hook_event_name": "Stop", "cwd": "/Users/fixture/p\(index)"])
+            try SessionHooks.capture(data, provider: .claude, at: hooks, isInternal: { _ in false })
+        }
+        let history = (0..<500).map { index -> [String: Any] in
+            ["id": "bg-\(index)", "cwd": "/Users/fixture/Projects/lunavect", "kind": "background", "name": "Task \(index)",
+             "sessionId": "history-\(index)", "startedAt": 1_783_332_137_673, "state": index % 2 == 0 ? "done" : "blocked"]
+        }
+        var clock = Date()
+        let sessions = try store(.init(catalog: { _, _, _, _ in (try self.claudeRows(history, at: clock), false) },
+                                       events: { _, _, _ in SessionHooks.load(at: hooks) }), directory: root, now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude])
+        await sessions.refresh()
+        XCTAssertEqual(sessions.sessions.count, 600)
+        XCTAssertEqual(sessions.currentSessions.count, 100)
+        let began = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<10 { clock += 1; await sessions.readEvents() }
+        let perTick = (ProcessInfo.processInfo.systemUptime - began) / 10
+        XCTAssertLessThan(perTick, 0.5, "One tick of merge, sort and publish with 600 rows (typically a few ms)")
+        XCTAssertEqual(sessions.hiddenCount, 0)
+    }
+
+    // §5.12: hidden-sessions.json damaged after a successful launch.
+    func testHiddenListDamagedWhileRunningIsRewrittenWithoutLosingEntries() throws {
+        let root = try directory()
+        let sessions = try store(directory: root, now: { self.instant })
+        defer { sessions.stop() }
+        let rows = (0..<3).map {
+            AgentSession(provider: .codex, sessionID: "kept-\($0)", title: "Kept \($0)", cwd: "/Users/fixture", phase: .ready,
+                         updatedAt: instant, observedAt: instant, evidence: .hook)
+        }
+        sessions.acceptSessions(rows, now: instant)
+        try sessions.hide(rows[0])
+        let file = root.appendingPathComponent("hidden-sessions.json")
+        try Data("{\"sessions\":".utf8).write(to: file)
+        try sessions.hide(rows[1])
+        XCTAssertNil(sessions.connectionMessage, "Nothing was lost: the list in memory is the original")
+        XCTAssertEqual(try SessionVisibility(url: file, now: instant).hidden, [rows[0].id, rows[1].id])
+        XCTAssertEqual(SessionStore(directory: root, isolated: true, now: { self.instant }).hiddenCount, 2)
+    }
+
+    // Matrix S13: the user removed Lunavect's handlers from settings.json.
+    func testRemovedHooksAreReportedAndTheLastEventsDoNotFreezeAsWork() async throws {
+        var clock = instant
+        let installed = OSAllocatedUnfairLock(initialState: true)
+        let running = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": "orphan", "hook_event_name": "UserPromptSubmit", "cwd": "/Users/fixture/Projects/lunavect"]),
+            provider: .claude, previous: nil, now: clock).session
+        let sessions = try store(.init(events: { _, _, _ in [running] }, hooksState: { [.claude: installed.withLock { $0 }] }), now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude])
+        await sessions.refresh()
+        XCTAssertEqual(sessions.hooksInstalled[.claude], true)
+        XCTAssertEqual(sessions.activeCount, 1)
+        installed.withLock { $0 = false }; clock += 30
+        await sessions.refresh()
+        XCTAssertEqual(sessions.hooksInstalled[.claude], false, "Connections can offer to repair the handlers")
+        clock = instant.addingTimeInterval(601)
+        await sessions.refresh()
+        XCTAssertEqual(sessions.activeCount, 0, "The last recorded event does not stay working")
+        XCTAssertTrue(sessions.currentSessions.isEmpty)
     }
 }
