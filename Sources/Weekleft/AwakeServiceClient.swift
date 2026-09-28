@@ -3,6 +3,7 @@ import OSLog
 import ServiceManagement
 #if SWIFT_PACKAGE
 import AwakeService
+import WeekleftCore
 #endif
 
 @MainActor protocol AwakeClient: AnyObject {
@@ -38,6 +39,11 @@ struct AwakeHelperNotStarting: Error {}
 /// new build renews the registration, once per launch.
 struct AwakeCallTimeout: Error {}
 
+/// ServiceManagement refused to renew the helper's registration while Keep Awake
+/// was being turned on. Retrying the connection repeats the refusal; the manual
+/// repair steps apply (audit r2 R2-Y-02).
+struct AwakeRegistrationRefused: Error { let underlying: Error }
+
 @MainActor final class AwakeServiceClient: AwakeClient {
     typealias ConnectionFactory = @MainActor () throws -> NSXPCConnection
     /// Longer than the helper's slowest begin: three pmset runs of up to 6 s each.
@@ -51,6 +57,8 @@ struct AwakeCallTimeout: Error {}
     private let logger = Logger(subsystem: "com.weekleft.app", category: "awake")
     /// Timeouts renew the registration at most once per launch: no unregister loop.
     private var timeoutRenewalUsed = false
+    /// So does a refused connection (audit r2 R2-Y-01).
+    private var refusalRenewalUsed = false
     private var consecutiveTimeouts = 0
     // The nonisolated lifetime holder can invalidate during destruction without
     // reading main-actor storage from a nonisolated deinit.
@@ -70,6 +78,8 @@ struct AwakeCallTimeout: Error {}
         self.service = service ?? .live(); self.registration = registration ?? AwakeServiceRegistration()
         self.callTimeout = callTimeout; self.pingTimeout = min(pingTimeout, callTimeout)
         self.makeConnection = makeConnection ?? {
+            // Fixtures inject their helper; a test never reaches the root daemon.
+            guard !LiveWriteGuard.underTestsForStores else { throw AwakeFailure.unavailable }
             let connection = NSXPCConnection(machServiceName: AwakeServiceID.label, options: .privileged)
             connection.setCodeSigningRequirement(try AwakeServiceID.requirement(for: AwakeServiceID.label))
             return connection
@@ -117,9 +127,28 @@ struct AwakeCallTimeout: Error {}
     private func refreshRegistration() async throws {
         try await registration.refreshIfNeeded(status: { service.status },
             unregister: {
-                try await self.service.verifySleepRestored()
+                try await self.verifySleepRestoredThroughHelper()
                 try await self.service.unregister()
             }, register: { try self.service.register() })
+    }
+    /// A helper that stopped during a lease leaves sleep disabled with its recovery
+    /// marker until launchd starts it again, and its launch restores sleep. Start it
+    /// once through its Mach service before refusing to touch the registration;
+    /// never while this client may hold a lease (audit r2 R2-Y-03).
+    private func verifySleepRestoredThroughHelper() async throws {
+        do { try await service.verifySleepRestored() }
+        catch AwakeFailure.recovery where connection == nil {
+            logger.notice("Sleep is still disabled; asking the helper to restore it first")
+            await releaseAfterLostConnection()
+            try await service.verifySleepRestored()
+        }
+    }
+    /// Registration errors during a start keep their meaning: AwakeFailure
+    /// (permission, recovery) as before, a ServiceManagement error as a refusal.
+    private func renewing(_ body: () async throws -> Void) async throws {
+        do { try await body() }
+        catch let failure as AwakeFailure { throw failure }
+        catch { throw AwakeRegistrationRefused(underlying: error) }
     }
     /// Waits for proactive old-helper maintenance without starting a lease.
     func waitForStartupRefresh() async { await startupRefresh?.value }
@@ -134,7 +163,7 @@ struct AwakeCallTimeout: Error {}
         guard isAvailable else { throw AwakeFailure.permission }
         let fresh = connection == nil
         if fresh {
-            try await refreshRegistration()
+            try await renewing { try await self.refreshRegistration() }
         }
         guard isAvailable else { throw AwakeFailure.permission }
         let request: (LunavectAwakeProtocol, @escaping @Sendable (Bool, String) -> Void) -> Void = {
@@ -155,7 +184,7 @@ struct AwakeCallTimeout: Error {}
                 logger.error("Helper did not answer a ping: \(String(describing: error), privacy: .public)")
                 guard !timeoutRenewalUsed else { throw AwakeHelperNotStarting() }
                 timeoutRenewalUsed = true
-                try await renewRegistration()
+                try await renewing { try await self.renewRegistration() }
                 renewed = true
             } catch {
                 // Refusing a keep-alive without a lease is an answer: the helper runs.
@@ -164,11 +193,13 @@ struct AwakeCallTimeout: Error {}
         }
         do {
             try await call(request)
-        } catch AwakeFailure.unavailable where !renewed {
+        } catch AwakeFailure.unavailable where !renewed && !refusalRenewalUsed {
             // BTM may retain the old bundle's file identity after an atomic update.
-            // Refresh that registration once; permission and signing errors never retry.
+            // Refresh that registration once per launch; permission and signing
+            // errors never retry, and a later refusal is reported as it is.
             logger.error("Helper connection was refused; renewing its registration")
-            try await renewRegistration()
+            refusalRenewalUsed = true
+            try await renewing { try await self.renewRegistration() }
             try await call(request)
         } catch is AwakeCallTimeout {
             consecutiveTimeouts += 1
@@ -178,7 +209,7 @@ struct AwakeCallTimeout: Error {}
             guard consecutiveTimeouts >= 2, !timeoutRenewalUsed else { throw AwakeCallTimeout() }
             logger.error("Second helper timeout in a row; renewing its registration")
             timeoutRenewalUsed = true
-            try await renewRegistration()
+            try await renewing { try await self.renewRegistration() }
             do { try await call(request) }
             catch is AwakeCallTimeout { throw AwakeHelperNotStarting() }
         } catch let failure as AwakeFailure where failure != .unavailable {
@@ -192,7 +223,7 @@ struct AwakeCallTimeout: Error {}
     private func renewRegistration() async throws {
         try await registration.refreshIfNeeded(force: true, status: { service.status },
             unregister: {
-                try await self.service.verifySleepRestored()
+                try await self.verifySleepRestoredThroughHelper()
                 try await self.service.unregister()
             }, register: { try self.service.register() })
         guard isAvailable else { throw AwakeFailure.permission }
@@ -217,7 +248,7 @@ struct AwakeCallTimeout: Error {}
         await startupRefresh?.value
         try await end()
         disconnect()
-        if let verifyRestored { try verifyRestored() } else { try await service.verifySleepRestored() }
+        if let verifyRestored { try verifyRestored() } else { try await verifySleepRestoredThroughHelper() }
         if service.status == .enabled || service.status == .requiresApproval {
             try await service.unregister()
         }
