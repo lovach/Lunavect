@@ -323,11 +323,15 @@ public enum TerminalLocation {
     /// recorded runtime (Claude hooks) is the provider whatever its name; a process
     /// whose path macOS does not return (for example a binary an update removed)
     /// may be the session, so the device is then `.unknown`, never `.vacant` (R2-06).
+    /// A recorded runtime also decides the opposite: once it has left the device,
+    /// anything running there, including another Claude session in a tab that
+    /// received the device, is another task (R2-N-01).
     public static func occupancy(device: dev_t, provider: ProviderID, processes: [DeviceProcess], uid: uid_t = getuid(),
                                  runtimePID: Int32? = nil) -> DeviceOccupancy {
+        let own = processes.filter { $0.uid == uid && $0.device == device }
+        if let runtimePID, runtimePID > 1 { return own.contains { $0.pid == runtimePID } ? .provider : .vacant }
         var interpreter = false, unreadable = false
-        for process in processes where process.uid == uid && process.device == device {
-            if let runtimePID, runtimePID > 1, process.pid == runtimePID { return .provider }
+        for process in own {
             guard let executable = process.executable else { unreadable = true; continue }
             if SessionProcess.runtimeProvider(ofExecutable: executable) == provider { return .provider }
             if interpreters.contains(URL(fileURLWithPath: executable).lastPathComponent) { interpreter = true }
