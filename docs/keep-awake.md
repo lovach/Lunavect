@@ -4,7 +4,7 @@ Open the eye button in the session panel. A privileged macOS helper disables sys
 
 Choose a duration and turn on the switch, or enable **Automatically while sessions work**. Automatic mode follows confirmed working sessions from connected providers, including hidden sessions. Waiting for input, approval, finished and unknown states do not count as working. When work stops, a one-minute grace period avoids switching sleep on and off between short tasks. Change that delay in **Settings → Keep Awake** to immediate, 30 seconds, one minute, two minutes or five minutes. New work cancels the countdown. Switching modes preserves the saved manual duration.
 
-The automatic preference persists across launches. It never grants macOS permission by itself. After a failure or a stop condition, automatic mode shows **Paused, retrying in 5 minutes** with the reason. It does not retry in a loop: it tries again once five minutes later, or at once when the stop conditions are changed; **Retry connection** retries immediately. Turn off the main switch to disarm automatic mode as well.
+The automatic preference persists across launches. It never grants macOS permission by itself. While it waits for approval, it re-reads the approval at most every five seconds; opening the panel and **Allow and turn on** read it at once. After a failure or a stop condition, automatic mode shows **Paused, retrying in 5 minutes** with the reason. It does not retry in a loop: it tries again once five minutes later, or at once when the stop conditions are changed; **Retry connection** retries immediately. Turn off the main switch to disarm automatic mode as well.
 
 ## Permission and recovery
 

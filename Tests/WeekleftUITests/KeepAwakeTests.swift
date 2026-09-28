@@ -7,7 +7,14 @@ import ServiceManagement
 @testable import Weekleft
 
 @MainActor private final class FakeAwakeClient: AwakeClient {
-    var isAvailable = true, held = false, failBegin = false, failEnd = false
+    /// Each read stands for one ServiceManagement status query (an IPC).
+    private(set) var statusQueries = 0
+    private var available = true
+    var isAvailable: Bool {
+        get { statusQueries += 1; return available }
+        set { available = newValue }
+    }
+    var held = false, failBegin = false, failEnd = false
     var beginCount = 0, disconnectCount = 0, permissionCount = 0
     var failPermission = false
     var gate: CheckedContinuation<Void, Never>?
@@ -479,6 +486,83 @@ final class KeepAwakeTests: XCTestCase {
         }
         XCTAssertEqual(client.releaseCount, 5)
         XCTAssertEqual(timers.filter(\.timer.isValid).count, 0)
+    }
+    /// R2-R-05: automatic mode with an unapproved helper asked ServiceManagement for
+    /// its status (an IPC on the main actor) on every session observation, up to
+    /// 34 times a second, and republished unchanged values. The status is re-read
+    /// at most every five seconds there; an approval is noticed within that time.
+    @MainActor func testAutomaticModeReadsTheHelperStatusAtMostEveryFiveSeconds() async throws {
+        let defaults = try isolatedDefaults()
+        let client = FakeAwakeClient(); client.isAvailable = false
+        let start = Date(timeIntervalSince1970: 1_900_000_000)
+        var clock = start
+        let awake = KeepAwake(client: client, now: { clock }, defaults: defaults, scheduleTimer: { _, _ in Timer() })
+        defer { awake.shutdown() }
+        let row = AgentSession(provider: .codex, sessionID: "work", title: "Example", cwd: "", phase: .running,
+                               updatedAt: start, observedAt: start)
+        awake.observe([row])  // manual mode: nothing to reconcile yet
+        await awake.setAutomatic(true)
+        XCTAssertFalse(awake.isEnabled)
+        var changes = 0
+        let observer = awake.objectWillChange.sink { _ in changes += 1 }
+        defer { observer.cancel() }
+        let initial = client.statusQueries
+        for _ in 0..<100 {  // one second of observations at 100 per second
+            clock += 0.01
+            await awake.reconcileAutomatic()
+        }
+        XCTAssertLessThanOrEqual(client.statusQueries - initial, 1, "at most one status query in a second")
+        XCTAssertEqual(changes, 0, "unchanged values are not republished")
+        clock = start.addingTimeInterval(5)
+        await awake.reconcileAutomatic()
+        let afterFiveSeconds = client.statusQueries - initial
+        XCTAssertGreaterThanOrEqual(afterFiveSeconds, 1, "five seconds later the status is read again")
+        XCTAssertLessThanOrEqual(afterFiveSeconds, 2)
+        XCTAssertFalse(awake.isEnabled)
+        // The user approves the helper in System Settings: noticed within five seconds.
+        client.isAvailable = true
+        let approved = clock
+        while !awake.isEnabled && clock < approved.addingTimeInterval(5) {
+            clock += 0.5
+            await awake.reconcileAutomatic()
+        }
+        XCTAssertTrue(awake.isEnabled, "approval started automatic mode within five seconds")
+        XCTAssertEqual(client.beginCount, 1)
+    }
+
+    /// The explicit permission path is never served from that cache: "Allow and
+    /// turn on", its polling and opening the panel read the status at once.
+    @MainActor func testPermissionActionsReadTheHelperStatusWithoutDelay() async throws {
+        let defaults = try isolatedDefaults()
+        let client = FakeAwakeClient(); client.isAvailable = false
+        var clock = Date(timeIntervalSince1970: 1_900_000_000)
+        let awake = KeepAwake(client: client, now: { clock }, defaults: defaults, scheduleTimer: { _, _ in Timer() })
+        defer { awake.shutdown() }
+        let row = AgentSession(provider: .codex, sessionID: "work", title: "Example", cwd: "", phase: .running,
+                               updatedAt: clock, observedAt: clock)
+        awake.observe([row])
+        await awake.setAutomatic(true)
+        await awake.reconcileAutomatic()
+        XCTAssertFalse(awake.isAvailable)
+        awake.requestPermission()
+        XCTAssertTrue(awake.isAwaitingPermission)
+        clock += 1
+        client.isAvailable = true  // approved one second after the last automatic read
+        await awake.checkPermission()
+        XCTAssertTrue(awake.isAvailable, "the permission poll reads the status at once")
+        XCTAssertTrue(awake.isEnabled, "and turns the mode on")
+        await awake.setAutomatic(false)
+        // Opening the panel (.task / didBecomeActive → checkPermission) also reads it at once.
+        client.isAvailable = false
+        let before = client.statusQueries
+        await awake.checkPermission()
+        XCTAssertEqual(client.statusQueries, before + 1)
+        XCTAssertFalse(awake.isAvailable, "the panel offers Allow and turn on again")
+        var changes = 0
+        let observer = awake.objectWillChange.sink { _ in changes += 1 }
+        defer { observer.cancel() }
+        for _ in 0..<3 { await awake.checkPermission() }
+        XCTAssertEqual(changes, 0, "an unchanged status read does not redraw the panel")
     }
     @MainActor func testLostHelperIsNotDisplayedAsActive() async throws {
         let defaults = try isolatedDefaults()

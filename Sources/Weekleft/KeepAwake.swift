@@ -58,6 +58,9 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, repairRegistr
     private var permissionGeneration = 0
     private var permissionOrigin = AwakePermissionOrigin.sessions
     private var registrationCheck: Task<Void, Never>?
+    /// When the helper's registration status (a ServiceManagement IPC) was last read.
+    private var permissionReadAt: Date?
+    static let automaticPermissionInterval: TimeInterval = 5
     var onPermissionFinished: ((AwakePermissionOrigin) -> Void)?
     /// Worded like the "After sessions finish" choices, not in raw seconds.
     var automaticStopDescription: String {
@@ -198,9 +201,13 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, repairRegistr
         }
         guard automatic, !automaticSuspended, !isBusy else { return }
         if rows.contains(where: { $0.effectivePhase(now: now()) == .running }) {
-            idleDeadline = nil
+            if idleDeadline != nil { idleDeadline = nil }
             if !isEnabled {
-                refreshPermission()
+                // Observations can arrive many times a second. Automatic mode reads
+                // the status at most every five seconds; explicit permission actions
+                // and the panel read it at once (audit r2 R2-R-05).
+                let recent = permissionReadAt.map { now() >= $0 && now().timeIntervalSince($0) < Self.automaticPermissionInterval } ?? false
+                if !recent { refreshPermission() }
                 guard isAvailable else { return }
                 await start(for: .untilStopped)
             }
@@ -209,7 +216,11 @@ enum AwakeRecoveryAction { case retryConnection, reviewConditions, repairRegistr
             if let idleDeadline, now() >= idleDeadline { await stop() }
         }
     }
-    func refreshPermission() { isAvailable = client.isAvailable }
+    func refreshPermission() {
+        let available = client.isAvailable
+        permissionReadAt = now()
+        if isAvailable != available { isAvailable = available }
+    }
     func requestPermission(from origin: AwakePermissionOrigin = .sessions) {
         guard !isBusy else { return }
         do {
