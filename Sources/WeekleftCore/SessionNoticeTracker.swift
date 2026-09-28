@@ -31,6 +31,7 @@ public struct SessionNoticeTracker {
     public init() {}
     public mutating func update(_ rows: [AgentSession], now: Date = Date()) -> [SessionNotice] {
         let resumed = lastPoll.map { now.timeIntervalSince($0) > 120 || now.timeIntervalSince($0) < -300 } ?? false
+        let previousPoll = lastPoll
         lastPoll = now
         if resumed { seen.removeAll() }
         var result: [SessionNotice] = []
@@ -45,8 +46,16 @@ public struct SessionNoticeTracker {
                 if seen[row.id] != nil { seen[row.id]?.lastSeenAt = now }
                 continue
             }
-            let prior = seen[row.id]
+            var prior = seen[row.id]
             guard prior == nil || row.observedAt >= prior!.observedAt else { continue }
+            // Only the initial list is history. A session first seen while monitoring
+            // runs, whose task event came after the previous poll, started working in
+            // between: its prompt and next state fell between two reads (R2-S-03).
+            // Catalog-only rows carry no event time and stay a baseline.
+            if prior == nil, !resumed, let previousPoll, row.evidence != .catalog,
+               row.hasTaskActivity == true, row.updatedAt > previousPoll {
+                prior = Seen(phase: .running, observedAt: .distantPast, lastSeenAt: now, settledAt: nil)
+            }
             // A newer Claude listing requested while Stop hooks still run says busy for
             // one poll; the next idle listing restores the same reply. Settle each
             // event-timed reply or failure so that flicker cannot repeat it (R2-S-02).
@@ -56,7 +65,7 @@ public struct SessionNoticeTracker {
             let settles = [.ready, .failed, .finished].contains(phase) && (row.evidence != .catalog || row.hasTaskActivity == true)
             seen[row.id] = Seen(phase: phase, observedAt: row.observedAt,
                                lastSeenAt: now, settledAt: settles ? row.updatedAt : prior?.settledAt)
-            // Baseline on first sight, and after a long monitoring gap. No historical alerts.
+            // Baseline on first sight of the initial list, and after a long monitoring gap. No historical alerts.
             guard let prior, prior.phase != phase, !resumed,
                   now.timeIntervalSince(row.observedAt) < 60,
                   !(settles && prior.settledAt == row.updatedAt) else { continue }
