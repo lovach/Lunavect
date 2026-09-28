@@ -115,7 +115,7 @@ else:
 
 class CheckRunnerTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='lunavect-check-tests-')
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect check tests 'q' ")  # a checkout path with spaces
         self.addCleanup(temporary.cleanup)
         self.base = Path(temporary.name)
         self.bin = self.base / 'bin'

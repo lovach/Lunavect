@@ -23,7 +23,7 @@ sys.exit(42 if name == 'xcodebuild' else 0)
 @unittest.skipUnless(platform.system() == 'Darwin', 'build.sh uses macOS tools')
 class BuildScriptTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='lunavect-build-fixture-')
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect build fixture 'q' ")  # a checkout and HOME with spaces
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         (self.root / 'scripts').mkdir()
