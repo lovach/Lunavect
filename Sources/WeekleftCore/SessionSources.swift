@@ -275,6 +275,7 @@ enum SessionProcess {
     /// it never waits for descendants or signals a user's independent client.
     static func withRunningProcess<T>(_ process: Process, operation: () throws -> T) throws -> T {
         try Task.checkCancellation()
+        try LiveProcessGuard.check(process.executableURL)
         try process.run()
         defer { stop(process) }
         try Task.checkCancellation()

@@ -38,6 +38,36 @@ public enum LiveWriteGuard {
     }
 }
 
+/// Under XCTest, refuses side effects on the user's system other than file
+/// writes (R2-X-03): starting a program that is not a test fixture (the official
+/// clients, osascript, pluginkit, anything outside the temporary folder except a
+/// few POSIX tools that reach no application or account), and, through
+/// `refuses`, login item registration, System Settings panes, sounds and global
+/// shortcuts. A test that deliberately drives a real program names it with
+/// `allow` and removes it with `disallow`. Inert in the app and its helpers.
+public enum LiveProcessGuard {
+    private static let allowed = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    static let tools: Set<String> = ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/echo", "/bin/cat", "/bin/sleep", "/bin/pwd",
+                                     "/usr/bin/true", "/usr/bin/false", "/usr/bin/printf", "/usr/bin/env"]
+    private static func canonical(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path }
+    public static func allow(_ executables: [String]) { allowed.withLock { $0.formUnion(executables.map(canonical)) } }
+    public static func disallow(_ executables: [String]) { allowed.withLock { $0.subtract(executables.map(canonical)) } }
+    public static func check(_ executable: URL?) throws {
+        guard LiveWriteGuard.underTests, let executable else { return }
+        let path = canonical(executable.path)
+        let temporary = canonical(FileManager.default.temporaryDirectory.path)
+        guard !path.hasPrefix(temporary + "/"), !tools.contains(path), !allowed.withLock({ $0.contains(path) }) else { return }
+        fputs("LUNAVECT TEST ISOLATION: refused to start \(path)\n", stderr)
+        throw LiveWriteGuard.Refused(path: path)
+    }
+    /// True (and logged) under XCTest: the caller skips a system action without an executable.
+    public static func refuses(_ action: String) -> Bool {
+        guard LiveWriteGuard.underTests else { return false }
+        fputs("LUNAVECT TEST ISOLATION: refused \(action)\n", stderr)
+        return true
+    }
+}
+
 public struct WidgetPreferences: Codable, Equatable, Sendable {
     public var showFiveHour = false
     public var transparency = 0.5

@@ -127,7 +127,20 @@ import Darwin
         XCTAssertEqual(cacheWrites, 0)
     }
 
+    /// Runs the real /usr/bin/osascript by explicit permission (LiveProcessGuard,
+    /// R2-X-03): only the real interpreter shows how it reports numeric errors,
+    /// which terminal navigation maps to its messages. No script addresses an
+    /// application (no `tell`), so no app, window, Apple event or consent prompt
+    /// is involved. Without the permission the guard refuses the interpreter.
     func testTerminalAutomationRunsRealScriptsAndKeepsNumericErrors() async throws {
+        do {
+            _ = try await TerminalLocation.executeFocusScript("return true", app: "Terminal", timeout: 3)
+            XCTFail("Under XCTest osascript runs only by explicit permission")
+        } catch { XCTAssertEqual(error as? SessionOpeningError, .terminalFocusFailed("Terminal")) }
+        LiveProcessGuard.allow(["/usr/bin/osascript"]); defer { LiveProcessGuard.disallow(["/usr/bin/osascript"]) }
+        let scripts = ["return true", "return false", "error \"localized message\" number -1743",
+                       "error \"localized message\" number -1712", "return \"unexpected\"", "this is not valid AppleScript {{{"]
+        XCTAssertFalse(scripts.contains { $0.contains("tell") || $0.contains("application") }, "No script may address an application")
         for (script, expected) in [("return true", true), ("return false", false)] {
             let result = try await TerminalLocation.executeFocusScript(script, app: "Terminal", timeout: 3)
             XCTAssertEqual(result, expected)

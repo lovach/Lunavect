@@ -66,6 +66,7 @@ public struct SessionArrangement: Codable, Equatable {
     }
     func save(to url: URL, read: (URL) throws -> Data) throws {
         let target = try Self.storageURL(url)
+        try LiveWriteGuard.check(url, target)
         // Revalidate at every mutation: the file may have become corrupt or
         // unreadable after the store initially loaded a valid arrangement.
         let current = try Self.loadRecovering(from: target, read: read)

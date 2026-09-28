@@ -116,6 +116,9 @@ final class TerminalLocationTests: XCTestCase {
     /// Numeric AppleScript errors from the real osascript helper (no `tell
     /// application`, so no Apple event is sent) reach distinct recovery messages.
     func testAutomationDenialAndTimeoutHaveSpecificRecoveryMessages() async {
+        // The real interpreter by explicit permission (LiveProcessGuard, R2-X-03):
+        // these scripts only raise numbered errors and address no application.
+        LiveProcessGuard.allow(["/usr/bin/osascript"]); defer { LiveProcessGuard.disallow(["/usr/bin/osascript"]) }
         var messages: Set<String> = []
         for (code, expected) in [(-1743, SessionOpeningError.terminalAutomationDenied("iTerm2")),
                                  (-1712, .terminalFocusTimedOut("iTerm2")), (-1708, .terminalFocusFailed("iTerm2"))] {
@@ -179,6 +182,9 @@ final class TerminalLocationTests: XCTestCase {
         let target = "tell application \"Terminal\"", windows = "repeat with w in windows"
         XCTAssertEqual(generated.components(separatedBy: target).count, 2, "The stand-in replaces exactly one application target")
         XCTAssertEqual(generated.components(separatedBy: windows).count, 2, "The stand-in replaces exactly one window query")
+        // The real interpreter by explicit permission (LiveProcessGuard, R2-X-03); `run`
+        // refuses any script that could still address an application.
+        LiveProcessGuard.allow(["/usr/bin/osascript"]); defer { LiveProcessGuard.disallow(["/usr/bin/osascript"]) }
         func run(failingOnce error: Int) async throws -> Bool {
             let standIn = """
             set standInWindows to {{miniaturized:false, index:2, tabs:{{tty:"/dev/ttys001", processes:{1}, selected:false}, \

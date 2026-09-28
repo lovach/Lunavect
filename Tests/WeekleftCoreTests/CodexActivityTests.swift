@@ -375,7 +375,10 @@ final class CodexActivityTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["LUNAVECT_LIVE_CODEX_WRITER_TEST"] == "1" else {
             throw XCTSkip("Opt-in read-only check against a running local Codex task")
         }
-        let catalog = try await SessionSources.codex(path: CodexProvider.discoverCLI() ?? "")
+        // Opt-in: the installed client may run for this check only (LiveProcessGuard).
+        let client = CodexProvider.discoverCLI() ?? ""
+        LiveProcessGuard.allow([client]); defer { LiveProcessGuard.disallow([client]) }
+        let catalog = try await SessionSources.codex(path: client)
         let reader = CodexActivityReader()
         let current = await reader.events(catalog: catalog)
         let unfinished = current.filter { $0.phase == .running }
@@ -483,7 +486,10 @@ final class CodexActivityTests: XCTestCase {
         guard let id = ProcessInfo.processInfo.environment["LUNAVECT_LIVE_CODEX_TIMER_SESSION_ID"] else {
             throw XCTSkip("Opt-in read-only timer recovery for a named running Codex session")
         }
-        let catalog = try await SessionSources.codex(path: CodexProvider.discoverCLI() ?? "")
+        // Opt-in: the installed client may run for this check only (LiveProcessGuard).
+        let client = CodexProvider.discoverCLI() ?? ""
+        LiveProcessGuard.allow([client]); defer { LiveProcessGuard.disallow([client]) }
+        let catalog = try await SessionSources.codex(path: client)
         let row = try XCTUnwrap(catalog.first { $0.sessionID == id })
         let reader = CodexActivityReader()
         var recovered = await reader.events(catalog: [row]).first

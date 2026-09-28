@@ -888,7 +888,10 @@ enum SessionNavigation {
         let action: String
         var errorDescription: String? { "Test isolation: refused \(action)" }
     }
-    @MainActor static var allowsLiveSystemInTests = false
+    @MainActor static var allowsLiveSystemInTests = false {
+        // Terminal focus runs osascript through SessionProcess (R2-X-03).
+        didSet { allowsLiveSystemInTests ? LiveProcessGuard.allow(["/usr/bin/osascript"]) : LiveProcessGuard.disallow(["/usr/bin/osascript"]) }
+    }
     @MainActor static func checkLiveSystem(_ action: String) throws {
         guard LiveWriteGuard.underTestsForStores, !allowsLiveSystemInTests else { return }
         fputs("LUNAVECT TEST ISOLATION: refused live navigation (\(action))\n", stderr)
@@ -974,16 +977,21 @@ enum SessionNavigation {
             throw error
         }
     }
-    @MainActor static func copy(_ text: String) {
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+    // The pasteboard and opener are parameters so tests prove the refusal on a
+    // private pasteboard and a recorder, never on the user's clipboard or Finder.
+    @MainActor static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
+        guard (try? checkLiveSystem("clipboard")) != nil else { return }
+        pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
     }
-    @MainActor static func openCodex(_ session: AgentSession) -> Bool {
+    @MainActor static func openCodex(_ session: AgentSession, open: (URL) -> Bool = { NSWorkspace.shared.open($0) }) -> Bool {
+        guard (try? checkLiveSystem("codex link")) != nil else { return false }
         guard let url = session.codexURL else { return false }
-        return NSWorkspace.shared.open(url)
+        return open(url)
     }
-    @MainActor static func revealProject(_ session: AgentSession) -> Bool {
+    @MainActor static func revealProject(_ session: AgentSession, open: (URL) -> Bool = { NSWorkspace.shared.open($0) }) -> Bool {
+        guard (try? checkLiveSystem("reveal folder")) != nil else { return false }
         guard session.cwd.hasPrefix("/"), FileManager.default.fileExists(atPath: session.cwd) else { return false }
-        return NSWorkspace.shared.open(URL(fileURLWithPath: session.cwd))
+        return open(URL(fileURLWithPath: session.cwd))
     }
 }
 

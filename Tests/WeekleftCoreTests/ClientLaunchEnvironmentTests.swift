@@ -32,13 +32,16 @@ final class ClientLaunchEnvironmentTests: XCTestCase {
             XCTAssertEqual(try String(contentsOf: arguments), provider == .claude ? "auth\nstatus\n" : "login\nstatus\n")
             let login = try ClientConnection.script(provider: provider, action: .signIn, executable: client.path,
                                                     heading: "Fixture", completion: "Done", environment: [:])
-            _ = try SessionProcess.run(path: "/bin/bash", arguments: ["-c", login], timeout: 2)
+            // The launchers themselves put the client's folder on PATH; the host's shell
+            // startup files are not part of that contract (R2-X-04). A non-interactive
+            // bash reads only BASH_ENV, zsh without -f also reads ~/.zshenv.
+            _ = try SessionProcess.run(path: "/usr/bin/env", arguments: ["-u", "BASH_ENV", "/bin/bash", "--noprofile", "--norc", "-c", login], timeout: 2)
             XCTAssertEqual(try String(contentsOf: arguments), provider == .claude ? "auth\nlogin\n" : "login\n")
             let id = "11111111-2222-3333-4444-555555555555"
             let row = AgentSession(provider: provider, sessionID: id, title: "Fixture", cwd: root.path,
                                    phase: .finished, updatedAt: .distantPast, observedAt: .distantPast)
             let resume = try XCTUnwrap(row.terminalScript(executable: client.path))
-            _ = try SessionProcess.run(path: "/bin/zsh", arguments: ["-c", resume], timeout: 2)
+            _ = try SessionProcess.run(path: "/bin/zsh", arguments: ["-f", "-c", resume], timeout: 2)
             XCTAssertEqual(try String(contentsOf: arguments), (provider == .claude ? "--resume\n" : "resume\n") + id + "\n")
         }
     }
