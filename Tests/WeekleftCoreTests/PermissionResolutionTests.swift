@@ -184,6 +184,36 @@ final class PermissionResolutionTests: XCTestCase {
         XCTAssertEqual(waiting, [0, 0, 1, 0, 0, 0])
     }
 
+    /// «No» without a comment, or Esc, stops Claude's turn and reports nothing. The
+    /// idle reminder (the input prompt idle for about a minute) ends the main
+    /// conversation's requests: an open dialog sends permission_prompt instead.
+    func testIdleReminderEndsTheMainConversationsRequests() throws {
+        let open = try play([("UserPromptSubmit", [:]), ("PreToolUse", call("Bash", "x")), ("PermissionRequest", request("Bash")),
+                             ("Notification", ["notification_type": "permission_prompt"])])
+        XCTAssertEqual(open.last?.session.phase, .permission, "An open dialog and its reminder")
+        let idle = try event("Notification", ["notification_type": "idle_prompt"], provider: .claude, after: open.last!, at: 70)
+        XCTAssertEqual(idle.session.phase, .idle)
+        XCTAssertTrue(idle.pendingApprovals.isEmpty && idle.unidentifiedApproval == nil)
+        XCTAssertFalse(idle.session.effectivePhase(now: start.addingTimeInterval(70)).isActive)
+
+        // An idle reminder older than the request, delivered after it, changes nothing.
+        let late = try event("Notification", ["notification_type": "idle_prompt"], provider: .claude, after: open[2], at: 1.5)
+        XCTAssertEqual(late.session.phase, .permission)
+        XCTAssertEqual(late.session.observedAt, open[2].session.observedAt)
+
+        // A subagent's dialog is not the input prompt's.
+        let both = try play([("UserPromptSubmit", [:]), ("PreToolUse", call("Agent", "task")), ("PreToolUse", call("Bash", "a1", agent: "agent-a")),
+                             ("PermissionRequest", request("Bash", agent: "agent-a")), ("PreToolUse", call("WebFetch", "m1")),
+                             ("PermissionRequest", request("WebFetch"))])
+        let reminded = try event("Notification", ["notification_type": "idle_prompt"], provider: .claude, after: both.last!, at: 70)
+        XCTAssertEqual(reminded.session.phase, .permission)
+        XCTAssertEqual(reminded.approvals?.map(\.context), ["agent-a"])
+
+        // Without an open request it stays a reminder about a finished reply.
+        let ready = try play([("UserPromptSubmit", [:]), ("Stop", [:])]).last!
+        XCTAssertEqual(try event("Notification", ["notification_type": "idle_prompt"], provider: .claude, after: ready, at: 70).session, ready.session)
+    }
+
     /// Claude's session list reports every wait as "waiting" (it has no waitingFor
     /// since 2.1.280). A newer listing during an open dialog confirms the wait: it
     /// does not turn "Permission needed" into "Input needed" or announce it again.
