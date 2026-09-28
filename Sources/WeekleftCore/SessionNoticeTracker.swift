@@ -50,15 +50,16 @@ public struct SessionNoticeTracker {
             // A newer Claude listing requested while Stop hooks still run says busy for
             // one poll; the next idle listing restores the same reply. Settle each
             // event-timed reply or failure so that flicker cannot repeat it (R2-S-02).
-            // Catalog rows carry only a start time, so they are never settled.
-            let ending = [.ready, .failed, .finished].contains(phase)
-            let settles = ending && row.evidence != .catalog
+            // A row carries an event time when a hook, log or status-bar record
+            // decided it or contributed task activity to it; a catalog-only row
+            // carries only a start time and is never settled.
+            let settles = [.ready, .failed, .finished].contains(phase) && (row.evidence != .catalog || row.hasTaskActivity == true)
             seen[row.id] = Seen(phase: phase, observedAt: row.observedAt,
                                lastSeenAt: now, settledAt: settles ? row.updatedAt : prior?.settledAt)
             // Baseline on first sight, and after a long monitoring gap. No historical alerts.
             guard let prior, prior.phase != phase, !resumed,
                   now.timeIntervalSince(row.observedAt) < 60,
-                  !(ending && prior.settledAt == row.updatedAt) else { continue }
+                  !(settles && prior.settledAt == row.updatedAt) else { continue }
             let kind: SessionNoticeKind?
             switch phase {
             // Only a reply announces completion. SessionEnd after active work

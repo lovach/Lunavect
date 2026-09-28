@@ -43,6 +43,38 @@ final class SessionNoticeIdempotencyTests: XCTestCase {
         XCTAssertEqual(notices(&tracker, try catalog("busy", requestedAt: 30.5), second, at: 40.1), [.completed])
     }
 
+    /// The first read after Stop may already see a newer idle listing: the reply is
+    /// then restored from the hook through the catalog row, which still carries the
+    /// Stop's time. A later busy/idle pair without new events is the same reply.
+    func testAReplyFirstSeenThroughTheIdleListingIsAlsoAnnouncedOnce() throws {
+        var tracker = SessionNoticeTracker()
+        let prompt = try hook("UserPromptSubmit", after: nil, at: 0)
+        let stop = try hook("Stop", ["last_assistant_message": "Done."], after: prompt, at: 10)
+        XCTAssertEqual(notices(&tracker, try catalog("busy", requestedAt: 5), prompt, at: 6), [])
+        let idle = try catalog("idle", requestedAt: 10.5)
+        XCTAssertEqual(SessionList.merge(catalog: idle, events: [stop.session], now: start.addingTimeInterval(11)).first?.evidence, .catalog,
+                       "Precondition: the reply reaches the tracker through the catalog row")
+        XCTAssertEqual(notices(&tracker, idle, stop, at: 11), [.completed])
+        XCTAssertEqual(notices(&tracker, try catalog("busy", requestedAt: 12), stop, at: 13), [])
+        XCTAssertEqual(notices(&tracker, try catalog("idle", requestedAt: 27), stop, at: 28), [])
+    }
+
+    /// Catalog-only rows carry just the session start: a background task that
+    /// works and finishes again without hooks is still announced each time.
+    func testCatalogOnlyBackgroundCompletionsAreNotSettled() throws {
+        var tracker = SessionNoticeTracker()
+        func background(_ state: String, at seconds: Double) throws -> [AgentSession] {
+            let row: [String: Any] = ["sessionId": "detached", "id": "detached", "kind": "background", "pid": 77,
+                                      "status": "idle", "state": state, "startedAt": 1_795_000_000_000]
+            return try SessionParser.claude(JSONSerialization.data(withJSONObject: [row]), now: start.addingTimeInterval(seconds))
+        }
+        var kinds: [SessionNoticeKind] = []
+        for (state, seconds) in [("working", 0.0), ("done", 15), ("working", 30), ("done", 45)] {
+            kinds += tracker.update(try background(state, at: seconds), now: start.addingTimeInterval(seconds + 1)).map(\.kind)
+        }
+        XCTAssertEqual(kinds, [.completed, .completed])
+    }
+
     func testTheSameFailureIsAnnouncedOnce() throws {
         var tracker = SessionNoticeTracker()
         let prompt = try hook("UserPromptSubmit", after: nil, at: 0)
