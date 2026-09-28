@@ -247,8 +247,9 @@ public enum ClaudeProvider {
     }
     public static func preferredObservation(_ observations: [UsageSnapshot], now: Date) -> UsageSnapshot? {
         let current = observations.filter { $0.freshnessVerified && !$0.isStale(now: now) }
+        // Equal observation times prefer the verified probe, whatever the reading order.
         return (current.isEmpty ? observations : current).max {
-            ($0.fetchedAt ?? .distantPast) < ($1.fetchedAt ?? .distantPast)
+            (($0.fetchedAt ?? .distantPast), $0.freshnessVerified ? 1 : 0) < (($1.fetchedAt ?? .distantPast), $1.freshnessVerified ? 1 : 0)
         }
     }
     public static func refresh(force: Bool = true) async throws -> UsageSnapshot {

@@ -50,4 +50,35 @@ final class LimitNoticeTests: XCTestCase {
         XCTAssertEqual(AppFeatures(defaults: defaults).limits, false)
         muted.stop()
     }
+
+    /// Q-05: `/usage` showed "Resets Sep 27 at 11:59pm" for a reset at 00:00:00 in
+    /// Vienna (probe 812239140, status line 812239200). "Available again" must not be
+    /// announced, and a limited session must not name a passed time, before 00:00:00.
+    @MainActor func testLimitReturnWaitsForTheEndOfTheMinuteTheProbeShowed() throws {
+        let suite = "Lunavect.LimitMinute." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let shownMinute = Date(timeIntervalSinceReferenceDate: 812_239_140), reset = Date(timeIntervalSinceReferenceDate: 812_239_200)
+        var now = shownMinute.addingTimeInterval(-600)
+        var requests: [UNNotificationRequest] = []
+        let features = AppFeatures(defaults: defaults, now: { now }, playSound: { _ in },
+                                   sendBanner: { request, callback in requests.append(request); callback(nil) })
+        features.banners = true; features.notificationAllowed = true
+        defer { features.stop() }
+        func probe(weekly: Int) throws -> UsageSnapshot {
+            try ClaudeUsageText.parse("Current week (all models)\n\(weekly)% used\nResets Sep 27 at 11:59pm (Europe/Vienna)\nEsc to cancel",
+                                      now: now, timeZone: XCTUnwrap(TimeZone(identifier: "Europe/Vienna")))
+        }
+        let exhausted = try probe(weekly: 100)
+        features.observeLimits([exhausted])
+        XCTAssertEqual(requests.map(\.content.title), [L("{0}: осталось {1}% на неделю", "Claude", "0")])
+        now = shownMinute.addingTimeInterval(30)
+        XCTAssertEqual(features.limitResetTime(for: .claude, now: now), reset, "A limited session names the certain reset")
+        features.observeLimits([exhausted])
+        XCTAssertEqual(requests.count, 1, "Inside the shown minute the limit has not certainly returned")
+        now = reset
+        features.observeLimits([exhausted])
+        XCTAssertEqual(requests.last?.content.title, L("Лимит {0} снова доступен", "Claude"))
+        XCTAssertEqual(requests.count, 2)
+    }
 }

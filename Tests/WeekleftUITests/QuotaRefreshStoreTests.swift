@@ -77,7 +77,7 @@ import XCTest
         return store
     }
     private func claude(used: Double, fetchedAt: Date, reset: Date?) throws -> UsageSnapshot {
-        try UsageSnapshot(provider: .claude, weekly: QuotaWindow(usedPercent: used, durationMinutes: 10080, resetsAt: reset),
+        try UsageSnapshot(provider: .claude, weekly: QuotaWindow(usedPercent: used, durationMinutes: 10080, resetsAt: reset, resetPrecision: .minute),
                           fetchedAt: fetchedAt, source: ClaudeUsageProbe.source)
     }
     private func row(_ provider: ProviderID = .claude, updatedAt: Date, evidence: SessionEvidence = .hook) -> AgentSession {
@@ -225,10 +225,11 @@ import XCTest
         h.result = { _, date in try self.claude(used: 0, fetchedAt: date, reset: nil) }
         let store = try makeStore(h, snapshots: [exhausted], providers: [.claude])
         store.start(); await drain()
-        let timer = try XCTUnwrap(h.pending.first { abs($0.fireAt.timeIntervalSince(reset.addingTimeInterval(90))) < 1 },
+        // WP-1b: the reset is the end of the shown minute, so the probe's grace is 30 s.
+        let timer = try XCTUnwrap(h.pending.first { abs($0.fireAt.timeIntervalSince(reset.addingTimeInterval(30))) < 1 },
                                   "Scheduled for the reset plus the probe's grace")
         XCTAssertNotNil(timer)
-        h.now = reset.addingTimeInterval(90); h.fireDue(); await drain()
+        h.now = reset.addingTimeInterval(30); h.fireDue(); await drain()
         XCTAssertEqual(h.probes.count, 1)
         XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 0)
         XCTAssertNil(store.snapshots.first?.weekly?.resetsAt, "The new window starts with the first request")

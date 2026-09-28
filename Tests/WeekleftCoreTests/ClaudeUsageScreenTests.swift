@@ -97,6 +97,69 @@ final class ClaudeUsageScreenTests: XCTestCase {
         }
     }
 
+    /// Q-12: every service line named in 01-quota.md Q-12 ends the probe with a
+    /// typed reason (WP-1a's reasons, no new ones), wherever it appears on the screen.
+    func testEveryServiceLineOfTheUsagePanelHasATypedReason() {
+        let lines: [(String, ClientIntegrationIssue.Reason)] = [
+            ("Usage limit reached", .limitReached),
+            ("Usage limit reached · resets at 11:59pm (Europe/Vienna)", .limitReached),
+            ("You've hit your weekly limit · resets Sep 28 at 11:59pm", .limitReached),
+            ("You\u{2019}ve hit your session limit", .limitReached),
+            ("Failed to load usage data", .usageFetchFailed),
+            ("Could not refresh usage data", .usageFetchFailed),
+            ("No model usage data available", .usageFetchFailed),
+        ]
+        for (line, reason) in lines {
+            for screen in ["\(line)\nEsc to cancel", "Settings  Status   Config   Usage   Stats\nCurrent week (all models)\n\(line)\nEsc to cancel"] {
+                XCTAssertEqual(ClaudeUsageText.state(in: screen), reason, screen)
+                XCTAssertEqual((ClaudeUsageText.failure(in: screen) as? ClientIntegrationIssue)?.reason, reason, screen)
+                XCTAssertThrowsError(try ClaudeUsageText.parse(screen, now: now), screen)
+            }
+        }
+        // A line that only names the model breakdown does not hide a parsed quota.
+        let parsed = try? ClaudeUsageText.parse("Current week (all models)\n40% used\nResets 11:59pm (UTC)\nNo model usage data available\nEsc to cancel", now: now)
+        XCTAssertEqual(parsed?.weekly?.usedPercent, 40)
+    }
+
+    /// 01-quota.md §6 п.16: the sign-in texts of the current CLI (not yet captured
+    /// from a real signed-out screen) each ask to finish Claude Code's setup.
+    func testEachSignInTextAsksToFinishClaudeSetup() {
+        for screen in ["Select login method:\n1. Claude account with subscription", "Please run /login", "Not logged in · Please run /login",
+                       "Invalid API key · Please run /login"] {
+            XCTAssertEqual(ClaudeUsageText.blockingPrompt(in: screen) as? UsageError, .claudeSignInRequired, screen)
+            XCTAssertEqual(ClaudeUsageText.failure(in: screen) as? UsageError, .claudeSignInRequired, screen)
+        }
+    }
+
+    /// 01-quota.md §6 п.15: Claude Code removed or moved between probes ends the probe
+    /// at once, before any process starts, and keeps the saved quota.
+    func testRemovedClientEndsTheProbeAtOnceAndKeepsTheSavedQuota() async throws {
+        let root = try temporaryDirectory()
+        let executable = root.appendingPathComponent("claude")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        try FileManager.default.removeItem(at: executable)
+        let notExecutable = root.appendingPathComponent("claude-text")
+        try Data("text".utf8).write(to: notExecutable)
+        for path in [executable.path, notExecutable.path, root.path] {
+            let started = Date()
+            do {
+                _ = try await ClaudeUsageProbe.fetch(cliPath: path, timeout: 8, directory: root.appendingPathComponent("probe"))
+                XCTFail(path)
+            } catch { XCTAssertEqual(error as? UsageError, .claudeCLIUnavailable, path) }
+            XCTAssertLessThan(Date().timeIntervalSince(started), 1, path)
+        }
+        let saved = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 30, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
+            fetchedAt: now.addingTimeInterval(-3600), source: ClaudeUsageProbe.source)
+        let result = try await ClaudeProvider.refresh(force: true, now: now, cached: { saved }, probe: {
+            try await ClaudeUsageProbe.fetch(cliPath: executable.path, timeout: 8, directory: root.appendingPathComponent("probe"))
+        }, save: { _ in XCTFail("Nothing new to save") })
+        XCTAssertEqual(result.weekly, saved.weekly)
+        XCTAssertEqual(result.fetchedAt, saved.fetchedAt)
+        XCTAssertEqual(result.issue, UsageError.claudeCLIUnavailable.errorDescription)
+    }
+
     func testSignInScreenStillAsksToFinishClaudeSetup() async throws {
         let result = try await probe(printing: "Not logged in · Please run /login\n")
         XCTAssertEqual(result.error as? UsageError, .claudeSignInRequired)

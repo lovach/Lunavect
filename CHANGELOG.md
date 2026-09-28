@@ -46,6 +46,9 @@
 - Codex plans without rate-limit windows show "No limits" instead of waiting forever; Codex's reached-limit flag counts as 100%.
 - Connections and Limits explain when Claude Desktop sessions cannot update limits through the status line.
 - `--probe` prints the result of a real `/usage` probe; `--usage-probe` prints its screen. `LUNAVECT_PROBE_DUMP_DIR` saves failed probe screens for diagnosis (opt-in).
+- "Limit available again" is no longer sent up to a minute early. `/usage` shows resets truncated to the minute ("11:59pm" for a reset at midnight); Lunavect now stores the end of the shown minute, so a Claude window no longer shows a dash or counts as reset during that minute, and a saved `/usage` reading from an earlier version is read the same way. When two sources report the same reset, the later time counts.
+- More `/usage` reset forms are understood instead of failing the probe: a date without a time, "in 2h 15m", "today/tomorrow at …", 12-hour times with a space or capitals, 24-hour times, abbreviated time zones such as "CEST", a reset on the percentage line and model blocks such as "Current week (Sonnet only)". An "Extra usage" block is no longer read as the weekly window. Dated resets in the daylight-saving change are handled like clock times: a repeated hour counts from its later occurrence, a skipped hour is rejected.
+- A Claude status-line window without a reset time no longer discards the other window. "No model usage data available" is reported as usage data that failed to load, and a Claude Code path that became a folder is reported as missing at once.
 
 ## 0.2.4 — 2026-09-27
 
