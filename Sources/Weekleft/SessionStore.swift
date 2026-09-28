@@ -563,7 +563,8 @@ import WeekleftCore
             var merged = SessionList.merge(catalog: live, events: currentEvents, now: date) + history
             // S-13 / A-02: a client killed mid-turn sends no Stop or SessionEnd.
             let completeClaude = providers.contains(.claude) && typedIssues[.claude] == nil ? catalog[.claude].map { Set($0.map(\.id)) } : nil
-            merged = SessionList.endingDeadClaudeRuntimes(merged, completeCatalog: completeClaude, isAlive: dependencies.isProcessAlive)
+            merged = SessionList.endingDeadClaudeRuntimes(merged, completeCatalog: completeClaude, stopped: &stoppedRuntimes,
+                                                          isAlive: dependencies.isProcessAlive)
             if now().timeIntervalSince(titlesCheckedAt) >= (polling?.titles ?? 15) {
                 let titles = try await dependencies.titles(merged, hiddenIDs, providers)
                 guard isCurrent(expected) else { return }
@@ -605,6 +606,9 @@ import WeekleftCore
         diagnosticEntries.append(entry)
         if diagnosticEntries.count > 32 { diagnosticEntries.removeFirst(diagnosticEntries.count - 32) }
     }
+    /// S-13 decisions by session and hook-record time: one failed catalog read
+    /// must not revive a stopped client (R2-02).
+    private var stoppedRuntimes: [String: Date] = [:]
     /// Latest hook fact already turned into an entry, by session and kind.
     private var reportedHookDiagnostics: [String: Date] = [:]
     /// Hook records keep only their latest fact; each new one becomes one entry.

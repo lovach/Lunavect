@@ -131,7 +131,10 @@ public struct SessionVisibility {
             let newActivity = row.turnStartedAt == nil && row.evidence != .catalog &&
                 row.phase.isActive && record.phase.map { !$0.isActive && $0 != .unknown } == true &&
                 row.updatedAt > record.hiddenAt && row.observedAt > (record.eventAt ?? .distantPast)
-            if newTurn || newActivity {
+            // Decision 13: `claude --resume` (or a fork) of a hidden session reopens it
+            // as ready for work before its first prompt (R2-08).
+            let reopened = row.reopenedAt.map { $0 > record.hiddenAt && $0 >= (record.eventAt ?? .distantPast) } ?? false
+            if newTurn || newActivity || reopened {
                 next.removeValue(forKey: row.id); restored.insert(row.id); changed = true
             } else if record.phase != row.phase {
                 record.phase = row.phase; record.eventAt = row.observedAt
