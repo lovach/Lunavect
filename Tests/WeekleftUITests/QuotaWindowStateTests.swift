@@ -23,7 +23,7 @@ final class QuotaWindowStateTests: XCTestCase {
                                              preferences: MenuBarLimitsPreferences(enabled: true), now: date ?? now).first)
     }
     private func probe(used: Double, reset: Date?, fetchedAgo: TimeInterval) throws -> UsageSnapshot {
-        try UsageSnapshot(provider: .claude, weekly: QuotaWindow(usedPercent: used, durationMinutes: 10080, resetsAt: reset),
+        try UsageSnapshot(provider: .claude, weekly: QuotaWindow(usedPercent: used, durationMinutes: 10080, resetsAt: reset, resetPrecision: .minute),
                           fetchedAt: now.addingTimeInterval(-fetchedAgo), source: "Claude Code /usage")
     }
 
@@ -80,11 +80,11 @@ final class QuotaWindowStateTests: XCTestCase {
                                       fetchedAt: now, source: "Codex CLI")
         let dates = WidgetTimelineSchedule.dates(from: now, snapshots: [claude, codex])
         XCTAssertTrue(dates.contains(reset))
-        XCTAssertTrue(dates.contains(reset.addingTimeInterval(90)), "Probe resets are minute-rounded")
+        XCTAssertTrue(dates.contains(reset.addingTimeInterval(30)), "A probe reset is the end of the shown minute; its grace is 30 s")
         XCTAssertTrue(dates.contains(reset.addingTimeInterval(5)))
-        let later = try entry(claude, at: reset.addingTimeInterval(90))
+        let later = try entry(claude, at: reset.addingTimeInterval(30))
         XCTAssertEqual(later.value, "—")
-        XCTAssertTrue(widgetQuotaStatus(claude, now: reset.addingTimeInterval(90)).hasPrefix("Reset at "))
+        XCTAssertTrue(widgetQuotaStatus(claude, now: reset.addingTimeInterval(30)).hasPrefix("Reset at "))
     }
 
     // Q-17: model buckets from /usage keep their own freshness inside a statusLine snapshot.

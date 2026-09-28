@@ -29,8 +29,10 @@ final class ClaudeUsageProbeTests: XCTestCase {
         XCTAssertEqual(result.modelQuotas?.first?.fetchedAt, now)
         XCTAssertEqual(result.fetchedAt, now)
         XCTAssertEqual(result.source, "Claude Code /usage")
-        XCTAssertEqual(result.weekly?.resetsAt, ISO8601DateFormatter().date(from: "2026-09-13T21:59:00Z"))
-        XCTAssertEqual(result.fiveHour?.resetsAt, ISO8601DateFormatter().date(from: "2026-09-10T17:39:00Z"))
+        // Q-05: the CLI truncates to the minute; the reset is certain at the end of the shown minute.
+        XCTAssertEqual(result.weekly?.resetsAt, ISO8601DateFormatter().date(from: "2026-09-13T22:00:00Z"))
+        XCTAssertEqual(result.fiveHour?.resetsAt, ISO8601DateFormatter().date(from: "2026-09-10T17:40:00Z"))
+        XCTAssertEqual(result.weekly?.resetPrecision, .minute)
     }
     func testTerminalEscapesAndPartialRendersCannotInventQuota() throws {
         let ansi = "\u{1b}]0;Claude Code\u{07}\u{1b}[?25h\u{1b}[G" + text.replacingOccurrences(of: "\n", with: "\r\n") + "\u{1b}[3A"
@@ -46,27 +48,31 @@ final class ClaudeUsageProbeTests: XCTestCase {
         XCTAssertNil(result.fiveHour)
         XCTAssertNil(try ClaudeUsageText.parse(text.replacingOccurrences(of: "Resets 7:39pm (Europe/Vienna)", with: ""), now: now).fiveHour)
         XCTAssertEqual(result.weekly?.remaining, 69)
-        XCTAssertEqual(result.weekly?.resetsAt, ISO8601DateFormatter().date(from: "2026-09-13T21:59:00Z"))
+        XCTAssertEqual(result.weekly?.resetsAt, ISO8601DateFormatter().date(from: "2026-09-13T22:00:00Z"))
         XCTAssertThrowsError(try ClaudeUsageText.parse(text.replacingOccurrences(of: "Europe/Vienna", with: "Unknown/Zone"), now: now))
     }
     func testResetRolloverAndAlreadyExpiredWindows() {
         let utc = TimeZone(secondsFromGMT: 0)!
         let newYear = ISO8601DateFormatter().date(from: "2026-12-31T23:00:00Z")!
-        XCTAssertEqual(ClaudeUsageText.resetDate("Jan 2 at 12am (UTC)", now: newYear, durationMinutes: 10080, timeZone: utc), ISO8601DateFormatter().date(from: "2027-01-02T00:00:00Z"))
-        XCTAssertEqual(ClaudeUsageText.resetDate("1am (UTC)", now: newYear, durationMinutes: 300, timeZone: utc), ISO8601DateFormatter().date(from: "2027-01-01T01:00:00Z"))
+        XCTAssertEqual(ClaudeUsageText.resetDate("Jan 2 at 12am (UTC)", now: newYear, durationMinutes: 10080, timeZone: utc), ISO8601DateFormatter().date(from: "2027-01-02T00:01:00Z"))
+        XCTAssertEqual(ClaudeUsageText.resetDate("1am (UTC)", now: newYear, durationMinutes: 300, timeZone: utc), ISO8601DateFormatter().date(from: "2027-01-01T01:01:00Z"))
         XCTAssertNil(ClaudeUsageText.resetDate("Dec 31 at 10pm (UTC)", now: newYear, durationMinutes: 10080, timeZone: utc))
         XCTAssertNil(ClaudeUsageText.resetDate("10pm (UTC)", now: newYear, durationMinutes: 300, timeZone: utc))
     }
-    /// The CLI shows a reset rounded to the minute and may still show it just
+    /// The CLI shows a reset truncated to the minute and may still show it just
     /// after it passed. Keep the elapsed time (displayed as expired) instead of
-    /// failing the whole probe or inventing the next day.
+    /// failing the whole probe or inventing the next day. "Passed" means the
+    /// shown minute has ended (Q-05): inside it the reset is still ahead.
     func testJustElapsedResetIsKeptAsExpiredWithoutFailingTheProbe() throws {
         let utc = TimeZone(secondsFromGMT: 0)!
-        let now = ISO8601DateFormatter().date(from: "2026-09-10T15:00:20Z")!
-        let elapsed = ISO8601DateFormatter().date(from: "2026-09-10T15:00:00Z")!
+        let now = ISO8601DateFormatter().date(from: "2026-09-10T15:01:20Z")!
+        let elapsed = ISO8601DateFormatter().date(from: "2026-09-10T15:01:00Z")!
         XCTAssertEqual(ClaudeUsageText.resetDate("3pm (UTC)", now: now, durationMinutes: 300, timeZone: utc), elapsed)
         XCTAssertEqual(ClaudeUsageText.resetDate("Sep 10 at 3pm (UTC)", now: now, durationMinutes: 10080, timeZone: utc), elapsed)
-        XCTAssertNil(ClaudeUsageText.resetDate("2:57pm (UTC)", now: now, durationMinutes: 300, timeZone: utc), "Only a reset that has just passed")
+        XCTAssertNil(ClaudeUsageText.resetDate("2:58pm (UTC)", now: now, durationMinutes: 300, timeZone: utc), "Only a reset that has just passed")
+        let inside = ISO8601DateFormatter().date(from: "2026-09-10T15:00:20Z")!
+        XCTAssertEqual(ClaudeUsageText.resetDate("3pm (UTC)", now: inside, durationMinutes: 300, timeZone: utc), elapsed,
+                       "Inside the shown minute the reset has not certainly happened")
         let screen = text.replacingOccurrences(of: "Resets 7:39pm (Europe/Vienna)", with: "Resets 3pm (UTC)")
         let result = try ClaudeUsageText.parse(screen, now: now)
         XCTAssertEqual(result.weekly?.remaining, 69)
@@ -78,9 +84,9 @@ final class ClaudeUsageProbeTests: XCTestCase {
     func testJustElapsedResetSurvivesMidnightAndYearRollover() throws {
         let utc = TimeZone(secondsFromGMT: 0)!
         let cases = [
-            ("2026-09-11T00:00:20Z", "11:59pm (UTC)", 300, "2026-09-10T23:59:00Z"),
-            ("2027-01-01T00:00:20Z", "Dec 31 at 11:59pm (UTC)", 10080, "2026-12-31T23:59:00Z"),
-            ("2026-09-10T15:00:20Z", "3pm (UTC)", 10080, "2026-09-10T15:00:00Z")
+            ("2026-09-11T00:00:20Z", "11:59pm (UTC)", 300, "2026-09-11T00:00:00Z"),
+            ("2027-01-01T00:00:20Z", "Dec 31 at 11:59pm (UTC)", 10080, "2027-01-01T00:00:00Z"),
+            ("2026-09-10T15:01:20Z", "3pm (UTC)", 10080, "2026-09-10T15:01:00Z")
         ]
         for (timestamp, reset, minutes, expected) in cases {
             let now = try XCTUnwrap(ISO8601DateFormatter().date(from: timestamp))
@@ -118,12 +124,12 @@ final class ClaudeUsageProbeTests: XCTestCase {
         let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Vienna"))
         let autumn = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-25T00:45:00Z"))
         XCTAssertEqual(ClaudeUsageText.resetDate("2:30am (Europe/Vienna)", now: autumn, durationMinutes: 300, timeZone: zone),
-                       ISO8601DateFormatter().date(from: "2026-10-25T01:30:00Z"), "The second 02:30 is still ahead after the first has passed")
+                       ISO8601DateFormatter().date(from: "2026-10-25T01:31:00Z"), "The second 02:30 is still ahead after the first has passed")
         let spring = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-29T00:30:00Z"))
         XCTAssertNil(ClaudeUsageText.resetDate("2:30am (Europe/Vienna)", now: spring, durationMinutes: 300, timeZone: zone),
                      "A nonexistent 02:30 cannot silently turn into 03:00")
         XCTAssertEqual(ClaudeUsageText.resetDate("3:30am (Europe/Vienna)", now: spring, durationMinutes: 300, timeZone: zone),
-                       ISO8601DateFormatter().date(from: "2026-03-29T01:30:00Z"))
+                       ISO8601DateFormatter().date(from: "2026-03-29T01:31:00Z"))
     }
     func testOptionalModelQuotaDoesNotBreakOtherWindowsOrLegacySnapshots() throws {
         let invalidModel = text.replacingOccurrences(of: "46% 46% used", with: "140% used")

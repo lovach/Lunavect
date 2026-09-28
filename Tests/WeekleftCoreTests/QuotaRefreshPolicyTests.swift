@@ -8,7 +8,7 @@ final class QuotaRefreshPolicyTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private func probeSnapshot(used: Double, fetchedAt: Date, weeklyReset: Date?) throws -> UsageSnapshot {
         try UsageSnapshot(provider: .claude,
-                          weekly: QuotaWindow(usedPercent: used, durationMinutes: 10080, resetsAt: weeklyReset),
+                          weekly: QuotaWindow(usedPercent: used, durationMinutes: 10080, resetsAt: weeklyReset, resetPrecision: .minute),
                           fetchedAt: fetchedAt, source: ClaudeUsageProbe.source)
     }
     private func probes(force: Bool, at date: Date, cached: UsageSnapshot, returning result: UsageSnapshot? = nil,
@@ -35,8 +35,9 @@ final class QuotaRefreshPolicyTests: XCTestCase {
     func testResetPassingLeadsToOneConfirmingProbeAfterGrace() async throws {
         let reset = now.addingTimeInterval(3600)
         let exhausted = try probeSnapshot(used: 100, fetchedAt: now, weeklyReset: reset)
-        let early = try await probes(force: false, at: reset.addingTimeInterval(30), cached: exhausted)
-        XCTAssertEqual(early, 0, "The CLI rounds resets to minutes; wait for the grace period")
+        // WP-1b: the stored reset is the end of the minute the CLI showed; the CLI then needs a moment.
+        let early = try await probes(force: false, at: reset.addingTimeInterval(29), cached: exhausted)
+        XCTAssertEqual(early, 0, "Wait for the grace period after the reset")
         // The new window has not started: the probe reports 0% without a reset.
         let inactive = try probeSnapshot(used: 0, fetchedAt: reset.addingTimeInterval(91), weeklyReset: nil)
         var stored: UsageSnapshot?

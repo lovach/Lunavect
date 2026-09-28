@@ -17,23 +17,35 @@ private enum UsageDate {
     }
 }
 
+/// How a source reported a reset. Nil: an exact timestamp (status line, Codex).
+/// Otherwise the source showed the reset truncated to this unit ("11:59pm" for
+/// 23:59:59.767) and `resetsAt` holds the end of the shown unit, the first moment
+/// the window has certainly reset, so nothing treats it as reset early (Q-05).
+/// The `/usage` parser always sets it for a window with a reset; a saved `/usage`
+/// window without it was written by an earlier version and is read as the start
+/// of its shown minute (`UsageSnapshot.init(from:)`).
+public enum ResetPrecision: String, Codable, Sendable { case minute, hour, day }
+
 public struct QuotaWindow: Codable, Equatable, Sendable {
     public let usedPercent: Double
     public let durationMinutes: Int
     public let resetsAt: Date?
+    public let resetPrecision: ResetPrecision?
     public var remaining: Double { max(0, min(100, 100 - usedPercent)) }
-    public init(usedPercent: Double, durationMinutes: Int, resetsAt: Date?) throws {
+    public init(usedPercent: Double, durationMinutes: Int, resetsAt: Date?, resetPrecision: ResetPrecision? = nil) throws {
         guard usedPercent.isFinite, (0...100).contains(usedPercent), durationMinutes > 0,
               resetsAt.map(UsageDate.isValid) ?? true else { throw UsageError.invalidResponse }
         self.usedPercent = usedPercent; self.durationMinutes = durationMinutes; self.resetsAt = resetsAt
+        self.resetPrecision = resetsAt == nil ? nil : resetPrecision
     }
-    private enum CodingKeys: String, CodingKey { case usedPercent, durationMinutes, resetsAt }
+    private enum CodingKeys: String, CodingKey { case usedPercent, durationMinutes, resetsAt, resetPrecision }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let used = try values.decode(Double.self, forKey: .usedPercent)
         let duration = try values.decode(Int.self, forKey: .durationMinutes)
         let reset = try values.decodeIfPresent(Date.self, forKey: .resetsAt)
-        do { try self.init(usedPercent: used, durationMinutes: duration, resetsAt: reset) }
+        let precision = (try? values.decodeIfPresent(ResetPrecision.self, forKey: .resetPrecision)) ?? nil
+        do { try self.init(usedPercent: used, durationMinutes: duration, resetsAt: reset, resetPrecision: precision) }
         catch {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
                 debugDescription: "Invalid quota window", underlyingError: error))
@@ -46,6 +58,15 @@ public struct QuotaWindow: Codable, Equatable, Sendable {
         resetsAt.map { $0.timeIntervalSince(fetchedAt) <= Double(durationMinutes) * 60 + 120 } ?? true
     }
     public func isExpired(at now: Date) -> Bool { resetsAt.map { $0 <= now } ?? false }
+    /// A `/usage` reading saved before resets carried their precision holds the
+    /// start of the shown minute. The reset is certain at its end; a window
+    /// observed at `observedAt` cannot run past `observedAt` plus its length.
+    func completingShownMinute(observedAt: Date?) throws -> QuotaWindow {
+        guard resetPrecision == nil, let resetsAt else { return self }
+        var end = resetsAt.addingTimeInterval(60)
+        if let observedAt { end = max(resetsAt, min(end, observedAt.addingTimeInterval(Double(durationMinutes) * 60))) }
+        return try QuotaWindow(usedPercent: usedPercent, durationMinutes: durationMinutes, resetsAt: end, resetPrecision: .minute)
+    }
     public func countdown(now: Date = Date(), language: String = L10n.selection) -> String {
         func text(_ key: String, _ args: String...) -> String { L10n.text(key, language: language, arguments: args) }
         guard let resetsAt else { return "—" }
@@ -109,6 +130,19 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         issue = try values.decodeIfPresent(String.self, forKey: .issue)
         modelQuotas = try values.decodeIfPresent([ModelQuota].self, forKey: .modelQuotas)
         unlimited = try values.decodeIfPresent(Bool.self, forKey: .unlimited)
+        if source == Self.usageProbeSource {
+            // Written before `/usage` resets carried their precision (Q-05).
+            let observed = fetchedAt
+            do {
+                weekly = try weekly?.completingShownMinute(observedAt: observed)
+                fiveHour = try fiveHour?.completingShownMinute(observedAt: observed)
+                modelQuotas = try modelQuotas?.map {
+                    ModelQuota(name: $0.name, window: try $0.window.completingShownMinute(observedAt: $0.fetchedAt), fetchedAt: $0.fetchedAt)
+                }
+            } catch {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid quota window", underlyingError: error))
+            }
+        }
         guard weekly.map({ $0.durationMinutes == 10080 }) ?? true else {
             throw DecodingError.dataCorruptedError(forKey: .weekly, in: values, debugDescription: "Invalid weekly duration")
         }
@@ -141,9 +175,12 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     /// statusLine supplies cached session quotas, without their server observation
     /// time. Receipt (even after an API response) cannot certify quota freshness.
     public var freshnessVerified: Bool { source != "Claude Code statusLine" }
-    /// The CLI's /usage screen rounds resets to the minute; statusLine and Codex
-    /// report exact epochs. New data is expected only after this grace.
-    public var resetGrace: TimeInterval { source == "Claude Code /usage" ? 90 : 5 }
+    static let usageProbeSource = "Claude Code /usage"
+    /// New data is expected only this long after a reset. A `/usage` reset is already
+    /// the end of the minute the CLI showed (`ResetPrecision`); the CLI then needs a
+    /// moment to load the new window. statusLine and Codex report exact epochs.
+    /// The confirming probe keeps its moment: 90 s after the shown minute's start.
+    public var resetGrace: TimeInterval { source == Self.usageProbeSource ? 30 : 5 }
     public var hasQuota: Bool { weekly != nil || fiveHour != nil }
     public func connectionQuotaTitle(now: Date = Date()) -> String {
         guard hasQuota || unlimited == true else { return "Ждём лимиты" }

@@ -72,7 +72,7 @@ final class DataFreshnessTests: XCTestCase {
         let status = root.appendingPathComponent("quota.json"), usage = root.appendingPathComponent("usage.json")
         let probe = try UsageSnapshot(
             provider: .claude,
-            weekly: QuotaWindow(usedPercent: 55, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400)),
+            weekly: QuotaWindow(usedPercent: 55, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400), resetPrecision: .minute),
             fetchedAt: now, source: ClaudeUsageProbe.source)
         try ClaudeProvider.saveUsage(probe, destination: usage)
         try ClaudeProvider.capture(payload(40), destination: status, now: now.addingTimeInterval(20))

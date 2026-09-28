@@ -121,7 +121,7 @@ public enum ClaudeUsageText {
         func window(label: String, minutes: Int) throws -> QuotaWindow? {
             guard let start = lines.lastIndex(of: label) else { return nil }
             let end = min(lines.count, start + 6)
-            let section = Array(lines[(start + 1)..<end].prefix { !$0.hasPrefix("Current ") && !$0.hasPrefix("Usage credits") })
+            let section = Array(lines[(start + 1)..<end].prefix { !endsSection($0) })
             let percentPattern = #"(?<![\d.])(\d+(?:\.\d+)?)%\s*used"#
             let regex = try NSRegularExpression(pattern: percentPattern)
             var percentage: Double?
@@ -130,15 +130,15 @@ public enum ClaudeUsageText {
                    let range = Range(match.range(at: 1), in: line) { percentage = Double(line[range]); break }
             }
             guard let used = percentage else { return nil }
-            guard let resetLine = section.first(where: { $0.hasPrefix("Resets ") }) else {
+            guard let resetLine = section.lazy.compactMap(ClaudeUsageText.resetText).first else {
                 // A window that has not started (after a reset, before the first
                 // request) is a confirmed 0% without a reset time. A used window
                 // without its reset stays unknown.
                 return used == 0 ? try QuotaWindow(usedPercent: 0, durationMinutes: minutes, resetsAt: nil) : nil
             }
-            guard let reset = resetDate(String(resetLine.dropFirst(7)), now: now, durationMinutes: minutes, timeZone: timeZone)
+            guard let shown = ClaudeUsageText.reset(resetLine, now: now, durationMinutes: minutes, timeZone: timeZone)
             else { throw UsageError.claudeUsageUnavailable }
-            return try QuotaWindow(usedPercent: used, durationMinutes: minutes, resetsAt: reset)
+            return try QuotaWindow(usedPercent: used, durationMinutes: minutes, resetsAt: shown.date, resetPrecision: shown.precision)
         }
         guard let weekly = try window(label: "Current week (all models)", minutes: 10080) else { throw UsageError.claudeUsageUnavailable }
         let fiveHour = try window(label: "Current session", minutes: 300)
@@ -158,56 +158,176 @@ public enum ClaudeUsageText {
     }
 
     static func resetDate(_ raw: String, now: Date, durationMinutes: Int, timeZone: TimeZone) -> Date? {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        reset(raw, now: now, durationMinutes: durationMinutes, timeZone: timeZone)?.date
+    }
+    /// A block ends at the next block. "Extra usage" (overage) has its own
+    /// percentage and reset that must not become the account window's.
+    static func endsSection(_ line: String) -> Bool {
+        line.hasPrefix("Current ") || line.hasPrefix("Usage credits") || line.hasPrefix("Extra usage")
+    }
+    /// The reset of a block line: "Resets Sep 28 at 11:59pm", also after the
+    /// percentage ("40% used · Resets …") and before a trailing note (" · …").
+    static func resetText(_ line: String) -> String? {
+        let range = line.hasPrefix("Resets ") ? line.range(of: "Resets ") : line.range(of: " Resets ")
+        guard let range else { return nil }
+        let text = line[range.upperBound...].components(separatedBy: " · ").first ?? ""
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+}
+
+/// The reset of a `/usage` block as the CLI prints it after "Resets ": a clock time
+/// ("11:59pm", "23:59"), a date with or without a time ("Sep 28 at 11:59 PM",
+/// "Sep 28"), "today/tomorrow at ...", or a relative time ("in 2h 15m"), with an
+/// optional zone as an IANA identifier or abbreviation ("(Europe/Vienna)", "(CEST)").
+///
+/// The CLI truncates what it shows: "11:59pm" for a reset at 23:59:59.767. The
+/// window has certainly reset only at the end of the shown minute (or day, or
+/// relative unit), so that end is stored (Q-05). A window observed now also cannot
+/// run past now plus its length, which bounds a date shown without a time.
+extension ClaudeUsageText {
+    struct ResetCandidate {
+        /// The instant the CLI shows.
+        let shown: Date
+        /// The end of the shown unit: the first moment the reset has certainly happened.
+        let end: Date
+        let precision: ResetPrecision
+    }
+
+    static func reset(_ raw: String, now: Date, durationMinutes: Int, timeZone: TimeZone) -> (date: Date, precision: ResetPrecision)? {
+        var text = raw.replacingOccurrences(of: "\u{202F}", with: " ").replacingOccurrences(of: "\u{00A0}", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         var zone = timeZone
         if let open = text.lastIndex(of: "("), text.hasSuffix(")") {
-            let name = String(text[text.index(after: open)..<text.index(before: text.endIndex)])
-            guard let explicitZone = TimeZone(identifier: name) else { return nil }
-            zone = explicitZone
+            let name = text[text.index(after: open)..<text.index(before: text.endIndex)].trimmingCharacters(in: .whitespaces)
+            // An unknown zone is never replaced by the device zone: the time would be wrong.
+            guard let explicit = explicitZone(name) else { return nil }
+            zone = explicit
             text = String(text[..<open]).trimmingCharacters(in: .whitespaces)
         }
+        text = text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        if text.hasPrefix("at ") { text.removeFirst(3) }
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = zone
-        let year = calendar.component(.year, from: now)
-        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = calendar; formatter.timeZone = zone; formatter.isLenient = false
-        let formats = ["MMM d 'at' h:mma", "MMM d 'at' ha", "MMM d 'at' HH:mm", "MMM d, h:mma", "MMM d, ha"]
-        var candidates: [Date] = []
-        for format in formats {
-            formatter.dateFormat = "yyyy " + format
-            for candidateYear in [year - 1, year, year + 1] {
-                if let date = formatter.date(from: "\(candidateYear) " + text) { candidates.append(date) }
-            }
+        guard let groups = relativeReset(text, now: now).map({ [[$0]] }) ?? calendarReset(text, now: now, calendar: calendar) else { return nil }
+        let length = Double(durationMinutes) * 60
+        // The CLI can still show a reset that has just passed. Keep that elapsed
+        // time (an expired window, never shown as current) rather than failing the
+        // probe or inventing an extra day or week.
+        func justElapsed(_ candidate: ResetCandidate) -> Bool {
+            let interval = candidate.end.timeIntervalSince(now)
+            return interval <= 0 && interval > -120
         }
-        for format in ["h:mma", "ha", "HH:mm"] {
-            formatter.dateFormat = format
-            guard let clock = formatter.date(from: text) else { continue }
-            let parts = calendar.dateComponents([.hour, .minute], from: clock)
-            for day in -1...1 {
-                guard let base = calendar.date(byAdding: .day, value: day, to: now) else { continue }
-                // A repeated local hour has two possible instants. A skipped
-                // hour has none; never normalize it to a different clock time.
-                for repetition in [Calendar.RepeatedTimePolicy.first, .last] {
-                    guard let date = calendar.date(bySettingHour: parts.hour ?? 0, minute: parts.minute ?? 0,
-                                                   second: 0, of: base, matchingPolicy: .strict, repeatedTimePolicy: repetition),
-                          calendar.isDate(date, inSameDayAs: base) else { continue }
-                    candidates.append(date)
-                }
-            }
-        }
-        // The CLI formats to whole minutes and can still show a reset that has
-        // just passed. Keep that elapsed time (an expired window, never shown as
-        // current) rather than failing the probe or inventing an extra day/week.
-        return candidates.first { justElapsed($0, now: now) }
-            ?? candidates.first { plausible($0, now: now, minutes: durationMinutes) }
-    }
-    private static func plausible(_ date: Date, now: Date, minutes: Int) -> Bool {
         // Never accept a misread past window or a reset beyond the window length.
-        let interval = date.timeIntervalSince(now)
-        return interval > 0 && interval <= Double(minutes * 60) + 120
+        func ahead(_ candidate: ResetCandidate) -> Bool {
+            candidate.end > now && candidate.shown.timeIntervalSince(now) <= length + 120
+        }
+        // Within one shown day and time (a repeated daylight-saving hour) the later
+        // instant is kept: the earlier one could announce the reset an hour early.
+        let choices = groups.compactMap { group in group.last(where: { justElapsed($0) || ahead($0) }) }
+        guard let choice = choices.first(where: justElapsed) ?? choices.first(where: ahead) else { return nil }
+        let bound = now.addingTimeInterval(length)
+        return (max(choice.shown, min(choice.end, bound)), choice.precision)
     }
-    private static func justElapsed(_ date: Date, now: Date) -> Bool {
-        let interval = date.timeIntervalSince(now)
-        return interval <= 0 && interval > -120
+
+    /// An IANA identifier ("Europe/Vienna", "GMT+2") or an abbreviation ("CEST",
+    /// "EDT", "UTC"). Abbreviations are looked up first: as identifiers some of them
+    /// name other places ("BST" would be Dhaka, not London).
+    static func explicitZone(_ name: String) -> TimeZone? {
+        guard !name.isEmpty else { return nil }
+        if name.allSatisfy({ $0.isASCII && $0.isUppercase }), let zone = TimeZone(abbreviation: name) { return zone }
+        return TimeZone(identifier: name)
+    }
+
+    private static func captures(_ pattern: String, in text: String) -> [String?]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+        return (0..<match.numberOfRanges).map { Range(match.range(at: $0), in: text).map { String(text[$0]) } }
+    }
+
+    /// "in 2h 15m", "in 45m", "in 3d", "in 2 hours, 5 minutes": counted from now
+    /// (the probe reads the screen as it is drawn) to the end of the smallest unit.
+    static func relativeReset(_ text: String, now: Date) -> ResetCandidate? {
+        guard text.hasPrefix("in ") else { return nil }
+        let body = text.dropFirst(3).replacingOccurrences(of: ",", with: " ").replacingOccurrences(of: " and ", with: " ")
+        let unit = #"(\d{1,4}) ?(days?|d|hours?|hrs?|h|minutes?|mins?|m)\b"#
+        guard captures("^ *(?:" + unit + " *)+$", in: body) != nil, let regex = try? NSRegularExpression(pattern: unit) else { return nil }
+        var seconds: TimeInterval = 0, smallest: (seconds: TimeInterval, precision: ResetPrecision)?
+        for match in regex.matches(in: body, range: NSRange(body.startIndex..., in: body)) {
+            guard let valueRange = Range(match.range(at: 1), in: body), let value = Double(body[valueRange]),
+                  let nameRange = Range(match.range(at: 2), in: body) else { return nil }
+            let name = body[nameRange]
+            let step: (seconds: TimeInterval, precision: ResetPrecision) = name.hasPrefix("d") ? (86400, .day)
+                : name.hasPrefix("h") ? (3600, .hour) : (60, .minute)
+            seconds += value * step.seconds
+            if smallest.map({ step.seconds < $0.seconds }) ?? true { smallest = step }
+        }
+        guard let smallest else { return nil }
+        let shown = now.addingTimeInterval(seconds)
+        return ResetCandidate(shown: shown, end: shown.addingTimeInterval(smallest.seconds), precision: smallest.precision)
+    }
+
+    /// A clock time, a date, or both. Each group holds the instants of one shown day
+    /// and time: two for a repeated daylight-saving hour, none for a skipped one.
+    static func calendarReset(_ text: String, now: Date, calendar: Calendar) -> [[ResetCandidate]]? {
+        var rest = Substring(text)
+        var days: [Date] = []
+        let today = calendar.startOfDay(for: now)
+        func day(_ offset: Int) -> Date? { calendar.date(byAdding: .day, value: offset, to: today).map { calendar.startOfDay(for: $0) } }
+        if let match = captures(#"^(today|tomorrow)(?=$|[ ,])"#, in: text), let word = match[1] {
+            days = [day(word == "today" ? 0 : 1)].compactMap { $0 }
+            rest = rest.dropFirst(word.count)
+        } else if let match = captures(#"^([a-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?(?=$|[ ,])"#, in: text),
+                  let name = match[1], let number = match[2].flatMap({ Int($0) }) {
+            let months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
+            guard let month = months.firstIndex(where: { $0.hasPrefix(name) || (name == "sept" && $0 == "september") }) else { return nil }
+            let year = calendar.component(.year, from: now)
+            for candidateYear in [year - 1, year, year + 1] {
+                // Components are checked back: "Sep 31" must not become Oct 1.
+                let parts = DateComponents(year: candidateYear, month: month + 1, day: number)
+                guard let date = calendar.date(from: parts), calendar.component(.month, from: date) == month + 1,
+                      calendar.component(.day, from: date) == number else { continue }
+                days.append(calendar.startOfDay(for: date))
+            }
+            guard !days.isEmpty else { return nil }
+            rest = rest.dropFirst(match[0]?.count ?? 0)
+        }
+        var clock = rest.trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
+        if clock.hasPrefix("at ") { clock.removeFirst(3) }
+        guard !clock.isEmpty else {
+            // A date without a time: the reset is some moment of that day.
+            guard !days.isEmpty else { return nil }
+            return days.compactMap { start in
+                calendar.date(byAdding: .day, value: 1, to: start).map { [ResetCandidate(shown: start, end: calendar.startOfDay(for: $0), precision: .day)] }
+            }
+        }
+        guard let time = clockTime(clock) else { return nil }
+        if days.isEmpty { days = (-1...1).compactMap(day) }
+        return days.map { start in
+            // A repeated local hour has two possible instants. A skipped hour has
+            // none; never normalize it to a different clock time.
+            var instants: [Date] = []
+            for repetition in [Calendar.RepeatedTimePolicy.first, .last] {
+                guard let date = calendar.date(bySettingHour: time.hour, minute: time.minute, second: 0, of: start,
+                                               matchingPolicy: .strict, repeatedTimePolicy: repetition),
+                      calendar.isDate(date, inSameDayAs: start), !instants.contains(date) else { continue }
+                instants.append(date)
+            }
+            return instants.sorted().map { ResetCandidate(shown: $0, end: $0.addingTimeInterval(60), precision: .minute) }
+        }
+    }
+
+    /// "11:59pm", "11:59 PM", "11 p.m.", "23:59". A 12-hour hour needs am/pm; a
+    /// 24-hour time needs minutes.
+    static func clockTime(_ text: String) -> (hour: Int, minute: Int)? {
+        guard let match = captures(#"^(\d{1,2})(?::(\d{2}))? ?(am|pm|a\.m\.|p\.m\.)?$"#, in: text),
+              let hour = match[1].flatMap({ Int($0) }) else { return nil }
+        let minute = match[2].flatMap { Int($0) }
+        if let minute, !(0...59).contains(minute) { return nil }
+        if let meridiem = match[3] {
+            guard (1...12).contains(hour) else { return nil }
+            return (hour % 12 + (meridiem.hasPrefix("p") ? 12 : 0), minute ?? 0)
+        }
+        guard let minute, (0...23).contains(hour) else { return nil }
+        return (hour, minute)
     }
 }
 
@@ -304,7 +424,7 @@ extension ClaudeUsageText {
         if let reason = state(in: text) { return issue(reason) }
         let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
         if let start = lines.lastIndex(of: "Current week (all models)") {
-            let section = lines[(start + 1)..<min(lines.count, start + 6)].prefix { !$0.hasPrefix("Current ") && !$0.hasPrefix("Usage credits") }
+            let section = lines[(start + 1)..<min(lines.count, start + 6)].prefix { !endsSection($0) }
             let empty = !section.contains { $0.range(of: #"\d%\s*used"#, options: .regularExpression) != nil || $0.hasPrefix("Resets") }
             if empty { return issue(.windowInactive) }
         }
