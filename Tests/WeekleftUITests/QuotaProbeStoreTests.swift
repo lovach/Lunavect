@@ -81,4 +81,59 @@ import AwakeService
         XCTAssertEqual(client.beginCount, 0, "Automatic Keep Awake stays off")
         XCTAssertFalse(store.hiddenIDs.contains { id in probeIDs.contains { id.hasSuffix($0) } }, "Auto-hide does not archive probe runs")
     }
+
+    /// Owner's case 28.09 10:37: the probe's exact command run by hand in another folder
+    /// (the embedded terminal of Claude Desktop, cwd ~). It stays listed with a neutral
+    /// state, but is not waiting work, a notice, activity or a reason to keep awake.
+    func testManualLimitsCheckIsListedButNeverWaitsNotifiesOrCounts() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("QuotaProbeStore-" + UUID().uuidString, isDirectory: true)
+        let suite = "Lunavect.QuotaProbeStore." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let checkID = "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d77", workID = "5d7a4a33-1c1e-4b0c-8a60-6f2d7c1b9e01"
+        var checkStatus = "busy"
+        let store = SessionStore(directory: root.appendingPathComponent("Sessions"), defaults: defaults, isolated: true, now: { now },
+                                 dependencies: .init(catalog: { _, _, _, _ in
+            let rows: [[String: Any]] = [
+                ["pid": 4343, "cwd": "/Users/fixture", "kind": "interactive", "startedAt": now.timeIntervalSince1970 * 1000 - 2000,
+                 "sessionId": checkID, "name": "fixture-a3", "status": checkStatus],
+                ["pid": 51_234, "cwd": "/Users/fixture/Projects/lunavect", "kind": "interactive", "startedAt": 1_795_000_100_000,
+                 "sessionId": workID, "name": "Fix widgets", "status": "waiting"],
+            ]
+            let data = try JSONSerialization.data(withJSONObject: rows)
+            let arguments = ["claude", "--safe-mode", "--ax-screen-reader", "--tools", "", "--strict-mcp-config",
+                             "--mcp-config", #"{"mcpServers":{}}"#, "--no-chrome", "/usage"]
+            return (try SessionParser.claude(data, now: now, limitsCheck: {
+                SessionProcess.isLimitsCheck(pid: $0, arguments: { $0 == 4343 ? arguments : ["claude"] })
+            }), false)
+        }, schedulesTimers: true))
+        store.useProviders([.claude])
+        let client = ProbeAwakeClient()
+        let awake = KeepAwake(client: client, now: { now }, defaults: defaults)
+        var observed: [[String]] = [], noticed: [[String]] = []
+        var activity = ActivityTracker()
+        let features = AppFeatures(defaults: defaults, now: { now }, playSound: { _ in })
+        features.sounds = true; features.banners = false
+        store.onObservation = { rows, date in
+            observed.append(rows.map(\.sessionID)); activity.observe(rows, now: date); awake.observe(rows)
+        }
+        let notices = store.observations.sink { noticed.append($0.rows.map(\.sessionID)); features.observe($0.rows, at: $0.date) }
+        defer { notices.cancel(); features.stop(); awake.shutdown(); store.stop() }
+        await awake.setAutomatic(true)
+        store.start(clientResolver: { ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { nil }) })
+        for status in ["busy", "waiting", "waiting", "idle"] {
+            checkStatus = status
+            await store.refresh(); await awake.reconcileAutomatic()
+            let row = try XCTUnwrap(store.sessions.first { $0.sessionID == checkID }, "\(status): the check stays listed")
+            XCTAssertEqual(row.isLimitsCheck, true)
+            XCTAssertEqual(row.effectivePhase(now: now), .idle, "\(status): neutral, never working or awaiting input")
+            XCTAssertEqual(store.activeCount, 1, "\(status): only the real session waits")
+            now += 5
+        }
+        XCTAssertFalse(observed.isEmpty)
+        XCTAssertTrue(observed.allSatisfy { !$0.contains(checkID) && $0.contains(workID) }, "Activity and Keep Awake never see the check")
+        XCTAssertTrue(noticed.allSatisfy { !$0.contains(checkID) }, "Notices never see the check")
+        XCTAssertEqual(activity.history.intervals.filter { $0.providers != 0 }.count, 0, "No working minutes")
+    }
 }

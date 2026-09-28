@@ -11,7 +11,7 @@ The IDE companions let Lunavect select the **existing terminal tab** where Claud
 | JetBrains AI Chat / Claude Agent / Codex Agent panels | Not supported by this companion |
 | Other JetBrains versions, remote SSH, containers, WSL, VS Code forks (Cursor, Windsurf, VSCodium) | Not supported by this version; forks are reported by name |
 
-The JetBrains terminal companion supports both providers in the **Terminal tool window**. Separate chat panels, including terminals owned by other plugins outside that tool window, need their own navigation integration. JetBrains' built-in Codex integration also uses a separate session home; this feature does not import that account or configure its hooks.
+The JetBrains terminal companion supports both providers in the **Terminal tool window**. It matches a tab by the process the tab started, so a Reworked tab whose Claude process has no controlling terminal is still found. Claude Code installed with npm (`npm i -g @anthropic-ai/claude-code`) is recognized like the native installer: current releases run the package's `bin/claude.exe`, earlier ones `node …/@anthropic-ai/claude-code/cli.js`. Separate chat panels, including terminals owned by other plugins outside that tool window, need their own navigation integration. JetBrains' built-in Codex integration also uses a separate session home; this feature does not import that account or configure its hooks.
 
 ## Setup
 
@@ -21,7 +21,7 @@ The JetBrains terminal companion supports both providers in the **Terminal tool 
 4. Reload/restart the editor if it asks. Open your local project, return to Lunavect and choose **Refresh connection**. The status should say **Companion connected**.
 5. Restart sessions which were already running before you enabled local events, so their next events carry the editor identity.
 
-Lunavect 0.2.5 bundles VS Code companion **0.1.2** and JetBrains companion **0.1.1**. JetBrains companion 0.1.2 is prepared in source but is not included in this release; its installer still needs to be rebuilt with the IntelliJ SDK. Replacing the app does not replace editor plugins: repeat step 3 with the new installer and reload/restart the editor.
+Lunavect 0.2.6 bundles VS Code companion **0.1.2** and JetBrains companion **0.1.2** (0.2.5 bundled JetBrains 0.1.1). Replacing the app does not replace editor plugins: repeat step 3 with the new installer and reload/restart the editor.
 
 From 0.1.2 each companion reports its version. **Settings → Connections → Sessions in editors** then shows “Installed X, available Y: reinstall the companion” when the app bundles a newer one; 0.1.0 and 0.1.1 report no version and appear as “0.1.1 or earlier”. The same rows distinguish a companion that is installed but not answering and one whose descriptor protocol does not match this app.
 
@@ -31,7 +31,7 @@ If multiple windows contain the same provider workspace, Lunavect reports the am
 
 ## Privacy and lifecycle
 
-The app records the provider runtime's PID and birth time and checks them again at click time. It reads executable paths and parent PIDs, not process arguments or foreign environment variables. The companion uses the editor's terminal process API; it never reads terminal text or injects keystrokes.
+The app records the provider runtime's PID and birth time and checks them again at click time. It reads executable paths and parent PIDs, not foreign environment variables. Arguments are read only for your own `node`/`bun` processes, to recognize a Claude Code installed with npm by its package script, and for a listed Claude runtime, to recognize the exact command line of Lunavect's limits check; they are compared and not kept. The companion uses the editor's terminal process API; it never reads terminal text or injects keystrokes.
 
 Local descriptors live in `~/Library/Application Support/Lunavect/IDEBridge`. User-only Unix sockets live in a `lunavect` folder inside the temporary folder the editor was started with (`$TMPDIR/lunavect`, also when a shell profile, `nix develop` or devbox sets another `TMPDIR`, or `/tmp/lunavect` when it is unset); companions 0.1.0 and 0.1.1 use `/tmp/lunavect-ide-<uid>`, which the app still accepts. Lunavect connects only if that folder is a real directory owned by you without group or other access (not a link), and only to a socket whose peer runs as you. If the temporary folder is cleaned while the editor runs, the companion recreates its socket within 30 seconds, and a descriptor whose heartbeat is late after sleep is still tried. If a companion cannot start (for example, its folder is a link or belongs to another user), the editor shows a warning. Protocol messages contain only navigation metadata: process IDs, session ID and working directory. They carry no prompts, transcript content, keys or tokens. Probes do not focus windows. Opening requires a unique match and a fresh acknowledgement. VS Code callbacks are single use and routed to the companion window.
 
@@ -39,7 +39,7 @@ Uninstall the companion through your editor's plugin manager. On normal shutdown
 
 ## Development and verification
 
-Source lives in `integrations/vscode` and `integrations/jetbrains`. The JetBrains plugin deliberately declares compatibility only with build `262.*`, matching the SDK used for compilation. Rebuild the bundled installers after any companion source change:
+Source lives in `integrations/vscode` and `integrations/jetbrains`. The JetBrains plugin deliberately declares compatibility only with build `262.*`, matching the SDK used for compilation. Its Reworked-terminal calls use `@ApiStatus.Experimental` terminal APIs: in 2025.3 (`253`) `TerminalStartupOptions` has no process ID, so that version cannot match Reworked tabs; 2026.1 (`261`) and 2026.3 (`263`) need their own SDK compile, the JetBrains Plugin Verifier and a live Classic/Reworked check before the range is widened. Rebuild the bundled installers after any companion source change:
 
 ```sh
 python3 scripts/package-ide-connectors.py --jetbrains-sdk '/path/to/IntelliJ IDEA.app'

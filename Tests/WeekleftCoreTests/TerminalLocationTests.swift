@@ -91,6 +91,43 @@ final class TerminalLocationTests: XCTestCase {
                      "Two sessions in one folder cannot be distinguished by folder alone")
     }
 
+    /// A stub that only waits; compiled under the names npm installs run as.
+    private static let waitingSource = "#include <unistd.h>\nint main(void) { for (;;) pause(); }\n"
+
+    /// Real processes named and invoked as an npm install runs Claude Code (stubs in a
+    /// temporary folder; no package, client or interpreter is installed or run): the
+    /// arguments are read back from the kernel and only the package script counts.
+    func testNpmClaudeProcessesAreRecognizedFromTheirRealExecutableAndArguments() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r26-J-" + UUID().uuidString).resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = root.appendingPathComponent("lib/node_modules/@anthropic-ai/claude-code")
+        let bin = root.appendingPathComponent("bin")
+        for directory in [package.appendingPathComponent("bin"), bin] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try Data("// fixture\n".utf8).write(to: package.appendingPathComponent("cli.js"))
+        let link = bin.appendingPathComponent("claude").path
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: "../lib/node_modules/@anthropic-ai/claude-code/cli.js")
+        let node = try Self.natives.compileOnce(Self.waitingSource, as: "node")
+        let native = package.appendingPathComponent("bin/claude.exe")
+        try FileManager.default.copyItem(at: node, to: native)
+
+        let legacy = try Self.natives.launch(node, arguments: [link, "--resume", "fixture"])
+        let other = try Self.natives.launch(node, arguments: [root.appendingPathComponent("server.js").path])
+        let current = try Self.natives.launch(native)
+        func executable(_ process: Process) throws -> String {
+            try XCTUnwrap(SessionProcess.runtimeProcess(process.processIdentifier)).executable
+        }
+        XCTAssertEqual(SessionProcess.processArguments(legacy.processIdentifier).map { Array($0.dropFirst()) }, [link, "--resume", "fixture"])
+        XCTAssertEqual(URL(fileURLWithPath: try executable(legacy)).lastPathComponent, "node")
+        XCTAssertEqual(SessionProcess.runtimeProvider(pid: legacy.processIdentifier, executable: try executable(legacy)), .claude,
+                       "node <prefix>/bin/claude resolves into the Claude Code package")
+        XCTAssertNil(SessionProcess.runtimeProvider(pid: other.processIdentifier, executable: try executable(other)), "Another node program is not Claude")
+        XCTAssertEqual(SessionProcess.runtimeProvider(pid: current.processIdentifier, executable: try executable(current)), .claude)
+        XCTAssertEqual(SessionProcess.runtimeProvider(ofExecutable: try executable(current)), .claude, "The npm native binary by its path alone")
+        XCTAssertNil(SessionProcess.processArguments(1), "Another user's process (launchd) is never read")
+    }
+
     func testCatalogAssociatesEachSessionWithItsOwnProcessAndPreservesLiveLocation() throws {
         let data = Data(#"[{"sessionId":"first","pid":10,"cwd":"/tmp/project","kind":"interactive","status":"busy"},{"sessionId":"second","pid":20,"cwd":"/tmp/project","kind":"interactive","status":"busy"},{"sessionId":"background","pid":30,"kind":"background","status":"busy"},{"sessionId":"bad-pid","pid":-2,"kind":"interactive"}]"#.utf8)
         var reads: [Int32] = []

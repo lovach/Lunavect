@@ -706,8 +706,9 @@ import WeekleftCore
         // a prompt, tool, response or request establishes actual task activity.
         let taskRows = rows.filter { providers.contains($0.provider) && !$0.isUnstartedClaudeLifecycle && !internalSessionIDs.contains($0.id) }
         // Keep history available to the panel without reporting retained state
-        // as a current observation to activity tracking or Keep Awake.
-        onObservation?(taskRows.filter { $0.catalogHistory != true }, now)
+        // as a current observation to activity tracking or Keep Awake. A limits
+        // check run by hand is listed, but is not work, a notice or activity.
+        onObservation?(taskRows.filter { $0.catalogHistory != true && $0.isLimitsCheck != true }, now)
         do {
             try removeHiddenInternalSessions()
             // The local event timer usually delivers the first rows before the
@@ -732,7 +733,7 @@ import WeekleftCore
             try hideInactiveSessions(taskRows, now: now)
         } catch { connectionMessage = error.localizedDescription }
         allSessions = taskRows; publishVisible(now: now)
-        observations.send((sessions, now))
+        observations.send((sessions.filter { $0.isLimitsCheck != true }, now))
     }
     private func removeHiddenInternalSessions() throws {
         let hidden = internalSessionIDs.intersection(visibility?.hidden ?? [])
@@ -902,6 +903,8 @@ enum SessionNavigation {
                                 focus: @MainActor (AgentSession) async throws -> Bool = { try await focusTerminal($0) },
                                 openIDE: @MainActor (AgentSession) async throws -> Void = { try await focusIDE($0) }) async throws {
         try Task.checkCancellation()
+        // A limits check run by hand is explained, never opened (decision 28.09).
+        if let refusal = session.limitsCheckRefusal { throw refusal }
         if session.ideLocation != nil || session.client == .vscode || session.client == .jetbrains {
             try await openIDE(session)
             return
@@ -911,6 +914,9 @@ enum SessionNavigation {
             try Task.checkCancellation()
             if focused { return }
         }
+        // A runtime in the embedded terminal of Claude or Codex, or in an application
+        // without a route: name that place instead of a generic failure.
+        if let refusal = session.launchHostRefusal { throw refusal }
         if session.client == .terminal || session.client == .background {
             let script = try session.terminalScript(resolver: resolver)
             var directoryExists: ObjCBool = false

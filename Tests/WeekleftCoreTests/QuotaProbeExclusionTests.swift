@@ -169,6 +169,40 @@ final class QuotaProbeExclusionTests: XCTestCase {
         })
         XCTAssertEqual(rows.map(\.sessionID), ["user"])
     }
+
+    /// Decision 28.09: the probe's exact command line, also when run by hand elsewhere.
+    /// A person typing /usage in an ordinary session is not a limits check.
+    func testManualLimitsCheckIsRecognizedOnlyByTheExactProbeCommandLine() throws {
+        let probe = ["--safe-mode", "--ax-screen-reader", "--tools", "", "--strict-mcp-config",
+                     "--mcp-config", #"{"mcpServers":{}}"#, "--no-chrome", "/usage"]
+        XCTAssertTrue(SessionProcess.isLimitsCheck(arguments: ["claude"] + probe))
+        XCTAssertTrue(SessionProcess.isLimitsCheck(arguments: ["/Users/u/.local/bin/claude", "--safe-mode", "--tools", "", "/usage"]))
+        XCTAssertTrue(SessionProcess.isLimitsCheck(arguments: ["node", "/opt/homebrew/bin/claude"] + probe), "npm-installed Claude")
+        for arguments in [["claude"], ["claude", "/usage"], ["claude", "--safe-mode", "/usage"], ["claude", "--tools", "", "/usage"],
+                          ["claude", "--safe-mode", "--tools", "Bash", "/usage"], ["claude", "--safe-mode", "--tools", "", "/usage", "--verbose"],
+                          ["claude", "--safe-mode", "--tools=", "/usage"], ["claude", "--safe-mode", "--tools", "", "/cost"],
+                          ["claude", "--safe-mode", "--tools", "", "Please run /usage"], ["claude", "--resume", "x"], []] {
+            XCTAssertFalse(SessionProcess.isLimitsCheck(arguments: arguments), arguments.joined(separator: " "))
+        }
+        XCTAssertFalse(SessionProcess.isLimitsCheck(pid: 42, arguments: { _ in nil }), "Unreadable arguments are an ordinary session")
+        let rows: [[String: Any]] = [
+            ["pid": 4343, "cwd": "/Users/fixture", "kind": "interactive", "sessionId": "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d77", "name": "fixture-a3", "status": "waiting"],
+            ["pid": 51_234, "cwd": "/Users/fixture", "kind": "interactive", "sessionId": "5d7a4a33-1c1e-4b0c-8a60-6f2d7c1b9e01", "name": "typed /usage", "status": "waiting"],
+        ]
+        let parsed = try SessionParser.claude(JSONSerialization.data(withJSONObject: rows), now: now, limitsCheck: {
+            SessionProcess.isLimitsCheck(pid: $0, arguments: { $0 == 4343 ? ["claude"] + probe : ["claude"] })
+        })
+        let check = try XCTUnwrap(parsed.first { $0.title == "fixture-a3" })
+        XCTAssertEqual(check.isLimitsCheck, true, "Listed, not dropped: only Lunavect's own probe folder is hidden")
+        XCTAssertEqual(check.phase, .input, "The observed state is kept")
+        XCTAssertEqual(check.effectivePhase(now: now), .idle, "…but it is shown and counted as neutral")
+        XCTAssertTrue(check.isCurrent(now: now))
+        let ordinary = try XCTUnwrap(parsed.first { $0.title == "typed /usage" })
+        XCTAssertNil(ordinary.isLimitsCheck)
+        XCTAssertEqual(ordinary.effectivePhase(now: now), .input)
+        let decoded = try JSONDecoder().decode(AgentSession.self, from: JSONEncoder().encode(check))
+        XCTAssertEqual(decoded, check)
+    }
 }
 
 private extension AgentSession {

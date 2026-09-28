@@ -1,21 +1,17 @@
 {
   "artifacts": {
-    "lunavect-jetbrains.zip": "518ef4cf00486c3fffe36385d1cd952e6ec5d8444df4f9bf311ba91921edd1a5",
+    "lunavect-jetbrains.zip": "fed6f4e6c8d5e0ae0fcd2e348a29ad17c0c7ce30694634c9c5c1d87078587be8",
     "lunavect-vscode.vsix": "e17c44aac73ad10dc5003fdc51aa657bc763279e457dbaf445f357140bbd4912"
   },
   "companionVersion": {
-    "jetbrains": "0.1.1",
+    "jetbrains": "0.1.2",
     "vscode": "0.1.2"
   },
   "jetbrainsSDK": "IU-262.10968.63",
   "jetbrainsVersion": "2026.2.3",
-  "pendingSources": {
-    "integrations/jetbrains/resources/META-INF/plugin.xml": "1fee10c6c4bb763e623767edaf5fb25d18e3fd5dc7bb4c0757ff0a5de5ff69ff",
-    "integrations/jetbrains/src/com/lunavect/sessions/BridgeService.java": "fcdac4c25718e4420102a99c0f7b97d26dad20f34c60b7c59d78e01969a79aab"
-  },
   "sources": {
-    "integrations/jetbrains/resources/META-INF/plugin.xml": "676ddc22861af407a78ac6a3c416f827504410e5e94397812c2e4cd8b165291d",
-    "integrations/jetbrains/src/com/lunavect/sessions/BridgeService.java": "993699e9aea243fba7d013df455262b484201510bf42fcf438bf288424eeded0",
+    "integrations/jetbrains/resources/META-INF/plugin.xml": "1fee10c6c4bb763e623767edaf5fb25d18e3fd5dc7bb4c0757ff0a5de5ff69ff",
+    "integrations/jetbrains/src/com/lunavect/sessions/BridgeService.java": "fcdac4c25718e4420102a99c0f7b97d26dad20f34c60b7c59d78e01969a79aab",
     "integrations/jetbrains/src/com/lunavect/sessions/BridgeStartup.java": "855849f7c48ac23bf19b4c4445b36d540903ffd06a9ff67ab65a93b129133e24",
     "integrations/vscode/README.md": "dac081831db4b86896f54ad91570530eb4a2e4a12c3f23fe16861404116fd340",
     "integrations/vscode/extension.js": "f7c12da33e57cd40a6e4b30caeb2cbabc5813dc359bdc10da6be07f71c0723bc",

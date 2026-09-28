@@ -88,6 +88,10 @@ public enum SessionSources {
                 SessionProcess.terminalLocation(parentPID: $0, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
             }, ide: {
                 IDEProcessLocation.locate(parentPID: $0, provider: .claude)
+            }, limitsCheck: {
+                SessionProcess.isLimitsCheck(pid: $0)
+            }, host: {
+                SessionProcess.launchHost(runtimePID: $0)
             })
         }
     }
@@ -525,15 +529,153 @@ enum SessionProcess {
                               executable: String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self))
     }
     /// The agent runtime an executable path belongs to. The native Claude installer
-    /// runs versioned binaries; an interpreter such as node identifies nothing.
+    /// runs versioned binaries; an interpreter such as node identifies nothing by
+    /// itself (see `runtimeProvider(pid:executable:)`).
     static func runtimeProvider(ofExecutable path: String) -> ProviderID? {
         let name = URL(fileURLWithPath: path).lastPathComponent
         if name == "claude" { return .claude }
         if path.contains("/claude/versions/"),
            name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"#, options: .regularExpression) != nil { return .claude }
+        // `npm i -g @anthropic-ai/claude-code` (2.1.1xx and later): the postinstall step
+        // links or copies the native binary of the platform package to this fixed name.
+        if name == "claude.exe", path.hasSuffix("/node_modules/@anthropic-ai/claude-code/bin/claude.exe") { return .claude }
         if name == "codex" { return .codex }
         // The standalone Codex release binary keeps its download name.
         if ["codex-aarch64-apple-darwin", "codex-x86_64-apple-darwin"].contains(name) { return .codex }
+        return nil
+    }
+    /// Interpreters that run an npm-installed CLI script (`#!/usr/bin/env node`; bun
+    /// stands in for node when asked to).
+    static let scriptInterpreters: Set<String> = ["node", "nodejs", "bun"]
+    /// The runtime of one process: its executable, or for a script interpreter the
+    /// Claude Code package script it runs. Earlier npm releases of Claude Code run
+    /// `node <prefix>/bin/claude`, a link to `…/node_modules/@anthropic-ai/claude-code/cli.js`.
+    /// Only the user's own interpreter processes have their arguments read, only the
+    /// script path is compared, and nothing is kept. Any other node program is not a
+    /// runtime. The npm wrapper of Codex spawns its native `codex` binary as a child,
+    /// which the executable path already identifies.
+    static func runtimeProvider(pid: Int32, executable: String,
+                                arguments: (Int32) -> [String]? = processArguments,
+                                resolve: (String) -> String? = resolvedPath) -> ProviderID? {
+        if let provider = runtimeProvider(ofExecutable: executable) { return provider }
+        guard scriptInterpreters.contains(URL(fileURLWithPath: executable).lastPathComponent),
+              let arguments = arguments(pid) else { return nil }
+        return scriptProvider(arguments: arguments, resolve: resolve)
+    }
+    /// The script path of an interpreter command line (argv[0] is the interpreter).
+    /// Evaluated code (`-e`, `-p`) has no script.
+    static func scriptArgument(_ arguments: [String]) -> String? {
+        let valued: Set<String> = ["-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions"]
+        var index = 1
+        while index < min(arguments.count, 32) {
+            let argument = arguments[index]
+            if argument == "--" { return index + 1 < arguments.count ? arguments[index + 1] : nil }
+            if ["-e", "--eval", "-p", "--print"].contains(argument) || argument.hasPrefix("--eval=") || argument.hasPrefix("--print=") { return nil }
+            if argument.hasPrefix("-") { index += valued.contains(argument) ? 2 : 1; continue }
+            // bun's explicit subcommand before the script.
+            if argument == "run", index + 1 < arguments.count { index += 1; continue }
+            return argument
+        }
+        return nil
+    }
+    static func scriptProvider(arguments: [String], resolve: (String) -> String?) -> ProviderID? {
+        guard let script = scriptArgument(arguments), script.hasPrefix("/"), script.utf8.count <= 4096 else { return nil }
+        if claudePackageScript(script) { return .claude }
+        // A package manager's link (`<prefix>/bin/claude`, `node_modules/.bin/claude`,
+        // npx) is the path node was given; only such a link is resolved.
+        guard URL(fileURLWithPath: script).lastPathComponent == "claude", let target = resolve(script) else { return nil }
+        return claudePackageScript(target) ? .claude : nil
+    }
+    static func claudePackageScript(_ path: String) -> Bool {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count >= 4, ["cli.js", "cli.mjs"].contains(parts[parts.count - 1]) else { return false }
+        return Array(parts[(parts.count - 4)..<(parts.count - 1)]) == ["node_modules", "@anthropic-ai", "claude-code"]
+    }
+    static func resolvedPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+    /// The argument vector of one of the user's own processes, read with
+    /// `sysctl(KERN_PROCARGS2)`; no program is run. Another user's process yields nil.
+    static func processArguments(_ pid: Int32) -> [String]? {
+        guard pid > 1 else { return nil }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout.size(ofValue: info))
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid() else { return nil }
+        // The kernel reports the size of this process's arguments; fall back to ARG_MAX.
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid], length = 0
+        if sysctl(&mib, 3, nil, &length, nil, 0) != 0 || length <= 0 {
+            var limitMIB: [Int32] = [CTL_KERN, KERN_ARGMAX], limit: Int32 = 0, size = MemoryLayout<Int32>.size
+            guard sysctl(&limitMIB, 2, &limit, &size, nil, 0) == 0, limit > 0 else { return nil }
+            length = Int(limit)
+        }
+        guard length <= 16 << 20 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: length)
+        guard sysctl(&mib, 3, &bytes, &length, nil, 0) == 0 else { return nil }
+        return parseProcessArguments(Array(bytes.prefix(length)))
+    }
+    /// KERN_PROCARGS2 layout: argc as Int32, the executable path, NUL padding, then
+    /// argc NUL-terminated strings (followed by the environment, which is not read).
+    static func parseProcessArguments(_ bytes: [UInt8]) -> [String]? {
+        guard bytes.count > 4 else { return nil }
+        let argc = Int(bytes.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) })
+        guard argc > 0, argc <= 4096 else { return nil }
+        var index = 4
+        while index < bytes.count, bytes[index] != 0 { index += 1 }
+        while index < bytes.count, bytes[index] == 0 { index += 1 }
+        var result: [String] = []
+        while result.count < argc, index < bytes.count {
+            let start = index
+            while index < bytes.count, bytes[index] != 0 { index += 1 }
+            result.append(String(decoding: bytes[start..<index], as: UTF8.self))
+            index += 1
+        }
+        return result.count == argc ? result : nil
+    }
+    /// The command line of Lunavect's own `/usage` probe (`ClaudeUsageProbe`), exactly:
+    /// `--safe-mode`, `--tools` with an empty value and `/usage` as the last argument.
+    /// An interactive `claude` in which someone types /usage has none of these.
+    static func isLimitsCheck(arguments: [String]) -> Bool {
+        let rest = Array(arguments.dropFirst())
+        guard rest.last == "/usage", rest.contains("--safe-mode") else { return false }
+        return zip(rest, rest.dropFirst()).contains { $0 == "--tools" && $1.isEmpty }
+    }
+    /// Reads the arguments of the user's own catalog runtime only to compare them
+    /// with that command line; they are not kept.
+    static func isLimitsCheck(pid: Int32, arguments: (Int32) -> [String]? = processArguments) -> Bool {
+        arguments(pid).map(isLimitsCheck(arguments:)) ?? false
+    }
+    /// The application a runtime runs in when Lunavect has no route there: the embedded
+    /// terminal of Claude or Codex (the runtime has a controlling terminal), another
+    /// application's terminal, or an application without one. Terminal, iTerm2, VS Code
+    /// and JetBrains IDEs, a Claude Desktop task without a terminal, and an unreadable
+    /// or detached ancestry return nil. Only parents, devices and executable paths are read.
+    static func launchHost(runtimePID: Int32, read: (Int32) -> TerminalProcess? = terminalProcess,
+                           bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> SessionLaunchHost? {
+        var pid = runtimePID, seen = Set<Int32>(), hasTerminal: Bool?
+        for _ in 0..<16 {
+            guard pid > 1, seen.insert(pid).inserted, let process = read(pid) else { return nil }
+            if hasTerminal == nil { hasTerminal = process.tty.map(TerminalLocation.valid) ?? false }
+            // A runtime (Claude Desktop's own claude.app) or a CLI bundled in an app's
+            // Resources says nothing about the host; its parent decides.
+            if let path = process.executable, runtimeProvider(ofExecutable: path) == nil,
+               !path.contains("/Contents/Resources/"), let range = path.range(of: ".app/Contents/") {
+                let app = String(path[..<range.lowerBound]) + ".app"
+                if path.contains("/Terminal.app/") || path.contains("/iTerm.app/") { return nil }
+                if let identifier = bundle(app), SessionIDE.identify(bundleIdentifier: identifier) != nil { return nil }
+                let terminal = hasTerminal == true
+                if path.contains("/Claude.app/") { return terminal ? .init(kind: .embeddedTerminal, name: "Claude") : nil }
+                for name in ["Codex", "ChatGPT"] where path.contains("/\(name).app/") {
+                    return .init(kind: terminal ? .embeddedTerminal : .application, name: name)
+                }
+                let name = URL(fileURLWithPath: app).deletingPathExtension().lastPathComponent
+                guard !name.isEmpty, name.count <= 64, !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return nil }
+                return .init(kind: terminal ? .terminal : .application, name: name)
+            }
+            guard let parent = process.parentPID, parent > 1, parent != pid else { return nil }
+            pid = parent
+        }
         return nil
     }
     /// The client runtime that ran a hook: the nearest ancestor that is not a
@@ -553,15 +695,16 @@ enum SessionProcess {
         guard pid > 0 else { return false }
         return kill(pid, 0) == 0 || errno != ESRCH
     }
-    /// Only executable paths and parent PIDs: no commands, prompts or foreign environment.
+    /// Executable paths and parent PIDs; arguments only of interpreter processes, to
+    /// recognize an npm-installed Claude (never prompts or foreign environment).
     /// Missing/cyclic/truncated ancestry is unknown, not evidence of an independent task.
     static func nestedClaudeRuntime(startPID: Int32,
-                                    read: (Int32) -> RuntimeProcess? = runtimeProcess) -> Bool? {
-        let runtime = runtimeProvider(ofExecutable:)
+                                    read: (Int32) -> RuntimeProcess? = runtimeProcess,
+                                    arguments: (Int32) -> [String]? = processArguments) -> Bool? {
         var pid = startPID, seen = Set<Int32>(), foundClaude = false, foundLaunchHost = false, crossedCommand = false
         for _ in 0..<16 {
             guard pid > 1, seen.insert(pid).inserted, let process = read(pid) else { return nil }
-            if let provider = runtime(process.executable) {
+            if let provider = runtimeProvider(pid: pid, executable: process.executable, arguments: arguments) {
                 // Native background jobs have direct runtime/supervisor chains.
                 // A command process between runtimes distinguishes tool-launched CLIs.
                 if foundClaude { return crossedCommand ? true : nil }
