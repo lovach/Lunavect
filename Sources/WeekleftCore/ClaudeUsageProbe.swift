@@ -26,7 +26,10 @@ public enum ClaudeUsageProbe {
     private static func read(cliPath: String, timeout: TimeInterval, directory: URL, settle: TimeInterval,
                              dumpDirectory: URL?, screen: (@Sendable (String) -> Void)?) throws -> UsageSnapshot {
         try Task.checkCancellation()
-        guard FileManager.default.isExecutableFile(atPath: cliPath) else { throw UsageError.claudeCLIUnavailable }
+        // Removed, replaced by a folder or no longer executable since the last probe.
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.isExecutableFile(atPath: cliPath), FileManager.default.fileExists(atPath: cliPath, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { throw UsageError.claudeCLIUnavailable }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         var master: Int32 = -1, slave: Int32 = -1
         var size = winsize(ws_row: 80, ws_col: 160, ws_xpixel: 0, ws_ypixel: 0)
@@ -411,7 +414,8 @@ extension ClaudeUsageText {
     }
     /// Known states of a drawn `/usage` screen that carry no subscription quota.
     static func state(in text: String) -> ClientIntegrationIssue.Reason? {
-        if text.contains("Failed to load usage data") || text.contains("Could not refresh usage data") { return .usageFetchFailed }
+        if text.contains("Failed to load usage data") || text.contains("Could not refresh usage data")
+            || text.contains("No model usage data available") { return .usageFetchFailed }
         if text.contains("Usage limit reached") || text.contains("You've hit your") || text.contains("You\u{2019}ve hit your") { return .limitReached }
         // Header of a CLI without a subscription sign-in or with API-key billing:
         // `/usage` then shows only the session cost panel.
