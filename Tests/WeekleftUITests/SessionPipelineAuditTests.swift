@@ -372,7 +372,12 @@ import os
         let began = ProcessInfo.processInfo.systemUptime
         for _ in 0..<10 { clock += 1; await sessions.readEvents() }
         let perTick = (ProcessInfo.processInfo.systemUptime - began) / 10
-        XCTAssertLessThan(perTick, 0.5, "One tick of merge, sort and publish with 600 rows (typically a few ms)")
+        // Decision 30: a wall-clock bound only separates "cheap" from "stuck" on a
+        // loaded runner (for example the TSan job). The tight budget stays opt-in.
+        XCTAssertLessThan(perTick, 5, "One tick of merge, sort and publish with 600 rows (typically a few ms)")
+        if ProcessInfo.processInfo.environment["LUNAVECT_STRICT_TIMING"] == "1" {
+            XCTAssertLessThan(perTick, 0.5, "Strict timing: one tick with 600 rows")
+        }
         XCTAssertEqual(sessions.hiddenCount, 0)
     }
 

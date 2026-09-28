@@ -51,16 +51,20 @@ class ReassertInstalledWidgetTests(unittest.TestCase):
         self.assertEqual(restored, app)
         self.assertEqual(calls, [[reassert.LSREGISTER, '-f', str(app)], ['pluginkit', '-a', str(app / 'Contents/PlugIns/LunavectWidget.appex')]])
 
-    def test_two_installed_copies_register_only_the_canonical_one(self):
-        """Matrix W8: with ~/Applications and /Applications both valid, only the
-        canonical user copy is registered; the other copy is never switched in."""
+    def test_two_installed_copies_without_a_running_one_register_only_the_first(self):
+        """Matrix W8 under the current rule (WP-6b): the running copy wins. With
+        ~/Applications and /Applications both valid and neither running, only the
+        first copy in the documented order (~/Applications) is registered; the
+        other is never switched in. The process list is injected, never the host's."""
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
             copies = reassert.installed_copies(home=home, system=home / 'global')
             for app in copies:
                 self.bundle(app)
             calls = []
-            restored = reassert.reassert(copies, run=lambda argv, check: calls.append(argv))
+            with contextlib.redirect_stderr(io.StringIO()) as warning:
+                restored = reassert.reassert(copies, run=lambda argv, check: calls.append(argv), list_processes=lambda: [])
+            self.assertIn('neither is running', warning.getvalue())
             self.assertEqual(restored, home / 'Applications/Lunavect.app')
             registered = [argv[-1] for argv in calls]
             self.assertEqual(registered, [str(copies[0]), str(copies[0] / 'Contents/PlugIns/LunavectWidget.appex')])
