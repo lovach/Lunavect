@@ -15,4 +15,6 @@ enum ClaudeUsageScreenFixtures {
     // ClaudeUsageScreenTests.testRealSubscriptionScreenFixture. The synthetic
     // screens in ClaudeUsageProbeTests stay until then.
     static let subscription: String? = nil
+    /// When `subscription` was captured: resets on the screen are read relative to it.
+    static let subscriptionCapturedAt: Date? = nil
 }
