@@ -308,6 +308,38 @@ final class ClaudeStatusLineTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(snapshot.weekly).isExpired(at: now))
         XCTAssertTrue(try XCTUnwrap(snapshot.fiveHour).isExpired(at: now))
     }
+    /// Y-I5 (proposed by Y): the user's previous status line still receives the
+    /// payload and prints to the client; one that never ends, even ignoring SIGTERM,
+    /// is stopped so the helper does not stay behind. Temporary files only.
+    func testPreviousStatusLineGetsThePayloadAndAHungOneIsStopped() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r2-Q-" + UUID().uuidString)
+        let bridge = root.appendingPathComponent("bridge"), pidFile = root.appendingPathComponent("pid")
+        try FileManager.default.createDirectory(at: bridge, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = bridge.appendingPathComponent("quota.json")
+        let reset = Date().addingTimeInterval(3600).timeIntervalSince1970
+        let payload = try JSONSerialization.data(withJSONObject: ["session_id": "fixture",
+            "rate_limits": ["seven_day": ["used_percentage": 27, "resets_at": reset]]])
+        func run(_ command: String, timeout: TimeInterval) throws -> (output: Pipe, elapsed: TimeInterval) {
+            try JSONSerialization.data(withJSONObject: ["type": "command", "command": command])
+                .write(to: bridge.appendingPathComponent("previous-statusline.json"))
+            let input = Pipe(), output = Pipe(), errors = Pipe()
+            try input.fileHandleForWriting.write(contentsOf: payload); try input.fileHandleForWriting.close()
+            let started = ProcessInfo.processInfo.systemUptime
+            ClaudeProvider.runStatusLine(input: input.fileHandleForReading, output: output.fileHandleForWriting,
+                                         errors: errors.fileHandleForWriting, directory: bridge, destination: destination, timeout: timeout)
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            try output.fileHandleForWriting.close()
+            return (output, elapsed)
+        }
+        let working = try run("/bin/cat", timeout: 10)
+        XCTAssertEqual(working.output.fileHandleForReading.readDataToEndOfFile(), payload, "The HUD gets the payload and prints to the client")
+        XCTAssertEqual(try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: destination)).weekly?.remaining, 73)
+        let hung = try run("echo $$ > '\(pidFile.path)'; trap '' TERM; while :; do /bin/sleep 1; done", timeout: 0.5)
+        XCTAssertLessThan(hung.elapsed, 4, "Stopped after its timeout, SIGKILL after SIGTERM is ignored")
+        let pid = try XCTUnwrap(Int32(String(contentsOf: pidFile).trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertEqual(kill(pid, 0), -1, "The hung command does not outlive the helper")
+    }
     func testInstallPreservesExistingHUDAndOtherSettingsAndIsIdempotent() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

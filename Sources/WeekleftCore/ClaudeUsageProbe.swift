@@ -131,13 +131,19 @@ public enum ClaudeUsageText {
         func window(label: String, minutes: Int) throws -> QuotaWindow? {
             guard let start = lines.lastIndex(of: label) else { return nil }
             let end = min(lines.count, start + 6)
-            let section = Array(lines[(start + 1)..<end].prefix { !endsSection($0) })
             let percentPattern = #"(?<![\d.])(\d+(?:\.\d+)?)%\s*used"#
             let regex = try NSRegularExpression(pattern: percentPattern)
-            var percentage: Double?
-            for line in section {
+            var section: [String] = [], percentage: Double?
+            for line in lines[(start + 1)..<end] {
+                if endsSection(line) { break }
                 if let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-                   let range = Range(match.range(at: 1), in: line) { percentage = Double(line[range]); break }
+                   let range = Range(match.range(at: 1), in: line) {
+                    // A block has one percentage. The next one starts a block this
+                    // version may not know; its reset is not this window's (R2-Q-03).
+                    if percentage != nil { break }
+                    percentage = Double(line[range])
+                }
+                section.append(line)
             }
             guard let used = percentage else { return nil }
             guard let resetLine = section.lazy.compactMap(ClaudeUsageText.resetText).first else {

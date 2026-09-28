@@ -114,11 +114,7 @@ public struct QuotaRefreshPolicy: Sendable {
 
     public func shouldFetch(_ provider: ProviderID, snapshot: UsageSnapshot?, trigger: Trigger, now: Date) -> Bool {
         let state = states[provider] ?? ProviderState()
-        if trigger == .manual {
-            guard let last = state.lastCompleted else { return true }
-            let since = now.timeIntervalSince(last)
-            return since < 0 || since >= timing.manualMinimumInterval
-        }
+        if trigger == .manual { return manualRetryDate(provider, now: now) == nil }
         if let paused = state.pausedUntil, now < paused { return false }
         if let retry = retryDate(state), let failed = state.lastFailure, now >= failed, now < retry { return false }
         guard let snapshot, snapshot.fetchedAt != nil, snapshot.hasQuota || snapshot.unlimited == true else { return true }
@@ -140,6 +136,13 @@ public struct QuotaRefreshPolicy: Sendable {
         if age < 0 { return true }
         if trigger == .sessionEvent { return age > timing.eventMinimumAge }
         return age >= interval(state, snapshot: snapshot, now: now)
+    }
+    /// When an explicit refresh may ask this provider again; nil when it may now.
+    public func manualRetryDate(_ provider: ProviderID, now: Date) -> Date? {
+        guard let last = states[provider]?.lastCompleted else { return nil }
+        let since = now.timeIntervalSince(last)
+        guard since >= 0, since < timing.manualMinimumInterval else { return nil }
+        return last.addingTimeInterval(timing.manualMinimumInterval)
     }
     private func interval(_ state: ProviderState, snapshot: UsageSnapshot, now: Date) -> TimeInterval {
         // An unstarted window changes only with a request, reported by a session event.
@@ -513,20 +516,34 @@ public enum ClaudeProvider {
             disconnecting: true)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")
     }
+    /// How long the user's previous status line may run before the helper stops it.
+    /// The client cancels an in-flight status line when the next update starts; a
+    /// command that never ends must not keep the helper (and itself) running (Y-I5).
+    static let previousStatusLineTimeout: TimeInterval = 10
     public static func runStatusLine() {
-        let data = FileHandle.standardInput.readDataToEndOfFile()
-        do { try capture(data) } catch { fputs("Lunavect: quota data could not be saved.\n", stderr) }
+        runStatusLine(input: .standardInput, output: .standardOutput, errors: .standardError, directory: directory, destination: cacheURL)
+    }
+    static func runStatusLine(input: FileHandle, output: FileHandle, errors: FileHandle, directory: URL, destination: URL,
+                              timeout: TimeInterval = previousStatusLineTimeout) {
+        // `capture` keeps at most 1 MB; the payload is read no further than that.
+        var data = Data()
+        while data.count <= 1_000_000, let part = try? input.read(upToCount: 1 << 16), !part.isEmpty { data.append(part) }
+        do { try capture(data, destination: destination) } catch { fputs("Lunavect: quota data could not be saved.\n", stderr) }
         // Preserve the user's existing HUD, including stdin, stdout, environment and cwd.
         guard let prior = try? Data(contentsOf: directory.appendingPathComponent("previous-statusline.json")),
               let object = (try? JSONSerialization.jsonObject(with: prior)) as? [String: Any],
               let command = object["command"] as? String, !command.isEmpty, !command.contains("--claude-statusline") else { return }
-        let process = Process(), input = Pipe()
+        let process = Process(), pipe = Pipe(), exited = DispatchSemaphore(value: 0)
         process.executableURL = URL(fileURLWithPath: "/bin/sh"); process.arguments = ["-c", command]
-        process.standardInput = input; process.standardOutput = FileHandle.standardOutput; process.standardError = FileHandle.standardError
+        process.standardInput = pipe; process.standardOutput = output; process.standardError = errors
+        process.terminationHandler = { _ in exited.signal() }
         do {
             try process.run()
-            DispatchQueue.global().async { try? input.fileHandleForWriting.write(contentsOf: data); try? input.fileHandleForWriting.close() }
-            process.waitUntilExit()
+            DispatchQueue.global().async { try? pipe.fileHandleForWriting.write(contentsOf: data); try? pipe.fileHandleForWriting.close() }
+            guard exited.wait(timeout: .now() + timeout) == .timedOut else { return }
+            fputs("Lunavect: previous status line did not finish and was stopped.\n", stderr)
+            process.terminate()
+            if exited.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL); _ = exited.wait(timeout: .now() + 1) }
         } catch { fputs("Lunavect: previous status line could not be started.\n", stderr) }
     }
 }

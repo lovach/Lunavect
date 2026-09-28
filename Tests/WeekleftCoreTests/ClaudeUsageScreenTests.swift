@@ -266,11 +266,12 @@ final class ClaudeUsageScreenTests: XCTestCase {
 
     func testRealSubscriptionScreenFixture() throws {
         // TODO(real-subscription-capture): see ClaudeUsageScreenFixtures.subscription.
-        guard let screen = ClaudeUsageScreenFixtures.subscription else {
+        guard let screen = ClaudeUsageScreenFixtures.subscription, let captured = ClaudeUsageScreenFixtures.subscriptionCapturedAt else {
             throw XCTSkip("No real subscription /usage capture yet (owner's manual step)")
         }
-        let result = try ClaudeUsageText.parse(screen, now: now)
+        let result = try ClaudeUsageText.parse(screen, now: captured)
         XCTAssertNotNil(result.weekly)
+        XCTAssertNil(ClaudeUsageText.failure(in: ClaudeUsageText.plain(screen)), "A readable screen is not a failure state")
     }
 
     // MARK: Typed reason survives on the saved quota and in diagnostics

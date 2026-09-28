@@ -64,7 +64,8 @@ import XCTest
     }
 
     private func makeStore(_ h: Harness, snapshots: [UsageSnapshot], providers: [ProviderID],
-                           network: NetworkConnection? = nil) throws -> AppStore {
+                           network: NetworkConnection? = nil,
+                           local: @escaping @Sendable (Date) async -> UsageSnapshot? = { _ in nil }) throws -> AppStore {
         let network = network ?? NetworkConnection(settle: {}, makeMonitor: { nil })
         let suite = "QuotaRefreshStore." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -82,7 +83,7 @@ import XCTest
             })
         let store = AppStore(state: .init(snapshots: snapshots, preferences: preferences), network: network, defaults: defaults,
             dataServices: .init(snapshots: SnapshotPersistence(url: root.appendingPathComponent("snapshot.json")),
-                activity: ActivityService(isolated: true), clock: { h.now }, localQuota: { _ in nil },
+                activity: ActivityService(isolated: true), clock: { h.now }, localQuota: local,
                 refreshQuota: { id, _, _ in
                     if id == .claude {
                         // Production path: the store's policy has decided; ClaudeProvider probes
@@ -486,4 +487,161 @@ import XCTest
         XCTAssertEqual(h.probes.count, 1, "The event is evaluated once the running refresh ends")
         XCTAssertEqual(h.codexFetches.count, 1)
     }
+
+    /// R2-Q-02: the local reader (every 5 s) rereads the saved files. After a failed
+    /// probe they hold the same observation without the failure, which must not
+    /// erase it: the value keeps its "*" and the reason until newer data arrives.
+    func testLocalReaderKeepsTheFailureOfTheLatestProbe() async throws {
+        let h = Harness(now: start)
+        let saved = try claude(used: 40, fetchedAt: start.addingTimeInterval(-180), reset: start.addingTimeInterval(3 * 86400))
+        let unreadable = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse)
+        h.result = { _, _ in throw unreadable }
+        // The saved files hold this observation throughout (a failed probe saves nothing).
+        let store = try makeStore(h, snapshots: [saved], providers: [.claude], local: { [saved] _ in saved })
+        store.start(); await settle(store)
+        XCTAssertEqual(h.probes.count, 0, "A three-minute-old observation is current")
+        await store.refresh(); await settle(store)
+        XCTAssertEqual(h.probes.count, 1)
+        XCTAssertEqual(store.snapshots.first?.issue, unreadable.message)
+        h.now = start.addingTimeInterval(5); h.ticks[5]?(); await settle(store)
+        let shown = try XCTUnwrap(store.snapshots.first { $0.provider == .claude })
+        XCTAssertEqual(shown.issue, unreadable.message, "The saved copy of the same observation does not erase the failure")
+        XCTAssertEqual(shown.status(of: shown.weekly, now: h.now), .current(stale: true))
+        let diagnostic = ConnectionDiagnostic(provider: .claude, clientFound: true, signIn: .signedIn, eventsConfigured: true,
+                                              snapshot: shown, sessionIssue: nil, now: h.now)
+        XCTAssertEqual(diagnostic.state, .unsupportedResponse)
+        // A later successful probe is shown; a local read that started before it was
+        // saved returns the older observation, which never rolls the new one back.
+        h.result = { _, date in try self.claude(used: 45, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
+        h.now = start.addingTimeInterval(40); await store.refresh(); await settle(store)
+        XCTAssertEqual(h.probes.count, 2)
+        let probed = try XCTUnwrap(store.snapshots.first { $0.provider == .claude })
+        XCTAssertEqual(probed.weekly?.usedPercent, 45)
+        XCTAssertNil(probed.issue)
+        h.now = start.addingTimeInterval(45); h.ticks[5]?(); await settle(store)
+        XCTAssertEqual(store.snapshots.first { $0.provider == .claude }, probed)
+    }
+
+    /// An explicit refresh pressed while an automatic request for the other provider
+    /// runs is not dropped: it is evaluated once that request ends.
+    func testExplicitRefreshDuringAnotherProvidersRequestIsEvaluatedAfterIt() async throws {
+        let h = Harness(now: start)
+        let fresh = try claude(used: 40, fetchedAt: start.addingTimeInterval(-600), reset: start.addingTimeInterval(3 * 86400))
+        func codex(_ date: Date) throws -> UsageSnapshot {
+            try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 10, durationMinutes: 10080, resetsAt: self.start.addingTimeInterval(4 * 86400)),
+                              fetchedAt: date, source: "Codex CLI")
+        }
+        h.result = { id, date in id == .codex ? try codex(date) : try self.claude(used: 45, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
+        var release: CheckedContinuation<Void, Never>?
+        h.holdCodex = { await withCheckedContinuation { release = $0 } }
+        let store = try makeStore(h, snapshots: [fresh, try codex(start.addingTimeInterval(-2 * 3600))], providers: [.claude, .codex])
+        store.start()
+        await wait(until: { h.codexFetches.count == 1 && release != nil })
+        XCTAssertEqual(h.probes.count, 0, "At launch only Codex is due")
+        await store.refresh(provider: .claude)
+        XCTAssertEqual(h.probes.count, 0, "One request at a time")
+        h.holdCodex = nil; release?.resume()
+        await settle(store)
+        XCTAssertEqual(h.probes.count, 1, "The explicit refresh runs after the running request")
+        XCTAssertEqual(store.snapshots.first { $0.provider == .claude }?.weekly?.usedPercent, 45)
+    }
+
+    /// R2-P-04: 0.2.4 (a second installed copy) rewrites snapshot.json without the
+    /// reset precision it does not know, so the next launch reads the end of the
+    /// shown minute as its start and moves the reset another minute later. The
+    /// saved probe file still holds the original reading; the local reader takes
+    /// its windows for the same reading instead of keeping the shifted ones.
+    func testSavedProbeReadingRepairsWindowsShiftedByAnOlderCopy() async throws {
+        let h = Harness(now: start)
+        let reset = start.addingTimeInterval(3 * 86400)
+        let original = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: reset, resetPrecision: .minute),
+            fiveHour: QuotaWindow(usedPercent: 12, durationMinutes: 300, resetsAt: start.addingTimeInterval(3600), resetPrecision: .minute),
+            fetchedAt: start.addingTimeInterval(-60), source: ClaudeUsageProbe.source,
+            modelQuotas: [ModelQuota(name: "Model", window: QuotaWindow(usedPercent: 30, durationMinutes: 10080, resetsAt: reset, resetPrecision: .minute),
+                                     fetchedAt: start.addingTimeInterval(-60))])
+        // What 0.2.4 writes back: the same JSON without the keys it does not know.
+        func strippingPrecision(_ value: Any) -> Any {
+            if var object = value as? [String: Any] {
+                object.removeValue(forKey: "resetPrecision")
+                return object.mapValues(strippingPrecision)
+            }
+            if let array = value as? [Any] { return array.map(strippingPrecision) }
+            return value
+        }
+        let rewritten = try JSONSerialization.data(withJSONObject: strippingPrecision(JSONSerialization.jsonObject(with: JSONEncoder().encode(original))))
+        let shifted = try JSONDecoder().decode(UsageSnapshot.self, from: rewritten)
+        XCTAssertEqual(shifted.weekly?.resetsAt, reset.addingTimeInterval(60), "The two meanings of a saved reset cannot be told apart")
+        let store = try makeStore(h, snapshots: [shifted], providers: [.claude], local: { [original] _ in original })
+        store.start(); await settle(store)
+        XCTAssertEqual(h.probes.count, 0)
+        h.now = start.addingTimeInterval(5); h.ticks[5]?(); await settle(store)
+        XCTAssertEqual(store.snapshots.first { $0.provider == .claude }, original)
+    }
+
+    /// R2-U-03 (proposed by U): an explicit refresh says what happened, so the
+    /// control can explain why nothing visible changed.
+    func testExplicitRefreshReportsItsOutcome() async throws {
+        let h = Harness(now: start)
+        let fresh = try claude(used: 40, fetchedAt: start.addingTimeInterval(-60), reset: start.addingTimeInterval(3 * 86400))
+        h.result = { _, date in try self.claude(used: 41, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
+        let network = NetworkConnection(settle: {}, makeMonitor: { nil })
+        let store = try makeStore(h, snapshots: [fresh], providers: [.claude], network: network)
+        store.start(); await settle(store)
+        var outcome = await store.refresh()
+        XCTAssertEqual(outcome, .asked)
+        h.now = start.addingTimeInterval(10)
+        outcome = await store.refresh(provider: .claude)
+        XCTAssertEqual(outcome, .tooSoon(until: start.addingTimeInterval(30)))
+        XCTAssertEqual(h.probes.count, 1)
+        h.now = start.addingTimeInterval(30)
+        outcome = await store.refresh()
+        XCTAssertEqual(outcome, .asked)
+        XCTAssertEqual(h.probes.count, 2)
+        network.update(available: false)
+        h.now = start.addingTimeInterval(90)
+        outcome = await store.refresh()
+        XCTAssertEqual(outcome, .offline)
+        network.update(available: true); await settle(store)
+        var release: CheckedContinuation<Void, Never>?
+        h.hold = { await withCheckedContinuation { release = $0 } }
+        let first = Task { await store.refresh() }
+        await wait(until: { release != nil })
+        h.hold = nil
+        outcome = await store.refresh()
+        XCTAssertEqual(outcome, .running)
+        release?.resume(); _ = await first.value; await settle(store)
+        XCTAssertEqual(h.probes.count, 3, "The request made while one ran is evaluated after it; the 30 s limit then applies")
+    }
+
+    /// R2-U-04 (proposed by U): the status line's receipt time comes through the
+    /// store, so an isolated store never reads the live file.
+    func testStatusLineReceiptIsReadThroughTheStoreAndNeverWhenIsolated() throws {
+        let observed = start.addingTimeInterval(-600)
+        let reads = LockedCount()
+        func services() -> AppDataServices {
+            AppDataServices(snapshots: SnapshotPersistence(url: URL(fileURLWithPath: "/unused/r2-Q.json"), write: { _, _ in XCTFail("No writes") }, reload: {}),
+                            activity: ActivityService(isolated: true), clock: { self.start },
+                            statusLineObservedAt: { reads.increment(); return observed },
+                            scheduling: AppRefreshScheduling(repeating: { _, _ in {} }, wake: { _ in {} }), discoverCodex: { nil })
+        }
+        let suite = "QuotaRefreshStore." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var preferences = WidgetPreferences(); preferences.enabledProviders = [.claude]
+        let isolated = AppStore(state: .init(snapshots: [], preferences: preferences), network: NetworkConnection(makeMonitor: { nil }),
+                                isolated: true, defaults: defaults, dataServices: services())
+        XCTAssertNil(isolated.statusLineObservedAt())
+        XCTAssertEqual(reads.value, 0, "An isolated store reads no live status-line file")
+        let connected = AppStore(state: .init(snapshots: [], preferences: preferences), savesChanges: false,
+                                 network: NetworkConnection(makeMonitor: { nil }), defaults: defaults, dataServices: services())
+        XCTAssertEqual(connected.statusLineObservedAt(), observed)
+        XCTAssertEqual(reads.value, 1)
+    }
+}
+
+private final class LockedCount: @unchecked Sendable {
+    private let lock = NSLock(); private var count = 0
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
 }

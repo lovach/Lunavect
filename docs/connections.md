@@ -53,7 +53,7 @@ Local catalog entries and titles are not evidence that a session is working. Fal
 
 Default client configuration files are `~/.claude/settings.json` and `~/.codex/hooks.json`. Lunavect respects `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when set in the app's environment. Advanced connection settings provide a manual Codex executable path when automatic discovery is insufficient.
 
-Hooks invoke the bundled `LunavectHook` helper. It keeps session identity, project, client, state, tool name and timestamps, not the prompt or tool arguments. The Claude status-line handler stores quota values rather than the full input payload. Setup launchers contain commands and paths, not copied authentication tokens.
+Hooks invoke the bundled `LunavectHook` helper. It keeps session identity, project, client, state, tool name and timestamps, not the prompt or tool arguments. The Claude status-line handler stores quota values rather than the full input payload. A status line you had before keeps running with the same input and output; if it has not finished within 10 seconds, Lunavect stops it. Setup launchers contain commands and paths, not copied authentication tokens.
 
 ### Helper path
 
