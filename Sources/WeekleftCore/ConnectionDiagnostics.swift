@@ -201,14 +201,15 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
     /// Typed reason of the shown issue, including one recognized from a saved message.
     public let issueReason: ClientIntegrationIssue.Reason?
     /// Recent Claude sessions ran only in Claude Desktop, where the status line does not run.
-    public let statusLineDesktopOnly: Bool
+    /// Nil otherwise, so reports without this fact keep their earlier keys.
+    public let statusLineDesktopOnly: Bool?
     public var id: ProviderID { provider }
 
     public init(provider: ProviderID, clientFound: Bool, signIn: ClientConnection.SignInState,
                 eventsConfigured: Bool, snapshot: UsageSnapshot?, sessionIssue: String?, now: Date = Date(),
                 sourceIssue: ClientIntegrationIssue? = nil, statusLineDesktopOnly: Bool = false) {
         self.provider = provider; self.clientFound = clientFound; self.eventsConfigured = eventsConfigured
-        self.statusLineDesktopOnly = provider == .claude && statusLineDesktopOnly
+        self.statusLineDesktopOnly = provider == .claude && statusLineDesktopOnly ? true : nil
         let typed = sourceIssue?.provider == provider ? sourceIssue : nil
         self.sourceIssue = typed
         quotaAgeMinutes = snapshot?.fetchedAt.map { max(0, Int(now.timeIntervalSince($0) / 60)) }
@@ -279,7 +280,7 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
     }
     /// An explanation that accompanies any state; not an error.
     public var note: String? {
-        statusLineDesktopOnly ? "Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage" : nil
+        statusLineDesktopOnly == true ? "Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage" : nil
     }
     public var guidance: String {
         if state == .sourceError, let reason = issueReason,
