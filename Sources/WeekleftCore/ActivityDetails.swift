@@ -124,6 +124,7 @@ public struct ActivityDetails: Codable, Equatable, Sendable {
         return result
     }
     public func save(to url: URL = fileURL, synchronize: Bool = true) throws {
+        try LiveWriteGuard.check(url)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try LocalStateRecovery.write(JSONEncoder().encode(self), to: url, synchronize: synchronize)
     }

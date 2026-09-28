@@ -145,9 +145,9 @@ public enum SnapshotStore {
         return SharedState(snapshots: snapshots, preferences: decode(WidgetPreferences.self, from: root["preferences"]) ?? .init())
     }
     public static func save(_ state: SharedState) throws {
-        let dir = directory
+        let dir = directory, url = dir.appendingPathComponent("snapshot.json")
+        try LiveWriteGuard.check(url)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let url = dir.appendingPathComponent("snapshot.json")
         try LocalStateRecovery.write(JSONEncoder().encode(state), to: url)
     }
 }
@@ -234,6 +234,7 @@ public enum LocalStateRecovery {
     /// (a hook or status-line helper cancelled by its client) leaves it behind.
     /// Remove only `write`'s own `.UUID.tmp` names, long after any write ends.
     @discardableResult public static func removeAbandonedTemporaries(in directory: URL, now: Date = Date(), olderThan age: TimeInterval = 3600) throws -> Int {
+        try LiveWriteGuard.check(directory)
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         var removed = 0
         for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) {
@@ -255,6 +256,8 @@ public enum LocalStateRecovery {
             }
             guard error is DecodingError || (cocoa.domain == NSCocoaErrorDomain && cocoa.code == CocoaError.fileReadCorruptFile.rawValue) else { throw error }
             let backup = target.appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString)")
+            // Moving the damaged file aside is a change too: never under the real home in tests.
+            try LiveWriteGuard.check(target, backup)
             try FileManager.default.moveItem(at: target, to: backup)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
             return RecoveredLocalState(value: empty, backupURL: backup)

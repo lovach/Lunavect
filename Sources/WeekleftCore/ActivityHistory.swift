@@ -387,6 +387,7 @@ public struct ActivityHistory: Codable, Equatable, Sendable {
     }
     public static var fileURL: URL { SnapshotStore.directory.appendingPathComponent("activity.json") }
     public func save(to url: URL = fileURL) throws {
+        try LiveWriteGuard.check(url)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try LocalStateRecovery.write(JSONEncoder().encode(self), to: url)
     }
