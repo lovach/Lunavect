@@ -208,6 +208,17 @@ class ReassertInstalledWidgetTests(unittest.TestCase):
                 'ps -axo pid=,comm=', 'lsregister -f ' + str(system),
                 'pluginkit -a ' + str(system / 'Contents/PlugIns/LunavectWidget.appex')])
             self.assertIn('Two Lunavect copies', result.stderr)
+            # R3-08: every active override is announced.
+            for name in ('LUNAVECT_LSREGISTER', 'LUNAVECT_PLUGINKIT', 'LUNAVECT_INSTALLED_APPS'):
+                self.assertIn('Override active (test fixture): ' + name + '=', result.stderr)
+
+    def test_overrides_are_listed_and_absent_ones_are_silent(self):
+        self.assertEqual(reassert.active_overrides({'PATH': '/bin'}), [])
+        self.assertEqual(reassert.active_overrides({'LUNAVECT_INSTALLED_APPS': '', 'LUNAVECT_OTHER': 'x'}),
+                         [('LUNAVECT_INSTALLED_APPS', '')], 'An empty value is an override too')
+        stream = io.StringIO()
+        reassert.warn_overrides({'LUNAVECT_PLUGINKIT': '/tmp/shim'}, stream=stream)
+        self.assertEqual(stream.getvalue(), 'Override active (test fixture): LUNAVECT_PLUGINKIT=/tmp/shim\n')
 
     def test_failed_retirement_still_reasserts_installed_host(self):
         with tempfile.TemporaryDirectory() as temporary:

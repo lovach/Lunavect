@@ -19,7 +19,14 @@ cleanup_check() {
   local status=$?
   trap - EXIT
   local cleanup_status=0
-  python3 "$PROJECT_ROOT/scripts/reassert-installed-widget.py" --retire-app "$DERIVED_DIR/Build/Products/Release/Lunavect.app" || cleanup_status=$?
+  # Stages already run without LUNAVECT_*; the installed widget cleanup must not
+  # inherit registration overrides either (they would skip the real reassertion).
+  local name
+  for name in LUNAVECT_LSREGISTER LUNAVECT_PLUGINKIT LUNAVECT_INSTALLED_APPS; do
+    if [ -n "${!name+set}" ]; then echo "$name is ignored for the installed widget cleanup" >&2; fi
+  done
+  env -u LUNAVECT_LSREGISTER -u LUNAVECT_PLUGINKIT -u LUNAVECT_INSTALLED_APPS \
+    python3 "$PROJECT_ROOT/scripts/reassert-installed-widget.py" --retire-app "$DERIVED_DIR/Build/Products/Release/Lunavect.app" || cleanup_status=$?
   if [ "$status" -eq 0 ]; then status=$cleanup_status; fi
   if [ -n "$REPORT" ]; then
     local report_status=0

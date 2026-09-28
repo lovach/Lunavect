@@ -38,6 +38,8 @@ First refresh release tags and download the currently published appcast into a p
 ./scripts/distribute.sh export 0.2.4 191
 ```
 
+Run these from a shell without `LUNAVECT_INSTALLED_APPS`, `LUNAVECT_LSREGISTER` or `LUNAVECT_PLUGINKIT`: they exist for script tests, and `distribute.sh` refuses to run while one is set (`Release refused: …`).
+
 Before invoking Xcode, `archive` rejects a dirty source tree, a shallow clone, an existing local `vVERSION` tag, a build or marketing version that does not exceed the supplied appcast, and a build that does not exceed a Lunavect installed in `~/Applications` or `/Applications`. Missing or malformed published version fields are rejected. Build-only releases that reuse a marketing version are deliberately unsupported by this workflow. Refresh tags and the appcast before this check: it cannot detect a remote publication missing from those local inputs. It begins a required-clean distribution manifest and finalizes it against the archived app only after the resource and helper-policy checks pass. `submit` and `export` refuse an archive unless that manifest is complete, names the same version and build, and still matches the archived app's hash; after a failed archive, use a new build number. Packaging checks the actual app build and marketing version against the appcast again before reading a signing key or creating output.
 
 The distribution workflow uses the Apple account configured in Xcode. Export reports when notarization has not yet completed. A completed export contains the app's notarization ticket.

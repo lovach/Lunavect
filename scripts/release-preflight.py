@@ -6,12 +6,20 @@ from pathlib import Path
 import plistlib
 import re
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from xml.parsers.expat import ExpatError
 
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 # build.sh numbers local builds above these copies, so they can outrank a release.
 INSTALLED_APPS = (Path.home() / 'Applications/Lunavect.app', Path('/Applications/Lunavect.app'))
+
+
+def fixture_overrides(environment=None):
+    """Registration overrides that must never shape a real release."""
+    environment = os.environ if environment is None else environment
+    return [(name, environment[name]) for name in ('LUNAVECT_INSTALLED_APPS', 'LUNAVECT_LSREGISTER', 'LUNAVECT_PLUGINKIT')
+            if name in environment]
 
 
 def default_installed_apps(environment=None):
@@ -100,8 +108,17 @@ def main():
     parser.add_argument('--source-root', type=Path)
     parser.add_argument('--installed-app', type=Path, action='append',
                         help='Installed copy whose build the release must exceed (default: ~/Applications and /Applications, '
-                             'or LUNAVECT_INSTALLED_APPS)')
+                             'or LUNAVECT_INSTALLED_APPS with --test-fixture)')
+    parser.add_argument('--test-fixture', action='store_true',
+                        help='Accept LUNAVECT_* registration overrides (script tests only); a release refuses them')
     args = parser.parse_args()
+    overrides = fixture_overrides()
+    if overrides and not args.test_fixture:
+        names = ', '.join(name for name, _ in overrides)
+        parser.exit(1, f'Release refused: {names} is set. These overrides are for test fixtures and can turn off the '
+                       'installed-build check or the registration cleanup; unset them for a release.\n')
+    for name, value in overrides:
+        print(f'Override active (test fixture): {name}={value}', file=sys.stderr)
     try:
         validate_previous(args.version, args.build, args.previous_appcast)
         if args.source_root:
