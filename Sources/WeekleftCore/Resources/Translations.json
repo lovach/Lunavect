@@ -5647,5 +5647,19 @@
     "es": "Los datos se acaban de comprobar. Puedes volver a comprobarlos en {0} s.",
     "fr": "Les données viennent d’être vérifiées. Vous pourrez vérifier à nouveau dans {0} s.",
     "zh-Hans": "数据刚刚检查过。{0} 秒后可再次检查。"
+  },
+  "Claude Code в Терминале не вошёл в аккаунт Claude, поэтому лимитов подписки не видно. Нажмите «Войти снова» или выполните в Терминале claude, затем /login.": {
+    "en": "Claude Code in Terminal is not signed in to a Claude account, so subscription limits cannot be read. Click Sign in again, or run claude in Terminal and then /login.",
+    "de": "Claude Code im Terminal ist nicht bei einem Claude-Konto angemeldet, daher sind die Abo-Limits nicht lesbar. Klicken Sie auf „Erneut anmelden“ oder führen Sie im Terminal claude und dann /login aus.",
+    "es": "Claude Code en Terminal no ha iniciado sesión en una cuenta de Claude, así que no se pueden leer los límites de la suscripción. Pulsa Volver a iniciar sesión o ejecuta claude en Terminal y luego /login.",
+    "fr": "Claude Code dans le Terminal n’est pas connecté à un compte Claude : les limites de l’abonnement ne peuvent pas être lues. Cliquez sur Se reconnecter, ou exécutez claude dans le Terminal puis /login.",
+    "zh-Hans": "终端中的 Claude Code 未登录 Claude 账户，因此无法读取订阅额度。点击“重新登录”，或在终端中运行 claude，然后输入 /login。"
+  },
+  "Claude Code не вошёл в аккаунт": {
+    "en": "Claude Code is not signed in",
+    "de": "Claude Code ist nicht angemeldet",
+    "es": "Claude Code no ha iniciado sesión",
+    "fr": "Claude Code n’est pas connecté",
+    "zh-Hans": "Claude Code 未登录"
   }
 }

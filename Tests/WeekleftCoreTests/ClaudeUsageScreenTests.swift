@@ -265,6 +265,12 @@ final class ClaudeUsageScreenTests: XCTestCase {
         let issue = result.error as? ClientIntegrationIssue
         XCTAssertEqual(issue?.reason, .subscriptionUnavailable)
         XCTAssertEqual(issue?.repair, .signIn)
+        // The owner's case: the CLI was simply not signed in. The text says so and how to fix it.
+        XCTAssertTrue(issue?.message.contains("/login") == true)
+        XCTAssertEqual(issue?.reason.diagnosticTitle, "Claude Code не вошёл в аккаунт")
+        let saved = try XCTUnwrap(issue?.message)
+        XCTAssertEqual(ClientIntegrationIssue.legacy(saved, provider: .claude, capability: .usageProbe)?.repair, .signIn,
+                       "A saved message still offers Sign in again")
         XCTAssertLessThan(result.elapsed, 6)
     }
 

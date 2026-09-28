@@ -45,7 +45,9 @@ public struct ClientIntegrationIssue: Error, Codable, Equatable, Sendable, Local
         case .windowInactive: return "Окно лимита ещё не началось: оно начнётся с первым запросом."
         case .usageFetchFailed: return "Клиент не смог загрузить данные об использовании. Сохранённые данные остаются на месте; Lunavect повторит запрос позже."
         case .workspaceTrustRequired: return "Claude Code ждёт подтверждения доверия к папке проверки лимитов. Откройте проверку в терминале и подтвердите один раз."
-        case .subscriptionUnavailable: return "Лимиты подписки недоступны: Claude Code не вошёл в аккаунт с подпиской или использует оплату через API."
+        // Claude Code prints "API Usage Billing" instead of a plan when the CLI is not
+        // signed in to a Claude account (seen 28.09 on a Max plan): say what to do.
+        case .subscriptionUnavailable: return "Claude Code в Терминале не вошёл в аккаунт Claude, поэтому лимитов подписки не видно. Нажмите «Войти снова» или выполните в Терминале claude, затем /login."
         }
     }
     public var repair: ConnectionDiagnostic.Repair { reason.repair }
@@ -109,7 +111,7 @@ extension ClientIntegrationIssue.Reason {
         case .limitReached: return "Лимит исчерпан"
         case .windowInactive: return "Окно лимита ещё не началось"
         case .workspaceTrustRequired: return "Нужно подтвердить доверие к папке"
-        case .subscriptionUnavailable: return "Лимиты подписки недоступны"
+        case .subscriptionUnavailable: return "Claude Code не вошёл в аккаунт"
         default: return nil
         }
     }
