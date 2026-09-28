@@ -45,6 +45,7 @@ import XCTest
     private func settle() async { for _ in 0..<40 { await Task.yield() } }
     private func openWindow(_ body: () throws -> Void) async throws {
         let opened = expectation(description: "Change window opened")
+        opened.assertForOverFulfill = false  // extra windows are counted, not a crash
         windows.opened = opened
         try body()
         await fulfillment(of: [opened], timeout: 5)
@@ -52,6 +53,7 @@ import XCTest
     }
     private func releaseAndRead() async {
         let finished = expectation(description: "Coalesced read finished")
+        finished.assertForOverFulfill = false  // extra reads are counted, not a crash
         readFinished = finished
         windows.releaseAll()
         await fulfillment(of: [finished], timeout: 5)
@@ -100,6 +102,7 @@ import XCTest
         let root = try temporaryDirectory()
         let store = try store(watching: true, directory: root)
         let initial = expectation(description: "Initial refresh read")
+        initial.assertForOverFulfill = false
         readFinished = initial
         store.start(clientResolver: { ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { nil }) })
         await fulfillment(of: [initial], timeout: 5)
