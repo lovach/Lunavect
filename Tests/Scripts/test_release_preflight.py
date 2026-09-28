@@ -16,7 +16,7 @@ GATE = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(GATE)
 
 class ReleasePreflightTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect release fixture 'q' ")  # a checkout with spaces
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         (self.root / 'scripts').mkdir()
