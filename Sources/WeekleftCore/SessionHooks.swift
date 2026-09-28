@@ -412,6 +412,34 @@ public enum SessionHooks {
     public static func flush(_ descriptor: Int32) throws {
         guard fcntl(descriptor, F_FULLFSYNC) == 0 || fsync(descriptor) == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
+    /// Older releases created saved settings copies with mode 0644 (audit H-12).
+    /// Restrict Lunavect's own backup names to 0600: regular files of this user
+    /// only, never a link or a foreign file. Returns how many were changed.
+    @discardableResult public static func restrictOwnBackups(bridgeDirectory: URL, backupDirectory: URL) throws -> Int {
+        func uuid(_ name: String, after prefix: String) -> Bool {
+            name.hasPrefix(prefix) && name.hasSuffix(".json")
+                && UUID(uuidString: String(name.dropFirst(prefix.count).dropLast(5))) != nil
+        }
+        let rules: [(URL, (String) -> Bool)] = [
+            (bridgeDirectory, { $0 == "previous-statusline.json" || uuid($0, after: "settings-backup-") || $0.hasPrefix("statusline-restoration-") && $0.hasSuffix(".json") }),
+            (backupDirectory, { name in ProviderID.allCases.contains { uuid(name, after: $0.rawValue + "-") || name.hasPrefix($0.rawValue + "-restoration-") && name.hasSuffix(".json") } }),
+        ]
+        var changed = 0
+        for (directory, owned) in rules {
+            try LiveWriteGuard.check(directory)
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { continue }
+            for name in names where owned(name) {
+                let descriptor = open(directory.appendingPathComponent(name).path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+                guard descriptor >= 0 else { continue }
+                defer { close(descriptor) }
+                var info = stat()
+                guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid(),
+                      info.st_mode & 0o077 != 0 else { continue }
+                if fchmod(descriptor, 0o600) == 0 { changed += 1 }
+            }
+        }
+        return changed
+    }
     /// Match only our UUID backup filenames, excluding foreign files, links,
     /// restoration metadata and other providers' backups.
     public static func pruneOwnedBackups(in directory: URL, prefix: String, keeping limit: Int = 8) throws {

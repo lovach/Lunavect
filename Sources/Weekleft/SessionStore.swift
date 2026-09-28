@@ -769,6 +769,10 @@ import WeekleftCore
             notices.append(SetupNotice(message: L("macOS запустила Lunavect из временной копии. Перенесите Lunavect в папку «Программы» и откройте его оттуда: до этого команды подключений не обновляются."), warning: true))
         }
         var repaired: [ProviderID] = []
+        if let setup = dependencies.clientSetup(.claude) {
+            do { try SessionHooks.restrictOwnBackups(bridgeDirectory: setup.bridgeDirectory, backupDirectory: setup.backupDirectory) }
+            catch { Self.connectionLog.error("Backup permissions not restricted: \(String(describing: error), privacy: .public)") }
+        }
         for provider in providers {
             guard let setup = dependencies.clientSetup(provider) else { continue }
             do {

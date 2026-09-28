@@ -422,7 +422,7 @@ enum StatusItemClick {
     }
     @objc func quit() { NSApp.terminate(nil) }
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first, url.scheme == "lunavect" else { return }
+        guard let url = urls.first.flatMap(AppURLRoute.normalized) else { return }
         openedFromURL = true
         if url.host == "settings", url.path == "/menu-bar" {
             welcomeWindow?.orderOut(nil)
@@ -447,6 +447,50 @@ enum StatusItemClick {
         return false
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+/// URLs of both declared schemes route to the same pages (audit H-09).
+enum AppURLRoute {
+    /// `weekleft://` links from before the rename open the same page as `lunavect://`.
+    static func normalized(_ url: URL) -> URL? {
+        guard let scheme = url.scheme?.lowercased(), ["lunavect", "weekleft"].contains(scheme),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.scheme = "lunavect"
+        return components.url
+    }
+}
+
+/// Command-line maintenance that must not write a relative or temporary path.
+enum CommandLineMaintenance {
+    /// The stable helper link, the running copy's helper, or an absolute path of
+    /// this executable; nothing from a translocated copy (audit H-10, Q-06).
+    static func statusLineExecutable(location: HookHelperLocation, argument: String) -> String? {
+        if let executable = location.commandExecutable { return executable }
+        guard !location.isTranslocated, argument.hasPrefix("/") else { return nil }
+        return argument
+    }
+}
+
+/// What a second launch needs from a running copy (matrix P6).
+protocol RunningCopy {
+    var processIdentifier: pid_t { get }
+    var isTerminated: Bool { get }
+    var isFinishedLaunching: Bool { get }
+    var bundleURL: URL? { get }
+}
+extension NSRunningApplication: RunningCopy {}
+enum InstanceHandover {
+    /// Another live copy; `onlyFinishedLaunching` skips an older release that is
+    /// still starting (it does not hold the instance lease).
+    static func existing<Copy: RunningCopy>(in copies: [Copy], current: pid_t, onlyFinishedLaunching: Bool = false) -> Copy? {
+        copies.first { $0.processIdentifier != current && !$0.isTerminated && (!onlyFinishedLaunching || $0.isFinishedLaunching) }
+    }
+    /// A reopen event through Launch Services presents the running copy's panel;
+    /// activation alone shows nothing for a menu-bar app, so it is the fallback.
+    static func reopen(_ copy: some RunningCopy, open: (URL) -> Bool, activate: () -> Void) {
+        if let url = copy.bundleURL, open(url) { return }
+        activate()
+    }
 }
 
 @main enum WeekleftLauncher {
@@ -505,7 +549,13 @@ enum StatusItemClick {
         }
         if CommandLine.arguments.contains("--claude-statusline") { ClaudeProvider.runStatusLine(); return }
         if CommandLine.arguments.contains("--install-claude-statusline") {
-            do { try ClaudeProvider.installStatusLine(executable: SessionHooks.monitorExecutable() ?? CommandLine.arguments[0]); print("Local statusLine bridge installed") }
+            let location = HookHelperLocation()
+            try? location.refreshLink()
+            guard let executable = CommandLineMaintenance.statusLineExecutable(location: location, argument: CommandLine.arguments[0]) else {
+                fputs("StatusLine setup needs Lunavect in Applications: run it from its installed location with an absolute path.\n", stderr)
+                exit(1)
+            }
+            do { try ClaudeProvider.installStatusLine(executable: executable); print("Local statusLine bridge installed") }
             catch { fputs("StatusLine setup failed: \(error.localizedDescription)\n", stderr); exit(1) }
             return
         }
@@ -549,29 +599,21 @@ enum StatusItemClick {
     }
     @discardableResult @MainActor private static func activateExistingInstance(onlyFinishedLaunching: Bool = false) -> Bool {
         guard let identifier = Bundle.main.bundleIdentifier,
-              let existing = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
-                .first(where: {
-                    $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated &&
-                    (!onlyFinishedLaunching || $0.isFinishedLaunching)
-                }) else { return false }
-        reopen(existing)
-        return true
-    }
-    /// Ask the running copy to show itself, as a Dock or Finder reopen does:
-    /// Launch Services sends it a reopen event, which presents the session panel
-    /// or its open window. Activating a menu-bar app alone shows nothing.
-    @MainActor private static func reopen(_ existing: NSRunningApplication) {
-        final class Outcome: @unchecked Sendable { var opened = false }
-        let outcome = Outcome(), finished = DispatchSemaphore(value: 0)
-        if let url = existing.bundleURL {
+              let existing = InstanceHandover.existing(in: NSRunningApplication.runningApplications(withBundleIdentifier: identifier),
+                                                       current: ProcessInfo.processInfo.processIdentifier,
+                                                       onlyFinishedLaunching: onlyFinishedLaunching) else { return false }
+        InstanceHandover.reopen(existing, open: { url in
+            // Ask the running copy to show itself, as a Dock or Finder reopen does.
             // The handler runs on a concurrent queue; this process exits right after.
+            final class Outcome: @unchecked Sendable { var opened = false }
+            let outcome = Outcome(), finished = DispatchSemaphore(value: 0)
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { app, error in
                 outcome.opened = app != nil && error == nil
                 finished.signal()
             }
-            if finished.wait(timeout: .now() + 5) == .success, outcome.opened { return }
-        }
-        existing.activate(options: [])
+            return finished.wait(timeout: .now() + 5) == .success && outcome.opened
+        }, activate: { existing.activate(options: []) })
+        return true
     }
     @MainActor private static func removeAwakeHelper() {
         guard Bundle.main.bundleIdentifier == AwakeServiceID.app else {
