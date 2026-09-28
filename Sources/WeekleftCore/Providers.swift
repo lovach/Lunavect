@@ -114,11 +114,7 @@ public struct QuotaRefreshPolicy: Sendable {
 
     public func shouldFetch(_ provider: ProviderID, snapshot: UsageSnapshot?, trigger: Trigger, now: Date) -> Bool {
         let state = states[provider] ?? ProviderState()
-        if trigger == .manual {
-            guard let last = state.lastCompleted else { return true }
-            let since = now.timeIntervalSince(last)
-            return since < 0 || since >= timing.manualMinimumInterval
-        }
+        if trigger == .manual { return manualRetryDate(provider, now: now) == nil }
         if let paused = state.pausedUntil, now < paused { return false }
         if let retry = retryDate(state), let failed = state.lastFailure, now >= failed, now < retry { return false }
         guard let snapshot, snapshot.fetchedAt != nil, snapshot.hasQuota || snapshot.unlimited == true else { return true }
@@ -140,6 +136,13 @@ public struct QuotaRefreshPolicy: Sendable {
         if age < 0 { return true }
         if trigger == .sessionEvent { return age > timing.eventMinimumAge }
         return age >= interval(state, snapshot: snapshot, now: now)
+    }
+    /// When an explicit refresh may ask this provider again; nil when it may now.
+    public func manualRetryDate(_ provider: ProviderID, now: Date) -> Date? {
+        guard let last = states[provider]?.lastCompleted else { return nil }
+        let since = now.timeIntervalSince(last)
+        guard since >= 0, since < timing.manualMinimumInterval else { return nil }
+        return last.addingTimeInterval(timing.manualMinimumInterval)
     }
     private func interval(_ state: ProviderState, snapshot: UsageSnapshot, now: Date) -> TimeInterval {
         // An unstarted window changes only with a request, reported by a session event.

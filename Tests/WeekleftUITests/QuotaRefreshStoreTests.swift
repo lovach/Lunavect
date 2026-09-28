@@ -578,4 +578,70 @@ import XCTest
         h.now = start.addingTimeInterval(5); h.ticks[5]?(); await settle(store)
         XCTAssertEqual(store.snapshots.first { $0.provider == .claude }, original)
     }
+
+    /// R2-U-03 (proposed by U): an explicit refresh says what happened, so the
+    /// control can explain why nothing visible changed.
+    func testExplicitRefreshReportsItsOutcome() async throws {
+        let h = Harness(now: start)
+        let fresh = try claude(used: 40, fetchedAt: start.addingTimeInterval(-60), reset: start.addingTimeInterval(3 * 86400))
+        h.result = { _, date in try self.claude(used: 41, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
+        let network = NetworkConnection(settle: {}, makeMonitor: { nil })
+        let store = try makeStore(h, snapshots: [fresh], providers: [.claude], network: network)
+        store.start(); await settle(store)
+        var outcome = await store.refresh()
+        XCTAssertEqual(outcome, .asked)
+        h.now = start.addingTimeInterval(10)
+        outcome = await store.refresh(provider: .claude)
+        XCTAssertEqual(outcome, .tooSoon(until: start.addingTimeInterval(30)))
+        XCTAssertEqual(h.probes.count, 1)
+        h.now = start.addingTimeInterval(30)
+        outcome = await store.refresh()
+        XCTAssertEqual(outcome, .asked)
+        XCTAssertEqual(h.probes.count, 2)
+        network.update(available: false)
+        h.now = start.addingTimeInterval(90)
+        outcome = await store.refresh()
+        XCTAssertEqual(outcome, .offline)
+        network.update(available: true); await settle(store)
+        var release: CheckedContinuation<Void, Never>?
+        h.hold = { await withCheckedContinuation { release = $0 } }
+        let first = Task { await store.refresh() }
+        await wait(until: { release != nil })
+        h.hold = nil
+        outcome = await store.refresh()
+        XCTAssertEqual(outcome, .running)
+        release?.resume(); _ = await first.value; await settle(store)
+        XCTAssertEqual(h.probes.count, 3, "The request made while one ran is evaluated after it; the 30 s limit then applies")
+    }
+
+    /// R2-U-04 (proposed by U): the status line's receipt time comes through the
+    /// store, so an isolated store never reads the live file.
+    func testStatusLineReceiptIsReadThroughTheStoreAndNeverWhenIsolated() throws {
+        let observed = start.addingTimeInterval(-600)
+        let reads = LockedCount()
+        func services() -> AppDataServices {
+            AppDataServices(snapshots: SnapshotPersistence(url: URL(fileURLWithPath: "/unused/r2-Q.json"), write: { _, _ in XCTFail("No writes") }, reload: {}),
+                            activity: ActivityService(isolated: true), clock: { self.start },
+                            statusLineObservedAt: { reads.increment(); return observed },
+                            scheduling: AppRefreshScheduling(repeating: { _, _ in {} }, wake: { _ in {} }), discoverCodex: { nil })
+        }
+        let suite = "QuotaRefreshStore." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var preferences = WidgetPreferences(); preferences.enabledProviders = [.claude]
+        let isolated = AppStore(state: .init(snapshots: [], preferences: preferences), network: NetworkConnection(makeMonitor: { nil }),
+                                isolated: true, defaults: defaults, dataServices: services())
+        XCTAssertNil(isolated.statusLineObservedAt())
+        XCTAssertEqual(reads.value, 0, "An isolated store reads no live status-line file")
+        let connected = AppStore(state: .init(snapshots: [], preferences: preferences), savesChanges: false,
+                                 network: NetworkConnection(makeMonitor: { nil }), defaults: defaults, dataServices: services())
+        XCTAssertEqual(connected.statusLineObservedAt(), observed)
+        XCTAssertEqual(reads.value, 1)
+    }
+}
+
+private final class LockedCount: @unchecked Sendable {
+    private let lock = NSLock(); private var count = 0
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
 }

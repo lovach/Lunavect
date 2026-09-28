@@ -16,6 +16,8 @@ import WeekleftCore
         return await withTaskCancellationHandler(operation: { await reader.value }, onCancel: { reader.cancel() })
     }
     var refreshQuota: ((ProviderID, String, Bool) async throws -> UsageSnapshot)? = nil
+    /// When the Claude status line last reported (its saved receipt time).
+    var statusLineObservedAt: @Sendable () -> Date? = { ClaudeProvider.statusLineObservedAt() }
     var scheduling = AppRefreshScheduling()
     var discoverCodex: @Sendable () -> String? = AppStore.discoverCodex
 }
@@ -84,6 +86,7 @@ import WeekleftCore
     private var providerGenerations: [ProviderID: Int] = [:]
     private let localQuota: @Sendable (Date) async -> UsageSnapshot?
     private let refreshQuota: ((ProviderID, String, Bool) async throws -> UsageSnapshot)?
+    private let statusLineReceipt: @Sendable () -> Date?
     private let scheduling: AppRefreshScheduling
     private let codexDiscovery: @Sendable () -> String?
     private var cancelTriggers: [() -> Void] = []
@@ -130,6 +133,7 @@ import WeekleftCore
             return await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
         }
         refreshQuota = dataServices?.refreshQuota
+        statusLineReceipt = dataServices?.statusLineObservedAt ?? { ClaudeProvider.statusLineObservedAt() }
         scheduling = dataServices?.scheduling ?? AppRefreshScheduling()
         codexDiscovery = dataServices?.discoverCodex ?? Self.discoverCodex
         snapshotPersistence = isolated ? nil : dataServices?.snapshots ?? SnapshotPersistence(reload: {
@@ -348,11 +352,37 @@ import WeekleftCore
         }
         activityService.stop()
     }
+    /// What an explicit refresh did, so a control can say why nothing happened (R2-U-03).
+    enum RefreshOutcome: Equatable {
+        /// The providers were asked (or none is connected).
+        case asked
+        /// No network: the request waits for the connection.
+        case offline
+        /// Another request runs; this one is evaluated after it.
+        case running
+        /// Every requested provider was asked less than 30 s ago; asking is possible again at this moment.
+        case tooSoon(until: Date)
+    }
     /// `force` is an explicit request (at most once per 30 s per provider);
     /// otherwise the refresh policy decides which providers are due.
-    func refresh(provider requestedProvider: ProviderID? = nil, force: Bool = true) async {
-        await refresh(only: requestedProvider.map { [$0] }, trigger: force ? .manual : .timer)
+    @discardableResult
+    func refresh(provider requestedProvider: ProviderID? = nil, force: Bool = true) async -> RefreshOutcome {
+        let requested = requestedProvider.map { Set([$0]) }
+        let trigger: QuotaRefreshPolicy.Trigger = force ? .manual : .timer
+        var outcome = RefreshOutcome.asked
+        if network.isOffline { outcome = .offline }
+        else if refreshing { outcome = .running }
+        else if force {
+            let now = clock()
+            let asked = providers.filter { requested?.contains($0) ?? true }
+            let waits = asked.compactMap { refreshPolicy.manualRetryDate($0, now: now) }
+            if !asked.isEmpty, waits.count == asked.count, let until = waits.min() { outcome = .tooSoon(until: until) }
+        }
+        await refresh(only: requested, trigger: trigger)
+        return outcome
     }
+    /// When the Claude status line last reported; an isolated store reads no live file (R2-U-04).
+    func statusLineObservedAt() -> Date? { isolated ? nil : statusLineReceipt() }
     func refresh(only requested: Set<ProviderID>?, trigger: QuotaRefreshPolicy.Trigger) async {
         guard !Task.isCancelled, !network.isOffline else { return }
         // One refresh at a time; a request during it is evaluated afterwards.
