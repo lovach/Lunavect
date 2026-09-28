@@ -30,18 +30,32 @@ Some paths still use **Weekleft**, the original internal name, to preserve compa
 
 | Location | Contents |
 | --- | --- |
-| `~/Library/Application Support/Weekleft/Sessions/` | Session records, hidden sessions, ordering, resume launchers (removed after a day) and hook configuration backups |
+| `~/Library/Application Support/Weekleft/Sessions/` | Session records, hidden sessions, ordering, resume launchers (removed after a day) and hook configuration backups. A session record that can no longer be read is kept aside as `*.json.corrupt-*` for diagnosis; it and unreadable records are removed after a day |
 | `~/Library/Application Support/Weekleft/ClaudeStatusLine/` | Claude quota caches and the previous status-line configuration |
+| `~/Library/Application Support/Weekleft/bin/LunavectHook` | A symbolic link to the running app's hook helper, named by client settings; it contains no data |
 | `~/Library/Application Support/Weekleft/ConnectionSetup/` | Commands used to install or sign in to an official client |
 | `~/Library/Application Support/Weekleft/QuotaProbe/` | Isolated working directory for Claude's `/usage` command |
 | `~/Library/Application Support/Weekleft/activity-details.json` | Project and session activity breakdowns |
 | `~/Library/Group Containers/<TEAM_ID>.com.lunavect.shared/Weekleft/` | The signed app's shared quota snapshot, aggregate activity and widget selection data |
+| `~/Library/Application Support/Lunavect/IDEBridge/` | Descriptors of connected VS Code or JetBrains companions: process IDs, session ID and working directory |
+| The IDE bridge socket directory (see [IDE sessions](ide-sessions.md)) | User-only Unix sockets of running companions, removed when the editor shuts down normally |
 
 The app and widget also use macOS preferences. Builds without an available App Group use the Application Support directory for shared files. `<TEAM_ID>` depends on the signing team; it is not a folder name to paste literally.
 
+A damaged file is kept beside the original as `<name>.corrupt-<time>-<id>`, and a history that could not be read and was replaced through **Keep a copy and start over** as `activity.json.unreadable-<time>-<id>`. They contain the same kind of data as the original and are not removed automatically.
+
+Earlier installations can leave copies that the current app no longer reads. The App Group migration copies shared files instead of moving them, so these may remain:
+
+| Location | Contents |
+| --- | --- |
+| `~/Library/Group Containers/group.com.weekleft.shared/Weekleft/` | Shared snapshot, aggregate activity and widget selection from builds before the signed App Group |
+| `~/Library/Application Support/Weekleft/snapshot.json`, `activity.json`, `ActivitySelection/` | The same shared files from builds without an App Group (only these names; the other entries in that folder are current) |
+
+In **Settings → Statistics → History and data accuracy**, **Find data from a previous installation** lists what exists, with each path and its last change, and can move it to the Trash. Lunavect looks only when you ask and never deletes these copies on its own. Only the exact locations above are offered, never the container the running copy uses, and a copy written within the last seven days is left out: `group.com.weekleft.shared` is also the live container of development builds, and Application Support is live for a build without an App Group.
+
 Connecting Claude adds Lunavect event handlers and a status-line command to Claude's `settings.json`. Connecting Codex adds event handlers to `hooks.json`. Default locations are `~/.claude` and `~/.codex`; the app respects `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when configured in its environment. Codex may require you to approve new handlers through `/hooks`.
 
-Before editing client configuration, Lunavect saves a backup and preserves unrelated settings and handlers. A backup can include other values already present in that configuration file; treat it as private, just like the original. Disconnect removes Lunavect's handlers and restores its saved previous Claude status line when applicable. While connected, the status-line bridge forwards its input to the previous status-line command, if one existed; that command and other preserved handlers retain their own behavior, including any network access.
+Before editing client configuration, Lunavect saves a backup and preserves unrelated settings and handlers. A backup can include other values already present in that configuration file; treat it as private, just like the original. Backups are readable only by your user (mode 0600); copies made by older versions are restricted at launch. The rewritten file keeps its values but uses sorted keys and a final newline, see [how settings files are written](connections.md#how-settings-files-are-written). Disconnect removes Lunavect's handlers and restores its saved previous Claude status line when applicable. While connected, the status-line bridge forwards its input to the previous status-line command, if one existed; that command and other preserved handlers retain their own behavior, including any network access.
 
 Lunavect creates its data directories and sensitive data files with owner-only permissions where it writes them. These files are local data, not an encrypted vault. Other software running as your macOS user may be able to read them.
 
@@ -69,17 +83,18 @@ Download counts are requests for files, not a count of users or installations. R
 | Capability | When used |
 | --- | --- |
 | Read local client files and edit client configuration | After connecting a provider; the connection guide explains its handlers and status-line changes |
+| Automation (control Terminal or iTerm2) | When you open a Terminal or iTerm2 session from its row; macOS asks once, and a denial is managed in System Settings → Privacy & Security → Automation. See [sessions](sessions.md) |
 | Notifications | If you enable alerts for session completion or requests for input |
 | Launch at login | If you enable it in Settings |
 | Privileged keep-awake helper | Only for the optional experimental closed-lid mode, with macOS approval |
 
-The public app does not request Screen Recording or Accessibility permission to read session state or quotas. The main app is not sandboxed; the WidgetKit extension is sandboxed and reads the shared data. A permission error is shown as a source or setup problem, not as zero usage.
+The public app does not request Screen Recording or Accessibility permission to read session state or quotas; Automation is used only to bring a terminal tab to the front. The main app is not sandboxed; the WidgetKit extension is sandboxed and reads the shared data. A permission error is shown as a source or setup problem, not as zero usage.
 
 ## Disconnecting and deleting data
 
 Disconnect providers in **Settings → Connections** before removing Lunavect so it can remove its event handlers and restore the previous Claude status line. Disconnecting does not sign you out of the official clients, delete their conversations or erase Lunavect's existing history.
 
-Quit Lunavect and remove the app, or use the [Homebrew uninstall command](installation.md#uninstall). Preferences and data remain for a later installation. To remove those as well, first disconnect and quit, then remove only the Lunavect data locations listed above and the `com.weekleft.app` preferences. Review any backups before deleting them. Do not delete `.claude` or `.codex` to uninstall Lunavect; those belong to the official clients.
+Quit Lunavect and remove the app, or use the [Homebrew uninstall command](installation.md#uninstall). Preferences and data remain for a later installation. To remove those as well, first disconnect and quit, then remove only the Lunavect data locations listed above (including copies from earlier installations and the IDE bridge folder) and the `com.weekleft.app` preferences. If you installed a VS Code or JetBrains companion, uninstall it through the editor's plugin manager; replacing or removing the app does not remove editor plugins. Review any backups before deleting them. Do not delete `.claude` or `.codex` to uninstall Lunavect; those belong to the official clients.
 
 Public screenshots use sample data. Before reporting a problem, remove personal titles, paths and credentials from screenshots and logs. For sensitive findings, use the [private security reporting route](https://github.com/lovach/Lunavect/blob/main/.github/SECURITY.md).
 

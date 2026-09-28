@@ -114,7 +114,7 @@ import Combine
         clock += 30
         await store.readEvents()
         XCTAssertEqual(waiting, 1, "One read failure cannot discard still-current evidence")
-        clock += 31
+        clock = instant.addingTimeInterval(AgentSession.catalogLifetime)
         await store.readEvents()
         XCTAssertEqual(waiting, 0, "The menu-bar subscriber must expire without opening the panel or a successful read")
         XCTAssertTrue(store.currentSessions.isEmpty)

@@ -44,7 +44,7 @@
     <key>SUVerifyUpdateBeforeExtraction</key><true/>
     <key>SUEnableAutomaticChecks</key><true/>
     <key>SUAutomaticallyUpdate</key><true/>
-    <key>SUScheduledCheckInterval</key><integer>3600</integer>
+    <key>SUScheduledCheckInterval</key><integer>86400</integer>
     <key>SUEnableSystemProfiling</key><false/>
     <key>SUShowReleaseNotes</key><false/>
     <key>LSApplicationCategoryType</key>

@@ -82,10 +82,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                     }
                     Spacer(minLength: 0)
                     if section == .connections || section == .limits {
-                        Button {
-                            Task { await store.refresh(); await sessions.refresh() }
-                        } label: { InterfaceLabel(L("Обновить"), .refresh) }
-                            .disabled(store.refreshing)
+                        let availability = QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline)
+                        HStack(spacing: 8) {
+                            if availability == .refreshing { ProgressView().controlSize(.small).accessibilityHidden(true) }
+                            Button {
+                                Task { await store.refresh(); await sessions.refresh() }
+                            } label: { InterfaceLabel(L("Обновить"), .refresh) }
+                                .disabled(!availability.allowsCheck)
+                                .help(availability.reason.map { L($0) } ?? "")
+                                .accessibilityHint(availability.reason.map { L($0) } ?? "")
+                                .accessibilityIdentifier("settings-refresh")
+                        }
                     }
                 }.padding(.horizontal, 20).padding(.vertical, 16)
                 Divider()
@@ -159,7 +166,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     @ViewBuilder private var page: some View {
         switch section {
         case .limits:
-            LimitsOverview(store: store) { section = .connections }
+            LimitsOverview(store: store, claudeNote: ClaudeStatusLineReach.onlyDesktopSessions(
+                sessions.sessions, statusLineObservedAt: store.statusLineObservedAt(), now: Date())
+                ? L("Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage") : nil) { section = .connections }
         case .general:
             AppBehaviorSettings(features: features)
             GroupBox {
@@ -196,19 +205,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             Text(L("Изменения сохраняются автоматически."))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             BaseSettingsView(canRestore: !awake.isBusy && !features.busy) {
-                // Keep Awake or a macOS request may have started after the
-                // confirmation appeared. Reset nothing then and say so.
-                guard !awake.isBusy, !features.busy else { return false }
-                let awakeRestored = await awake.restoreDefaults()
-                let featuresRestored = await features.restoreDefaults()
-                menuBarAppearance.restoreDefaults()
-                sessions.autoHideMinutes = 0
-                store.preferences.restoreAppearanceDefaults()
-                updates.setAutomatic(false)
-                updates.setCheckingAutomatically(true)
-                appearance = AppDefaultSettings.appearance
-                language.code = "system"
-                return awakeRestored && featuresRestored
+                await Self.restoreBaseSettings(awake: awake, features: features) {
+                    menuBarAppearance.restoreDefaults()
+                    sessions.autoHideMinutes = 0
+                    store.preferences.restoreAppearanceDefaults()
+                    updates.setAutomatic(false)
+                    updates.setCheckingAutomatically(true)
+                    appearance = AppDefaultSettings.appearance
+                    language.code = "system"
+                }
             }
             GroupBox(L("Начало работы")) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -241,6 +246,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .statistics:
             ActivityStatisticsView(store: store)
         case .widget:
+            WidgetDuplicateCopyNotice(status: .shared)
             GroupBox(L("Общие настройки виджетов")) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(L("Применяются к установленным виджетам и предпросмотру. macOS обновляет виджеты по своему расписанию."))
@@ -280,6 +286,20 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 SubscriptionSettingsRow(store: store, provider: id)
             }
         }
+    }
+}
+
+extension SettingsView {
+    /// Keep Awake or a macOS request may have started after the confirmation
+    /// appeared. Reset nothing then and say so. A request can also begin while
+    /// Keep Awake is being reset; the remaining preferences then stay as they are
+    /// (docs/settings.md: the reset is not applied) and a retry applies them all.
+    static func restoreBaseSettings(awake: KeepAwake, features: AppFeatures, applyRest: () -> Void) async -> Bool {
+        guard !awake.isBusy, !features.busy else { return false }
+        guard await awake.restoreDefaults() else { return false }
+        guard await features.restoreDefaults() else { return false }
+        applyRest()
+        return true
     }
 }
 
@@ -475,8 +495,8 @@ struct ActivityImportReportView: View {
                     })) {
                         diagnosticDetails(provider)
                     } label: {
-                        Text(provider.issues.isEmpty ? L("Подробности импорта") : L("Подробности импорта — есть пропуски"))
-                            .foregroundStyle(provider.issues.isEmpty ? Color.secondary : Color.orange)
+                        Text(provider.limited ? L("Подробности импорта — есть пропуски") : L("Подробности импорта"))
+                            .foregroundStyle(provider.limited ? Color.orange : Color.secondary)
                     }
                 }
             }
@@ -493,7 +513,8 @@ struct ActivityImportReportView: View {
             Text(L("Прочитано журналов: {0}. Без записей длительности: {1}.", String(provider.filesRead), String(provider.filesWithoutTiming)))
             Text(L("Записи времени: задачи — {0}, подзадачи — {1}, инструменты — {2}.", String(provider.taskRecords), String(provider.agentRecords), String(provider.toolRecords)))
             ForEach(ActivityImportIssue.allCases.filter { provider.issues[$0, default: 0] > 0 }, id: \.self) { issue in
-                Text(issue.title + ": " + String(provider.issues[issue, default: 0])).foregroundStyle(.orange)
+                // Skipped individual records are information; lost coverage is a warning.
+                Text(issue.title + ": " + String(provider.issues[issue, default: 0])).foregroundStyle(issue.limitsCoverage ? Color.orange : Color.secondary)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
     }
@@ -519,6 +540,8 @@ struct FullRowDisclosureStyle: DisclosureGroupStyle {
 
 struct LimitsOverview: View {
     @ObservedObject var store: AppStore
+    /// Why Claude's limits come only from /usage (Desktop sessions), shown under its card.
+    var claudeNote: String? = nil
     var onConnections: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -530,6 +553,10 @@ struct LimitsOverview: View {
                 ForEach(store.providers) { id in
                     LimitsProviderSummary(snapshot: store.snapshots.first { $0.provider == id } ?? UsageSnapshot(provider: id),
                                           showFiveHour: store.preferences.showFiveHour, now: context.date)
+                    if id == .claude, let claudeNote {
+                        InterfaceLabel(claudeNote, .info).font(.system(size: 12)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("claude-desktop-status-line")
+                    }
                 }
             }
             if !store.providers.isEmpty {
@@ -563,25 +590,28 @@ struct LimitsProviderSummary: View {
                             .help(L("Последние данные: {0}", fetched.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
                     }
                 }
-                DetailedQuotaMeter(title: L("Осталось на неделю"), window: snapshot.weekly,
+                DetailedQuotaMeter(title: L("Осталось на неделю"), window: snapshot.weekly, status: snapshot.status(of: snapshot.weekly, now: now),
                                    tint: activityAccent(snapshot.provider, adaptive: true, scheme: scheme), now: now)
                 if showFiveHour {
-                    DetailedQuotaMeter(title: L("Пятичасовой лимит"), window: snapshot.fiveHour,
+                    DetailedQuotaMeter(title: L("Пятичасовой лимит"), window: snapshot.fiveHour, status: snapshot.status(of: snapshot.fiveHour, now: now),
                                        tint: activityAccent(snapshot.provider, adaptive: true, scheme: scheme), now: now)
                 }
                 if snapshot.provider == .claude, let quotas = snapshot.modelQuotas, !quotas.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(quotas) { quota in
-                            DetailedQuotaMeter(title: quota.name, window: quota.window, tint: activityAccent(.claude, adaptive: true, scheme: scheme), now: now)
-                            if quota.isStale(now: now) {
+                            DetailedQuotaMeter(title: quota.name, window: quota.window, status: quota.status(now: now),
+                                               tint: activityAccent(.claude, adaptive: true, scheme: scheme), now: now)
+                            if quota.status(now: now).isStale {
                                 Text(L("Данные этого лимита устарели")).font(.system(size: 11)).foregroundStyle(.orange)
                             }
                         }
                     }.accessibilityIdentifier("claude-model-quotas")
                 }
-                if snapshot.isStale(now: now) || snapshot.issue != nil {
+                // Per shown window: 0 %, a passed reset and "no limits" carry their own sentence.
+                let savedValues = ([snapshot.weekly] + (showFiveHour ? [snapshot.fiveHour] : [])).contains { snapshot.status(of: $0, now: now).isStale }
+                if savedValues || snapshot.issue != nil || (!snapshot.hasQuota && snapshot.unlimited != true) {
                     VStack(alignment: .leading, spacing: 4) {
-                        InterfaceLabel(L(snapshot.hasQuota ? "Показаны последние полученные данные" : "Ждём первые данные"), .history)
+                        InterfaceLabel(L(snapshot.hasQuota || snapshot.unlimited == true ? "Показаны последние полученные данные" : "Ждём первые данные"), .history)
                             .foregroundStyle(.orange)
                         if let issue = snapshot.issue { Text(L(issue)).foregroundStyle(.secondary) }
                     }.font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
@@ -594,28 +624,33 @@ struct LimitsProviderSummary: View {
 struct DetailedQuotaMeter: View {
     let title: String
     let window: QuotaWindow?
+    /// The shared window state, so settings say what the menu bar and widgets say.
+    let status: QuotaWindowStatus
     let tint: Color
     let now: Date
     var body: some View {
+        let remaining = status.remaining(of: window)
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).fontWeight(.medium)
                 Spacer(minLength: 8)
-                if let window, !window.isExpired(at: now), window.resetsAt != nil {
+                if remaining != nil, let window, let reset = window.resetsAt, reset > now {
                     Text(L("Сброс через {0}", window.countdown(now: now)))
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-                Text(window.flatMap { $0.isExpired(at: now) ? nil : PercentText.format(Int($0.remaining.rounded())) } ?? "—")
+                Text(status == .unlimited ? "∞" : remaining.map { PercentText.format(Int($0.rounded())) } ?? "—")
                     .monospacedDigit().fontWeight(.semibold)
             }.font(.system(size: 13))
-            if let window, !window.isExpired(at: now) {
-                ProgressView(value: window.remaining, total: 100).tint(tint)
-                    .accessibilityLabel(title).accessibilityValue(L("Осталось {0}%", String(Int(window.remaining.rounded()))))
-                if window.resetsAt == nil {
+            if let remaining {
+                ProgressView(value: remaining, total: 100).tint(tint)
+                    .accessibilityLabel(title).accessibilityValue(L("Осталось {0}%", String(Int(remaining.rounded()))))
+                if let note = status.note(now: now) {
+                    Text(note).font(.system(size: 11)).foregroundStyle(.secondary)
+                } else if window?.resetsAt == nil {
                     Text(L("Источник не передал время сброса")).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             } else {
-                Text(L(window == nil ? "Источник не передал этот лимит" : "Срок сброса наступил. Ждём свежие данные."))
+                Text(status.note(now: now) ?? L("Источник не передал этот лимит"))
                     .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.accessibilityElement(children: .contain)

@@ -6,12 +6,24 @@ import WeekleftCore
 /// The card uses the same strict executable resolution as fetching and setup.
 /// An empty saved path selects discovery; it does not mean the client is absent.
 struct ConnectionCardState {
+    enum Action: Equatable { case setup, refresh, enableEvents }
     let clientFound: Bool
     let needsSetup: Bool
     let statusTitle: String
-    var actionTitle: String { needsSetup ? "Завершить настройку" : "Проверить данные" }
+    let action: Action
+    var actionTitle: String {
+        switch action {
+        case .setup: return "Завершить настройку"
+        case .refresh: return "Проверить данные"
+        case .enableEvents: return "Включить события"
+        }
+    }
 
-    init(provider: ProviderID, resolver: ClientExecutableResolver, configured: Bool, snapshot: UsageSnapshot?) {
+    /// - Parameters:
+    ///   - local: the provider's local configuration, when known.
+    ///   - eventsDisabled: the user turned events off here on purpose (H-05).
+    init(provider: ProviderID, resolver: ClientExecutableResolver, configured: Bool, snapshot: UsageSnapshot?,
+         local: ClientConnection.LocalState? = nil, eventsDisabled: Bool = false) {
         let issue: ClientIntegrationIssue?
         do {
             _ = try resolver.resolve(provider)
@@ -20,12 +32,90 @@ struct ConnectionCardState {
             issue = ClientIntegrationIssue.classify(error, provider: provider, capability: .initialization)
         }
         clientFound = issue == nil
-        needsSetup = !clientFound || !configured
         if let issue {
             statusTitle = issue.reason == .missingClient ? "Нужно установить приложение" : issue.message
+            needsSetup = true; action = .setup
+        } else if local?.paused == true {
+            // disableAllHooks is the client's own switch; Lunavect never overrides it.
+            statusTitle = "События приостановлены: в настройках клиента включено disableAllHooks"
+            needsSetup = false; action = .refresh
+        } else if eventsDisabled && !configured {
+            statusTitle = "События отключены"
+            needsSetup = false; action = .enableEvents
+        } else if !configured, local?.missingExecutable != nil {
+            statusTitle = "Команда Lunavect указывает на удалённый файл. Завершите настройку, чтобы обновить её."
+            needsSetup = true; action = .setup
         } else {
             statusTitle = snapshot?.connectionQuotaTitle() ?? "Ждём лимиты"
+            needsSetup = !configured; action = configured ? .refresh : .setup
         }
+    }
+
+    /// The sentence under limits that are shown but not fresh. A client answer in a
+    /// format Lunavect cannot read never updates them by itself, so it gets no promise.
+    static func savedQuotaNote(provider: ProviderID, snapshot: UsageSnapshot?, now: Date = Date()) -> String? {
+        guard let snapshot, snapshot.hasQuota else { return nil }
+        guard snapshot.isStale(now: now) || snapshot.issue != nil else { return nil }
+        guard issueGuidance(provider: provider, issue: snapshot.issue) == nil else { return nil }
+        return "Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."
+    }
+    /// What to do about the source issue shown on the card, when the card offers no
+    /// button for it: the same advice as the diagnostics for an unsupported format.
+    static func issueGuidance(provider: ProviderID, issue: String?) -> String? {
+        let reason = ClientIntegrationIssue.legacy(issue, provider: provider, capability: provider == .codex ? .rateLimits : .usageProbe)?.reason
+        guard reason == .unsupportedResponse || reason == .unsupportedOperation else { return nil }
+        return "Проверьте обновления официального клиента и Lunavect. До поддержки этого формата сохранённые данные остаются на месте; повторный вход не требуется."
+    }
+}
+
+/// Whether the quota check controls can ask the provider now. A disabled control
+/// always carries its reason (owner report 28.09: «Проверить данные» and «Обновить»
+/// looked inactive without one while a background probe ran). Offline,
+/// `AppStore.refresh` returns without asking, so the controls say so instead.
+enum QuotaCheckAvailability: Equatable {
+    case available, refreshing, offline
+    init(refreshing: Bool, offline: Bool) {
+        self = offline ? .offline : refreshing ? .refreshing : .available
+    }
+    var allowsCheck: Bool { self == .available }
+    /// Shown beside disabled controls; nil when they are available.
+    var reason: String? {
+        switch self {
+        case .available: return nil
+        case .refreshing: return "Идёт обновление лимитов. Проверка станет доступна, когда оно закончится."
+        case .offline: return "Ждём соединение. Данные обновятся автоматически."
+        }
+    }
+    /// What an explicit check reports when it did not ask the provider again:
+    /// the 30 s limit between checks is stated, not silent (R2-U-03).
+    static func note(for outcome: AppStore.RefreshOutcome, now: Date) -> String? {
+        guard case .tooSoon(let until) = outcome else { return nil }
+        let seconds = max(1, Int(until.timeIntervalSince(now).rounded(.up)))
+        return L("Данные только что проверены. Повторить проверку можно через {0} с.", "\(seconds)")
+    }
+}
+
+/// One step of a card's connection details.
+struct ConnectionStepRow: View {
+    let number: Int
+    let title: String
+    let complete: Bool
+    var stale = false
+    var body: some View {
+        HStack(spacing: 8) {
+            if complete {
+                InterfaceIcon(stale ? .history : .checkCircle, size: 13)
+                    .foregroundStyle(stale ? Color.secondary : Color.green).frame(width: 16)
+            } else {
+                Text(String(number)).font(.system(size: 9, weight: .semibold))
+                    .frame(width: 16, height: 16).background(.primary.opacity(0.08), in: Circle())
+            }
+            Text(title).foregroundStyle(complete && !stale ? Color.primary : .secondary)
+        }.font(.system(size: 11))
+            // The check mark and the number are drawing; VoiceOver hears the title and its state.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityValue(L(complete ? "Готово" : "Не выполнено"))
     }
 }
 
@@ -37,17 +127,33 @@ struct ConnectionsView: View {
     @State private var showingDiagnostics = false
     @State private var repairProvider: ProviderID?
     @State private var selectedRepair: ConnectionDiagnostic.Repair?
-    @State private var claudeBridge = ClaudeProvider.statusLineInstalled()
+    /// Read through the store: an isolated store never reads the user's files (R2-U-04).
+    @State private var statusLineObservedAt: Date?
+    /// A check asked again within 30 s of the last one; shown instead of doing nothing (R2-U-03).
+    @State private var checkNote: String?
     @State private var disconnectedProvider: ProviderID?
     @State private var disconnectedEventsOnly = false
     /// The card the user refreshed; background polls do not show progress in every card.
     @State private var refreshingCard: ProviderID?
+    private var availability: QuotaCheckAvailability {
+        QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline)
+    }
 
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 14) {
                 Text(L("Достаточно одного подключения. Второе можно добавить в любое время."))
                     .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                // Offline is already explained by the network banner above the page.
+                if availability == .refreshing, let reason = availability.reason {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(L(reason)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }.accessibilityElement(children: .combine).accessibilityIdentifier("connection-quota-refreshing")
+                } else if let checkNote {
+                    Text(checkNote).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("connection-quota-too-soon")
+                }
                 ForEach(store.providers) { id in providerCard(id) }
                 ForEach(ProviderID.allCases.filter { !store.providers.contains($0) }) { id in optionalProviderCard(id) }
                 if let id = disconnectedProvider {
@@ -100,9 +206,10 @@ struct ConnectionsView: View {
                 }
 
             }.padding(8).fixedSize(horizontal: false, vertical: true)
-        }.onAppear { sessions.updateHookConfiguration() }
+        }.onAppear { statusLineObservedAt = store.statusLineObservedAt(); sessions.updateHookConfiguration() }
             .sheet(item: $selectedProvider, onDismiss: {
-                claudeBridge = ClaudeProvider.statusLineInstalled(); sessions.updateHookConfiguration()
+                statusLineObservedAt = store.statusLineObservedAt()
+                sessions.updateHookConfiguration()
             }) { id in
                 ConnectionSetupView(provider: id, store: store, sessions: sessions, repair: selectedRepair)
             }
@@ -128,10 +235,9 @@ struct ConnectionsView: View {
     }
     private func providerCard(_ id: ProviderID) -> some View {
         let snapshot = store.snapshots.first { $0.provider == id }
-        let configured = sessions.hooksInstalled[id] == true && (id == .codex || claudeBridge)
-        let card = ConnectionCardState(provider: id, resolver: store.clientResolver, configured: configured, snapshot: snapshot)
-        let hasQuota = snapshot?.hasQuota == true
-        let freshQuota = snapshot.map { !$0.isStale() && $0.issue == nil && $0.hasQuota } ?? false
+        let configured = sessions.hooksInstalled[id] == true && (id == .codex || sessions.connectionStates[.claude]?.statusLine == .ready)
+        let card = ConnectionCardState(provider: id, resolver: store.clientResolver, configured: configured, snapshot: snapshot,
+                                       local: sessions.connectionStates[id], eventsDisabled: sessions.eventsDisabledByUser.contains(id))
         let receivedEvents = sessions.currentSessions.contains { $0.provider == id && [.hook, .localEvent].contains($0.evidence) }
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -143,12 +249,29 @@ struct ConnectionsView: View {
                 }
                 Spacer()
                 Button(L(card.actionTitle)) {
-                    if card.needsSetup { selectedRepair = nil; selectedProvider = id }
-                    else {
+                    switch card.action {
+                    case .setup: selectedRepair = nil; selectedProvider = id
+                    case .enableEvents: sessions.toggleHooks(id); disconnectedProvider = nil
+                    case .refresh:
                         refreshingCard = id
-                        Task { await store.refresh(provider: id); await sessions.refresh(); refreshingCard = nil }
+                        checkNote = nil
+                        Task {
+                            let outcome = await store.refresh(provider: id)
+                            let note = QuotaCheckAvailability.note(for: outcome, now: Date())
+                            checkNote = note
+                            await sessions.refresh(); refreshingCard = nil
+                            // The note describes a wait; it goes when checking is possible again (R2-V-02).
+                            if case .tooSoon(let until) = outcome, let note {
+                                try? await Task.sleep(for: .seconds(max(0, until.timeIntervalSinceNow)))
+                                if checkNote == note { checkNote = nil }
+                            }
+                        }
                     }
-                }.disabled(store.refreshing || refreshingCard != nil)
+                }
+                    // Setup and turning events on do not ask the provider; only a check waits.
+                    .disabled(card.action == .refresh && (!availability.allowsCheck || refreshingCard != nil))
+                    .help(card.action == .refresh ? availability.reason.map { L($0) } ?? "" : "")
+                    .accessibilityHint(card.action == .refresh ? availability.reason.map { L($0) } ?? "" : "")
                     .accessibilityIdentifier("connect-" + id.rawValue)
             }
             if refreshingCard == id { ProgressView().controlSize(.small) }
@@ -156,28 +279,39 @@ struct ConnectionsView: View {
                 Text(L("Последние данные: {0}", date.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            if hasQuota && !freshQuota {
-                Text(L("Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            if let note = ConnectionCardState.savedQuotaNote(provider: id, snapshot: snapshot) {
+                Text(L(note)).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            if id == .claude, ClaudeStatusLineReach.onlyDesktopSessions(sessions.sessions, statusLineObservedAt: statusLineObservedAt, now: Date()) {
+                InterfaceLabel(L("Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage"), .info)
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if let issue = snapshot?.issue, !(id == .claude && issue == UsageError.waitingForClaude.errorDescription) {
                 if store.network.isOffline {
                     Text(L("Ждём соединение. Данные обновятся автоматически.")).font(.system(size: 12)).foregroundStyle(.secondary)
                 } else {
                     Text(L(issue)).font(.system(size: 12)).foregroundStyle(.orange)
-                    let needsLogin = issue == UsageError.notSignedIn.errorDescription
-                    let needsUsage = issue == UsageError.claudeSignInRequired.errorDescription
-                    if needsLogin || needsUsage {
-                        Button(L(needsLogin ? "Войти снова" : "Завершить настройку Claude Code")) {
-                            selectedRepair = needsLogin ? .signIn : .reviewUsage; selectedProvider = id
+                    if let guidance = ConnectionCardState.issueGuidance(provider: id, issue: issue) {
+                        Text(L(guidance)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    // The saved message maps to its typed reason; sign-in, setup and the
+                    // probe folder's trust question each open their own Terminal step.
+                    let repair = ClientIntegrationIssue.legacy(issue, provider: id, capability: id == .codex ? .rateLimits : .usageProbe)?.repair
+                    if let repair, repair == .signIn || repair == .reviewUsage {
+                        Button(L(repair.title)) {
+                            selectedRepair = repair; selectedProvider = id
                         }.buttonStyle(.link)
                     }
                 }
             }
             DisclosureGroup(L("Подробности подключения")) {
                 VStack(alignment: .leading, spacing: 10) {
-                    connectionStep(1, title: L("Приложение найдено"), complete: card.clientFound)
-                    connectionStep(2, title: L("Локальные события настроены"), complete: configured)
+                    ConnectionStepRow(number: 1, title: L("Приложение найдено"), complete: card.clientFound)
+                    ConnectionStepRow(number: 2, title: L("Локальные события настроены"), complete: configured)
+                    if let missing = sessions.connectionStates[id]?.missingExecutable {
+                        Text(L("Не найден файл: {0}", missing)).font(.system(size: 11)).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    }
                     Text(L(receivedEvents ? "Получены события текущей сессии" : "Нет подтверждённых событий текущей сессии"))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                     HStack {
@@ -189,7 +323,7 @@ struct ConnectionsView: View {
                     if id == .claude {
                         Text(
                             L(
-                                "Лимиты обновляются автоматически каждые 5 минут и после пробуждения Mac. Claude Code запрашивает квоты аккаунта, включая работу в Desktop. Запускать задачу в терминале не нужно."
+                                "Лимиты обновляются автоматически: после ответов Claude, каждые 15 минут во время работы, раз в час в простое и после сброса. Исчерпанный лимит до сброса не запрашивается. Запускать задачу в терминале не нужно."
                             )
                         )
                         .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -197,17 +331,5 @@ struct ConnectionsView: View {
                 }.padding(.top, 6)
             }
         }.padding(14).background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-    }
-    private func connectionStep(_ number: Int, title: String, complete: Bool, stale: Bool = false) -> some View {
-        HStack(spacing: 8) {
-            if complete {
-                InterfaceIcon(stale ? .history : .checkCircle, size: 13)
-                    .foregroundStyle(stale ? Color.secondary : Color.green).frame(width: 16)
-            } else {
-                Text(String(number)).font(.system(size: 9, weight: .semibold))
-                    .frame(width: 16, height: 16).background(.primary.opacity(0.08), in: Circle())
-            }
-            Text(title).foregroundStyle(complete && !stale ? Color.primary : .secondary)
-        }.font(.system(size: 11))
     }
 }

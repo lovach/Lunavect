@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 VERSION = '2.46.0'
@@ -14,6 +15,12 @@ def verify(root, executable='xcodegen'):
     version = subprocess.check_output([executable, '--version'], text=True).strip()
     if version != 'Version: ' + VERSION:
         raise ValueError('Project parity requires XcodeGen ' + VERSION + '; found ' + version)
+    # A sync conflict copy would be globbed into the regenerated project and
+    # surface only as an opaque pbxproj difference.
+    hygiene = subprocess.run([sys.executable, str(Path(__file__).with_name('check-source-hygiene.py')), '--source-root', str(root)],
+                             capture_output=True, text=True)
+    if hygiene.returncode != 0:
+        raise ValueError(hygiene.stderr.strip() or 'File-sync conflict copies found')
     with tempfile.TemporaryDirectory(prefix='lunavect-project-parity-') as temporary:
         copied = Path(temporary)
         shutil.copyfile(root / 'project.yml', copied / 'project.yml')

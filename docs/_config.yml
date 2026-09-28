@@ -47,6 +47,10 @@ defaults:
     values:
       description: "Build, test and contribute to Lunavect, the native macOS menu bar app for Claude Code and Codex, with Xcode and Swift."
   - scope:
+      path: "download-statistics.md"
+    values:
+      description: "Which GitHub download and repository traffic counters the Lunavect project reads, what they cannot show, and why the app sends no telemetry."
+  - scope:
       path: "faq.md"
     values:
       description: "Answers about Lunavect: Claude Code and Codex support, accounts and API keys, usage limits, widgets, activity, privacy and updates."
@@ -55,9 +59,13 @@ defaults:
     values:
       description: "A short checklist for the first Lunavect launch: connect a provider, confirm live sessions, limits and widgets."
   - scope:
+      path: "ide-sessions.md"
+    values:
+      description: "Return to a Claude Code or Codex session's exact terminal tab in VS Code or JetBrains 2026.2 with the Lunavect editor companions: setup and supported surfaces."
+  - scope:
       path: "installation.md"
     values:
-      description: "Install Lunavect with Homebrew or the signed DMG, update it, troubleshoot connections and uninstall it completely."
+      description: "Install Lunavect with Homebrew or the DMG, update it, troubleshoot connections and uninstall it completely."
   - scope:
       path: "keep-awake.md"
     values:

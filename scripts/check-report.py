@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Run local check stages and preserve explicit evidence, including after failure."""
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 
 STAGES = (
-    'source_checkpoint', 'python_tests', 'ide_connector_tests', 'swift_tests', 'widget_probe_build',
+    'source_checkpoint', 'source_hygiene', 'python_tests', 'ide_connector_tests', 'swift_tests', 'widget_probe_build',
     'widget_fallback', 'widget_private_abi', 'unsigned_build', 'hook_helper',
     'product_resources', 'intent_resources', 'build_provenance',
 )
@@ -21,6 +23,22 @@ MANUAL = {
     'signed_distribution': 'No signing, notarization, install or update performed.',
     'supported_macos_hardware': 'One host does not prove the supported OS/hardware matrix.',
 }
+
+
+TIMESTAMP = '%Y-%m-%dT%H:%M:%SZ'
+
+
+def now_stamp():
+    return datetime.now(timezone.utc).strftime(TIMESTAMP)
+
+
+def seconds_since(stamp):
+    """Wall-clock seconds since a recorded start; None when it cannot be read."""
+    try:
+        started = datetime.strptime(stamp, TIMESTAMP).replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+    return round(max(0.0, (datetime.now(timezone.utc) - started).total_seconds()), 1)
 
 
 def save(path, report):
@@ -63,9 +81,12 @@ def check_environment():
 def run_stage(path, stage, command):
     report = json.loads(path.read_text())
     record = report['checks'][stage]
-    record['status'] = 'running'
+    # Durations are evidence for CI timeouts; started_at also lets finish()
+    # record how long an interrupted stage had run.
+    record.update(status='running', started_at=now_stamp())
     save(path, report)
     print(f'CHECK: {stage}', flush=True)
+    began = time.monotonic()
     output = []
     try:
         # Logs stay local. CI uploads only the structured JSON/Markdown, whose
@@ -82,7 +103,7 @@ def run_stage(path, stage, command):
         status = 127
     skipped = stage == 'widget_private_abi' and status == 77
     record.update(status='skipped' if skipped else 'passed' if status == 0 else 'failed',
-                  exit_code=status)
+                  exit_code=status, duration_seconds=round(time.monotonic() - began, 2))
     if skipped:
         record['reason'] = 'Unsupported private descriptor ABI; standard background fallback remains available.'
     if stage in ('swift_tests', 'python_tests', 'intent_resources'):
@@ -105,6 +126,9 @@ def finish(path, exit_code):
     for record in report['checks'].values():
         if record['status'] == 'running':
             record.update(status='failed', reason='Check interrupted before completion.')
+            elapsed = seconds_since(record.get('started_at'))
+            if elapsed is not None:
+                record['duration_seconds'] = elapsed
     complete = all(report['checks'][stage]['status'] == 'passed' or
                    (stage == 'widget_private_abi' and report['checks'][stage]['status'] == 'skipped')
                    for stage in STAGES)
@@ -112,15 +136,20 @@ def finish(path, exit_code):
         exit_code = 1
     report['status'] = 'passed' if exit_code == 0 else 'failed'
     report['exit_code'] = exit_code
+    total = seconds_since(report.get('started_at'))
+    if total is not None:
+        report['duration_seconds'] = total
     save(path, report)
-    lines = ['# Local unsigned checks', '', f'Overall: **{report["status"]}**', '',
-             '| Check | Status | Test counts / scope |', '| --- | --- | --- |']
+    overall = f'Overall: **{report["status"]}**' + (f' in {total:.1f} s' if total is not None else '')
+    lines = ['# Local unsigned checks', '', overall, '',
+             '| Check | Status | Duration | Test counts / scope |', '| --- | --- | --- | --- |']
     for stage, record in report['checks'].items():
         counts = record.get('counts')
         passed = counts['passed'] if counts and counts['passed'] is not None else 'unknown'
         detail = (f'{passed} passed; {counts["skipped"]} skipped; '
                   f'{counts["failures"]} failures; {counts["total"]} total') if counts else record.get('reason', '')
-        lines.append(f'| {stage} | {record["status"]} | {detail} |')
+        duration = f'{record["duration_seconds"]:.1f} s' if 'duration_seconds' in record else ''
+        lines.append(f'| {stage} | {record["status"]} | {duration} | {detail} |')
     path.with_name('check-summary.md').write_text('\n'.join(lines) + '\n')
     print('\n'.join(lines))
     return exit_code
@@ -133,7 +162,7 @@ def main():
     parser.add_argument('arguments', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.action == 'init':
-        save(args.report, dict(schema_version=1, status='running',
+        save(args.report, dict(schema_version=2, status='running', started_at=now_stamp(),
              checks={**{name: dict(status='not-run') for name in STAGES},
                      **{name: dict(status='not-run', reason=reason) for name, reason in MANUAL.items()}}))
     elif args.action == 'finish':

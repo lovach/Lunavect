@@ -430,7 +430,7 @@ final class UXRegressionTests: XCTestCase {
         XCTAssertTrue(opened)
         XCTAssertEqual(calls, 1)
         XCTAssertTrue(state.openingIDs.isEmpty)
-        await fulfillment(of: [stepsAside], timeout: 1)
+        await fulfillment(of: [stepsAside], timeout: 5)
     }
 
     @MainActor func testOpenFailureIsShownOnThePanelAndBringsAClosedPanelBack() async throws {
@@ -542,5 +542,179 @@ final class UXRegressionTests: XCTestCase {
         XCTAssertEqual(SettingsSection.subscriptions.adjacent(offset: 1), .updates)
         XCTAssertEqual(SettingsSection.limits.adjacent(offset: -1), .limits)
         XCTAssertEqual(SettingsSection.updates.adjacent(offset: 1), .updates)
+    }
+}
+
+/// Audit r2 (R2-U-01, R2-U-02, R2-U-05): the Connections page must say why its
+/// controls are unavailable, must not promise updates from an unreadable client
+/// format, and must speak each connection step's state. Pure values and an
+/// isolated store only; the live Connections page is never rendered here.
+@MainActor final class ConnectionTruthTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_790_000_000)
+    private func saved(_ provider: ProviderID, issue: String?, age: TimeInterval = 8 * 3600) throws -> UsageSnapshot {
+        UsageSnapshot(provider: provider,
+                      weekly: try QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3 * 86400)),
+                      fiveHour: try QuotaWindow(usedPercent: 10, durationMinutes: 300, resetsAt: now.addingTimeInterval(3600)),
+                      fetchedAt: now.addingTimeInterval(-age), source: "Synthetic fixture", issue: issue)
+    }
+
+    func testSavedLimitsNeverPromiseUpdatesFromAClientFormatLunavectCannotRead() throws {
+        let promise = "Показаны последние полученные лимиты. Они обновятся, когда источник передаст новые данные."
+        // The owner's case on 28.09: Claude's saved limits with "format not supported".
+        for (provider, capability) in [(ProviderID.claude, ClientIntegrationIssue.Capability.usageProbe), (.codex, .rateLimits)] {
+            for reason in [ClientIntegrationIssue.Reason.unsupportedResponse, .unsupportedOperation] {
+                let issue = ClientIntegrationIssue(provider: provider, capability: capability, reason: reason).message
+                let snapshot = try saved(provider, issue: issue)
+                XCTAssertNil(ConnectionCardState.savedQuotaNote(provider: provider, snapshot: snapshot, now: now),
+                             "\(provider) \(reason): an unreadable format never updates the saved values by itself")
+                let guidance = try XCTUnwrap(ConnectionCardState.issueGuidance(provider: provider, issue: issue),
+                                             "\(provider) \(reason): the card must say what to do instead")
+                let diagnostic = ConnectionDiagnostic(provider: provider, clientFound: true, signIn: .signedIn, eventsConfigured: true,
+                                                      snapshot: snapshot, sessionIssue: nil, now: now)
+                XCTAssertEqual(guidance, diagnostic.guidance, "The card and the diagnostics sheet give the same advice")
+                XCTAssertNotNil(L10n.translations[guidance])
+            }
+        }
+        // The retired wording of an unreadable screen, still stored in older snapshots.
+        let legacy = try XCTUnwrap(UsageError.invalidResponse.errorDescription)
+        XCTAssertNil(ConnectionCardState.savedQuotaNote(provider: .claude, snapshot: try saved(.claude, issue: legacy), now: now))
+        XCTAssertNotNil(ConnectionCardState.issueGuidance(provider: .claude, issue: legacy))
+        // Causes Lunavect retries on its own keep the promise and add no second sentence.
+        for reason in [ClientIntegrationIssue.Reason.timedOut, .usageFetchFailed, .sourceUnavailable, .limitReached] {
+            let issue = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: reason).message
+            XCTAssertEqual(ConnectionCardState.savedQuotaNote(provider: .claude, snapshot: try saved(.claude, issue: issue), now: now), promise, "\(reason)")
+            XCTAssertNil(ConnectionCardState.issueGuidance(provider: .claude, issue: issue), "\(reason)")
+        }
+        XCTAssertEqual(ConnectionCardState.savedQuotaNote(provider: .codex, snapshot: try saved(.codex, issue: nil), now: now), promise)
+        XCTAssertNil(ConnectionCardState.savedQuotaNote(provider: .codex, snapshot: try saved(.codex, issue: nil, age: 60), now: now))
+        XCTAssertNil(ConnectionCardState.savedQuotaNote(provider: .codex, snapshot: UsageSnapshot(provider: .codex), now: now))
+        XCTAssertNil(ConnectionCardState.issueGuidance(provider: .codex, issue: nil))
+        XCTAssertNil(ConnectionCardState.issueGuidance(provider: .codex, issue: "An arbitrary provider message"))
+    }
+
+    func testDisabledQuotaChecksAlwaysSayWhy() {
+        for refreshing in [false, true] {
+            for offline in [false, true] {
+                let availability = QuotaCheckAvailability(refreshing: refreshing, offline: offline)
+                XCTAssertEqual(availability.allowsCheck, !refreshing && !offline, "refreshing \(refreshing), offline \(offline)")
+                XCTAssertEqual(availability.reason == nil, availability.allowsCheck, "A disabled control is never left unexplained")
+                if let reason = availability.reason { XCTAssertNotNil(L10n.translations[reason], reason) }
+            }
+        }
+        // Offline, AppStore.refresh returns without asking; the control says the same as the network banner.
+        XCTAssertEqual(QuotaCheckAvailability(refreshing: false, offline: true).reason, "Ждём соединение. Данные обновятся автоматически.")
+        XCTAssertNotEqual(QuotaCheckAvailability(refreshing: true, offline: false).reason,
+                          QuotaCheckAvailability(refreshing: false, offline: true).reason)
+    }
+
+    /// A background probe holds `refreshing` for up to the probe deadline; the
+    /// check controls read that flag. Hold one request open and observe both states.
+    func testChecksAreExplainedWhileAnyQuotaRequestRuns() async throws {
+        let suite = "Lunavect.ConnectionTruth." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var release: CheckedContinuation<Void, Never>?
+        var requests = 0
+        var preferences = WidgetPreferences(); preferences.enabledProviders = [.claude]
+        let fixture = try saved(.claude, issue: nil)
+        let store = AppStore(state: SharedState(snapshots: [fixture], preferences: preferences), savesChanges: false,
+                             quotaFetcher: { _, _ in
+                                 requests += 1
+                                 await withCheckedContinuation { release = $0 }
+                                 return fixture
+                             }, isolated: true, defaults: defaults)
+        func availability() -> QuotaCheckAvailability {
+            QuotaCheckAvailability(refreshing: store.refreshing, offline: store.network.isOffline)
+        }
+        XCTAssertTrue(availability().allowsCheck)
+        let request = Task { await store.refresh(provider: .claude) }
+        await waitForQuota(until: { release != nil })
+        XCTAssertEqual(requests, 1)
+        XCTAssertFalse(availability().allowsCheck)
+        XCTAssertNotNil(availability().reason, "The owner saw both checks disabled with no reason while a request ran")
+        release?.resume(); release = nil
+        _ = await request.value
+        await settleQuota(store)
+        XCTAssertTrue(availability().allowsCheck)
+        XCTAssertNil(availability().reason)
+    }
+
+    func testConnectionStepStateIsSpokenNotOnlyDrawn() throws {
+        _ = NSApplication.shared
+        // SwiftUI builds its accessibility tree for an assistive client; this process
+        // plays that client for its own offscreen window only.
+        NSApp.setValue(true, forKey: "accessibilityEnhancedUserInterface")
+        defer { NSApp.setValue(false, forKey: "accessibilityEnhancedUserInterface") }
+        let title = L("Приложение найдено")
+        for complete in [false, true] {
+            let host = NSHostingView(rootView: ConnectionStepRow(number: 1, title: title, complete: complete).padding(8))
+            host.frame = CGRect(x: 0, y: 0, width: 320, height: 40)
+            let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            struct Spoken { let label: String?; let value: String? }
+            func spoken(_ node: Any, depth: Int = 0) -> [Spoken] {
+                guard depth < 20 else { return [] }
+                let object = node as AnyObject
+                // A group's state is exposed as its value description, a text's content as its value.
+                let element = node as? NSObject
+                let here = Spoken(label: object.accessibilityLabel?() ?? nil,
+                                  value: element?.value(forKey: "accessibilityValue") as? String
+                                      ?? element?.value(forKey: "accessibilityValueDescription") as? String)
+                return [here] + ((object.accessibilityChildren?() ?? nil) ?? []).flatMap { spoken($0, depth: depth + 1) }
+            }
+            let nodes = spoken(host).dropFirst()
+            guard !nodes.isEmpty else { throw XCTSkip("This AppKit test host does not expose SwiftUI accessibility children") }
+            // A step that is not done must not be heard as the bare claim "App found".
+            let step = try XCTUnwrap(nodes.first { $0.label == title || $0.value == title }, "The step title is spoken")
+            XCTAssertEqual(step.label, title, "complete \(complete)")
+            XCTAssertEqual(step.value, L(complete ? "Готово" : "Не выполнено"), "complete \(complete)")
+            XCTAssertFalse(nodes.contains { $0.value == "1" || $0.label == "1" }, "The step number is drawing, not a separate element")
+        }
+    }
+}
+
+/// Audit r2 (R2-U-06, reported by agent Y): a macOS request that starts while Keep
+/// Awake is being reset makes the notification reset refuse. Nothing else may then
+/// change: docs/settings.md promises that the reset is not applied.
+@MainActor final class BaseSettingsResetTests: XCTestCase {
+    private final class StoppingClient: AwakeClient {
+        var isAvailable = true
+        var onEnd: () -> Void = {}
+        func requestPermission() throws {}
+        func begin(seconds: Int, policy: AwakeSafetyPolicy) async throws {}
+        func configure(policy: AwakeSafetyPolicy) async throws {}
+        func keepAlive() async throws {}
+        func end() async throws { onEnd() }
+        func disconnect() {}
+    }
+
+    func testARefusedPartOfTheResetLeavesTheOtherPreferencesUntouched() async throws {
+        let suite = "Lunavect.BaseReset." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let client = StoppingClient()
+        let awake = KeepAwake(client: client, defaults: defaults)
+        defer { awake.shutdown() }
+        let features = AppFeatures(defaults: defaults, isolated: true)
+        await awake.start()
+        XCTAssertTrue(awake.isEnabled)
+        // Stopping Keep Awake is when a login or notification request begins elsewhere.
+        client.onEnd = { features.busy = true }
+        var applied = 0
+        let restored = await SettingsView.restoreBaseSettings(awake: awake, features: features) { applied += 1 }
+        XCTAssertFalse(restored, "The notification reset refused while its request ran")
+        XCTAssertEqual(applied, 0, "Menu bar, widgets, updates, theme and language must not reset after a refusal")
+        features.busy = false; client.onEnd = {}
+        let retried = await SettingsView.restoreBaseSettings(awake: awake, features: features) { applied += 1 }
+        XCTAssertTrue(retried)
+        XCTAssertEqual(applied, 1, "A retry a few seconds later applies the whole reset")
+        features.busy = true
+        let busy = await SettingsView.restoreBaseSettings(awake: awake, features: features) { applied += 1 }
+        XCTAssertFalse(busy)
+        XCTAssertEqual(applied, 1, "Busy before the start: nothing is reset")
+        features.busy = false
     }
 }

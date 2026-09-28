@@ -107,13 +107,14 @@ final class SessionEfficiencyTests: XCTestCase {
         XCTAssertEqual(phases.last, .running)
         status = "idle"; now += 15
         await store.refresh()
+        let lastSuccess = now
         XCTAssertEqual(phases.last, .interrupted)
         XCTAssertEqual(store.activeCount, 0)
         fails = true; now += 15
         await store.refresh()
         XCTAssertEqual(phases.last, .interrupted, "One failed poll keeps the last confirmed state within its lifetime")
         XCTAssertEqual(store.sessions.count, 1)
-        now += 46
+        now = lastSuccess.addingTimeInterval(AgentSession.catalogLifetime)
         await store.refresh()
         XCTAssertEqual(phases.last, .unknown, "Without a successful poll the catalog observation expires")
         now += 1

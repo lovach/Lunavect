@@ -10,6 +10,13 @@ public struct ClientIntegrationIssue: Error, Codable, Equatable, Sendable, Local
         case unsupportedResponse, unsupportedOperation, missingClient, clientPathUnavailable
         case timedOut, signInRequired, setupRequired, disabled, configurationChanged
         case waitingForData, staleData, sourceUnavailable, incompleteCatalog
+        /// Quota screen states that are not a format problem: the account limit is used up,
+        /// a window has not started yet, or the client could not load its own usage data.
+        case limitReached, windowInactive, usageFetchFailed
+        /// Claude Code asks whether it may trust the probe folder; Lunavect never answers for the user.
+        case workspaceTrustRequired
+        /// The client is not signed in with a subscription or bills through an API key.
+        case subscriptionUnavailable
     }
     public let provider: ProviderID
     public let capability: Capability
@@ -34,19 +41,16 @@ public struct ClientIntegrationIssue: Error, Codable, Equatable, Sendable, Local
         case .staleData: return "Сохранённые данные устарели. Повторите проверку."
         case .incompleteCatalog: return "Каталог сессий получен не полностью"
         case .sourceUnavailable: return "Источник временно недоступен. Сохранённые данные остаются на месте."
+        case .limitReached: return "Лимит исчерпан. Сохранённые данные остаются на месте; Lunavect обновит их после сброса."
+        case .windowInactive: return "Окно лимита ещё не началось: оно начнётся с первым запросом."
+        case .usageFetchFailed: return "Клиент не смог загрузить данные об использовании. Сохранённые данные остаются на месте; Lunavect повторит запрос позже."
+        case .workspaceTrustRequired: return "Claude Code ждёт подтверждения доверия к папке проверки лимитов. Откройте проверку в терминале и подтвердите один раз."
+        // Claude Code prints "API Usage Billing" instead of a plan when the CLI is not
+        // signed in to a Claude account (seen 28.09 on a Max plan): say what to do.
+        case .subscriptionUnavailable: return "Claude Code в Терминале не вошёл в аккаунт Claude, поэтому лимитов подписки не видно. Нажмите «Войти снова» или выполните в Терминале claude, затем /login."
         }
     }
-    public var repair: ConnectionDiagnostic.Repair {
-        switch reason {
-        case .unsupportedResponse, .unsupportedOperation: return .reviewClient
-        case .missingClient: return .install
-        case .clientPathUnavailable: return .chooseClient
-        case .signInRequired: return .signIn
-        case .setupRequired: return .reviewUsage
-        case .disabled, .configurationChanged: return .events
-        case .timedOut, .waitingForData, .staleData, .sourceUnavailable, .incompleteCatalog: return .refresh
-        }
-    }
+    public var repair: ConnectionDiagnostic.Repair { reason.repair }
     public static func classify(_ error: Error, provider: ProviderID, capability: Capability) -> Self? {
         if error is CancellationError { return nil }
         if let issue = error as? Self { return issue }
@@ -73,13 +77,43 @@ public struct ClientIntegrationIssue: Error, Codable, Equatable, Sendable, Local
         guard let text else { return nil }
         let known: [UsageError] = [.invalidResponse, .missingCLI, .timeout, .notSignedIn, .waitingForClaude,
             .statusLineDisabled, .claudeQuotaStale, .claudeCLIUnavailable, .claudeSignInRequired, .claudeUsageUnavailable]
-        if let error = known.first(where: { $0.errorDescription == text }) { return classify(error, provider: provider, capability: capability) }
+        if let error = known.first(where: { $0.errorDescription == text }) ?? UsageError.retiredMessages[text] {
+            return classify(error, provider: provider, capability: capability)
+        }
         // Typed messages contain only fixed strings and can be recognized when an
         // older snapshot surface still persists its issue as a string.
         let reasons: [Reason] = [.unsupportedResponse, .unsupportedOperation, .missingClient, .clientPathUnavailable,
-            .timedOut, .signInRequired, .setupRequired, .disabled, .configurationChanged, .waitingForData, .staleData, .sourceUnavailable, .incompleteCatalog]
+            .timedOut, .signInRequired, .setupRequired, .disabled, .configurationChanged, .waitingForData, .staleData, .sourceUnavailable, .incompleteCatalog,
+            .limitReached, .windowInactive, .usageFetchFailed, .workspaceTrustRequired, .subscriptionUnavailable]
         return reasons.first { Self(provider: provider, capability: capability, reason: $0).message == text }
             .map { Self(provider: provider, capability: capability, reason: $0) }
+    }
+}
+
+extension ClientIntegrationIssue.Reason {
+    public var repair: ConnectionDiagnostic.Repair {
+        switch self {
+        case .unsupportedResponse, .unsupportedOperation: return .reviewClient
+        case .missingClient: return .install
+        case .clientPathUnavailable: return .chooseClient
+        case .signInRequired: return .signIn
+        case .setupRequired, .workspaceTrustRequired: return .reviewUsage
+        case .subscriptionUnavailable: return .signIn
+        case .disabled, .configurationChanged: return .events
+        case .timedOut, .waitingForData, .staleData, .sourceUnavailable, .incompleteCatalog,
+             .limitReached, .windowInactive, .usageFetchFailed: return .refresh
+        }
+    }
+
+    /// A specific diagnostic heading for quota states that are not a connection fault.
+    var diagnosticTitle: String? {
+        switch self {
+        case .limitReached: return "Лимит исчерпан"
+        case .windowInactive: return "Окно лимита ещё не началось"
+        case .workspaceTrustRequired: return "Нужно подтвердить доверие к папке"
+        case .subscriptionUnavailable: return "Claude Code не вошёл в аккаунт"
+        default: return nil
+        }
     }
 }
 
@@ -166,12 +200,18 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
     public let quotaAgeMinutes: Int?
     public let errorCode: String?
     public let sourceIssue: ClientIntegrationIssue?
+    /// Typed reason of the shown issue, including one recognized from a saved message.
+    public let issueReason: ClientIntegrationIssue.Reason?
+    /// Recent Claude sessions ran only in Claude Desktop, where the status line does not run.
+    /// Nil otherwise, so reports without this fact keep their earlier keys.
+    public let statusLineDesktopOnly: Bool?
     public var id: ProviderID { provider }
 
     public init(provider: ProviderID, clientFound: Bool, signIn: ClientConnection.SignInState,
                 eventsConfigured: Bool, snapshot: UsageSnapshot?, sessionIssue: String?, now: Date = Date(),
-                sourceIssue: ClientIntegrationIssue? = nil) {
+                sourceIssue: ClientIntegrationIssue? = nil, statusLineDesktopOnly: Bool = false) {
         self.provider = provider; self.clientFound = clientFound; self.eventsConfigured = eventsConfigured
+        self.statusLineDesktopOnly = provider == .claude && statusLineDesktopOnly ? true : nil
         let typed = sourceIssue?.provider == provider ? sourceIssue : nil
         self.sourceIssue = typed
         quotaAgeMinutes = snapshot?.fetchedAt.map { max(0, Int(now.timeIntervalSince($0) / 60)) }
@@ -185,7 +225,8 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         let compatibilityIssue = ClientIntegrationIssue.legacy(issue, provider: provider, capability: provider == .codex ? .rateLimits : .usageProbe)
             ?? ClientIntegrationIssue.legacy(sessionIssue, provider: provider, capability: .sessionCatalog)
         let effectiveIssue = typed ?? compatibilityIssue
-        errorCode = typed?.code ?? issue.map { value in known.first { $0.0.errorDescription == value }?.1 ?? "source_error" }
+        issueReason = effectiveIssue?.reason
+        errorCode = typed?.code ?? issue.map { value in known.first { $0.0.errorDescription == value }?.1 ?? compatibilityIssue?.code ?? "source_error" }
             ?? (sessionIssue == nil ? nil : "session_source_error")
         if effectiveIssue?.reason == .clientPathUnavailable { state = .clientPathUnavailable }
         else if !clientFound { state = .missingClient }
@@ -198,12 +239,13 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         else if effectiveIssue?.reason == .staleData { state = .staleQuota }
         else if let typed, ![.waitingForData, .staleData].contains(typed.reason) { state = .sourceError }
         else if let issue, issue != UsageError.waitingForClaude.errorDescription && issue != UsageError.claudeQuotaStale.errorDescription { state = .sourceError }
-        else if snapshot?.hasQuota != true { state = .waitingForQuota }
+        else if snapshot?.hasQuota != true && snapshot?.unlimited != true { state = .waitingForQuota }
         else if snapshot?.isStale(now: now) != false { state = .staleQuota }
         else if !eventsConfigured || sessionIssue != nil { state = .eventsMissing }
         else { state = .ready }
     }
     public var title: String {
+        if state == .sourceError, let title = issueReason?.diagnosticTitle { return title }
         switch state {
         case .unsupportedResponse: return "Формат ответа клиента пока не поддерживается"
         case .unsupportedOperation: return "Операция недоступна в этом клиенте"
@@ -229,6 +271,7 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         case .eventsMissing: return eventsConfigured ? .refresh : .events
         case .sourceError:
             if let sourceIssue { return sourceIssue.repair }
+            if let issueReason { return issueReason.repair }
             if errorCode == "claude_setup_required" { return .reviewUsage }
             if errorCode == "sign_in_required" { return .signIn }
             if errorCode == "events_disabled" { return .events }
@@ -237,7 +280,15 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         case .ready: return nil
         }
     }
+    /// An explanation that accompanies any state; not an error.
+    public var note: String? {
+        statusLineDesktopOnly == true ? "Статусная строка не работает в Claude Desktop; лимиты обновляются через /usage" : nil
+    }
     public var guidance: String {
+        if state == .sourceError, let reason = issueReason,
+           [.limitReached, .windowInactive, .usageFetchFailed, .workspaceTrustRequired, .subscriptionUnavailable].contains(reason) {
+            return ClientIntegrationIssue(provider: provider, capability: .usageProbe, reason: reason).message
+        }
         switch state {
         case .unsupportedResponse, .unsupportedOperation:
             return "Проверьте обновления официального клиента и Lunavect. До поддержки этого формата сохранённые данные остаются на месте; повторный вход не требуется."
@@ -250,6 +301,23 @@ public struct ConnectionDiagnostic: Codable, Equatable, Identifiable {
         case .eventsMissing: return "Восстановим обработчики Lunavect, сохранив остальные настройки. Codex может отдельно запросить доверие через /hooks."
         case .ready: return "Свежие лимиты получены, локальные обработчики настроены. События сессий появляются во время работы в клиенте."
         }
+    }
+}
+
+/// Claude Code runs the statusLine command only in its terminal interface. Sessions
+/// started from Claude Desktop run it headless: hooks work, the status line does not.
+public enum ClaudeStatusLineReach {
+    public static let lookback: TimeInterval = 6 * 3600
+    /// True when every Claude session of the last hours ran in Claude Desktop and the
+    /// status line has not reported since the newest of them.
+    public static func onlyDesktopSessions(_ rows: [AgentSession], statusLineObservedAt: Date?, now: Date,
+                                           lookback: TimeInterval = lookback) -> Bool {
+        let recent = rows.filter {
+            let age = now.timeIntervalSince($0.updatedAt)
+            return $0.provider == .claude && age <= lookback && age >= -60
+        }
+        guard let newest = recent.map(\.updatedAt).max(), recent.allSatisfy({ $0.client == .desktop }) else { return false }
+        return statusLineObservedAt.map { $0 < newest } ?? true
     }
 }
 

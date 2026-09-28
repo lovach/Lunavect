@@ -91,12 +91,13 @@ struct LunavectWidgetCard: View {
     }
 }
 
-private struct SmallLimitsCard: View {
+struct SmallLimitsCard: View {
     let snapshots: [UsageSnapshot]
     let preferences: WidgetPreferences
     let now: Date
     private var visibleSnapshots: [UsageSnapshot] { snapshots.filter { preferences.providers.contains($0.provider) } }
-    private var stale: Bool { visibleSnapshots.contains { $0.issue != nil || ($0.fetchedAt != nil && $0.isStale(window: $0.weekly, now: now)) } }
+    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
+    var marksAttention: Bool { visibleSnapshots.contains { display($0).needsAttention } }
     private var lastDate: Date? { visibleSnapshots.compactMap(\.fetchedAt).min() }
     var body: some View {
         if preferences.providers.count == 1, let id = preferences.providers.first {
@@ -107,28 +108,29 @@ private struct SmallLimitsCard: View {
                 Text(L("Недельный остаток")).font(.system(size: 10))
                     .lineLimit(1).minimumScaleFactor(0.9)
                 Spacer(minLength: 0)
-                if stale { Image(systemName: "exclamationmark.circle").font(.system(size: 10)) }
+                if marksAttention { Image(systemName: "exclamationmark.circle").font(.system(size: 10)) }
             }.foregroundStyle(WidgetInk(0.8))
             ForEach(preferences.providers) { id in
                 let snapshot = snapshots.first { $0.provider == id } ?? UsageSnapshot(provider: id)
-                let weekly = snapshot.weekly.flatMap { $0.isExpired(at: now) ? nil : $0 }
+                let display = display(snapshot)
+                let weekly = display.window
                 let five = snapshot.fiveHour.flatMap { $0.isExpired(at: now) ? nil : $0 }
                 VStack(spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(id.title).font(.system(size: 11, weight: .medium))
                         Spacer(minLength: 2)
-                        Text(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—")
+                        Text(display.value)
                             .font(.system(size: 22, weight: .semibold)).monospacedDigit()
-                            .opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.6 : 1)
+                            .opacity(display.dimmed ? 0.6 : 1)
                     }
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
                             Capsule().fill(WidgetInk(0.12, increased: 0.3))
                             if let weekly { Capsule().fill(activityAccent(id)).frame(width: geometry.size.width * weekly.remaining / 100) }
                         }
-                    }.frame(height: 4).opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.5 : 1)
+                    }.frame(height: 4).opacity(display.dimmed ? 0.5 : 1)
                         .accessibilityLabel(L("Осталось")).accessibilityValue(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? L("Нет данных"))
-                    if weekly == nil || snapshot.isStale(window: snapshot.weekly, now: now) {
+                    if display.showsStatus {
                         HStack(spacing: 3) {
                             Text(widgetQuotaStatus(snapshot, now: now)).lineLimit(1).minimumScaleFactor(0.75)
                             Spacer(minLength: 0)
@@ -199,28 +201,31 @@ struct OverviewLimitsCard: View {
     let snapshots: [UsageSnapshot]
     let preferences: WidgetPreferences
     let now: Date
+    /// The overview draws no attention mark of its own.
+    func display(_ snapshot: UsageSnapshot) -> WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L("Недельный остаток")).font(.system(size: 10, weight: .medium)).foregroundStyle(WidgetInk(0.78))
             HStack(alignment: .top, spacing: 16) {
                 ForEach(preferences.providers) { id in
                     let snapshot = snapshots.first { $0.provider == id } ?? UsageSnapshot(provider: id)
-                    let weekly = snapshot.weekly.flatMap { $0.isExpired(at: now) ? nil : $0 }
+                    let display = display(snapshot)
+                    let weekly = display.window
                     let five = snapshot.fiveHour.flatMap { $0.isExpired(at: now) ? nil : $0 }
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline, spacing: 5) {
                             Circle().fill(activityAccent(id)).frame(width: 5, height: 5)
                             Text(id.title).font(.system(size: 10, weight: .medium))
                             Spacer(minLength: 4)
-                            Text(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—")
+                            Text(display.value)
                                 .font(.system(size: 20, weight: .semibold, design: .rounded)).monospacedDigit()
-                                .opacity(snapshot.isStale(window: snapshot.weekly, now: now) ? 0.6 : 1)
+                                .opacity(display.dimmed ? 0.6 : 1)
                         }
                         GeometryReader { proxy in
                             Capsule().fill(WidgetInk(0.13, increased: 0.3))
                             if let weekly { Capsule().fill(activityAccent(id)).frame(width: proxy.size.width * weekly.remaining / 100) }
                         }.frame(height: 3)
-                        Text(snapshot.isStale(window: snapshot.weekly, now: now)
+                        Text(display.showsStatus
                              ? widgetQuotaStatus(snapshot, now: now)
                              : weekly.map { L("Сброс через {0}", $0.countdown(now: now)) } ?? L("Нет данных"))
                             .font(.system(size: 9)).foregroundStyle(WidgetInk(0.72))
@@ -342,11 +347,12 @@ struct ActivityCard: View {
                 .font(.system(size: 10)).foregroundStyle(WidgetInk(0.55)).frame(height: 24)
         }
     }
+    /// Only staleness is marked on the desktop; import coverage is explained in the app (decision 22).
     @ViewBuilder private var status: some View {
-        if data.stale || data.limited {
-            Image(systemName: data.stale ? "clock.badge.exclamationmark" : "info.circle")
+        if data.stale {
+            Image(systemName: "clock.badge.exclamationmark")
                 .font(.system(size: 10)).foregroundStyle(WidgetInk(0.65))
-                .accessibilityLabel(L(data.stale ? "Данные устарели" : "По доступным записям"))
+                .accessibilityLabel(L("Данные устарели"))
         }
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import WeekleftCore
 @testable import Weekleft
@@ -7,6 +8,8 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_IDE_NAVIGATION_FIXTURE"] else {
             throw XCTSkip("Explicit opt-in required: focuses operator-owned IDE terminal fixtures")
         }
+        SessionNavigation.allowsLiveSystemInTests = true
+        defer { SessionNavigation.allowsLiveSystemInTests = false }
         struct Fixture: Decodable { let terminals: [Int32]; let providers: [ProviderID]?; let cwd: String }
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
         var lastLocation: IDESessionLocation?
@@ -29,6 +32,63 @@ final class SessionNavigationIntegrationTests: XCTestCase {
             try await SessionNavigation.open(classic)
         }
     }
+    /// R2-N-02: the guard itself, checked before any route is exercised with its defaults.
+    @MainActor func testLiveSystemGuardRefusesUnderTestsUnlessATestOptsIn() throws {
+        XCTAssertFalse(SessionNavigation.allowsLiveSystemInTests)
+        XCTAssertThrowsError(try SessionNavigation.checkLiveSystem("fixture")) {
+            XCTAssertEqual($0 as? SessionNavigation.LiveSystemRefused, .init(action: "fixture"))
+        }
+        SessionNavigation.allowsLiveSystemInTests = true
+        defer { SessionNavigation.allowsLiveSystemInTests = false }
+        XCTAssertNoThrow(try SessionNavigation.checkLiveSystem("fixture"))
+    }
+
+    /// R2-N-02: with its default system steps, navigation in a test stops before it
+    /// scripts Terminal, connects to an editor companion, reads Claude Desktop
+    /// records or opens a Claude/Codex link. A routing regression elsewhere in the
+    /// suite therefore fails here instead of opening the user's applications.
+    @MainActor func testDefaultSystemStepsNeverRunUnderTests() async throws {
+        let id = "01234567-89ab-cdef-0123-456789abcdef"
+        var terminal = AgentSession(provider: .claude, sessionID: id, title: "Fixture", cwd: "/tmp", client: .terminal,
+                                    phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        terminal.terminalTTY = "/dev/ttys004"; terminal.terminalApp = "Terminal"
+        var editor = terminal
+        editor.client = .vscode; editor.terminalTTY = nil; editor.terminalApp = nil
+        editor.ideLocation = .init(editor: .vscode, bundleIdentifier: "com.microsoft.VSCode", appPath: "/Applications/Visual Studio Code.app",
+                                   runtime: .init(pid: 42, startedAtMicroseconds: 1), usesTerminal: true)
+        var desktop = terminal
+        desktop.client = .desktop; desktop.terminalTTY = nil; desktop.terminalApp = nil
+        var codexDesktop = desktop
+        codexDesktop.provider = .codex
+        let resolver = ClientExecutableResolver(discoverCodex: { XCTFail("No client resolution"); return nil },
+                                                discoverClaude: { XCTFail("No client resolution"); return nil })
+        for (row, action) in [(terminal, "terminal focus"), (editor, "editor bridge"), (desktop, "desktop link"), (codexDesktop, "desktop link")] {
+            do {
+                try await SessionNavigation.open(row, resolver: resolver)
+                XCTFail("\(action): a test reached the user's applications")
+            } catch { XCTAssertEqual(error as? SessionNavigation.LiveSystemRefused, .init(action: action)) }
+        }
+    }
+
+    /// Opening a finished Terminal session writes a launcher and opens Terminal. Under
+    /// tests that route stops before either, whatever home Foundation reports (R2-V-01).
+    @MainActor func testFinishedTerminalSessionNeverLaunchesTerminalUnderTests() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r2-launch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture",
+                               cwd: directory.path, client: .terminal, phase: .finished, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        XCTAssertTrue(row.canLaunchTerminalSession)
+        let resolver = ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { executable.path })
+        do {
+            try await SessionNavigation.open(row, resolver: resolver, focus: { _ in XCTFail("A finished session is launched, not focused"); return false })
+            XCTFail("A test reached Terminal")
+        } catch { XCTAssertEqual(error as? SessionNavigation.LiveSystemRefused, .init(action: "terminal launch")) }
+    }
+
     @MainActor func testIDEOriginWinsOverStaleTerminalAndNeverFallsBackToDesktop() async throws {
         for provider in ProviderID.allCases {
             for client in [SessionClient.vscode, .jetbrains] {
@@ -50,7 +110,11 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_TERMINAL_NAVIGATION_FIXTURE"] else {
             throw XCTSkip("Explicit opt-in required: focuses an operator-owned Terminal fixture")
         }
-        struct Fixture: Decodable { let clientPID: Int32; let hookPID: Int32; let tty: String; let windowID: Int? }
+        SessionNavigation.allowsLiveSystemInTests = true
+        defer { SessionNavigation.allowsLiveSystemInTests = false }
+        // `windowID` enables post-focus checks; `otherSpace` (§6.3 N2) additionally requires the
+        // window, placed on another Space or in full screen beforehand, to be on screen afterwards.
+        struct Fixture: Decodable { let clientPID: Int32; let hookPID: Int32; let tty: String; let windowID: Int?; let otherSpace: Bool? }
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
         let hooked = try XCTUnwrap(SessionProcess.terminalLocation(parentPID: fixture.hookPID, termProgram: "Apple_Terminal"))
         XCTAssertEqual(hooked.tty, fixture.tty)
@@ -73,7 +137,43 @@ final class SessionNavigationIntegrationTests: XCTestCase {
             var error: NSDictionary?
             XCTAssertTrue(script.executeAndReturnError(&error).booleanValue, "Must show the live window, not an exited tab that reused its TTY")
             XCTAssertNil(error)
+            if fixture.otherSpace == true {
+                let visible = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+                    .compactMap { $0[kCGWindowNumber as String] as? Int }
+                XCTAssertTrue(visible.contains(windowID), "Activation must switch to the window's Space")
+            }
         }
+    }
+
+    /// §4 item 1 / §6.3 N5: opt-in live iTerm2 check with an operator-owned session.
+    /// JSON: {"clientPID": <pid of a process in that iTerm2 session>, "tty": "/dev/ttysNNN"}.
+    /// Minimize its window or move it to another Space first; the test restores and selects it.
+    @MainActor func testExplicitITermFixtureSelectsTheSessionAndRestoresItsWindow() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNAVECT_ITERM_NAVIGATION_FIXTURE"] else {
+            throw XCTSkip("Explicit opt-in required: focuses an operator-owned iTerm2 session")
+        }
+        struct Fixture: Decodable { let clientPID: Int32; let tty: String }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        let location = try XCTUnwrap(SessionProcess.terminalLocation(parentPID: fixture.clientPID, termProgram: "iTerm.app"))
+        XCTAssertEqual(location.tty, fixture.tty)
+        XCTAssertEqual(location.app, "iTerm2")
+        var row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture", cwd: "/tmp",
+                               client: .terminal, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        row.terminalTTY = location.tty; row.terminalApp = location.app
+        let environment = TerminalFocusEnvironment(isRunning: { bundle in
+            await MainActor.run { !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty }
+        }, occupancy: { _, _, _ in .unknown }) // the fixture process need not be a provider runtime
+        let focused = try await TerminalLocation.focusSession(row, environment: environment)
+        XCTAssertTrue(focused)
+        try await Task.sleep(for: .seconds(1))
+        let script = try XCTUnwrap(NSAppleScript(source: """
+        tell application "iTerm2"
+            return (tty of current session of current window is "\(fixture.tty)") and (miniaturized of current window is false)
+        end tell
+        """))
+        var error: NSDictionary?
+        XCTAssertTrue(script.executeAndReturnError(&error).booleanValue, "The session's own window, tab and pane must be selected")
+        XCTAssertNil(error)
     }
 
     @MainActor func testTerminalFocusFailureReachesThePanelWithoutLaunchingAnotherClient() async throws {
@@ -105,9 +205,10 @@ final class SessionNavigationIntegrationTests: XCTestCase {
     }
 
     @MainActor func testSelectedUnavailableClientFailsBeforeAnySystemNavigation() async throws {
+        // A recorded exit is what allows a resume; only then is the client resolved.
         let session = AgentSession(provider: .codex, sessionID: "01234567-89ab-cdef-0123-456789abcdef",
                                    title: "Fixture", cwd: "/missing/fixture/project", client: .terminal,
-                                   phase: .unknown, updatedAt: .distantPast, observedAt: .distantPast)
+                                   phase: .finished, updatedAt: .distantPast, observedAt: .distantPast, evidence: .hook)
         let resolver = ClientExecutableResolver(codexPath: "/missing/fixture/selected-codex", discoverCodex: {
             XCTFail("Navigation must honor the selected client")
             return "/bin/echo"
@@ -117,6 +218,28 @@ final class SessionNavigationIntegrationTests: XCTestCase {
             XCTFail("Missing selected client must not open a terminal")
         } catch {
             XCTAssertEqual(error as? SessionOpeningError, .unavailableConfiguredCodex)
+        }
+    }
+    /// N-12 / §6.3 N10: a live session whose tab could not be focused reports that
+    /// it may still be open, even while its CLI is missing or being replaced
+    /// (for example during an update). Only an exited session needs the CLI.
+    @MainActor func testLiveSessionWithUnavailableClientStillReportsItMayBeOpen() async throws {
+        let missing = ClientExecutableResolver(codexPath: "", discoverCodex: { nil }, discoverClaude: { nil })
+        let configured = ClientExecutableResolver(codexPath: "/missing/fixture/selected-codex", discoverCodex: { nil }, discoverClaude: { nil })
+        for (provider, resolver) in [(ProviderID.claude, missing), (.codex, missing), (.codex, configured)] {
+            let live = AgentSession(provider: provider, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture",
+                                    cwd: "/tmp", client: .terminal, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+            do {
+                try await SessionNavigation.open(live, resolver: resolver, focus: { _ in false })
+                XCTFail("A live session must not be resumed")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, .sessionMayBeOpen, provider.rawValue) }
+            var ended = live
+            ended.phase = .finished
+            let expected: SessionOpeningError = resolver.codexPath.isEmpty ? .missingCLI(provider) : .unavailableConfiguredCodex
+            do {
+                try await SessionNavigation.open(ended, resolver: resolver, focus: { _ in XCTFail("An exited session is not focused"); return false })
+                XCTFail("A missing client cannot resume")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, expected, provider.rawValue) }
         }
     }
     @MainActor func testLiveTerminalRouteStopsBeforeAnySystemNavigation() async throws {
@@ -155,6 +278,8 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         guard let path = ProcessInfo.processInfo.environment["LUNAVECT_OPEN_SESSION_FIXTURE"] else {
             throw XCTSkip("Explicit opt-in required: opens an existing session in its real app")
         }
+        SessionNavigation.allowsLiveSystemInTests = true
+        defer { SessionNavigation.allowsLiveSystemInTests = false }
         let session = try JSONDecoder().decode(AgentSession.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
         try await SessionNavigation.open(session)
     }

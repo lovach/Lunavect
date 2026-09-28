@@ -1,5 +1,7 @@
-import Foundation
+import AppKit
 import Combine
+import Foundation
+import OSLog
 #if SWIFT_PACKAGE
 import WeekleftCore
 #endif
@@ -13,7 +15,13 @@ import WeekleftCore
     @Published private(set) var issue: String?
     @Published private(set) var detailsIssue: String?
     @Published private(set) var importing = false
-    let unavailable: Bool
+    /// The shared history could not be read; collection is paused until the user
+    /// keeps a copy and starts over (`startOverPreservingHistory`).
+    @Published private(set) var unavailable: Bool
+    /// Phase transitions are saved after this quiet window, not on every change.
+    static let transitionDebounce: TimeInterval = 15
+    /// Private project/session details are written at most this often, and on quit.
+    static let detailsInterval: TimeInterval = 300
     private let storage: ActivityPersistence?
     private let writesEnabled: Bool
     private let isolated: Bool
@@ -23,6 +31,11 @@ import WeekleftCore
     private var providers = Set<ProviderID>()
     private var savedAt = Date.distantPast
     private var observationState: Set<String> = []
+    private var transitionSince: Date?
+    private var submittedDetails: ActivityDetails?
+    private var detailsSubmittedAt = Date.distantPast
+    private var powerObservers: [(NotificationCenter, NSObjectProtocol)] = []
+    private let logger = Logger(subsystem: "com.weekleft.app", category: "activity")
     private var appliedWrite = 0
     private var importGeneration = 0
     /// Readable so tests can await a cancelled worker instead of a time window.
@@ -33,6 +46,7 @@ import WeekleftCore
 
     init(history: ActivityHistory? = nil, details: ActivityDetails? = nil,
          storage: ActivityPersistence? = nil, writesEnabled: Bool = true, isolated: Bool = false,
+         powerNotifications: NotificationCenter? = NSWorkspace.shared.notificationCenter,
          clock: @escaping () -> Date = Date.init, importer: @escaping Importer = { providers, boundary, now in
              try await ActivityService.readLocalHistory(providers: providers, boundary: boundary, now: now)
          }) {
@@ -49,12 +63,31 @@ import WeekleftCore
         self.history = loaded.state.history; self.details = loaded.state.details
         issue = loaded.historyIssue; detailsIssue = loaded.detailsIssue; unavailable = !loaded.historyLoaded
         tracker = ActivityTracker(history: loaded.state.history, details: loaded.state.details)
+        if !isolated, let center = powerNotifications {
+            // Sleep and wake are explicit breaks, not inferred from the gap tolerance.
+            for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification] {
+                let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.interruptObservation()
+                        // A Mac that never wakes (battery, panic) must not lose the breakdown (R3-03).
+                        if name == NSWorkspace.willSleepNotification { self?.saveBeforeSleep() }
+                    }
+                }
+                powerObservers.append((center, token))
+            }
+        }
+    }
+    func interruptObservation() { tracker.interruptObservation() }
+    /// History and details are written with fsync before the Mac sleeps.
+    func saveBeforeSleep() {
+        guard acceptsWork else { return }
+        save(now: clock(), synchronously: false, forceDetails: true, durable: true)
     }
     func start(providers: [ProviderID]) {
         guard !isolated, !started else { return }
         started = true; acceptsWork = true
         setProviders(providers)
-        if tracker.history.needsImport(providers: Set(providers)), !importing { requestImport() }
+        if tracker.history.needsImport(providers: Set(providers)), !importing { scheduleImport() }
     }
     func setProviders(_ values: [ProviderID]) {
         let next = Set(values)
@@ -64,20 +97,28 @@ import WeekleftCore
         // Observations across a disabled/re-enabled source are not a continuous
         // measurement, even if both transitions happen within the normal 10 s gap.
         tracker = ActivityTracker(history: tracker.history, details: tracker.details)
-        if acceptsWork, !next.isEmpty, resume || (started && tracker.history.needsImport(providers: next)) { requestImport() }
+        if acceptsWork, !next.isEmpty, resume || (started && tracker.history.needsImport(providers: next)) { scheduleImport() }
     }
     func observe(_ rows: [AgentSession], now: Date? = nil) {
         guard acceptsWork, !unavailable else { return }
         let now = now ?? clock()
         let selected = rows.filter { providers.contains($0.provider) }
-        let next = Set(selected.map { $0.id + ":" + $0.effectivePhase(now: now).rawValue })
-        let changed = next != observationState
-        observationState = next
+        // Only what the tracker measures: running sessions and which sources are
+        // observed at all. Ready, idle, finished or hidden changes do not save.
+        let running = selected.filter { $0.effectivePhase(now: now) == .running }
+        let known = Set(selected.filter { $0.effectivePhase(now: now) != .unknown }.map { "source:" + $0.provider.rawValue })
+        let next = known.union(running.map { "running:" + $0.id })
+        if next != observationState { observationState = next; transitionSince = transitionSince ?? now }
+        let gaps = tracker.history.observationGaps?.count ?? 0
         tracker.observe(selected, now: now)
+        if let recorded = tracker.history.observationGaps, recorded.count > gaps {
+            logger.info("Observation gap not counted as work; \(recorded.count, privacy: .public) since \(recorded.since.timeIntervalSince1970, privacy: .public)")
+        }
         // Retain the one-minute crash bound for measured work. Idle coverage can
-        // checkpoint less often; phase transitions and normal quit flush it.
-        let interval: TimeInterval = selected.contains { $0.effectivePhase(now: now) == .running } ? 60 : 300
-        if changed || now < savedAt || now.timeIntervalSince(savedAt) >= interval { save(now: now, synchronously: false) }
+        // checkpoint less often; debounced transitions and normal quit flush it.
+        let interval: TimeInterval = running.isEmpty ? 300 : 60
+        let transitionDue = transitionSince.map { now < $0 || now.timeIntervalSince($0) >= Self.transitionDebounce } ?? false
+        if transitionDue || now < savedAt || now.timeIntervalSince(savedAt) >= interval { save(now: now, synchronously: false) }
     }
     func flush(now: Date? = nil) { save(now: now ?? clock(), synchronously: true) }
     func stop() {
@@ -86,12 +127,39 @@ import WeekleftCore
         flush()
         tracker = ActivityTracker(history: tracker.history, details: tracker.details)
     }
-    func requestImport() {
+    /// "Refresh history" and the connection wizard's import. With an unreadable
+    /// history it does nothing: only the explicit start-over below moves the file
+    /// aside (R3-02).
+    func requestImport() { scheduleImport() }
+    /// The statistics page's **Keep a copy and start over**, the only path that
+    /// moves an unreadable history aside and starts a new one.
+    func startOverPreservingHistory() {
+        guard unavailable else { return }
+        startOver()
+    }
+    private func startOver() {
+        guard !isolated, writesEnabled, acceptsWork, let storage else { return }
+        storage.startOverPreservingHistory { [weak self] result in
+            Task { @MainActor in
+                guard let self, self.unavailable, self.acceptsWork else { return }
+                guard case .started = result else {
+                    self.issue = "Не удалось сохранить копию файла статистики."
+                    return
+                }
+                self.tracker = ActivityTracker(history: ActivityHistory(), details: self.tracker.details)
+                self.history = self.tracker.history
+                self.issue = "Прежний файл статистики сохранён отдельно. Сбор начат заново."
+                self.unavailable = false
+                self.scheduleImport()
+            }
+        }
+    }
+    private func scheduleImport() {
         guard !isolated, acceptsWork, !unavailable, !providers.isEmpty else { return }
         guard !importing else { pendingImport = true; return }
         importing = true
         let boundaries = tracker.prepareImport(providers: providers, now: clock())
-        let state = publish(now: clock())
+        let state = submission(publish(now: clock()), now: clock(), forceDetails: true)
         let generation = importGeneration, selected = providers
         if writesEnabled, let storage {
             // The import boundary must be durable before history is read. A failed
@@ -124,7 +192,8 @@ import WeekleftCore
                 guard !Task.isCancelled, let self,
                       self.acceptsWork, self.importGeneration == generation, self.providers == providers else { return }
                 for (selected, result) in results { self.tracker.mergeImport(result, now: self.clock(), providers: selected) }
-                self.save(now: self.clock(), synchronously: false)
+                // A merged import is written at once, private details included.
+                self.save(now: self.clock(), synchronously: false, forceDetails: true)
                 self.finishImport(generation: generation)
             } catch {
                 guard !Task.isCancelled, let self, self.importGeneration == generation else { return }
@@ -137,7 +206,7 @@ import WeekleftCore
     private func finishImport(generation: Int) {
         guard importGeneration == generation else { return }
         importing = false; importTask = nil
-        if pendingImport { pendingImport = false; requestImport() }
+        if pendingImport { pendingImport = false; scheduleImport() }
     }
     private func cancelImport() {
         importGeneration += 1
@@ -148,16 +217,25 @@ import WeekleftCore
         tracker.pruneDetails(now: now)
         if history != tracker.history { history = tracker.history }
         if details != tracker.details { details = tracker.details }
-        savedAt = now
+        savedAt = now; transitionSince = nil
         return .init(history: tracker.history, details: tracker.details)
     }
-    private func save(now: Date, synchronously: Bool) {
+    /// History is saved at every checkpoint; the private details only every five
+    /// minutes, at import, before sleep and at quit (decision 23). The UI always sees both.
+    private func submission(_ state: ActivityPersistence.State, now: Date, forceDetails: Bool) -> ActivityPersistence.State {
+        var state = state
+        if forceDetails || submittedDetails == nil || now < detailsSubmittedAt || now.timeIntervalSince(detailsSubmittedAt) >= Self.detailsInterval {
+            submittedDetails = state.details; detailsSubmittedAt = now
+        } else if let submittedDetails { state.details = submittedDetails }
+        return state
+    }
+    private func save(now: Date, synchronously: Bool, forceDetails: Bool = false, durable: Bool = false) {
         guard !unavailable else { return }
-        let state = publish(now: now)
+        let state = submission(publish(now: now), now: now, forceDetails: forceDetails || synchronously)
         guard writesEnabled, let storage else { return }
         if synchronously { apply(storage.flush(state)) }
         else {
-            storage.submit(state) { [weak self] result in
+            storage.submit(state, durable: durable) { [weak self] result in
                 Task { @MainActor in self?.apply(result) }
             }
         }
@@ -189,5 +267,8 @@ import WeekleftCore
         }
         return try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
     }
-    deinit { importTask?.cancel() }
+    deinit {
+        importTask?.cancel()
+        for (center, token) in powerObservers { center.removeObserver(token) }
+    }
 }

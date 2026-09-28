@@ -66,7 +66,9 @@ final class ActivityImportTests: XCTestCase {
                 ],
             ], to: root.appendingPathComponent("log.jsonl"))
         let codexResult = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)], before: now, now: now)
-        XCTAssertTrue(codexResult.intervals.isEmpty); XCTAssertTrue(codexResult.limited)
+        // Decision 22: a rejected record is reported, but does not make the import partial.
+        XCTAssertTrue(codexResult.intervals.isEmpty); XCTAssertFalse(codexResult.limited)
+        XCTAssertEqual(codexResult.report.providers.first?.issues[.invalidTiming], 1)
         XCTAssertTrue(ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .claude)], before: now, now: now).intervals.isEmpty)
     }
     func testImportPreservesLiveObservationsAndRetryIsIdempotent() throws {
@@ -211,7 +213,7 @@ extension ActivityImportTests {
             ["type": "cost-state", "totalDuration": 9999999]
         ], to: root.appendingPathComponent("claude.jsonl"))
         let result = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .claude)], before: now, now: now)
-        XCTAssertTrue(result.intervals.isEmpty); XCTAssertTrue(result.limited)
+        XCTAssertTrue(result.intervals.isEmpty); XCTAssertFalse(result.limited, "Skipped records are information, not lost coverage")
         XCTAssertEqual(result.report.providers.first?.issues[.invalidTiming], 2)
         XCTAssertEqual(result.report.providers.first?.issues[.unmatchedTool], 2)
         XCTAssertEqual(result.report.providers.first?.issues[.incompleteTask], 1)
@@ -315,6 +317,24 @@ extension ActivityImportTests {
         XCTAssertEqual(result.report.providers.first?.filesRead, 0)
         XCTAssertEqual(result.report.providers.first?.bytesRead, 0)
         XCTAssertNotNil(result.report.providers.first?.issues[.budget])
+    }
+
+    /// R3-04: a boundary at or before the 35-day window leaves nothing to recover,
+    /// so no journal is opened at all (a re-import for an old installation).
+    func testBoundaryOutsideTheWindowReadsNoJournal() throws {
+        let root = try directory(), end = now.timeIntervalSince1970
+        try write([codex(end - 20 * 86400, end - 20 * 86400 + 600)], to: root.appendingPathComponent("log.jsonl"))
+        for days in [35.0, 40] {
+            let result = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)],
+                                                      before: now.addingTimeInterval(-days * 86400), now: now)
+            XCTAssertTrue(result.intervals.isEmpty)
+            XCTAssertEqual(result.report.providers.first?.filesRead, 0, "\(Int(days)) days")
+            XCTAssertEqual(result.report.providers.first?.bytesRead, 0, "\(Int(days)) days")
+            XCTAssertFalse(result.limited)
+        }
+        let inside = ActivityHistoryImporter.read(sources: [.init(directory: root, provider: .codex)],
+                                                  before: now.addingTimeInterval(-10 * 86400), now: now)
+        XCTAssertEqual(inside.report.providers.first?.filesRead, 1, "A boundary inside the window still reads the journal")
     }
 
     func testDeadlineDuringChunkPreservesOnlyAcceptedCompleteRecords() throws {

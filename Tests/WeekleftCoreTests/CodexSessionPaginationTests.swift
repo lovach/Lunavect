@@ -264,11 +264,23 @@ final class CodexSessionPaginationTests: XCTestCase {
         let pipe = Pipe()
         defer { try? pipe.fileHandleForWriting.close(); try? pipe.fileHandleForReading.close() }
         let started = ProcessInfo.processInfo.systemUptime
-        XCTAssertThrowsError(try SessionProcess.writeCodexInput(Data(repeating: 120, count: 1_000_000),
-                                                              to: pipe.fileHandleForWriting, until: started + 0.05)) {
+        // A blocking write would wait for a reader forever; drain the pipe to free it.
+        let drain = {
+            let fd = pipe.fileHandleForReading.fileDescriptor
+            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+            var bytes = [UInt8](repeating: 0, count: 65_536), total = 0
+            let end = ProcessInfo.processInfo.systemUptime + TestDeadline.seconds
+            while total < 1_000_000, ProcessInfo.processInfo.systemUptime < end {
+                let count = read(fd, &bytes, bytes.count)
+                if count > 0 { total += count } else { usleep(1_000) }
+            }
+        }
+        XCTAssertThrowsError(try TestDeadline.run("Writing into a full pipe", release: drain) {
+            try SessionProcess.writeCodexInput(Data(repeating: 120, count: 1_000_000), to: pipe.fileHandleForWriting, until: started + 0.05)
+        }) {
             guard case SessionError.timeout = $0 else { return XCTFail("Expected bounded write timeout, got \($0)") }
         }
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 0.8)
+        TimingBound.assertPrompt(since: started, strict: 0.8, "The write gives up at its deadline")
     }
 
     func testCodexInputWriteReportsClosedPipeWithoutChangingProcessSignals() throws {

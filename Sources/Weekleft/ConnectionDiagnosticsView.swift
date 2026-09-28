@@ -51,8 +51,10 @@ import WeekleftCore
         guard acceptsResult() else { return }
         sessions.updateHookConfiguration()
         let providers = store.providers.filter { requestedProvider == nil || $0 == requestedProvider }
-        let discoveredCodex = AppStore.discoverCodex()
-        let resolver = ClientExecutableResolver(codexPath: store.codexPath, discoverCodex: { discoveredCodex })
+        // Preview and fixture stores never find or ask the installed clients (R2-X-03).
+        let discoveredCodex = store.isolated ? nil : AppStore.discoverCodex()
+        let resolver = store.isolated ? ClientExecutableResolver(codexPath: "", discoverCodex: { nil }, discoverClaude: { nil })
+            : ClientExecutableResolver(codexPath: store.codexPath, discoverCodex: { discoveredCodex })
         let claude = try? resolver.resolve(.claude), codex = try? resolver.resolve(.codex)
         let codexPathIssue: ClientIntegrationIssue? = !store.codexPath.isEmpty && codex == nil
             ? .init(provider: .codex, capability: .initialization, reason: .clientPathUnavailable) : nil
@@ -60,12 +62,14 @@ import WeekleftCore
         async let codexAuth = auth(.codex, path: providers.contains(.codex) ? codex : nil)
         let statuses = await [ProviderID.claude: claudeAuth, .codex: codexAuth]
         guard acceptsResult() else { return }
+        let desktopOnly = ClaudeStatusLineReach.onlyDesktopSessions(sessions.sessions, statusLineObservedAt: store.statusLineObservedAt(), now: Date())
         let checked = providers.map { provider in
             ConnectionDiagnostic(provider: provider, clientFound: (provider == .claude ? claude : codex) != nil,
                 signIn: statuses[provider] ?? .unavailable,
                 eventsConfigured: sessions.hooksInstalled[provider] == true,
                 snapshot: store.snapshots.first { $0.provider == provider }, sessionIssue: sessions.issues[provider],
-                sourceIssue: provider == .codex ? codexPathIssue ?? sessions.typedIssues[provider] : sessions.typedIssues[provider])
+                sourceIssue: provider == .codex ? codexPathIssue ?? sessions.typedIssues[provider] : sessions.typedIssues[provider],
+                statusLineDesktopOnly: desktopOnly)
         }
         results = requestedProvider == nil ? checked : results.filter { $0.provider != requestedProvider } + checked
         checkedAt = Date()
@@ -85,15 +89,27 @@ import WeekleftCore
 
 struct ConnectionDiagnosticSummary: View {
     let result: ConnectionDiagnostic
+    var eventsDisabled = false
+    /// Missing events that the user turned off on purpose are a choice, not a
+    /// fault to repair (audit H-05). The shared report keeps its fixed state code.
+    static func eventsChoice(for result: ConnectionDiagnostic, eventsDisabled: Bool) -> String? {
+        eventsDisabled && result.state == .eventsMissing ? "События отключены вами" : nil
+    }
     var body: some View {
+        let choice = Self.eventsChoice(for: result, eventsDisabled: eventsDisabled)
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(result.provider.title).font(.headline)
                 Spacer()
-                InterfaceIcon(result.state == .ready ? .checkCircle : .info).foregroundStyle(result.state == .ready ? .green : .orange)
+                InterfaceIcon(result.state == .ready || choice != nil ? .checkCircle : .info)
+                    .foregroundStyle(result.state == .ready ? .green : choice != nil ? .secondary : .orange)
             }
-            Text(L(result.title)).font(.system(size: 13, weight: .semibold))
-            Text(L(result.guidance)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(L(choice ?? result.title)).font(.system(size: 13, weight: .semibold))
+            Text(L(choice == nil ? result.guidance : "Lunavect не получает события сессий этого клиента, пока вы их не включите."))
+                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let note = result.note {
+                InterfaceLabel(L(note), .info).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if let age = result.quotaAgeMinutes {
                 Text(L("Лимиты получены {0} мин назад", String(age))).font(.system(size: 11)).foregroundStyle(.secondary)
             }
@@ -130,8 +146,14 @@ struct ConnectionDiagnosticsView: View {
                     }
                     ForEach(diagnostics.results) { result in
                         VStack(alignment: .leading, spacing: 10) {
-                            ConnectionDiagnosticSummary(result: result)
-                            if let repair = result.repair {
+                            let disabled = sessions.eventsDisabledByUser.contains(result.provider)
+                            ConnectionDiagnosticSummary(result: result, eventsDisabled: disabled)
+                            if ConnectionDiagnosticSummary.eventsChoice(for: result, eventsDisabled: disabled) != nil {
+                                Button(L("Включить события")) {
+                                    sessions.toggleHooks(result.provider)
+                                    actions.start { await diagnostics.check(store: store, sessions: sessions, provider: result.provider) }
+                                }.disabled(diagnostics.busy).accessibilityIdentifier("enable-events-" + result.provider.rawValue)
+                            } else if let repair = result.repair {
                                 Button(L(repair.title)) {
                                     if repair == .refresh || repair == .checkSignIn {
                                         actions.start { await diagnostics.check(store: store, sessions: sessions, provider: result.provider) }

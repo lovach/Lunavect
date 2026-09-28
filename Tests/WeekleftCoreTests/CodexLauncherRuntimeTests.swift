@@ -2,13 +2,26 @@ import XCTest
 @testable import WeekleftCore
 
 final class CodexLauncherRuntimeTests: XCTestCase {
+    private static let natives = NativeFixtures(prefix: "codex-runtime-fixture")
+    private static let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Scripts/codex_runtime_fixture.c")
+    override class func setUp() {
+        super.setUp()
+        // One clang run per suite; each test gets its own copy because tests
+        // change the binary's modification date.
+        _ = try? natives.compileOnce(String(contentsOf: source, encoding: .utf8), as: "native-client")
+    }
+    override class func tearDown() {
+        natives.removeDirectory()
+        super.tearDown()
+    }
     private func fixture(waitingWrapper: Bool = false, invalid: Bool = false) throws -> (URL, URL, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Codex wrapper " + UUID().uuidString).resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let native = root.appendingPathComponent("native-client"), launcher = root.appendingPathComponent("codex")
-        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Scripts/codex_runtime_fixture.c")
-        _ = try SessionProcess.run(path: "/usr/bin/clang", arguments: [source.path, "-o", native.path], timeout: 30)
+        let compiled = try Self.natives.compileOnce(String(contentsOf: Self.source, encoding: .utf8), as: "native-client")
+        try FileManager.default.copyItem(at: compiled, to: native)
         let command = SessionHooks.quote(native.path) + " \"$@\"" + (invalid ? " invalid" : "")
         let body = waitingWrapper ? """
         exec 3<&0
@@ -37,7 +50,7 @@ final class CodexLauncherRuntimeTests: XCTestCase {
     private static func stop(_ process: Process) {
         guard process.isRunning else { return }
         process.terminate()
-        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        let deadline = ProcessInfo.processInfo.systemUptime + TestDeadline.seconds
         while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline { Thread.sleep(forTimeInterval: 0.01) }
         XCTAssertFalse(process.isRunning, "Synthetic writer must stop promptly")
     }

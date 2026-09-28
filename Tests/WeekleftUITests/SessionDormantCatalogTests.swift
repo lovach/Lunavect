@@ -18,7 +18,40 @@ import AwakeService
 }
 
 final class SessionDormantCatalogTests: XCTestCase {
+    /// The header's waiting metric and its filter label come from one summary of
+    /// current sessions; retained catalog rows do not count as waiting.
+    @MainActor func testHeaderWaitingLabelUsesCurrentCount() throws {
+        let uiDependencies = try AppEnvironment.preview(rows: [])
+        defer { uiDependencies.stop() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("CurrentHeaderLabel-" + UUID().uuidString)
+        let suite = "Lunavect.CurrentHeaderLabel." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = SessionStore(directory: root, defaults: defaults, isolated: true, now: { now })
+        defer { store.stop() }
+        let raw: [[String: Any]] = (0..<5).map {
+            ["sessionId": "retained-\($0)", "id": "retained-\($0)", "kind": "background", "state": "blocked"]
+        }
+        let retained = try SessionParser.claude(JSONSerialization.data(withJSONObject: raw), now: now)
+        store.acceptSessions(retained, now: now)
+        let view = SessionsView(store: store, updates: uiDependencies.updates, awake: uiDependencies.awake, isPreview: true, onSettings: {})
+        XCTAssertEqual(store.sessions.count, 5, "The retained rows are in the source collection")
+        XCTAssertEqual(view.headerSummary(at: now), .init(working: 0, waiting: 0))
+        XCTAssertEqual(view.headerSummary(at: now).waitingLabel, L("В ожидании: {0}", "0"))
+        var live = raw[0]; live["pid"] = 123; live["status"] = "waiting"
+        let row = try XCTUnwrap(SessionParser.claude(JSONSerialization.data(withJSONObject: [live]), now: now).first)
+        store.acceptSessions([row] + Array(retained.dropFirst()), now: now)
+        XCTAssertEqual(view.headerSummary(at: now).waiting, 1)
+        XCTAssertEqual(view.headerSummary(at: now).waitingLabel, L("В ожидании: {0}", "1"), "The label follows the live waiting session")
+    }
+
+    /// Opt-in: reads the same label from the rendered header's accessibility tree
+    /// (`LUNAVECT_NATIVE_HEADER_AX=1`); some AppKit test hosts expose no SwiftUI children.
     @MainActor func testNativeHeaderWaitingLabelUsesCurrentCount() throws {
+        guard ProcessInfo.processInfo.environment["LUNAVECT_NATIVE_HEADER_AX"] == "1" else {
+            throw XCTSkip("Opt-in accessibility-tree check (LUNAVECT_NATIVE_HEADER_AX=1)")
+        }
         let uiDependencies = try AppEnvironment.preview(rows: [])
         defer { uiDependencies.stop() }
         _ = NSApplication.shared
@@ -103,7 +136,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         XCTAssertEqual(view.currentCounts(at: now).total, 3)
         XCTAssertEqual(view.currentCounts(at: now).working, 1)
 
-        var live = raw[1]; live["pid"] = 123; live["status"] = "waiting"; live["waitingFor"] = "input needed"
+        var live = raw[1]; live["pid"] = 123; live["status"] = "waiting"
         retained[1] = try XCTUnwrap(SessionParser.claude(JSONSerialization.data(withJSONObject: [live]), now: now).first)
         store.acceptSessions(retained + codex, now: now)
         XCTAssertEqual(view.currentCounts(at: now).total, 4)
@@ -111,7 +144,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         XCTAssertEqual(view.currentCounts(at: now).waiting, 1)
         XCTAssertEqual(waitingView.filteredSessions(at: now).map(\.id), [retained[1].id])
         XCTAssertEqual(claudeView.filteredSessions(at: now).count, 1)
-        XCTAssertEqual(view.currentCounts(at: now.addingTimeInterval(61)).waiting, 0, "Header counts use the display clock and expire stale live evidence")
+        XCTAssertEqual(view.currentCounts(at: now.addingTimeInterval(AgentSession.catalogLifetime + 1)).waiting, 0, "Header counts use the display clock and expire stale live evidence")
         XCTAssertEqual(store.hiddenCount, 2)
     }
     @MainActor func testRetainedWaitsStayOutOfCurrentCountsNoticesActivityAndAwakeUntilFreshEvidence() async throws {
@@ -125,7 +158,7 @@ final class SessionDormantCatalogTests: XCTestCase {
         let store = SessionStore(directory: root, defaults: defaults, isolated: true, now: { now }, dependencies: .init(catalog: { _, _, _, _ in
             let rows: [[String: Any]] = ids.map { id in
                 var row: [String: Any] = ["sessionId": id, "id": id, "kind": "background", "state": id == workID ? "working" : "blocked", "startedAt": 1_783_332_137_673]
-                if id == liveID { row["pid"] = 123; row["status"] = "waiting"; row["waitingFor"] = "input needed" }
+                if id == liveID { row["pid"] = 123; row["status"] = "waiting" }
                 return row
             }
             return (try SessionParser.claude(JSONSerialization.data(withJSONObject: rows), now: now), false)
@@ -170,9 +203,12 @@ final class SessionDormantCatalogTests: XCTestCase {
         now += 1; await store.refresh()
         XCTAssertEqual(store.activeCount, 3, "A newer persisted-catalog poll cannot suppress a fresh hook")
         XCTAssertEqual(store.currentSessions.first { $0.sessionID == ids[2] }?.phase, .permission)
+        // The retained state never announced anything; the fresh request, made after
+        // the previous poll, is a live transition and is announced once (R2-S-03).
+        XCTAssertEqual(played, [.permission])
         now += 600; await store.refresh()
         XCTAssertEqual(store.activeCount, 2, "Repeated catalog reads cannot extend the hook lifetime")
         XCTAssertFalse(store.currentSessions.contains { $0.sessionID == ids[2] })
-        XCTAssertTrue(played.isEmpty)
+        XCTAssertEqual(played, [.permission], "Expiry and later catalog reads add no notice")
     }
 }

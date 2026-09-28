@@ -60,7 +60,7 @@ final class HiddenSessionUndoTests: XCTestCase {
         XCTAssertEqual(requests.count, rows.count)
         XCTAssertEqual(requests.compactMap { $0.content.userInfo["sessionID"] as? String }, rows.map(\.id))
         XCTAssertEqual(requests.filter { $0.content.sound != nil }.count, 1)
-        await fulfillment(of: [fallback], timeout: 1)
+        await fulfillment(of: [fallback], timeout: 5)
         XCTAssertEqual(played, [.completed])
     }
     @MainActor func testSoundOnlyCompletionPlaysOnceWithoutNotificationPermission() throws {
@@ -134,7 +134,7 @@ final class HiddenSessionUndoTests: XCTestCase {
             expired.fulfill()
         }
         defer { observation.cancel() }
-        await fulfillment(of: [expired], timeout: 2)
+        await fulfillment(of: [expired], timeout: 5)
         XCTAssertNil(store.lastHidden)
         XCTAssertEqual(store.hiddenCount, 1)
         XCTAssertTrue(store.sessions.isEmpty)

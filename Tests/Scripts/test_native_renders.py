@@ -186,6 +186,44 @@ class NativeRendersTests(unittest.TestCase):
             result = renders.compare_baseline(baseline, baseline, [], {"macos": "new"})
             self.assertEqual(result["status"], "skipped")
 
+    def test_a_supplied_baseline_that_cannot_be_compared_fails_the_run(self):
+        """R2-U-07: after a runner update the weekly job must not stay green without comparing."""
+        def skipped_comparison(output, *, enabled, baseline=None, report=None, suite="smoke"):
+            report["render"] = {"status": "passed"}
+            report["comparison"] = {"status": "skipped", "reason": "Baseline OS/toolchain/fixture environment differs"}
+            return report
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "out"
+            with patch.object(renders.sys, "argv", [str(SCRIPT), "--output", str(output), "--baseline", temporary]), \
+                    patch.object(renders, "check", side_effect=skipped_comparison):
+                self.assertEqual(renders.main(), 1)
+            comparison = json.loads((output / "render-report.json").read_text())["comparison"]
+            self.assertEqual(comparison["status"], "failed")
+            self.assertIn("baseline", comparison["reason"])
+
+    def test_explicit_record_marks_only_a_passed_render_without_comparison(self):
+        """R3-06: only a manual dispatch with render_baseline cleared records a new reference."""
+        report = renders.initial_report()
+        report["render"] = {"status": "passed"}
+        renders.record_baseline(report)
+        self.assertEqual(report["baseline_record"]["status"], "recorded")
+        with tempfile.TemporaryDirectory() as temporary:
+            renders.write_report(Path(temporary), report)
+            self.assertIn("**baseline_record: recorded**", (Path(temporary) / "summary.md").read_text())
+        compared = renders.initial_report()
+        compared["render"] = {"status": "passed"}; compared["comparison"] = {"status": "failed"}
+        renders.record_baseline(compared)
+        self.assertNotIn("baseline_record", compared, "A compared render is judged by its comparison")
+        failed = renders.initial_report()
+        failed["render"] = {"status": "failed"}
+        renders.record_baseline(failed)
+        self.assertNotIn("baseline_record", failed)
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(renders.sys, "argv", [str(SCRIPT), "--output", str(Path(temporary) / "out"), "--baseline", temporary, "--record-baseline"]), \
+                patch.object(renders.sys, "stderr"):
+            with self.assertRaises(SystemExit):
+                renders.main()
+
     def test_child_environment_does_not_inherit_credentials_or_opt_ins(self):
         with patch.dict(renders.os.environ, {"CODEX_HOME": "/secret", "HOME": "/real-user", "TOKEN": "secret", "LUNAVECT_RELEASE_SCREENSHOTS": "/outside"}):
             environment = renders.child_environment(Path("/synthetic/runtime"))

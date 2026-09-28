@@ -110,12 +110,32 @@ final class MenuBarLimitsTests: XCTestCase {
         XCTAssertEqual(expired.value, "—"); XCTAssertEqual(expired.compactCountdown, "—")
         XCTAssertNil(expired.resetDate)
     }
-    @MainActor func testNativeItemUpdatesExpiresOpensAndRemoves() async throws {
-        let app = NSApplication.shared, policy = NSApplication.shared.activationPolicy()
-        app.setActivationPolicy(.accessory)
-        defer { app.setActivationPolicy(policy) }
-        let controller = MenuBarLimitsController(autosaveName: nil) {}
-        controller.popover.animates = false
+    /// Records popover presentation instead of showing a window; it reports
+    /// open and close to the popover's delegate like the real popover does.
+    @MainActor private final class RecordingPresenter {
+        var shown = false, anchors: [NSView] = [], closes = 0
+        var presenter: MenuBarPopoverPresenter {
+            MenuBarPopoverPresenter(isShown: { [unowned self] _ in shown }, show: { [unowned self] popover, anchor in
+                anchors.append(anchor); shown = true
+                popover.delegate?.popoverDidShow?(Notification(name: NSPopover.didShowNotification, object: popover))
+            }, close: { [unowned self] popover in
+                closes += 1
+                guard shown else { return }
+                shown = false
+                popover.delegate?.popoverDidClose?(Notification(name: NSPopover.didCloseNotification, object: popover))
+            })
+        }
+    }
+
+    @MainActor func testItemUpdatesExpiresOpensAndRemoves() throws {
+        let suite = "Lunavect.MenuBarLimitsTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recorder = RecordingPresenter()
+        var opened = 0, hidden = 0
+        let controller = MenuBarLimitsController(onShow: { opened += 1 }, onHide: { hidden += 1 },
+                                                 language: LanguageSettings(defaults: defaults, reloadWidgets: {}), defaults: defaults,
+                                                 autosaveName: nil, presenter: recorder.presenter) {}
         defer { controller.stop() }
         let data = try [snapshot()]
         controller.update(snapshots: data, providers: [.codex], preferences: .init(), now: now)
@@ -124,20 +144,17 @@ final class MenuBarLimitsTests: XCTestCase {
         let item = try XCTUnwrap(controller.statusItem), button = try XCTUnwrap(item.button)
         let width = item.length
         XCTAssertEqual(controller.content.entries.first?.value, "72%")
-        // Opening the popover needs the item placed in a visible menu bar; a sleeping
-        // display, a locked screen or a full menu bar is a host condition, not a defect.
-        let placement = Date().addingTimeInterval(2)
-        while button.window?.isVisible != true, Date() < placement { try await Task.sleep(for: .milliseconds(50)) }
-        let placed = button.window?.isVisible == true && button.window?.occlusionState.contains(.visible) == true
-        if placed {
-            button.performClick(nil)
-            XCTAssertTrue(controller.popover.isShown)
-            button.performClick(nil)
-            XCTAssertFalse(controller.popover.isShown)
-        }
+        // A click on the status item (its button action) opens the popover at the item, a second click closes it.
+        XCTAssertTrue(button.sendAction(button.action, to: button.target))
+        XCTAssertTrue(controller.isPopoverShown)
+        XCTAssertTrue(recorder.anchors.last === button, "The popover is anchored to the status item")
+        XCTAssertEqual(opened, 1)
         controller.refresh(now: now.addingTimeInterval(901))
         XCTAssertEqual(controller.content.entries.first?.value, "72%*")
-        XCTAssertEqual(item.length, width)
+        XCTAssertEqual(item.length, width, "An open popover keeps its anchor width")
+        XCTAssertTrue(button.sendAction(button.action, to: button.target))
+        XCTAssertFalse(controller.isPopoverShown)
+        XCTAssertEqual(opened, 1); XCTAssertEqual(hidden, 1)
         controller.refresh(now: now.addingTimeInterval(3600))
         XCTAssertEqual(controller.content.entries.first?.value, "—")
         XCTAssertEqual(item.length, width)
@@ -155,13 +172,48 @@ final class MenuBarLimitsTests: XCTestCase {
         XCTAssertEqual(controller.panel.entries, details, "Hiding the menu bar countdown must retain reset details in the panel")
         XCTAssertEqual(button.toolTip, tooltip)
         XCTAssertNotNil(controller.panel.entries.first?.resetDate)
+        // Removing the item while its popover is open also closes the popover.
+        XCTAssertTrue(button.sendAction(button.action, to: button.target))
+        XCTAssertTrue(controller.isPopoverShown)
         controller.update(snapshots: data, providers: [], preferences: .init(enabled: true), now: now)
         XCTAssertNil(controller.statusItem)
+        XCTAssertFalse(controller.isPopoverShown)
+        XCTAssertEqual(hidden, 2)
         controller.update(snapshots: data, providers: [.codex], preferences: .init(enabled: true), now: now)
         XCTAssertNotNil(controller.statusItem)
         controller.update(snapshots: data, providers: [.codex], preferences: .init(), now: now)
         XCTAssertNil(controller.statusItem)
-        if !placed { throw XCTSkip("The status item was not visible, so opening the popover was not checked") }
+    }
+
+    /// Opt-in: the real popover opens and closes from a status item placed in the
+    /// visible menu bar (`LUNAVECT_NATIVE_MENU_BAR=1`); needs an awake, unlocked display.
+    @MainActor func testNativeItemOpensAndClosesPopover() async throws {
+        guard ProcessInfo.processInfo.environment["LUNAVECT_NATIVE_MENU_BAR"] == "1" else {
+            throw XCTSkip("Opt-in native status item check (LUNAVECT_NATIVE_MENU_BAR=1)")
+        }
+        let app = NSApplication.shared, policy = NSApplication.shared.activationPolicy()
+        app.setActivationPolicy(.accessory)
+        defer { app.setActivationPolicy(policy) }
+        let suite = "Lunavect.MenuBarLimitsTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = MenuBarLimitsController(language: LanguageSettings(defaults: defaults, reloadWidgets: {}), defaults: defaults,
+                                                 autosaveName: nil) {}
+        controller.popover.animates = false
+        defer { controller.stop() }
+        controller.update(snapshots: try [snapshot()], providers: [.codex], preferences: .init(enabled: true), now: now)
+        let item = try XCTUnwrap(controller.statusItem), button = try XCTUnwrap(item.button)
+        let width = item.length
+        let placement = Date().addingTimeInterval(5)
+        while button.window?.isVisible != true, Date() < placement { try await Task.sleep(for: .milliseconds(50)) }
+        guard button.window?.isVisible == true, button.window?.occlusionState.contains(.visible) == true else {
+            throw XCTSkip("The status item was not visible, so opening the popover was not checked")
+        }
+        button.performClick(nil)
+        XCTAssertTrue(controller.popover.isShown)
+        XCTAssertEqual(item.length, width)
+        button.performClick(nil)
+        XCTAssertFalse(controller.popover.isShown)
     }
     @MainActor func testStyleAndPeriodChangesReachNativeIndicatorAndPersistSelection() throws {
         _ = NSApplication.shared

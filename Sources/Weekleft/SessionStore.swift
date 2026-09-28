@@ -15,11 +15,23 @@ import WeekleftCore
         var titles: ([AgentSession], [String], [ProviderID]) async throws -> [String: String] = { _, _, _ in [:] }
         var hooksState: @Sendable () -> [ProviderID: Bool] = { [:] }
         var initialEvents: (URL) -> [AgentSession] = { _ in [] }
+        /// Inert default: no process is ever declared gone.
+        var isProcessAlive: (Int32) -> Bool = { _ in true }
         var schedulesTimers = false
         var watchesEvents = false
+        /// How long directory changes gather before one read (R2-R-01): a record is a
+        /// temporary file plus a rename, and busy clients write several a second.
+        /// Tests replace it with a barrier; it is not live access.
+        var changeWindow: @Sendable () async throws -> Void = { try await Task.sleep(for: .milliseconds(100)) }
         var allowsClientConfiguration = false
         /// Hands a manually selected client executable to runtime observation.
         var configureRuntime: (ClientExecutableResolver) async -> Void = { _ in }
+        /// Client configuration of one provider; nil keeps connection maintenance inert.
+        var clientSetup: (ProviderID) -> ClientConnection.LocalSetup? = { _ in nil }
+        /// The stable hook helper link refreshed at launch (owner decision 18).
+        var helperLocation: HookHelperLocation?
+        /// Other installed copies of Lunavect, reported at launch (matrix P4).
+        var installedCopies: () -> [URL] = { [] }
 
         static func live(directory: URL) -> Self {
             Self(catalog: { provider, resolver, previous, priorityIDs in
@@ -56,11 +68,13 @@ import WeekleftCore
                     return result
                 }
             }, hooksState: { Dictionary(uniqueKeysWithValues: ProviderID.allCases.map { ($0, SessionHooks.installed($0)) }) },
-                 initialEvents: { CodexSessionMetadata.markingSubagents(in: SessionHooks.load(at: $0)) }, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
+                 initialEvents: { CodexSessionMetadata.markingSubagents(in: SessionHooks.load(at: $0)) },
+                 isProcessAlive: SessionSources.isProcessAlive, schedulesTimers: true, watchesEvents: true, allowsClientConfiguration: true,
                  configureRuntime: { resolver in
                      // Automatic discovery is already checked by the runtime reader itself.
                      await CodexActivityReader.shared.useExecutable(resolver.codexPath.isEmpty ? nil : resolver.codexPath)
-                 })
+                 }, clientSetup: { ClientConnection.LocalSetup(provider: $0) }, helperLocation: HookHelperLocation(),
+                 installedCopies: { InstalledCopies.others(running: Bundle.main.bundleURL) })
         }
         private static func readLocal<Value: Sendable>(_ operation: @escaping @Sendable () throws -> Value) async throws -> Value {
             try Task.checkCancellation()
@@ -86,10 +100,27 @@ import WeekleftCore
     struct DiagnosticEntry: Equatable {
         let date: Date
         let issue: ClientIntegrationIssue
+        /// A fact the hook helper recorded, such as a rejected SubagentStop count.
+        var hook: HookDiagnostic? = nil
     }
     /// Fixed codes only; bounded and local to this store's lifetime.
     @Published private(set) var diagnosticEntries: [DiagnosticEntry] = []
     @Published var hooksInstalled: [ProviderID: Bool] = [:]
+    /// Local configuration of each provider, read when connections are shown.
+    @Published private(set) var connectionStates: [ProviderID: ClientConnection.LocalState] = [:]
+    struct SetupNotice: Equatable {
+        let message: String
+        let warning: Bool
+    }
+    /// A launch finding shown on the session panel until dismissed.
+    @Published var setupNotice: SetupNotice?
+    /// Providers whose events the user turned off here (audit H-05). Kept in the
+    /// store's defaults; connecting or turning events on again clears it.
+    @Published private(set) var eventsDisabledByUser: Set<ProviderID> = [] {
+        didSet { defaults.set(eventsDisabledByUser.map(\.rawValue).sorted(), forKey: Self.eventsDisabledKey) }
+    }
+    private static let eventsDisabledKey = "connection.eventsDisabledByUser"
+    func eventsConnected(_ provider: ProviderID) { eventsDisabledByUser.remove(provider) }
     @Published var connectionMessage: String? {
         didSet { titleSaveOwnsConnectionMessage = false }
     }
@@ -102,6 +133,7 @@ import WeekleftCore
         self.providers = providers
         allSessions = allSessions.filter { providers.contains($0.provider) }
         catalog = catalog.filter { providers.contains($0.key) }
+        catalogSettled.formIntersection(providers)
         issues = issues.filter { providers.contains($0.key) }
         typedIssues = typedIssues.filter { providers.contains($0.key) }
         if let row = lastHidden, !providers.contains(row.provider) { lastHidden = nil }
@@ -133,6 +165,9 @@ import WeekleftCore
     // Retain observed inactivity beyond the source's status freshness window.
     // Poll timestamps are deliberately not activity timestamps.
     private var organizationCheckedAt: Date?
+    /// Providers whose catalog read has answered at least once, successfully or not.
+    /// The daily organization check waits for all of them (S-05).
+    private var catalogSettled: Set<ProviderID> = []
     private var inactiveSince: [String: Date] = [:]
     private var arrangementURL: URL?
     private var arrangementLoadError: Error?
@@ -148,8 +183,13 @@ import WeekleftCore
         let defaults = defaults ?? (isolated ? UserDefaults(suiteName: "Lunavect.SessionFixture." + UUID().uuidString)! : .standard)
         let base = directory ?? (isolated ? FileManager.default.temporaryDirectory.appendingPathComponent("Lunavect-preview-" + UUID().uuidString) : SessionHooks.directory)
         self.defaults = defaults; self.now = now; self.directory = base
-        self.dependencies = dependencies ?? (isolated ? Dependencies() : .live(directory: base))
+        // Under XCTest a store never selects live client access, even without
+        // `isolated`: no client process, settings file or helper link. It reads
+        // only hook records in its own directory (LiveWriteGuard).
+        self.dependencies = dependencies ?? (isolated ? Dependencies() : LiveWriteGuard.underTestsForStores
+            ? Dependencies(initialEvents: { SessionHooks.load(at: $0) }) : .live(directory: base))
         if isolated { resolveClient = { ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { nil }) } }
+        eventsDisabledByUser = Set((defaults.stringArray(forKey: Self.eventsDisabledKey) ?? []).compactMap(ProviderID.init(rawValue:)))
         let savedMinutes = defaults.integer(forKey: "sessionAutoHideMinutes")
         autoHideMinutes = [5, 10, 20].contains(savedMinutes) ? savedMinutes : 0
         self.undoDelay = undoDelay
@@ -309,7 +349,7 @@ import WeekleftCore
     /// A source changed while a read was already enumerating it.
     private var eventsChanged = false
     private var panelVisible = false
-    private var polling: SessionPolling?
+    private(set) var polling: SessionPolling?
     private var lastCatalogPollAt: Date?
     func setPanelVisible(_ visible: Bool) {
         guard panelVisible != visible else { return }
@@ -362,15 +402,26 @@ import WeekleftCore
         localTimer?.invalidate(); localTimer = nil
         sourceTimer?.invalidate(); sourceTimer = nil
         eventWatcher?.cancel(); eventWatcher = nil
+        changeTask?.cancel(); changeTask = nil
     }
     func stop() {
         stopped = true; started = false
         invalidateWork()
         undoDismissTask?.cancel(); undoDismissTask = nil
+        if let clockObserver { NotificationCenter.default.removeObserver(clockObserver); self.clockObserver = nil }
     }
     isolated deinit {
-        refreshTask?.cancel(); eventTask?.cancel(); undoDismissTask?.cancel()
+        refreshTask?.cancel(); eventTask?.cancel(); undoDismissTask?.cancel(); changeTask?.cancel()
         localTimer?.invalidate(); sourceTimer?.invalidate(); eventWatcher?.cancel()
+        if let clockObserver { NotificationCenter.default.removeObserver(clockObserver) }
+    }
+    private var clockObserver: NSObjectProtocol?
+    /// Inactivity is measured on the wall clock. A correction (NTP step, a
+    /// manual change) is not time without activity: running intervals restart
+    /// instead of hiding every idle session at once (matrix S14).
+    func systemClockChanged() {
+        let now = now()
+        for id in inactiveSince.keys { inactiveSince[id] = now }
     }
     private var desktopTitles: [String: String] = [:]
     private var titlesCheckedAt = Date.distantPast
@@ -390,6 +441,11 @@ import WeekleftCore
         beginRefresh()
         updatePollingTimers()
         watchEvents()
+        if dependencies.schedulesTimers, clockObserver == nil {
+            clockObserver = NotificationCenter.default.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor in self?.systemClockChanged() }
+            }
+        }
     }
     private func watchEvents() {
         guard started, !stopped, dependencies.watchesEvents, eventWatcher == nil else { return }
@@ -401,7 +457,7 @@ import WeekleftCore
         watcher.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self, self.isCurrent(current) else { return }
-                self.sourceChanged()
+                self.directoryChanged()
             }
         }
         watcher.setCancelHandler { close(fd) }
@@ -442,6 +498,8 @@ import WeekleftCore
         for (provider, result) in await [(ProviderID.codex, codex), (.claude, claude)] {
             guard isCurrent(expected) else { return }
             guard providers.contains(provider), let result else { continue }
+            if case .failure(let error) = result, error is CancellationError { return }
+            catalogSettled.insert(provider)
             switch result {
             case .success(let result):
                 catalog[provider] = result.rows
@@ -490,6 +548,21 @@ import WeekleftCore
     /// A hook wrote a record. A read already in progress may have enumerated the
     /// directory before the write, so the change schedules exactly one more read.
     func sourceChanged() { beginEvents(afterChange: true) }
+    /// The watcher reports each directory change: a record's temporary file and its
+    /// rename are two, and busy clients write several records a second. Changes that
+    /// arrive within one window cost one read (R2-R-01). A stop or a provider change
+    /// invalidates the window; a late one never reads for an older generation.
+    private var changeTask: Task<Void, Never>?
+    func directoryChanged() {
+        guard !stopped, !Task.isCancelled, changeTask == nil else { return }
+        let current = generation, window = dependencies.changeWindow
+        changeTask = Task { [weak self] in
+            do { try await window() } catch { return }
+            guard let self, self.isCurrent(current) else { return }
+            self.changeTask = nil
+            self.sourceChanged()
+        }
+    }
     @discardableResult private func beginEvents(requested: Bool = false, afterChange: Bool = false) -> Task<Void, Never>? {
         guard !stopped, !Task.isCancelled else { return nil }
         // Freshness belongs to the display clock, not source success. Keep menu
@@ -526,8 +599,19 @@ import WeekleftCore
             let events = try await dependencies.events(rows, providers, now())
             guard isCurrent(expected) else { return }
             let date = now()
+            recordHookDiagnostics(events.filter { providers.contains($0.provider) && !internalSessionIDs.contains($0.id) })
             let currentEvents = suppressResolvedClaudeQuestions(events.filter { providers.contains($0.provider) }, catalog: rows, now: date)
-            var merged = SessionList.merge(catalog: rows, events: currentEvents, now: date)
+            // `--all` re-lists finished and dormant background tasks on every poll.
+            // Such history joins the merge only when a hook event names it; otherwise
+            // it is passed through unchanged for completion notices (S-12).
+            let eventIDs = Set(currentEvents.map(\.id))
+            let history = rows.filter { $0.catalogHistory == true && !eventIDs.contains($0.id) }
+            let live = history.isEmpty ? rows : rows.filter { !($0.catalogHistory == true && !eventIDs.contains($0.id)) }
+            var merged = SessionList.merge(catalog: live, events: currentEvents, now: date) + history
+            // S-13 / A-02: a client killed mid-turn sends no Stop or SessionEnd.
+            let completeClaude = providers.contains(.claude) && typedIssues[.claude] == nil ? catalog[.claude].map { Set($0.map(\.id)) } : nil
+            merged = SessionList.endingDeadClaudeRuntimes(merged, completeCatalog: completeClaude, stopped: &stoppedRuntimes,
+                                                          isAlive: dependencies.isProcessAlive)
             if now().timeIntervalSince(titlesCheckedAt) >= (polling?.titles ?? 15) {
                 let titles = try await dependencies.titles(merged, hiddenIDs, providers)
                 guard isCurrent(expected) else { return }
@@ -563,8 +647,31 @@ import WeekleftCore
         guard let issue = ClientIntegrationIssue.classify(error, provider: provider, capability: .sessionCatalog) else { return }
         typedIssues[provider] = issue
         issues[provider] = L(issue.message)
-        diagnosticEntries.append(DiagnosticEntry(date: now(), issue: issue))
+        appendDiagnostic(DiagnosticEntry(date: now(), issue: issue))
+    }
+    private func appendDiagnostic(_ entry: DiagnosticEntry) {
+        diagnosticEntries.append(entry)
         if diagnosticEntries.count > 32 { diagnosticEntries.removeFirst(diagnosticEntries.count - 32) }
+    }
+    /// S-13 decisions by session and hook-record time: one failed catalog read
+    /// must not revive a stopped client (R2-02).
+    private var stoppedRuntimes: [String: Date] = [:]
+    /// Latest hook fact already turned into an entry, by session and kind.
+    private var reportedHookDiagnostics: [String: Date] = [:]
+    /// Hook records keep only their latest fact; each new one becomes one entry.
+    /// It is diagnostic only: no connection issue, message or badge.
+    private func recordHookDiagnostics(_ events: [AgentSession]) {
+        for event in events {
+            guard let fact = event.hookDiagnostic else { continue }
+            let key = event.id + ":" + fact.kind.rawValue
+            guard fact.at > (reportedHookDiagnostics[key] ?? .distantPast) else { continue }
+            reportedHookDiagnostics[key] = fact.at
+            appendDiagnostic(DiagnosticEntry(date: fact.at, issue: ClientIntegrationIssue(provider: event.provider, capability: .sessionCatalog,
+                                                                                            reason: .unsupportedResponse), hook: fact))
+        }
+        if reportedHookDiagnostics.count > 512 {
+            reportedHookDiagnostics = Dictionary(uniqueKeysWithValues: reportedHookDiagnostics.sorted { $0.value > $1.value }.prefix(256).map { ($0.key, $0.value) })
+        }
     }
     private func suppressResolvedClaudeQuestions(_ events: [AgentSession], catalog: [AgentSession], now: Date) -> [AgentSession] {
         resolvedClaudeQuestions = resolvedClaudeQuestions.filter {
@@ -603,13 +710,18 @@ import WeekleftCore
         onObservation?(taskRows.filter { $0.catalogHistory != true }, now)
         do {
             try removeHiddenInternalSessions()
-            if organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
+            // The local event timer usually delivers the first rows before the
+            // catalogs; checking then would stamp the day without any evidence.
+            if providers.allSatisfy(catalogSettled.contains),
+               organizationCheckedAt.map({ now.timeIntervalSince($0) >= 86400 || now < $0 }) ?? true {
                 try visibility?.pruneRemoved(now: now)
                 // Only a provider whose current catalog arrived complete can prove absence.
+                // Re-listed history is not presence: it must not keep a hidden entry
+                // or an arrangement slot alive indefinitely (S-12).
                 let complete = Set(providers.filter { catalog[$0] != nil && typedIssues[$0] == nil })
-                try visibility?.observe(Set(rows.map(\.id)), completeProviders: complete, now: now)
+                try visibility?.observe(Set(rows.filter { $0.catalogHistory != true }.map(\.id)), completeProviders: complete, now: now)
                 var next = arrangement
-                if next.observe(Set(taskRows.map(\.id)), now: now) { try saveArrangement(next) }
+                if next.observe(Set(taskRows.filter { $0.catalogHistory != true }.map(\.id)), now: now) { try saveArrangement(next) }
                 organizationCheckedAt = now
             }
             try visibility?.removeUnstartedClaudeLifecycles(rows)
@@ -634,14 +746,16 @@ import WeekleftCore
         for row in visible {
             // Never hide ongoing work, requests for input/permission, or an
             // unconfirmed state merely because its latest event is old.
-            guard !row.phase.isActive, row.phase != .unknown, row.runtimeConfirmed != false,
+            // Retained catalog history is never shown as current; it is not archived.
+            guard row.catalogHistory != true, !row.phase.isActive, row.phase != .unknown, row.runtimeConfirmed != false,
                   !row.isUnstartedClaudeLifecycle else {
                 inactiveSince.removeValue(forKey: row.id)
                 continue
             }
             if inactiveSince[row.id] == nil {
-                // Historical catalog entries must not flood the hidden list.
-                guard row.effectivePhase(now: now) != .unknown else { continue }
+                // Only a row the panel shows as current starts an interval: history,
+                // stale entries and sessions that ended unseen do not fill the list.
+                guard row.isCurrent(now: now) else { continue }
                 inactiveSince[row.id] = min(row.updatedAt, now)
             }
             let since = max(inactiveSince[row.id]!, min(row.updatedAt, now))
@@ -652,35 +766,70 @@ import WeekleftCore
             }
         }
     }
-    func updateHookConfiguration() { publishHookConfiguration(dependencies.hooksState()) }
+    func updateHookConfiguration() {
+        publishHookConfiguration(dependencies.hooksState())
+        var states: [ProviderID: ClientConnection.LocalState] = [:]
+        for provider in ProviderID.allCases { states[provider] = dependencies.clientSetup(provider)?.inspect() }
+        if connectionStates != states { connectionStates = states }
+    }
     /// An unchanged state must not invalidate every observing view on each poll.
     private func publishHookConfiguration(_ state: [ProviderID: Bool]) {
         if hooksInstalled != state { hooksInstalled = state }
     }
+    /// Launch maintenance (owner decisions 17 and 18): point the stable helper link
+    /// at this copy, then move Lunavect's own entries that name another path to it.
+    /// Removed events stay removed, paused (disableAllHooks) or unreadable settings
+    /// are not written, and a translocated copy writes nothing and asks to be moved.
     private func repairMovedConnections() {
         guard dependencies.allowsClientConfiguration else { return }
-        guard let executable = SessionHooks.monitorExecutable() else { return }
+        var notices: [SetupNotice] = []
+        var translocated = false
+        if let location = dependencies.helperLocation {
+            translocated = location.isTranslocated
+            do { try location.refreshLink() }
+            catch { Self.connectionLog.error("Helper link not updated: \(String(describing: error), privacy: .public)") }
+        }
+        if translocated {
+            notices.append(SetupNotice(message: L("macOS запустила Lunavect из временной копии. Перенесите Lunavect в папку «Программы» и откройте его оттуда: до этого команды подключений не обновляются."), warning: true))
+        }
+        var repaired: [ProviderID] = []
+        if let setup = dependencies.clientSetup(.claude) {
+            do { try SessionHooks.restrictOwnBackups(bridgeDirectory: setup.bridgeDirectory, backupDirectory: setup.backupDirectory) }
+            catch { Self.connectionLog.error("Backup permissions not restricted: \(String(describing: error), privacy: .public)") }
+        }
         for provider in providers {
-            let setup = ClientConnection.LocalSetup(provider: provider, executable: executable)
+            guard let setup = dependencies.clientSetup(provider) else { continue }
             do {
-                if SessionHooks.configured(provider), !SessionHooks.installed(provider) {
-                    try SessionHooks.install(provider: provider, executable: executable)
-                }
-                if provider == .claude, ClaudeProvider.statusLineConfigured(), !ClaudeProvider.statusLineInstalled() {
-                    try ClaudeProvider.installStatusLine(executable: executable)
-                }
+                if try setup.repair() == .repaired { repaired.append(provider) }
             } catch {
                 connectionMessage = L("Не удалось восстановить подключение после переноса приложения. Откройте «Подключения» и повторите настройку.")
                     + " " + localConnectionSummary(setup.inspect())
             }
         }
+        if !repaired.isEmpty {
+            Self.connectionLog.notice("Moved Lunavect commands to the helper link: \(repaired.map(\.rawValue).joined(separator: ","), privacy: .public)")
+            notices.append(SetupNotice(message: L("Команды Lunavect в настройках {0} обновлены: теперь они не зависят от расположения приложения.",
+                                                  repaired.map(\.title).joined(separator: ", ")), warning: false))
+        }
+        let copies = translocated ? [] : dependencies.installedCopies()
+        if !copies.isEmpty {
+            notices.append(SetupNotice(message: L("Установлена ещё одна копия Lunavect: {0}. Оставьте одну копию, чтобы виджеты и подключения работали с ней.",
+                                                  copies.map(\.path).joined(separator: ", ")), warning: true))
+        }
+        let warning = notices.contains(where: \.warning)
+        setupNotice = notices.isEmpty ? nil : SetupNotice(message: notices.map(\.message).joined(separator: "\n"), warning: warning)
+    }
+    private static let connectionLog = Logger(subsystem: "com.weekleft.app", category: "connections")
+    /// The provider's client configuration; nil in previews and tests without fixtures.
+    func localSetup(_ provider: ProviderID) -> ClientConnection.LocalSetup? {
+        dependencies.allowsClientConfiguration ? dependencies.clientSetup(provider) : nil
     }
     func disconnect(_ provider: ProviderID) -> Bool {
-        guard dependencies.allowsClientConfiguration else { return false }
-        let setup = ClientConnection.LocalSetup(provider: provider)
+        guard dependencies.allowsClientConfiguration, let setup = dependencies.clientSetup(provider) else { return false }
         defer { updateHookConfiguration() }
         do {
             try setup.apply(.disconnect)
+            eventsDisabledByUser.remove(provider)
             return true
         } catch {
             let state = (error as? ClientConnection.LocalFailure)?.state ?? setup.inspect()
@@ -696,14 +845,19 @@ import WeekleftCore
         return L("События: {0}.", L(state.hooks.message))
     }
     func toggleHooks(_ provider: ProviderID) {
-        guard dependencies.allowsClientConfiguration else { return }
+        guard dependencies.allowsClientConfiguration, let setup = dependencies.clientSetup(provider) else { return }
         do {
             if hooksInstalled[provider] == true {
-                try SessionHooks.remove(provider: provider)
+                try SessionHooks.remove(provider: provider, configURL: setup.configURL, backupDirectory: setup.backupDirectory)
+                eventsDisabledByUser.insert(provider)
                 connectionMessage = L("События {0} отключены. Остальные обработчики сохранены.", provider.title)
             } else {
-                guard let executable = SessionHooks.monitorExecutable() else { throw SessionError.unavailable }
-                try SessionHooks.install(provider: provider, executable: executable)
+                guard let executable = setup.executable else {
+                    throw setup.translocated ? SessionError.translocated : SessionError.unavailable
+                }
+                try SessionHooks.install(provider: provider, executable: executable, configURL: setup.configURL,
+                                         backupDirectory: setup.backupDirectory)
+                eventsDisabledByUser.remove(provider)
                 connectionMessage = provider == .codex
                     ? L("Обработчики добавлены. В Codex откройте /hooks и разрешите команды Lunavect. До первого события статус останется неизвестным.")
                     : L("Обработчики добавлены. События появятся при следующем действии в Claude Code; уже открытой сессии может потребоваться перезапуск.")
@@ -726,6 +880,23 @@ final class SharedWorkDemand: Sendable {
 }
 
 enum SessionNavigation {
+    /// Test isolation (R2-N-02): under XCTest navigation never scripts, launches or
+    /// connects to the user's applications, nor reads their Desktop session records,
+    /// unless a test driving operator-owned fixtures opts in. A routing regression in
+    /// a test then fails with this error instead of opening a real app.
+    struct LiveSystemRefused: LocalizedError, Equatable {
+        let action: String
+        var errorDescription: String? { "Test isolation: refused \(action)" }
+    }
+    @MainActor static var allowsLiveSystemInTests = false {
+        // Terminal focus runs osascript through SessionProcess (R2-X-03).
+        didSet { allowsLiveSystemInTests ? LiveProcessGuard.allow(["/usr/bin/osascript"]) : LiveProcessGuard.disallow(["/usr/bin/osascript"]) }
+    }
+    @MainActor static func checkLiveSystem(_ action: String) throws {
+        guard LiveWriteGuard.underTestsForStores, !allowsLiveSystemInTests else { return }
+        fputs("LUNAVECT TEST ISOLATION: refused live navigation (\(action))\n", stderr)
+        throw LiveSystemRefused(action: action)
+    }
     /// `focus` is the only step that scripts another application; tests replace it.
     @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver(),
                                 focus: @MainActor (AgentSession) async throws -> Bool = { try await focusTerminal($0) },
@@ -744,8 +915,12 @@ enum SessionNavigation {
             let script = try session.terminalScript(resolver: resolver)
             var directoryExists: ObjCBool = false
             guard FileManager.default.fileExists(atPath: session.cwd, isDirectory: &directoryExists), directoryExists.boolValue else { throw SessionOpeningError.missingProject }
+            // The write guard below follows the account's home; a test that runs with
+            // another Foundation home must still never launch Terminal (R2-V-01).
+            try checkLiveSystem("terminal launch")
             guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { throw SessionOpeningError.missingTerminal }
             let directory = SessionHooks.directory.appendingPathComponent("Openers")
+            try LiveWriteGuard.check(directory)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             // Best-effort: an old launcher that cannot be removed must not block opening.
             _ = try? SessionHooks.pruneOpeners(in: directory)
@@ -756,21 +931,22 @@ enum SessionNavigation {
             catch { throw SessionOpeningError.launchFailed(session.client) }
             return
         }
+        // Editor sessions returned above: every VS Code or JetBrains row uses its companion.
+        try checkLiveSystem("desktop link")
         let url: URL?
         if session.provider == .codex { url = session.codexURL }
-        else if session.client == .vscode { url = session.vscodeURL }
         else {
             let records = await Task.detached { ClaudeSessionMetadata.records(for: [session.sessionID]) }.value
             url = records[session.sessionID].flatMap { session.claudeDesktopURL(desktopID: $0.desktopID) }
         }
-        guard let url else { throw session.provider == .claude && session.client != .vscode ? SessionOpeningError.missingDesktopLink : SessionOpeningError.invalidID }
-        let clientName = session.client == .vscode ? "VS Code" : session.provider.title
-        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { throw SessionOpeningError.missingClient(clientName) }
+        guard let url else { throw session.provider == .claude ? SessionOpeningError.missingDesktopLink : SessionOpeningError.invalidID }
+        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { throw SessionOpeningError.missingClient(session.provider.title) }
         guard NSWorkspace.shared.open(url) else { throw SessionOpeningError.launchFailed(session.client) }
     }
     @MainActor static func focusIDE(_ session: AgentSession) async throws {
+        try checkLiveSystem("editor bridge")
         try await IDEBridge.open(session, activateApp: { pid in
-            await MainActor.run { NSRunningApplication(processIdentifier: pid)?.activate() ?? false }
+            await MainActor.run { activateEditor(pid) }
         }) { url, app in
             do {
                 _ = try await NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
@@ -778,47 +954,47 @@ enum SessionNavigation {
             } catch { return false }
         }
     }
+    /// Activation is cooperative on macOS 14 and later: yield to the editor first.
+    /// From a notification Lunavect itself may not be active, so the first request
+    /// can be refused; a request on behalf of the current app is the second try.
+    @MainActor static func activateEditor(_ pid: Int32) -> Bool {
+        guard let editor = NSRunningApplication(processIdentifier: pid) else { return false }
+        NSApp.yieldActivation(to: editor)
+        if editor.activate() { return true }
+        return editor.activate(from: NSRunningApplication.current, options: [])
+    }
     /// A live CLI session stays where it runs: bring its own tab to the front.
+    /// The policy lives in `TerminalLocation.focusSession`; only the running-app check needs AppKit.
     @MainActor static func focusTerminal(_ session: AgentSession) async throws -> Bool {
+        try checkLiveSystem("terminal focus")
         let log = Logger(subsystem: "com.weekleft.app", category: "navigation")
-        guard let target = TerminalLocation.focusTarget(for: session) else {
-            log.notice("terminal focus unavailable: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
-            throw SessionOpeningError.terminalTabUnavailable
+        let environment = TerminalFocusEnvironment(isRunning: { bundle in
+            await MainActor.run { !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty }
+        })
+        do {
+            let focused = try await TerminalLocation.focusSession(session, environment: environment)
+            log.notice("terminal focus \(focused ? "succeeded" : "found no tab", privacy: .public)")
+            return focused
+        } catch {
+            log.notice("terminal focus failed: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
+            throw error
         }
-        // A root-owned login may hide the host's name. Match the exact device
-        // against running supported terminals; never launch an empty terminal.
-        let apps = target.app.isEmpty ? ["Terminal", "iTerm2"] : [target.app]
-        var failure: SessionOpeningError?
-        let deadline = ProcessInfo.processInfo.systemUptime + Double(TerminalLocation.focusTimeout)
-        for app in apps {
-            try Task.checkCancellation()
-            guard let bundle = TerminalLocation.bundleIdentifier(forApp: app),
-                  !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty else { continue }
-            do {
-                if try await TerminalLocation.focus(tty: target.tty, app: app,
-                                                    timeout: deadline - ProcessInfo.processInfo.systemUptime) {
-                    log.notice("terminal focus succeeded")
-                    return true
-                }
-            } catch {
-                try Task.checkCancellation()
-                if error is CancellationError { throw error }
-                log.notice("terminal focus failed")
-                failure = failure ?? (error as? SessionOpeningError) ?? .terminalFocusFailed(app)
-            }
-        }
-        throw failure ?? SessionOpeningError.terminalTabUnavailable
     }
-    @MainActor static func copy(_ text: String) {
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+    // The pasteboard and opener are parameters so tests prove the refusal on a
+    // private pasteboard and a recorder, never on the user's clipboard or Finder.
+    @MainActor static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
+        guard (try? checkLiveSystem("clipboard")) != nil else { return }
+        pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
     }
-    @MainActor static func openCodex(_ session: AgentSession) -> Bool {
+    @MainActor static func openCodex(_ session: AgentSession, open: (URL) -> Bool = { NSWorkspace.shared.open($0) }) -> Bool {
+        guard (try? checkLiveSystem("codex link")) != nil else { return false }
         guard let url = session.codexURL else { return false }
-        return NSWorkspace.shared.open(url)
+        return open(url)
     }
-    @MainActor static func revealProject(_ session: AgentSession) -> Bool {
+    @MainActor static func revealProject(_ session: AgentSession, open: (URL) -> Bool = { NSWorkspace.shared.open($0) }) -> Bool {
+        guard (try? checkLiveSystem("reveal folder")) != nil else { return false }
         guard session.cwd.hasPrefix("/"), FileManager.default.fileExists(atPath: session.cwd) else { return false }
-        return NSWorkspace.shared.open(URL(fileURLWithPath: session.cwd))
+        return open(URL(fileURLWithPath: session.cwd))
     }
 }
 

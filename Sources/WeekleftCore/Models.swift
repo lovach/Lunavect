@@ -17,23 +17,35 @@ private enum UsageDate {
     }
 }
 
+/// How a source reported a reset. Nil: an exact timestamp (status line, Codex).
+/// Otherwise the source showed the reset truncated to this unit ("11:59pm" for
+/// 23:59:59.767) and `resetsAt` holds the end of the shown unit, the first moment
+/// the window has certainly reset, so nothing treats it as reset early (Q-05).
+/// The `/usage` parser always sets it for a window with a reset; a saved `/usage`
+/// window without it was written by an earlier version and is read as the start
+/// of its shown minute (`UsageSnapshot.init(from:)`).
+public enum ResetPrecision: String, Codable, Sendable { case minute, hour, day }
+
 public struct QuotaWindow: Codable, Equatable, Sendable {
     public let usedPercent: Double
     public let durationMinutes: Int
     public let resetsAt: Date?
+    public let resetPrecision: ResetPrecision?
     public var remaining: Double { max(0, min(100, 100 - usedPercent)) }
-    public init(usedPercent: Double, durationMinutes: Int, resetsAt: Date?) throws {
+    public init(usedPercent: Double, durationMinutes: Int, resetsAt: Date?, resetPrecision: ResetPrecision? = nil) throws {
         guard usedPercent.isFinite, (0...100).contains(usedPercent), durationMinutes > 0,
               resetsAt.map(UsageDate.isValid) ?? true else { throw UsageError.invalidResponse }
         self.usedPercent = usedPercent; self.durationMinutes = durationMinutes; self.resetsAt = resetsAt
+        self.resetPrecision = resetsAt == nil ? nil : resetPrecision
     }
-    private enum CodingKeys: String, CodingKey { case usedPercent, durationMinutes, resetsAt }
+    private enum CodingKeys: String, CodingKey { case usedPercent, durationMinutes, resetsAt, resetPrecision }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let used = try values.decode(Double.self, forKey: .usedPercent)
         let duration = try values.decode(Int.self, forKey: .durationMinutes)
         let reset = try values.decodeIfPresent(Date.self, forKey: .resetsAt)
-        do { try self.init(usedPercent: used, durationMinutes: duration, resetsAt: reset) }
+        let precision = (try? values.decodeIfPresent(ResetPrecision.self, forKey: .resetPrecision)) ?? nil
+        do { try self.init(usedPercent: used, durationMinutes: duration, resetsAt: reset, resetPrecision: precision) }
         catch {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
                 debugDescription: "Invalid quota window", underlyingError: error))
@@ -46,6 +58,15 @@ public struct QuotaWindow: Codable, Equatable, Sendable {
         resetsAt.map { $0.timeIntervalSince(fetchedAt) <= Double(durationMinutes) * 60 + 120 } ?? true
     }
     public func isExpired(at now: Date) -> Bool { resetsAt.map { $0 <= now } ?? false }
+    /// A `/usage` reading saved before resets carried their precision holds the
+    /// start of the shown minute. The reset is certain at its end; a window
+    /// observed at `observedAt` cannot run past `observedAt` plus its length.
+    func completingShownMinute(observedAt: Date?) throws -> QuotaWindow {
+        guard resetPrecision == nil, let resetsAt else { return self }
+        var end = resetsAt.addingTimeInterval(60)
+        if let observedAt { end = max(resetsAt, min(end, observedAt.addingTimeInterval(Double(durationMinutes) * 60))) }
+        return try QuotaWindow(usedPercent: usedPercent, durationMinutes: durationMinutes, resetsAt: end, resetPrecision: .minute)
+    }
     public func countdown(now: Date = Date(), language: String = L10n.selection) -> String {
         func text(_ key: String, _ args: String...) -> String { L10n.text(key, language: language, arguments: args) }
         guard let resetsAt else { return "—" }
@@ -91,10 +112,14 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     public var issue: String?
     /// Optional for compatibility with snapshots written before model quotas were supported.
     public var modelQuotas: [ModelQuota]?
-    public init(provider: ProviderID, weekly: QuotaWindow? = nil, fiveHour: QuotaWindow? = nil, fetchedAt: Date? = nil, source: String = "", issue: String? = nil, modelQuotas: [ModelQuota]? = nil) {
+    /// The provider confirmed that no rate-limit window applies (a Codex plan with
+    /// unlimited credits or without windows). Absent in older snapshots.
+    public var unlimited: Bool?
+    public init(provider: ProviderID, weekly: QuotaWindow? = nil, fiveHour: QuotaWindow? = nil, fetchedAt: Date? = nil, source: String = "", issue: String? = nil, modelQuotas: [ModelQuota]? = nil, unlimited: Bool? = nil) {
         self.provider = provider; self.weekly = weekly; self.fiveHour = fiveHour; self.fetchedAt = fetchedAt; self.source = source; self.issue = issue; self.modelQuotas = modelQuotas
+        self.unlimited = unlimited
     }
-    private enum CodingKeys: String, CodingKey { case provider, weekly, fiveHour, fetchedAt, source, issue, modelQuotas }
+    private enum CodingKeys: String, CodingKey { case provider, weekly, fiveHour, fetchedAt, source, issue, modelQuotas, unlimited }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         provider = try values.decode(ProviderID.self, forKey: .provider)
@@ -104,6 +129,24 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         source = try values.decode(String.self, forKey: .source)
         issue = try values.decodeIfPresent(String.self, forKey: .issue)
         modelQuotas = try values.decodeIfPresent([ModelQuota].self, forKey: .modelQuotas)
+        unlimited = try values.decodeIfPresent(Bool.self, forKey: .unlimited)
+        // Written before `/usage` resets carried their precision (Q-05). Claude's model
+        // buckets always come from `/usage`, also inside a status-line snapshot that
+        // kept them (0.2.4 snapshot.json); the status line's own windows are exact.
+        do {
+            if source == Self.usageProbeSource {
+                let observed = fetchedAt
+                weekly = try weekly?.completingShownMinute(observedAt: observed)
+                fiveHour = try fiveHour?.completingShownMinute(observedAt: observed)
+            }
+            if source == Self.usageProbeSource || provider == .claude {
+                modelQuotas = try modelQuotas?.map {
+                    ModelQuota(name: $0.name, window: try $0.window.completingShownMinute(observedAt: $0.fetchedAt), fetchedAt: $0.fetchedAt)
+                }
+            }
+        } catch {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid quota window", underlyingError: error))
+        }
         guard weekly.map({ $0.durationMinutes == 10080 }) ?? true else {
             throw DecodingError.dataCorruptedError(forKey: .weekly, in: values, debugDescription: "Invalid weekly duration")
         }
@@ -136,14 +179,87 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     /// statusLine supplies cached session quotas, without their server observation
     /// time. Receipt (even after an API response) cannot certify quota freshness.
     public var freshnessVerified: Bool { source != "Claude Code statusLine" }
+    static let usageProbeSource = "Claude Code /usage"
+    /// New data is expected only this long after a reset. A `/usage` reset is already
+    /// the end of the minute the CLI showed (`ResetPrecision`); the CLI then needs a
+    /// moment to load the new window. statusLine and Codex report exact epochs.
+    /// The confirming probe keeps its moment: 90 s after the shown minute's start.
+    public var resetGrace: TimeInterval { source == Self.usageProbeSource ? 30 : 5 }
     public var hasQuota: Bool { weekly != nil || fiveHour != nil }
     public func connectionQuotaTitle(now: Date = Date()) -> String {
-        guard hasQuota else { return "Ждём лимиты" }
+        guard hasQuota || unlimited == true else { return "Ждём лимиты" }
         return isStale(now: now) ? "Лимиты сохранены" : "Лимиты получены"
     }
 }
+/// The state of one quota window, shared by the menu bar, widgets and settings
+/// (01-quota.md §3). Unknown values stay unknown: after a reset without new data
+/// neither the old value nor an assumed 100 % is shown.
+public enum QuotaWindowStatus: Equatable, Sendable {
+    /// No observation of this window.
+    case unknown
+    /// The provider applies no rate-limit window.
+    case unlimited
+    /// A value with a future (or unreported) reset; stale values are marked.
+    case current(stale: Bool)
+    /// 0 % remaining until the saved reset: it cannot change before then.
+    case exhausted
+    /// The saved reset has passed and no newer observation exists.
+    case resetPassed(Date)
+    /// Confirmed 0 % used and no reset yet: the window starts with the first request.
+    case inactive(stale: Bool)
+
+    public static func of(_ window: QuotaWindow?, stale: Bool, now: Date, unlimited: Bool = false) -> Self {
+        guard let window else { return unlimited ? .unlimited : .unknown }
+        if let reset = window.resetsAt {
+            if reset <= now { return .resetPassed(reset) }
+            return window.remaining < 1 ? .exhausted : .current(stale: stale)
+        }
+        return window.usedPercent == 0 ? .inactive(stale: stale) : .current(stale: stale)
+    }
+    /// The remaining percentage a surface may show; nil shows a dash.
+    public func remaining(of window: QuotaWindow?) -> Double? {
+        switch self {
+        case .current, .exhausted, .inactive: return window?.remaining
+        case .unknown, .unlimited, .resetPassed: return nil
+        }
+    }
+    /// A saved value that may have changed since it was observed ("*").
+    public var isStale: Bool {
+        switch self {
+        case .current(let stale), .inactive(let stale): return stale
+        default: return false
+        }
+    }
+    /// One sentence per state, identical on every surface; nil when the value speaks for itself.
+    public func note(now: Date, language: String = L10n.selection) -> String? {
+        switch self {
+        case .resetPassed(let date):
+            let locale = L10n.locale(language: AppLanguage.resolve(language))
+            let time = date.formatted(Calendar.current.isDate(date, inSameDayAs: now)
+                ? .dateTime.hour().minute().locale(locale)
+                : .dateTime.day().month().hour().minute().locale(locale))
+            return L10n.text("Сброс был в {0}, ждём первые данные нового окна", language: language, arguments: [time])
+        case .inactive: return L10n.text("Окно начнётся с первым запросом", language: language)
+        case .unlimited: return L10n.text("Без лимитов", language: language)
+        case .unknown, .current, .exhausted: return nil
+        }
+    }
+}
+extension UsageSnapshot {
+    public func status(of window: QuotaWindow?, now: Date = Date()) -> QuotaWindowStatus {
+        .of(window, stale: isStale(window: window, now: now), now: now, unlimited: unlimited == true)
+    }
+}
+extension ModelQuota {
+    public func status(now: Date = Date()) -> QuotaWindowStatus { .of(window, stale: isStale(now: now), now: now) }
+}
+
 public enum UsageError: LocalizedError {
     case invalidResponse, missingCLI, timeout, notSignedIn, waitingForClaude, statusLineDisabled, claudeQuotaStale, claudeCLIUnavailable, claudeSignInRequired, claudeUsageUnavailable
+    /// Earlier wording still stored in saved snapshots, recognized by diagnostics.
+    static let retiredMessages: [String: UsageError] = [
+        "Claude Code не передал свежие лимиты. Проверьте подключение и доступность команды /usage. Повторим автоматически через 5 минут.": .claudeUsageUnavailable
+    ]
     public var errorDescription: String? {
         switch self {
         case .invalidResponse: return "Источник вернул неподдерживаемые данные."
@@ -154,7 +270,7 @@ public enum UsageError: LocalizedError {
         case .claudeQuotaStale: return "Лимиты Claude устарели. Lunavect автоматически запросит новые данные через Claude Code."
         case .claudeCLIUnavailable: return "Для автоматического обновления лимитов установите Claude Code и войдите в свой аккаунт."
         case .claudeSignInRequired: return "Откройте Claude Code в терминале и завершите его настройку или вход. Lunavect повторит запрос автоматически."
-        case .claudeUsageUnavailable: return "Claude Code не передал свежие лимиты. Проверьте подключение и доступность команды /usage. Повторим автоматически через 5 минут."
+        case .claudeUsageUnavailable: return "Claude Code не передал свежие лимиты. Сохранённые данные остаются на месте; Lunavect повторит запрос позже."
         case .statusLineDisabled: return "Строка состояния отключена настройкой disableAllHooks в Claude Code."
         }
     }
@@ -186,13 +302,39 @@ public enum UsageParser {
             if minutes == 10080 { weekly = window }
             if minutes == 300 { five = window }
         }
-        return UsageSnapshot(provider: .codex, weekly: weekly, fiveHour: five, fetchedAt: now, source: "Codex CLI")
+        // A reached usage limit is 100 % of the binding window, even when the
+        // server's rounded percentage is lower. Credit depletion is not a window.
+        let reachedTypes = ["rate_limit_reached", "workspace_owner_usage_limit_reached", "workspace_member_usage_limit_reached"]
+        if let type = bucket["rateLimitReachedType"] as? String, reachedTypes.contains(type) {
+            let binding = max(weekly?.usedPercent ?? -1, five?.usedPercent ?? -1)
+            if let window = weekly, window.usedPercent == binding {
+                weekly = try QuotaWindow(usedPercent: 100, durationMinutes: window.durationMinutes, resetsAt: window.resetsAt)
+            }
+            if let window = five, window.usedPercent == binding {
+                five = try QuotaWindow(usedPercent: 100, durationMinutes: window.durationMinutes, resetsAt: window.resetsAt)
+            }
+        }
+        var snapshot = UsageSnapshot(provider: .codex, weekly: weekly, fiveHour: five, fetchedAt: now, source: "Codex CLI")
+        // No window in the account bucket and the documented unlimited-credits flag
+        // (app-server v2 `CreditsSnapshot.unlimited`): a known answer. Without the
+        // flag (API-key sign-in, a plan name, an empty answer) the limit is unknown.
+        let credits = bucket["credits"] as? [String: Any]
+        let unlimitedCredits = (credits?["unlimited"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false
+        if unlimitedCredits, !["primary", "secondary"].contains(where: { bucket[$0] is [String: Any] }) { snapshot.unlimited = true }
+        return snapshot
     }
     public static func claude(_ result: [String: Any], now: Date = Date()) throws -> UsageSnapshot {
         func window(_ key: String, _ minutes: Int) throws -> QuotaWindow? {
             guard let raw = result[key] as? [String: Any] else { return nil }
-            guard let used = number(raw["used_percentage"]) else { throw UsageError.invalidResponse }
-            guard let epoch = number(raw["resets_at"]), epoch.doubleValue > 0 else { throw UsageError.invalidResponse }
+            guard let used = number(raw["used_percentage"]), (0...100).contains(used.doubleValue) else { throw UsageError.invalidResponse }
+            // Windows are independent (Q-10). One that has not started yet (0 %,
+            // `resets_at` null) is the inactive window, like the same block of
+            // `/usage` (decision 5). A used window or a malformed reset is absent;
+            // the other window stays.
+            if raw["resets_at"] == nil || raw["resets_at"] is NSNull {
+                return used.doubleValue == 0 ? try QuotaWindow(usedPercent: 0, durationMinutes: minutes, resetsAt: nil) : nil
+            }
+            guard let epoch = number(raw["resets_at"]), epoch.doubleValue > 0 else { return nil }
             let date = Date(timeIntervalSince1970: epoch.doubleValue)
             return try QuotaWindow(usedPercent: used.doubleValue, durationMinutes: minutes, resetsAt: date)
         }

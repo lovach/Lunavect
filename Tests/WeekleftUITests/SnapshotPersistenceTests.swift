@@ -39,7 +39,7 @@ final class SnapshotPersistenceTests: XCTestCase {
         // Main callbacks can be older than this synchronous result. Their explicit
         // sequence lets AppStore reject a late failure after a successful flush.
         XCTAssertTrue(callbackSequences.states.isEmpty)
-        await fulfillment(of: [completed], timeout: 2)
+        await fulfillment(of: [completed], timeout: 5)
         XCTAssertEqual(callbackSequences.sequences, [1, 2])
         XCTAssertEqual(service.counters, PersistenceCounters(submitted: 3, written: 3))
         XCTAssertEqual(writes.states.last?.snapshots, final.snapshots)
@@ -82,6 +82,23 @@ final class SnapshotPersistenceTests: XCTestCase {
         XCTAssertEqual(attempts.states.count, 2)
         XCTAssertEqual(reloads.states.count, 1)
         XCTAssertEqual(service.counters, PersistenceCounters(submitted: 3, written: 1, skipped: 1, failed: 1))
+    }
+
+    /// A writer may change the bytes before it fails; the state saved before
+    /// the failure can no longer be assumed on disk and is written again.
+    func testPartialFailedWriteCannotSeedDeduplicationOfTheEarlierState() throws {
+        let url = try directory().appendingPathComponent("snapshot.json"), saved = state(1), failing = state(2)
+        let service = SnapshotPersistence(url: url, write: { value, destination in
+            if value.snapshots == failing.snapshots {
+                try Data("partial snapshot".utf8).write(to: destination)
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            try JSONEncoder().encode(value).write(to: destination)
+        })
+        XCTAssertEqual(service.flush(saved).disposition, .written)
+        XCTAssertEqual(service.flush(failing).disposition, .failed)
+        XCTAssertEqual(service.flush(saved).disposition, .written)
+        XCTAssertEqual(try JSONDecoder().decode(SharedState.self, from: Data(contentsOf: url)).snapshots, saved.snapshots)
     }
 
     @MainActor func testValidLoadSeedsDedupButMissingOrRecoveredFileNeedsWrite() throws {

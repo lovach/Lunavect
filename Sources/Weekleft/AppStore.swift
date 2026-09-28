@@ -16,6 +16,8 @@ import WeekleftCore
         return await withTaskCancellationHandler(operation: { await reader.value }, onCancel: { reader.cancel() })
     }
     var refreshQuota: ((ProviderID, String, Bool) async throws -> UsageSnapshot)? = nil
+    /// When the Claude status line last reported (its saved receipt time).
+    var statusLineObservedAt: @Sendable () -> Date? = { ClaudeProvider.statusLineObservedAt() }
     var scheduling = AppRefreshScheduling()
     var discoverCodex: @Sendable () -> String? = AppStore.discoverCodex
 }
@@ -37,6 +39,15 @@ import WeekleftCore
         }
         return { center.removeObserver(observer) }
     }
+    /// One-shot delay: wake settle, session-event debounce and the reset timer.
+    var after: (TimeInterval, @escaping @MainActor @Sendable () -> Void) -> (() -> Void) = { delay, action in
+        let timer = Timer(timeInterval: max(0, delay), repeats: false) { _ in
+            Task { @MainActor in action() }
+        }
+        timer.tolerance = min(5, max(0.1, delay / 20))
+        RunLoop.main.add(timer, forMode: .common)
+        return { timer.invalidate() }
+    }
 }
 
 @MainActor final class AppStore: ObservableObject {
@@ -45,7 +56,7 @@ import WeekleftCore
         didSet {
             guard preferences != oldValue else { return }
             let changed = Set(preferences.providers).symmetricDifference(oldValue.providers)
-            for id in changed { providerGenerations[id, default: 0] += 1 }
+            for id in changed { providerGenerations[id, default: 0] += 1; refreshPolicy.forget(id) }
             if !changed.isEmpty { activityService.setProviders(preferences.providers) }
             schedulePersistence()
         }
@@ -64,6 +75,7 @@ import WeekleftCore
             // A response from the previous executable is no longer an observation
             // of this connection, even if the user switches back before it arrives.
             providerGenerations[.codex, default: 0] += 1
+            refreshPolicy.forget(.codex)
             if !isolated { defaults.set(codexPath, forKey: "codexPath") }
         }
     }
@@ -74,16 +86,26 @@ import WeekleftCore
     private var providerGenerations: [ProviderID: Int] = [:]
     private let localQuota: @Sendable (Date) async -> UsageSnapshot?
     private let refreshQuota: ((ProviderID, String, Bool) async throws -> UsageSnapshot)?
+    private let statusLineReceipt: @Sendable () -> Date?
     private let scheduling: AppRefreshScheduling
     private let codexDiscovery: @Sendable () -> String?
     private var cancelTriggers: [() -> Void] = []
     private var backgroundRefresh: Task<Void, Never>?
     private var localRefresh: Task<Void, Never>?
+    /// When each provider is asked for new quota data (QuotaRefreshPolicy).
+    private var refreshPolicy = QuotaRefreshPolicy()
+    private var lastSessionEvent: [ProviderID: Date] = [:]
+    private var pendingEventProviders: Set<ProviderID> = []
+    /// Automatic requests that arrived while a refresh ran; evaluated after it.
+    private var deferredRequests: [(trigger: QuotaRefreshPolicy.Trigger, providers: Set<ProviderID>?)] = []
+    private var cancelEventDebounce: (() -> Void)?
+    private var cancelWakeSettle: (() -> Void)?
+    private var cancelResetCheck: (() -> Void)?
     private var lifecycleGeneration = 0
     private var started = false
     private let preferenceWrites = DeferredWrite()
     private let savesChanges: Bool
-    private let isolated: Bool
+    let isolated: Bool
     private let defaults: UserDefaults
     private let quotaFetcher: ((ProviderID, String) async throws -> UsageSnapshot)?
     let network: NetworkConnection
@@ -111,12 +133,15 @@ import WeekleftCore
             return await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
         }
         refreshQuota = dataServices?.refreshQuota
+        statusLineReceipt = dataServices?.statusLineObservedAt ?? { @Sendable in ClaudeProvider.statusLineObservedAt() }
         scheduling = dataServices?.scheduling ?? AppRefreshScheduling()
         codexDiscovery = dataServices?.discoverCodex ?? Self.discoverCodex
         snapshotPersistence = isolated ? nil : dataServices?.snapshots ?? SnapshotPersistence(reload: {
             WidgetCenter.shared.reloadTimelines(ofKind: "WeekleftWidget")
-            WidgetCenter.shared.reloadTimelines(ofKind: "LunavectActivityWidget")
             WidgetCenter.shared.reloadTimelines(ofKind: "LunavectOverviewWidget")
+        }, reloadActivity: {
+            // Quota receipts do not change activity; its history saves reload it.
+            WidgetCenter.shared.reloadTimelines(ofKind: "LunavectActivityWidget")
         })
         if isolated {
             activityService = ActivityService(history: activityHistory, details: activityDetails, isolated: true, clock: clock)
@@ -154,7 +179,9 @@ import WeekleftCore
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             }
             guard !Task.isCancelled, self.started, self.lifecycleGeneration == generation, !self.network.isOffline else { return }
-            await self.refresh(force: false)
+            // A restored connection may have removed the cause of earlier failures.
+            self.refreshPolicy.resetBackoff()
+            await self.refresh(only: nil, trigger: .networkRestored)
             if !Task.isCancelled, self.started, self.lifecycleGeneration == generation { await self.onNetworkRestored?() }
         }
     }
@@ -169,22 +196,79 @@ import WeekleftCore
         guard !isolated, !started else { return }
         started = true
         network.start(); activityService.start(providers: providers)
-        requestBackgroundRefresh(force: false)
+        requestBackgroundRefresh(trigger: .launch)
         let generation = lifecycleGeneration
         cancelTriggers = [
             scheduling.repeating(5) { [weak self] in
                 guard self?.lifecycleGeneration == generation else { return }
                 self?.requestLocalRefresh()
             },
+            // An evaluation tick: the policy decides whether any provider is due.
             scheduling.repeating(300) { [weak self] in
                 guard self?.lifecycleGeneration == generation else { return }
-                self?.requestBackgroundRefresh(force: false)
+                self?.requestBackgroundRefresh(trigger: .timer)
             },
             scheduling.wake { [weak self] in
                 guard self?.lifecycleGeneration == generation else { return }
-                self?.requestBackgroundRefresh(force: false)
+                self?.handleWake()
             }
         ]
+        scheduleResetCheck()
+    }
+    /// The network needs a few seconds after wake. A connection that is still down
+    /// reports its return through `network.onRestored` instead.
+    private func handleWake() {
+        guard started else { return }
+        cancelWakeSettle?()
+        let generation = lifecycleGeneration
+        cancelWakeSettle = scheduling.after(refreshPolicy.timing.wakeSettle) { [weak self] in
+            guard let self, self.started, self.lifecycleGeneration == generation else { return }
+            self.cancelWakeSettle = nil
+            guard !self.network.isOffline else { return }
+            self.refreshPolicy.resetBackoff()
+            self.requestBackgroundRefresh(trigger: .wake)
+        }
+    }
+    /// A finished response changes the account's usage. Session rows from hooks and
+    /// local events count; catalog rows (including Lunavect's own probe) do not.
+    /// A burst is debounced into one evaluation after a quiet period.
+    func observeSessionEvents(_ rows: [AgentSession], now: Date) {
+        guard started else { return }
+        var fresh: Set<ProviderID> = []
+        for provider in providers {
+            guard let latest = rows.filter({ $0.provider == provider && [.hook, .localEvent].contains($0.evidence) }).map(\.updatedAt).max() else { continue }
+            let known = lastSessionEvent[provider]
+            guard known.map({ latest > $0 }) ?? true else { continue }
+            lastSessionEvent[provider] = latest
+            refreshPolicy.noteEvent(provider, at: min(latest, now))
+            // The first observation after launch is the baseline, not a new response.
+            if known != nil { fresh.insert(provider) }
+        }
+        guard !fresh.isEmpty else { return }
+        pendingEventProviders.formUnion(fresh)
+        cancelEventDebounce?()
+        let generation = lifecycleGeneration
+        cancelEventDebounce = scheduling.after(refreshPolicy.timing.eventDebounce) { [weak self] in
+            guard let self, self.started, self.lifecycleGeneration == generation else { return }
+            self.cancelEventDebounce = nil
+            let due = self.pendingEventProviders
+            self.pendingEventProviders = []
+            self.requestBackgroundRefresh(trigger: .sessionEvent, only: due)
+        }
+    }
+    /// One confirming request at the earliest reset plus its grace, or at the end of
+    /// the backoff while a passed reset is still unconfirmed.
+    private func scheduleResetCheck() {
+        cancelResetCheck?(); cancelResetCheck = nil
+        guard started else { return }
+        let now = clock()
+        guard let date = refreshPolicy.nextCheck(snapshots.filter { providers.contains($0.provider) }, now: now) else { return }
+        let generation = lifecycleGeneration
+        cancelResetCheck = scheduling.after(date.timeIntervalSince(now)) { [weak self] in
+            guard let self, self.started, self.lifecycleGeneration == generation else { return }
+            self.cancelResetCheck = nil
+            self.requestBackgroundRefresh(trigger: .resetDue)
+        }
     }
     private func requestLocalRefresh() {
         guard started, localRefresh == nil, providers.contains(.claude) else { return }
@@ -198,25 +282,67 @@ import WeekleftCore
             let snapshot = await reader(now)
             guard let self, self.lifecycleGeneration == generation else { return }
             guard !Task.isCancelled, self.started, self.providers.contains(.claude),
-                  self.providerGenerations[.claude, default: 0] == providerGeneration, let snapshot,
-                  let index = self.snapshots.firstIndex(where: { $0.provider == .claude }),
-                  snapshot != self.snapshots[index],
-                  ClaudeProvider.preferredObservation([self.snapshots[index], snapshot], now: self.clock()) == snapshot else { return }
-            self.snapshots[index] = snapshot; self.persist()
+                  self.providerGenerations[.claude, default: 0] == providerGeneration, var snapshot,
+                  let index = self.snapshots.firstIndex(where: { $0.provider == .claude }) else { return }
+            let current = self.snapshots[index]
+            if Self.isSameReading(snapshot, current) {
+                // The saved files hold the reading that is shown. Their windows are the
+                // original: snapshot.json rewritten by an older copy of the app loses the
+                // reset precision (R2-P-04). They do not know the failure of the latest
+                // request, which stays with its mark (R2-Q-02).
+                snapshot.issue = current.issue ?? snapshot.issue
+                if snapshot.modelQuotas == nil { snapshot.modelQuotas = current.modelQuotas }
+            } else {
+                guard ClaudeProvider.preferredObservation([current, snapshot], now: self.clock()) == snapshot else { return }
+            }
+            guard snapshot != current else { return }
+            self.snapshots[index] = snapshot; self.persist(); self.scheduleResetCheck()
         }
     }
-    private func requestBackgroundRefresh(force: Bool) {
-        guard started, backgroundRefresh == nil else { return }
+    /// One observation of one source: the same observation time.
+    private static func isSameReading(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
+        lhs.provider == rhs.provider && lhs.source == rhs.source && lhs.fetchedAt != nil && lhs.fetchedAt == rhs.fetchedAt
+    }
+    /// An automatic evaluation. One that arrives while a refresh runs is kept and
+    /// evaluated after it: that refresh may not have included its provider.
+    private func requestBackgroundRefresh(trigger: QuotaRefreshPolicy.Trigger, only providers: Set<ProviderID>? = nil) {
+        deferRequest(trigger, providers)
+        runDeferredRequests()
+    }
+    private func deferRequest(_ trigger: QuotaRefreshPolicy.Trigger, _ providers: Set<ProviderID>?) {
+        guard started else { return }
+        guard let index = deferredRequests.firstIndex(where: { $0.trigger == trigger }) else {
+            deferredRequests.append((trigger, providers)); return
+        }
+        // nil asks about every provider.
+        deferredRequests[index].providers = deferredRequests[index].providers.flatMap { old in providers.map { old.union($0) } }
+    }
+    private func runDeferredRequests() {
+        guard started, backgroundRefresh == nil, !refreshing, !deferredRequests.isEmpty else { return }
+        let requests = deferredRequests
+        deferredRequests = []
         let generation = lifecycleGeneration
         backgroundRefresh = Task { [weak self] in
-            guard !Task.isCancelled, self?.started == true, self?.lifecycleGeneration == generation else { return }
-            await self?.refresh(force: force)
-            if self?.lifecycleGeneration == generation { self?.backgroundRefresh = nil }
+            for request in requests {
+                guard !Task.isCancelled, self?.started == true, self?.lifecycleGeneration == generation else { break }
+                await self?.refresh(only: request.providers, trigger: request.trigger)
+            }
+            guard let self, self.lifecycleGeneration == generation else { return }
+            self.backgroundRefresh = nil
+            self.runDeferredRequests()
         }
+    }
+    /// No quota request is running or waiting to run. Tests wait for this (with a
+    /// deadline) instead of yielding a fixed number of times.
+    var quotaRefreshIdle: Bool {
+        !refreshing && backgroundRefresh == nil && deferredRequests.isEmpty && localRefresh == nil && !network.recoveryPending
     }
     func stop() {
         started = false; lifecycleGeneration += 1
         cancelTriggers.forEach { $0() }; cancelTriggers.removeAll()
+        for cancel in [cancelEventDebounce, cancelWakeSettle, cancelResetCheck] { cancel?() }
+        cancelEventDebounce = nil; cancelWakeSettle = nil; cancelResetCheck = nil
+        pendingEventProviders = []; deferredRequests = []; lastSessionEvent = [:]; refreshPolicy = QuotaRefreshPolicy()
         backgroundRefresh?.cancel(); backgroundRefresh = nil
         localRefresh?.cancel(); localRefresh = nil
         refreshing = false; network.stop()
@@ -226,19 +352,62 @@ import WeekleftCore
         }
         activityService.stop()
     }
-    func refresh(provider requestedProvider: ProviderID? = nil, force: Bool = true) async {
-        guard !Task.isCancelled, !refreshing, !network.isOffline else { return }; refreshing = true
+    /// What an explicit refresh did, so a control can say why nothing happened (R2-U-03).
+    enum RefreshOutcome: Equatable {
+        /// The providers were asked (or none is connected).
+        case asked
+        /// No network: the request waits for the connection.
+        case offline
+        /// Another request runs; this one is evaluated after it.
+        case running
+        /// Every requested provider was asked less than 30 s ago; asking is possible again at this moment.
+        case tooSoon(until: Date)
+    }
+    /// `force` is an explicit request (at most once per 30 s per provider);
+    /// otherwise the refresh policy decides which providers are due.
+    @discardableResult
+    func refresh(provider requestedProvider: ProviderID? = nil, force: Bool = true) async -> RefreshOutcome {
+        let requested = requestedProvider.map { Set([$0]) }
+        let trigger: QuotaRefreshPolicy.Trigger = force ? .manual : .timer
+        var outcome = RefreshOutcome.asked
+        if network.isOffline { outcome = .offline }
+        else if refreshing { outcome = .running }
+        else if force {
+            let now = clock()
+            let asked = providers.filter { requested?.contains($0) ?? true }
+            let waits = asked.compactMap { refreshPolicy.manualRetryDate($0, now: now) }
+            if !asked.isEmpty, waits.count == asked.count, let until = waits.min() { outcome = .tooSoon(until: until) }
+        }
+        await refresh(only: requested, trigger: trigger)
+        return outcome
+    }
+    /// When the Claude status line last reported; an isolated store reads no live file (R2-U-04).
+    func statusLineObservedAt() -> Date? { isolated ? nil : statusLineReceipt() }
+    func refresh(only requested: Set<ProviderID>?, trigger: QuotaRefreshPolicy.Trigger) async {
+        guard !Task.isCancelled, !network.isOffline else { return }
+        // One refresh at a time; a request during it is evaluated afterwards.
+        guard !refreshing else { deferRequest(trigger, requested); return }
+        let now = clock()
+        let due = Set(providers.filter { id in
+            (requested?.contains(id) ?? true)
+                && refreshPolicy.shouldFetch(id, snapshot: snapshots.first { $0.provider == id }, trigger: trigger, now: now)
+        })
+        guard !due.isEmpty else { scheduleResetCheck(); return }
+        refreshing = true
         let generation = lifecycleGeneration, selectedGenerations = providerGenerations
-        defer { if lifecycleGeneration == generation { refreshing = false } }
+        defer { if lifecycleGeneration == generation { refreshing = false; runDeferredRequests() } }
         let path = codexPath
-        async let codex = fetchIfEnabled(.codex, path: path, requested: requestedProvider, force: force)
-        async let claude = fetchIfEnabled(.claude, path: path, requested: requestedProvider, force: force)
+        async let codex = fetchIfEnabled(.codex, path: path, due: due)
+        async let claude = fetchIfEnabled(.claude, path: path, due: due)
         for (id, result) in await [(ProviderID.codex, codex), (.claude, claude)] {
             guard !Task.isCancelled, lifecycleGeneration == generation else { return }
             guard providers.contains(id), providerGenerations[id, default: 0] == selectedGenerations[id, default: 0], let result else { continue }
             let index = snapshots.firstIndex { $0.provider == id }
             switch result {
             case .success(let snapshot):
+                // Claude's fallback returns the saved observation with the failure as its issue.
+                let reason = ClientIntegrationIssue.legacy(snapshot.issue, provider: id, capability: Self.quotaCapability(id))?.reason
+                refreshPolicy.record(id, snapshot: snapshot, succeeded: snapshot.issue == nil, reason: reason, at: clock())
                 if let index {
                     // The local reader may publish a newer Claude observation while a slower
                     // provider keeps this refresh open. A delayed fallback must not roll it back.
@@ -249,6 +418,10 @@ import WeekleftCore
                 }
                 else { snapshots.append(snapshot) }
             case .failure(let error):
+                if !(error is CancellationError) {
+                    let reason = ClientIntegrationIssue.classify(error, provider: id, capability: Self.quotaCapability(id))?.reason
+                    refreshPolicy.record(id, snapshot: index.map { snapshots[$0] }, succeeded: false, reason: reason, at: clock())
+                }
                 guard !network.isOffline else { continue }
                 let message = (error as? ClientIntegrationIssue)?.message
                     ?? (error as? UsageError)?.errorDescription ?? (error as? SessionOpeningError)?.errorDescription
@@ -259,16 +432,19 @@ import WeekleftCore
             }
         }
         persist()
+        scheduleResetCheck()
     }
-    private func fetchIfEnabled(_ id: ProviderID, path: String, requested: ProviderID?, force: Bool) async -> Result<UsageSnapshot, Error>? {
-        guard !Task.isCancelled, providers.contains(id), requested == nil || requested == id else { return nil }
+    private static func quotaCapability(_ id: ProviderID) -> ClientIntegrationIssue.Capability { id == .claude ? .usageProbe : .rateLimits }
+    private func fetchIfEnabled(_ id: ProviderID, path: String, due: Set<ProviderID>) async -> Result<UsageSnapshot, Error>? {
+        guard !Task.isCancelled, providers.contains(id), due.contains(id) else { return nil }
         guard !isolated || quotaFetcher != nil else { return nil }
         let resolver = clientResolver
+        // The policy has decided: the provider is asked now.
         return await Self.capture {
             if let quotaFetcher { return try await quotaFetcher(id, path) }
-            if let refreshQuota { return try await refreshQuota(id, path, force) }
+            if let refreshQuota { return try await refreshQuota(id, path, true) }
             if id == .codex { return try await CodexProvider.fetch(resolver: resolver) }
-            return try await ClaudeProvider.refresh(force: force)
+            return try await ClaudeProvider.refresh()
         }
     }
     func setProvider(_ id: ProviderID, enabled: Bool) {
@@ -284,6 +460,8 @@ import WeekleftCore
     func observeActivity(_ rows: [AgentSession], now: Date? = nil) { activityService.observe(rows, now: now) }
     func flushActivity(now: Date? = nil) { activityService.flush(now: now) }
     func importActivityHistory() { activityService.requestImport() }
+    /// Only the statistics page's explicit button keeps an unreadable history aside.
+    func startOverActivityHistory() { activityService.startOverPreservingHistory() }
     private func schedulePersistence() {
         guard savesChanges else { return }
         preferenceWrites.schedule { [weak self] in self?.persist() }
@@ -344,12 +522,15 @@ import WeekleftCore
     @Published private(set) var offlineSince: Date?
     var isOffline: Bool { state == .offline }
     var onRestored: (() async -> Void)?
+    /// A restored connection is settling or being handled by `onRestored`.
+    private(set) var recoveryPending = false
     private var monitor: NWPathMonitor?
     private var recovery: Task<Void, Never>?
+    private var recoveryToken = 0
     private var generation = 0
     private let settle: () async throws -> Void
     private let makeMonitor: () -> NWPathMonitor?
-    init(settle: @escaping () async throws -> Void = { try await Task.sleep(for: .seconds(2)) },
+    init(settle: @escaping () async throws -> Void = { try await Task.sleep(for: .seconds(3)) },
          makeMonitor: @escaping () -> NWPathMonitor? = { NWPathMonitor() }) {
         self.settle = settle; self.makeMonitor = makeMonitor
     }
@@ -370,16 +551,20 @@ import WeekleftCore
         generation += 1
         monitor?.cancel(); monitor = nil
         recovery?.cancel(); recovery = nil
-        restoring = false
+        restoring = false; recoveryPending = false
     }
     func update(available: Bool) {
         let next: State = available ? .online : .offline
         guard state != next else { return }
         let wasOffline = isOffline
-        state = next; recovery?.cancel(); restoring = false
+        state = next; recovery?.cancel(); restoring = false; recoveryPending = false
         offlineSince = available ? nil : Date()
         guard wasOffline, available else { return }
+        recoveryToken += 1
+        let token = recoveryToken
+        recoveryPending = true
         recovery = Task { [weak self] in
+            defer { if self?.recoveryToken == token { self?.recoveryPending = false } }
             guard let self else { return }
             do { try await settle() } catch { return }
             guard !Task.isCancelled, !isOffline else { return }

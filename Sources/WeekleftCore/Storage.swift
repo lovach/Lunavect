@@ -1,6 +1,72 @@
 import Foundation
 import OSLog
 import Darwin
+import os
+
+/// Under XCTest, refuses writes below the real home folder: client settings,
+/// Lunavect's support folder, the helper link and preferences stay untouched
+/// even when a test forgets to inject a destination. The home folder comes from
+/// the user database because Foundation ignores a `HOME` override. Inert in the
+/// app and its helpers (no XCTest classes are loaded there).
+public enum LiveWriteGuard {
+    public struct Refused: LocalizedError, Equatable {
+        public let path: String
+        public var errorDescription: String? { "Test isolation: refused to write \(path)" }
+    }
+    static let underTests = NSClassFromString("XCTestCase") != nil
+    public static var underTestsForStores: Bool { underTests }
+    static let realHome: String? = {
+        guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else { return nil }
+        return String(cString: directory)
+    }()
+    private static let fixtures = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    /// Test support: also protect a temporary folder, so a fixture can prove that
+    /// a write site is guarded without ever aiming it at the real home folder.
+    public static func protect(_ root: URL) { fixtures.withLock { _ = $0.insert(root.resolvingSymlinksInPath().standardizedFileURL.path) } }
+    public static func unprotect(_ root: URL) { fixtures.withLock { _ = $0.remove(root.resolvingSymlinksInPath().standardizedFileURL.path) } }
+    public static func isProtected(_ url: URL) -> Bool {
+        guard underTests else { return false }
+        let roots = fixtures.withLock { $0 }.union(realHome.map { [$0] } ?? [])
+        let paths = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().standardizedFileURL.path]
+        return roots.contains { root in paths.contains { $0 == root || $0.hasPrefix(root + "/") } }
+    }
+    public static func check(_ urls: URL...) throws {
+        for url in urls where isProtected(url) {
+            fputs("LUNAVECT TEST ISOLATION: refused write to \(url.path)\n", stderr)
+            throw Refused(path: url.path)
+        }
+    }
+}
+
+/// Under XCTest, refuses side effects on the user's system other than file
+/// writes (R2-X-03): starting a program that is not a test fixture (the official
+/// clients, osascript, pluginkit, anything outside the temporary folder except a
+/// few POSIX tools that reach no application or account), and, through
+/// `refuses`, login item registration, System Settings panes, sounds and global
+/// shortcuts. A test that deliberately drives a real program names it with
+/// `allow` and removes it with `disallow`. Inert in the app and its helpers.
+public enum LiveProcessGuard {
+    private static let allowed = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    static let tools: Set<String> = ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/echo", "/bin/cat", "/bin/sleep", "/bin/pwd",
+                                     "/usr/bin/true", "/usr/bin/false", "/usr/bin/printf", "/usr/bin/env"]
+    private static func canonical(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path }
+    public static func allow(_ executables: [String]) { allowed.withLock { $0.formUnion(executables.map(canonical)) } }
+    public static func disallow(_ executables: [String]) { allowed.withLock { $0.subtract(executables.map(canonical)) } }
+    public static func check(_ executable: URL?) throws {
+        guard LiveWriteGuard.underTests, let executable else { return }
+        let path = canonical(executable.path)
+        let temporary = canonical(FileManager.default.temporaryDirectory.path)
+        guard !path.hasPrefix(temporary + "/"), !tools.contains(path), !allowed.withLock({ $0.contains(path) }) else { return }
+        fputs("LUNAVECT TEST ISOLATION: refused to start \(path)\n", stderr)
+        throw LiveWriteGuard.Refused(path: path)
+    }
+    /// True (and logged) under XCTest: the caller skips a system action without an executable.
+    public static func refuses(_ action: String) -> Bool {
+        guard LiveWriteGuard.underTests else { return false }
+        fputs("LUNAVECT TEST ISOLATION: refused \(action)\n", stderr)
+        return true
+    }
+}
 
 public struct WidgetPreferences: Codable, Equatable, Sendable {
     public var showFiveHour = false
@@ -50,10 +116,21 @@ public struct SharedState: Codable, Sendable {
     }
 }
 public enum SnapshotStore {
-    public static var directory: URL {
-        if let group = Bundle.main.object(forInfoDictionaryKey: "WeekleftAppGroup") as? String, !group.isEmpty,
-           let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) { return url.appendingPathComponent("Weekleft", isDirectory: true) }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Weekleft", isDirectory: true)
+    public static var directory: URL { resolved.url }
+    /// A build that declares an App Group but cannot open its container stores
+    /// shared state in Application Support, where the sandboxed widget cannot read it.
+    public static var usesFallbackDirectory: Bool { resolved.fellBack }
+    private static var resolved: (url: URL, fellBack: Bool) {
+        resolveDirectory(group: Bundle.main.object(forInfoDictionaryKey: "WeekleftAppGroup") as? String,
+                         container: { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) },
+                         applicationSupport: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
+    }
+    public static func resolveDirectory(group: String?, container: (String) -> URL?, applicationSupport: URL) -> (url: URL, fellBack: Bool) {
+        if let group, !group.isEmpty {
+            if let url = container(group) { return (url.appendingPathComponent("Weekleft", isDirectory: true), false) }
+            return (applicationSupport.appendingPathComponent("Weekleft", isDirectory: true), true)
+        }
+        return (applicationSupport.appendingPathComponent("Weekleft", isDirectory: true), false)
     }
     public static func load(from url: URL = directory.appendingPathComponent("snapshot.json")) -> SharedState {
         do {
@@ -98,9 +175,9 @@ public enum SnapshotStore {
         return SharedState(snapshots: snapshots, preferences: decode(WidgetPreferences.self, from: root["preferences"]) ?? .init())
     }
     public static func save(_ state: SharedState) throws {
-        let dir = directory
+        let dir = directory, url = dir.appendingPathComponent("snapshot.json")
+        try LiveWriteGuard.check(url)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let url = dir.appendingPathComponent("snapshot.json")
         try LocalStateRecovery.write(JSONEncoder().encode(state), to: url)
     }
 }
@@ -108,6 +185,16 @@ public enum SnapshotStore {
 public struct RecoveredLocalState<Value> {
     public var value: Value
     public let backupURL: URL?
+}
+
+/// The glass widget background replaces private ChronoServices implementations
+/// (see docs/checks-and-release-gates.md). `defaults write` of `disablePrivateWidgetBackground` in the
+/// shared App Group domain turns it off without a rebuild.
+public enum WidgetBackgroundPolicy {
+    public static let disableKey = "disablePrivateWidgetBackground"
+    public static func usesPrivateBackground(_ preferences: WidgetPreferences, disabled: Bool = L10n.defaults.bool(forKey: disableKey)) -> Bool {
+        preferences.transparentBackground && !disabled
+    }
 }
 
 /// Future entries age the saved observation even when WidgetKit delays the next
@@ -119,7 +206,9 @@ public enum WidgetTimelineSchedule {
         for snapshot in snapshots {
             if let fetched = snapshot.fetchedAt { dates.insert(fetched.addingTimeInterval(901)) }
             for window in [snapshot.weekly, snapshot.fiveHour].compactMap({ $0 }) {
-                if let reset = window.resetsAt { dates.insert(reset) }
+                // At the reset the old value disappears; after the grace the app's
+                // confirming request may have replaced it (QuotaRefreshPolicy).
+                if let reset = window.resetsAt { dates.insert(reset); dates.insert(reset.addingTimeInterval(snapshot.resetGrace)) }
             }
         }
         if let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) { dates.insert(midnight) }
@@ -152,8 +241,13 @@ public enum LocalStateRecovery {
         guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
         return data
     }
-    public static func write(_ data: Data, to url: URL) throws {
+    /// `synchronize: false` skips fsync for private state that is rewritten
+    /// periodically. An app crash then loses at most that cadence; after a power
+    /// loss or kernel panic the renamed file may be empty, so callers flush it at
+    /// quit and before sleep.
+    public static func write(_ data: Data, to url: URL, synchronize: Bool = true) throws {
         let target = url.resolvingSymlinksInPath()
+        try LiveWriteGuard.check(url, target)
         let tmp = target.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
         // The private temporary is created exclusively and has restrictive mode
         // before the first byte. Existing migration symlinks keep their target.
@@ -162,7 +256,7 @@ public enum LocalStateRecovery {
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
         try handle.write(contentsOf: data)
-        try handle.synchronize()
+        if synchronize { try handle.synchronize() }
         try handle.close()
         guard rename(tmp.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
@@ -170,6 +264,7 @@ public enum LocalStateRecovery {
     /// (a hook or status-line helper cancelled by its client) leaves it behind.
     /// Remove only `write`'s own `.UUID.tmp` names, long after any write ends.
     @discardableResult public static func removeAbandonedTemporaries(in directory: URL, now: Date = Date(), olderThan age: TimeInterval = 3600) throws -> Int {
+        try LiveWriteGuard.check(directory)
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         var removed = 0
         for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) {
@@ -191,6 +286,8 @@ public enum LocalStateRecovery {
             }
             guard error is DecodingError || (cocoa.domain == NSCocoaErrorDomain && cocoa.code == CocoaError.fileReadCorruptFile.rawValue) else { throw error }
             let backup = target.appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString)")
+            // Moving the damaged file aside is a change too: never under the real home in tests.
+            try LiveWriteGuard.check(target, backup)
             try FileManager.default.moveItem(at: target, to: backup)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
             return RecoveredLocalState(value: empty, backupURL: backup)

@@ -8,6 +8,8 @@ final class ClientConnectionTests: XCTestCase {
         }
         for provider in ProviderID.allCases {
             let path = try XCTUnwrap(provider == .claude ? SessionSources.discoverClaude() : CodexProvider.discoverCLI())
+            // Opt-in: the installed client may run for this check only (LiveProcessGuard).
+            LiveProcessGuard.allow([path]); defer { LiveProcessGuard.disallow([path]) }
             let state = await ClientConnection.signInState(provider, executable: path)
             XCTAssertEqual(state, .signedIn, provider.rawValue)
         }
@@ -367,7 +369,7 @@ final class ClientSignInCancellationTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
         let task = Task { await ClientConnection.signInState(.claude, executable: cli.path, timeout: 20) }
         defer { task.cancel() }
-        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        let deadline = ProcessInfo.processInfo.systemUptime + TestDeadline.seconds
         while !FileManager.default.fileExists(atPath: pidURL.path), ProcessInfo.processInfo.systemUptime < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -376,7 +378,7 @@ final class ClientSignInCancellationTests: XCTestCase {
         task.cancel()
         let state = await task.value
         XCTAssertEqual(state, .unavailable)
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+        TimingBound.assertPrompt(since: start, strict: 1.5, "Cancellation must not wait for the 20 s sign-in budget")
         XCTAssertNotEqual(kill(pid, 0), 0, "Cancelled auth fixture must not remain running")
     }
 }
@@ -410,7 +412,7 @@ extension ClientCapabilityDiagnosticTests {
             resetsAt: now.addingTimeInterval(3600)), fetchedAt: now, source: ClaudeUsageProbe.source)
         let unsupported = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse)
         var writes = 0
-        let result = try await ClaudeProvider.refresh(force: true, cached: { cached }, probe: { throw unsupported }, save: { _ in writes += 1 })
+        let result = try await ClaudeProvider.refresh(cached: { cached }, probe: { throw unsupported }, save: { _ in writes += 1 })
         XCTAssertEqual(result.weekly?.usedPercent, 48)
         XCTAssertEqual(result.fetchedAt, cached.fetchedAt)
         XCTAssertEqual(result.issue, unsupported.message)

@@ -2,6 +2,7 @@
 """Package a notarized Lunavect app in a read-only drag-to-Applications DMG."""
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import plistlib
@@ -10,6 +11,9 @@ import tempfile
 import sys
 
 ARTWORK = Path(__file__).resolve().parent / 'dmg'
+_spec = importlib.util.spec_from_file_location('release_preflight', Path(__file__).with_name('release-preflight.py'))
+preflight = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(preflight)
 REGISTER = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
 
 
@@ -54,16 +58,38 @@ def verify_layout(mount, layout):
         raise ValueError(f'Unexpected visible installer files: {visible}')
 
 
+class CleanupFailed(Exception):
+    """Packaging failed and retiring its exported source failed as well."""
+
+    def __init__(self, original, cleanup):
+        super().__init__(f'{original}\nRegistration cleanup also failed: {cleanup}')
+
+
+def retire_exported(app):
+    checked(sys.executable, str(Path(__file__).with_name('reassert-installed-widget.py')),
+            '--retire-app', str(app))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--test-fixture', action='store_true',
+                        help='Accept LUNAVECT_* registration overrides (script tests only); a release refuses them')
     args = parser.parse_args()
+    # The retirement honours LUNAVECT_* registration overrides; a release must not.
+    preflight.refuse_fixture_overrides(parser, args.test_fixture)
+    # Retire the exported source after success and failure alike; a cleanup
+    # failure must not replace the reason packaging stopped.
     try:
         prepare(args)
-    finally:
-        checked(sys.executable, str(Path(__file__).with_name('reassert-installed-widget.py')),
-                '--retire-app', str(args.app))
+    except BaseException as original:
+        try:
+            retire_exported(args.app)
+        except Exception as cleanup:
+            raise CleanupFailed(original, cleanup) from original
+        raise
+    retire_exported(args.app)
 
 
 def prepare(args):
@@ -128,8 +154,12 @@ def prepare(args):
     print(f'Verified DMG containing the notarized app: {output.name}\nSHA-256: {digest}')
 
 
-if __name__ == '__main__':
+def entry():
     try:
         main()
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (CleanupFailed, ValueError, OSError, subprocess.CalledProcessError) as error:
         raise SystemExit(str(error))
+
+
+if __name__ == '__main__':
+    entry()

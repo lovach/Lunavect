@@ -16,7 +16,7 @@ GATE = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(GATE)
 
 class ReleasePreflightTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect release fixture 'q' ")  # a checkout with spaces
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         (self.root / 'scripts').mkdir()
@@ -36,7 +36,19 @@ class ReleasePreflightTests(unittest.TestCase):
         tool.write_text('#!/bin/sh\ntouch "$RELEASE_FIXTURE_TRACE"\nexit 42\n'); tool.chmod(0o755)
         # A private home keeps the owner's installed app out of these fixtures.
         self.home = self.root / 'home'
+        # Registration cleanup must never reach Launch Services, even if a
+        # fixture ever gets past Xcode: these tools only record the attempt.
+        self.forbidden = self.root / 'forbidden-registration'
+        for name in ('lsregister', 'pluginkit'):
+            blocked = self.root / 'bin' / ('blocked-' + name)
+            blocked.write_text('#!/bin/sh\necho "$0 $*" >> "$RELEASE_FIXTURE_FORBIDDEN"\nexit 99\n'); blocked.chmod(0o755)
+        self.addCleanup(lambda: self.assertFalse(self.forbidden.exists(), 'Fixture reached registration cleanup'))
+        # HOME alone cannot hide /Applications/Lunavect.app on a developer Mac.
         self.env = dict(os.environ, HOME=str(self.home), LUNAVECT_RELEASE_ROOT=str(self.root / 'output'),
+                        LUNAVECT_INSTALLED_APPS=str(self.home / 'Applications/Lunavect.app'),
+                        LUNAVECT_LSREGISTER=str(self.root / 'bin/blocked-lsregister'),
+                        LUNAVECT_PLUGINKIT=str(self.root / 'bin/blocked-pluginkit'),
+                        RELEASE_FIXTURE_FORBIDDEN=str(self.forbidden),
                         RELEASE_FIXTURE_TRACE=str(self.root / 'trace'), PATH=str(tool.parent) + os.pathsep + os.environ['PATH'])
 
     def git(self, *args):
@@ -49,11 +61,55 @@ class ReleasePreflightTests(unittest.TestCase):
         return app
 
     def archive(self, build='104', version='0.1.1'):
-        result = subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), 'archive', version, build, str(self.feed)],
+        # These fixtures replace the installed copies and registration tools, which a
+        # release refuses unless it is told it runs as a test fixture (R3-08).
+        result = subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), '--test-fixture', 'archive', version, build, str(self.feed)],
                                 env=self.env, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.root / 'trace').exists(), 'Compiler reached before rejection')
         return result.stderr
+
+    def test_installed_copies_follow_the_environment_override(self):
+        self.assertEqual(GATE.default_installed_apps({}), (Path.home() / 'Applications/Lunavect.app',
+                                                           Path('/Applications/Lunavect.app')))
+        self.assertEqual(GATE.default_installed_apps({'LUNAVECT_INSTALLED_APPS': ''}), ())
+        joined = os.pathsep.join(['/tmp/a b/Lunavect.app', '', '/tmp/c/Lunavect.app'])
+        self.assertEqual(GATE.default_installed_apps({'LUNAVECT_INSTALLED_APPS': joined}),
+                         (Path('/tmp/a b/Lunavect.app'), Path('/tmp/c/Lunavect.app')))
+
+    def test_release_refuses_registration_overrides_without_the_fixture_flag(self):
+        """R3-08: an override left in a shell (an empty LUNAVECT_INSTALLED_APPS turns off
+        the installed-build check; tool overrides skip the real registration cleanup)
+        must not weaken a real release. The tools here are still blocking shims."""
+        overrides = ('LUNAVECT_INSTALLED_APPS', 'LUNAVECT_LSREGISTER', 'LUNAVECT_PLUGINKIT')
+        for name, value in (('LUNAVECT_INSTALLED_APPS', ''), ('LUNAVECT_LSREGISTER', str(self.root / 'bin/blocked-lsregister')),
+                            ('LUNAVECT_PLUGINKIT', str(self.root / 'bin/blocked-pluginkit'))):
+            with self.subTest(name=name):
+                # One override at a time. Build 103 equals the feed's last build, so even a
+                # script that ignored the override would stop at the appcast check, before
+                # it could look at an installed copy or reach Xcode.
+                env = {key: item for key, item in self.env.items() if key not in overrides}
+                env[name] = value
+                result = subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), 'archive', '0.1.1', '103', str(self.feed)],
+                                        env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn('Release refused', result.stderr)
+                self.assertIn(name, result.stderr)
+                self.assertFalse((self.root / 'trace').exists(), 'Compiler reached with an override active')
+        fixture = self.distribute('archive')
+        self.assertIn('Override active (test fixture): LUNAVECT_INSTALLED_APPS=', fixture.stderr)
+        self.assertNotIn('Release refused', fixture.stderr)
+
+    def test_preflight_uses_the_installed_copies_override_only_for_fixtures(self):
+        tool = [sys.executable, '-B', str(self.root / 'scripts/release-preflight.py'), '--version', '0.1.1', '--build', '104',
+                '--previous-appcast', str(self.feed)]
+        env = dict(os.environ, LUNAVECT_INSTALLED_APPS='')
+        refused = subprocess.run(tool, env=env, text=True, capture_output=True)
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn('LUNAVECT_INSTALLED_APPS', refused.stderr)
+        accepted = subprocess.run(tool + ['--test-fixture'], env=env, text=True, capture_output=True)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertIn('Override active (test fixture): LUNAVECT_INSTALLED_APPS=', accepted.stderr)
 
     def test_dirty_source_fails_before_build(self):
         (self.root / 'new-source').write_text('dirty')
@@ -105,7 +161,7 @@ app.mkdir(parents=True)
 ''')
 
     def distribute(self, action, **env):
-        return subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), action, '0.1.1', '104']
+        return subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), '--test-fixture', action, '0.1.1', '104']
                               + ([str(self.feed)] if action == 'archive' else []),
                               env=dict(self.env, **env), text=True, capture_output=True)
 
@@ -149,6 +205,19 @@ app.mkdir(parents=True)
     def test_new_release_accepts_clean_tree_and_higher_build(self):
         GATE.validate_previous('0.1.1', '104', self.feed)
         GATE.validate_source(self.root, '0.1.1')
+
+    def test_release_version_must_match_the_project_version(self):
+        """R2-B-12: an archive of a tree whose project says 0.2.5 cannot be released as 0.2.6."""
+        (self.root / 'project.yml').write_text('settings:\n  base:\n    CURRENT_PROJECT_VERSION: 104\n    MARKETING_VERSION: 0.1.1\n')
+        self.git('add', 'project.yml')
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'project')
+        GATE.validate_source(self.root, '0.1.1')
+        with self.assertRaisesRegex(ValueError, 'differs from MARKETING_VERSION 0.1.1'):
+            GATE.validate_source(self.root, '0.1.2')
+        (self.root / 'project.yml').write_text('settings:\n  base:\n    CURRENT_PROJECT_VERSION: 104\n')
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qam', 'no version')
+        with self.assertRaisesRegex(ValueError, 'Cannot read MARKETING_VERSION'):
+            GATE.validate_source(self.root, '0.1.1')
 
     def test_all_appcast_entries_and_modern_element_form_are_checked(self):
         self.feed.write_text('<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>'

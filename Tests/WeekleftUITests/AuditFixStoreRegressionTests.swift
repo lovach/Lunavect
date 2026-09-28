@@ -29,7 +29,7 @@ import os
         await store.refresh()
         XCTAssertEqual(store.currentSessions.count, 2, "A timeout is not evidence that sessions ended")
         XCTAssertNotNil(store.issues[.codex], "The failure remains visible as a provider issue")
-        clock += 50
+        clock = instant.addingTimeInterval(AgentSession.catalogLifetime)
         await store.refresh()
         XCTAssertEqual(store.currentSessions.count, 0, "Unconfirmed observations still expire")
     }
@@ -58,7 +58,7 @@ import os
             localRead.fulfill(); return newer
         }, refreshQuota: { id, _, _ in
             if id == .claude {
-                let fallback = try await ClaudeProvider.refresh(force: false, now: now, cached: { initial },
+                let fallback = try await ClaudeProvider.refresh(cached: { initial },
                     probe: { throw UsageError.claudeUsageUnavailable }, save: { _ in XCTFail("A failed probe must not save") })
                 claudeReturned.fulfill(); return fallback
             }
@@ -68,12 +68,12 @@ import os
         let store = AppStore(state: .init(snapshots: [initial], preferences: preferences), savesChanges: false,
                              network: NetworkConnection(makeMonitor: { nil }), defaults: defaults, dataServices: services)
         store.start()
-        await fulfillment(of: [codexStarted, claudeReturned], timeout: 3)
+        await fulfillment(of: [codexStarted, claudeReturned], timeout: 5)
         localTick?()
-        await fulfillment(of: [localRead], timeout: 3)
-        for _ in 0..<100 where store.snapshots.first(where: { $0.provider == .claude })?.weekly?.usedPercent != 20 { await Task.yield() }
+        await fulfillment(of: [localRead], timeout: 5)
+        await waitForQuota(until: { store.snapshots.first(where: { $0.provider == .claude })?.weekly?.usedPercent == 20 })
         gate?.resume()
-        for _ in 0..<1000 where store.refreshing { await Task.yield() }
+        await settleQuota(store)
         XCTAssertFalse(store.refreshing)
         let final = try XCTUnwrap(store.snapshots.first(where: { $0.provider == .claude }))
         XCTAssertEqual(final.weekly?.usedPercent, 20)

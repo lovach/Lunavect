@@ -36,7 +36,11 @@ public final class AwakeLease {
         self.setting = setting; self.journal = journal; self.now = now
         self.uptime = uptime; self.safety = safety
         pendingRestore = try journal.hasPendingRestore()
-        if pendingRestore { try restore() }
+        // launchd does not respawn the helper (no KeepAlive): a failed restoration
+        // keeps this process running, and tick() retries it every few seconds.
+        if pendingRestore {
+            do { try restore() } catch { lastFailure = .recovery }
+        }
     }
 
     public func begin(owner requestedOwner: UUID, seconds: Int, policy: AwakeSafetyPolicy = .init()) throws {

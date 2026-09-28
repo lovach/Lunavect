@@ -10,10 +10,14 @@ final class SyntheticPerformanceTests: XCTestCase {
         let recordsPerFile: Int
         let sessions: Int
         let repetitions: Int
+        /// Claude transcripts: files × answered turns of about 27 KB each, with
+        /// long thinking/tool output strings like real project logs.
+        var claudeFiles = 8
+        var claudeTurnsPerFile = 20
         static func named(_ name: String) throws -> Self {
             switch name {
             case "quick": return .init(files: 16, recordsPerFile: 32, sessions: 250, repetitions: 4)
-            case "large": return .init(files: 256, recordsPerFile: 256, sessions: 5000, repetitions: 20)
+            case "large": return .init(files: 256, recordsPerFile: 256, sessions: 5000, repetitions: 20, claudeFiles: 64, claudeTurnsPerFile: 300)
             default: throw NSError(domain: "SyntheticPerformance", code: 1)
             }
         }
@@ -58,6 +62,20 @@ final class SyntheticPerformanceTests: XCTestCase {
         let expected = workload.files * workload.recordsPerFile
         XCTAssertEqual(imported.intervals.count, expected)
         XCTAssertFalse(imported.limited)
+        let claudeDirectory = directory.appendingPathComponent("claude", isDirectory: true)
+        var claudeBytes = 0
+        try measure("claude-fixture-generation", into: &phases) {
+            claudeBytes = try writeClaudeArchive(to: claudeDirectory, workload: workload, now: now)
+        }
+        var claude = ActivityImportResult()
+        measure("claude-archive-import", into: &phases) {
+            claude = ActivityHistoryImporter.read(sources: [.init(directory: claudeDirectory, provider: .claude)],
+                before: now, now: now, maximumSeconds: 90)
+        }
+        let claudeTurns = workload.claudeFiles * workload.claudeTurnsPerFile
+        XCTAssertEqual(claude.report.providers.first?.taskRecords, claudeTurns)
+        XCTAssertFalse(claude.limited)
+        let claudeSeconds = phases.last?["wall_seconds"] as? Double ?? .infinity
         var history = ActivityHistory()
         var encodedBytes = 0
         var checksum: Double = 0
@@ -88,17 +106,68 @@ final class SyntheticPerformanceTests: XCTestCase {
         let result: [String: Any] = ["schema_version": 1, "profile": name, "phases": phases,
             "scenario": ["archive_files": workload.files, "records_per_file": workload.recordsPerFile,
                          "archive_records": expected, "archive_logical_bytes": bytesWritten,
+                         "claude_files": workload.claudeFiles, "claude_turns": claudeTurns, "claude_logical_bytes": claudeBytes,
                          "sessions": workload.sessions, "repetitions": workload.repetitions,
                          "fixed_now_unix_seconds": now.timeIntervalSince1970],
             "result": ["recovered_intervals": imported.intervals.count, "retained_history_intervals": history.intervals.count,
                        "encoded_history_bytes": encodedBytes, "summary_checksum_seconds": checksum,
-                       "ordered_sessions": ordered.count],
+                       "ordered_sessions": ordered.count, "claude_recovered_seconds": claude.report.providers.first?.recoveredSeconds ?? 0,
+                       "claude_import_bytes_per_second": Double(claudeBytes) / claudeSeconds,
+                       // Linear extrapolation to a 6 GB (6e9 B) Claude archive within the 90 s import budget.
+                       "claude_projected_seconds_for_6gb": 6e9 / (Double(claudeBytes) / claudeSeconds)],
             "limitations": ["getrusage max RSS is a cumulative process high-water mark, not a per-phase allocation delta.",
                             "I/O block counters are reported by the OS; zeros can reflect cached I/O and are not zero disk-cost proof.",
                             "Files are freshly generated; caches are not flushed. Fixture generation is measured separately.",
                             "XCTest/build/startup time is outside phase timers; this is not app idle, live-client or battery measurement."]]
         let data = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: URL(fileURLWithPath: output), options: .withoutOverwriting)
+    }
+
+    /// Each turn: prompt, long thinking, tool call, large tool output, answer,
+    /// Stop hook summary and two rows the importer ignores (progress, snapshot).
+    private func writeClaudeArchive(to root: URL, workload: Workload, now: Date) throws -> Int {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func line(_ object: [String: Any]) throws -> String {
+            String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+        }
+        let common: [String: Any] = ["cwd": "/synthetic/project", "sessionId": "SESSION", "isSidechain": false, "userType": "external",
+                                     "version": "2.1.0", "gitBranch": "main", "uuid": "UUID", "parentUuid": "PARENT", "timestamp": "TIMESTAMP"]
+        func row(_ type: String, _ extra: [String: Any]) throws -> String { try line(common.merging(extra) { $1 }.merging(["type": type]) { $1 }) }
+        let thinking = String(repeating: "synthetic reasoning ", count: 450), output = String(repeating: "synthetic output line\n", count: 560)
+        let templates = [
+            try row("user", ["message": ["role": "user", "content": "Synthetic prompt"]]),
+            try row("assistant", ["message": ["role": "assistant", "model": "synthetic", "content": [["type": "thinking", "thinking": thinking, "signature": "sig"]]]]),
+            try row("assistant", ["message": ["role": "assistant", "model": "synthetic", "content": [["type": "tool_use", "id": "toolu_ID", "name": "Bash",
+                "input": ["command": String(repeating: "x", count: 1500)]]]]]),
+            try row("progress", ["data": ["type": "hook_progress", "hookName": "PostToolUse"]]),
+            try row("user", ["message": ["role": "user", "content": [["type": "tool_result", "tool_use_id": "toolu_ID", "content": output]]],
+                             "toolUseResult": ["stdout": output, "stderr": "", "interrupted": false]]),
+            try row("assistant", ["message": ["role": "assistant", "model": "synthetic", "content": [["type": "text", "text": String(repeating: "a", count: 500)]]]]),
+            try row("system", ["subtype": "stop_hook_summary", "level": "info", "content": "hooks"]),
+            try line(["type": "file-history-snapshot", "messageId": "ID", "snapshot": ["trackedFileBackups": ["file": String(repeating: "b", count: 2000)]]]),
+        ]
+        let offsets: [TimeInterval] = [0, 5, 20, 21, 80, 95, 96, 96]
+        var total = 0
+        for file in 0..<workload.claudeFiles {
+            try autoreleasepool {
+                var text = ""
+                let session = UUID().uuidString.lowercased()
+                for turn in 0..<workload.claudeTurnsPerFile {
+                    // Turns two minutes apart in file order; the first file holds the newest turns.
+                    let start = now.addingTimeInterval(-Double(((file + 1) * workload.claudeTurnsPerFile - turn) * 120))
+                    for (template, offset) in zip(templates, offsets) {
+                        text += template.replacingOccurrences(of: "TIMESTAMP", with: formatter.string(from: start.addingTimeInterval(offset)))
+                            .replacingOccurrences(of: "SESSION", with: session).replacingOccurrences(of: "toolu_ID", with: "toolu_\(turn)") + "\n"
+                    }
+                }
+                let data = Data(text.utf8); total += data.count
+                let path = root.appendingPathComponent(session + ".jsonl")
+                try data.write(to: path)
+                try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: path.path)
+            }
+        }
+        return total
     }
 
     private func measure(_ name: String, into phases: inout [[String: Any]], operation: () throws -> Void) rethrows {

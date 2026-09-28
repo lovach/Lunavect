@@ -4,10 +4,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly native render regression check against the previous reviewed render.
+    - cron: '17 4 * * 1'
   workflow_dispatch:
     inputs:
       native_render:
         description: Run the isolated synthetic native render smoke check
+        type: boolean
+        default: false
+      render_baseline:
+        description: Compare native renders with the previous reviewed run (clear to record this run as the new reference after reviewing its gallery)
+        type: boolean
+        default: true
+      thread_sanitizer:
+        description: Run the concurrency-heavy Swift suites under Thread Sanitizer
         type: boolean
         default: false
       synthetic_performance:
@@ -27,8 +38,12 @@ env:
 
 jobs:
   check:
+    # The weekly schedule only runs the native render comparison.
+    if: github.event_name != 'schedule'
     runs-on: macos-26
-    timeout-minutes: 20
+    # 40 successful runs up to 2026-09-27 took 5.4-11.7 min (median 8.5).
+    # check-results.json now records per-stage durations; revisit from those.
+    timeout-minutes: 25
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -70,16 +85,43 @@ jobs:
       fail-fast: false
       matrix:
         suite: [smoke, legacy-values]
-    if: github.event_name == 'workflow_dispatch' && inputs.native_render
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.native_render)
     runs-on: macos-26
-    timeout-minutes: 20
+    # No completed CI render yet: a test-product build plus two isolated
+    # language renders; tighten once real durations are known.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Read earlier runs' render artifacts for the baseline; nothing is written.
+      actions: read
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Find the previous reviewed render of this suite
+        id: baseline
+        if: github.event_name == 'schedule' || inputs.render_baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          # Only runs on main count; a dispatch on another branch compares against them.
+          baseline=$(python3 scripts/find-render-baseline.py --repository "$GITHUB_REPOSITORY" --workflow ci.yml \
+            --branch main --suite "$SUITE" --arch "$RUNNER_ARCH" --exclude-run "$GITHUB_RUN_ID" \
+            --output "$RUNNER_TEMP/native-render-baseline" --summary "$GITHUB_STEP_SUMMARY")
+          echo "path=$baseline" >> "$GITHUB_OUTPUT"
       - name: Render isolated synthetic states
-        run: python3 scripts/check-native-renders.py --run --require-render --suite "${{ matrix.suite }}" --output "$RUNNER_TEMP/native-renders"
+        env:
+          SUITE: ${{ matrix.suite }}
+          BASELINE: ${{ steps.baseline.outputs.path }}
+          # Only a manual dispatch with render_baseline cleared records a new reference.
+          RECORD: ${{ github.event_name == 'workflow_dispatch' && !inputs.render_baseline }}
+        run: |
+          arguments=(--run --require-render --suite "$SUITE" --output "$RUNNER_TEMP/native-renders")
+          if [ -n "$BASELINE" ]; then arguments+=(--baseline "$BASELINE"); fi
+          if [ "$RECORD" = "true" ]; then arguments+=(--record-baseline); fi
+          python3 scripts/check-native-renders.py "${arguments[@]}"
       - name: Summarize synthetic render scope
         if: always()
         run: |
@@ -97,8 +139,48 @@ jobs:
             ${{ runner.temp }}/native-renders/build-manifest.json
             ${{ runner.temp }}/native-renders/gallery.html
             ${{ runner.temp }}/native-renders/images/*.png
-          retention-days: 14
+            ${{ runner.temp }}/native-renders/baseline/*.png
+          # Outlives two missed weekly runs, so a baseline is still available.
+          retention-days: 35
           if-no-files-found: warn
+      - name: Require a reviewed baseline for the comparison
+        # A comparison was requested but no reviewed reference exists or the lookup
+        # failed: the render above is for review; nothing becomes a baseline on its own.
+        if: ${{ !cancelled() && steps.baseline.outcome == 'success' && steps.baseline.outputs.path == '' }}
+        run: |
+          echo "::error::No reviewed native render baseline for ${{ matrix.suite }}. Review this run's gallery, then run the workflow manually with native_render set and render_baseline cleared to record a reference."
+          exit 1
+
+  thread-sanitizer:
+    if: github.event_name == 'workflow_dispatch' && inputs.thread_sanitizer
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Run concurrency-heavy suites under Thread Sanitizer
+        run: |
+          set -o pipefail
+          swift test --jobs 2 --sanitize=thread \
+            --filter 'IDEBridgeTests|LocalFileCacheTests|SessionStoreLifecycleTests|AppStoreLifecycleTests|ActivityServiceTests' \
+            2>&1 | tee "$RUNNER_TEMP/thread-sanitizer.log"
+      - name: Summarize Thread Sanitizer result
+        if: always()
+        run: |
+          log="$RUNNER_TEMP/thread-sanitizer.log"
+          if [ -f "$log" ]; then
+            totals=$(grep -E 'Executed [0-9]+ tests?' "$log" | tail -n 1)
+            reports=$(grep -c 'WARNING: ThreadSanitizer' "$log" || true)
+            {
+              echo '### Thread Sanitizer'
+              echo
+              echo "${totals:-No XCTest totals found.}"
+              echo
+              echo "ThreadSanitizer reports: $reports"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   synthetic-performance:
     if: github.event_name == 'workflow_dispatch' && inputs.synthetic_performance

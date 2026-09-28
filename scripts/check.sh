@@ -19,7 +19,14 @@ cleanup_check() {
   local status=$?
   trap - EXIT
   local cleanup_status=0
-  python3 "$PROJECT_ROOT/scripts/reassert-installed-widget.py" --retire-app "$DERIVED_DIR/Build/Products/Release/Lunavect.app" || cleanup_status=$?
+  # Stages already run without LUNAVECT_*; the installed widget cleanup must not
+  # inherit registration overrides either (they would skip the real reassertion).
+  local name
+  for name in LUNAVECT_LSREGISTER LUNAVECT_PLUGINKIT LUNAVECT_INSTALLED_APPS; do
+    if [ -n "${!name+set}" ]; then echo "$name is ignored for the installed widget cleanup" >&2; fi
+  done
+  env -u LUNAVECT_LSREGISTER -u LUNAVECT_PLUGINKIT -u LUNAVECT_INSTALLED_APPS \
+    python3 "$PROJECT_ROOT/scripts/reassert-installed-widget.py" --retire-app "$DERIVED_DIR/Build/Products/Release/Lunavect.app" || cleanup_status=$?
   if [ "$status" -eq 0 ]; then status=$cleanup_status; fi
   if [ -n "$REPORT" ]; then
     local report_status=0
@@ -41,6 +48,8 @@ python3 "$REPORTER" init "$REPORT"
 run_check() { python3 "$REPORTER" run "$REPORT" "$@"; }
 
 run_check source_checkpoint python3 scripts/build-manifest.py begin --source-root "$PROJECT_ROOT" --output "$RESULT_DIR/build-manifest.json" --kind unsigned-check
+# SwiftPM and XcodeGen compile every file in a directory; name sync conflict copies first.
+run_check source_hygiene python3 scripts/check-source-hygiene.py --source-root "$PROJECT_ROOT"
 run_check python_tests python3 -B -m unittest discover -s Tests/Scripts
 run_check ide_connector_tests node --test integrations/vscode/protocol.test.js integrations/vscode/routing.test.js
 run_check swift_tests swift test --jobs 2
@@ -68,7 +77,7 @@ run_check unsigned_build xcodebuild -quiet \
   build
 
 run_check hook_helper python3 "$PROJECT_ROOT/scripts/verify-hook-helper.py" "$DERIVED_DIR/Build/Products/Release/Lunavect.app"
-run_check product_resources python3 "$PROJECT_ROOT/scripts/verify-product-resources.py" "$DERIVED_DIR/Build/Products/Release/Lunavect.app" --source-root "$PROJECT_ROOT"
+run_check product_resources python3 "$PROJECT_ROOT/scripts/verify-product-resources.py" "$DERIVED_DIR/Build/Products/Release/Lunavect.app" --source-root "$PROJECT_ROOT" --universal
 INTENT_BUNDLE_PATHS=$(python3 - "$DERIVED_DIR/Build/Products/Release/Lunavect.app" "$DERIVED_DIR/Build/Products/Release/Lunavect.app/Contents/PlugIns/LunavectWidget.appex" <<'PY'
 import json, sys
 print(json.dumps(sys.argv[1:]))

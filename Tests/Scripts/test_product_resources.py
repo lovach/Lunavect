@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import plistlib
 import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -104,6 +105,54 @@ class ProductResourceTests(unittest.TestCase):
         (self.widget / 'Contents/Info.plist').write_bytes(plistlib.dumps({**self.info, 'CFBundleIconFile': 'AppIcon'}))
         with self.assertRaisesRegex(ValueError, 'declared icon'):
             RESOURCES.verify(self.app)
+
+    def executables(self):
+        for bundle, name in ((self.app, 'Lunavect'), (self.widget, 'LunavectWidget')):
+            (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({**self.info, 'CFBundleExecutable': name}))
+        paths = [self.app / 'Contents/MacOS/Lunavect', self.widget / 'Contents/MacOS/LunavectWidget',
+                 self.app / 'Contents/Helpers/LunavectHook', self.app / 'Contents/Library/LaunchServices/LunavectAwakeHelper']
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'fixture executable')
+        return paths
+
+    def test_universal_release_requires_both_slices_in_every_executable(self):
+        # README and the check promise Apple silicon and Intel code; a thin
+        # app, widget or helper must fail the check instead of shipping.
+        paths = self.executables()
+        universal = lambda path: {'arm64', 'x86_64'}
+        self.assertEqual(RESOURCES.verify(self.app, universal=True, architectures=universal), '108')
+        for thin in paths:
+            with self.subTest(executable=thin.name):
+                read = lambda path, thin=thin: {'arm64'} if path == thin else {'arm64', 'x86_64'}
+                with self.assertRaisesRegex(ValueError, thin.name + '.*x86_64'):
+                    RESOURCES.verify(self.app, universal=True, architectures=read)
+        paths[2].unlink()
+        with self.assertRaisesRegex(ValueError, 'LunavectHook'):
+            RESOURCES.verify(self.app, universal=True, architectures=universal)
+
+    def test_architectures_are_read_only_when_a_universal_build_is_required(self):
+        # Local Debug builds are thin by design; build.sh and install.sh do not ask.
+        def forbidden(path):
+            raise AssertionError('Architectures read without --universal')
+        self.assertEqual(RESOURCES.verify(self.app, architectures=forbidden), '108')
+
+    @unittest.skipUnless(shutil.which('clang') and Path('/usr/bin/lipo').is_file(), 'Needs clang and lipo')
+    def test_lipo_reading_distinguishes_thin_and_universal_binaries(self):
+        source = Path(self.temporary.name) / 'main.c'
+        source.write_text('int main(void) { return 0; }\n')
+        built = {}
+        for name, arches in (('thin', ['arm64']), ('universal', ['arm64', 'x86_64'])):
+            output = source.with_name(name)
+            flags = [flag for arch in arches for flag in ('-arch', arch)]
+            result = subprocess.run(['clang', *flags, str(source), '-o', str(output)], capture_output=True, text=True)
+            if result.returncode:
+                self.skipTest('clang cannot build ' + name + ' here: ' + result.stderr[-200:])
+            built[name] = output
+        self.assertEqual(RESOURCES.architectures(built['thin']), {'arm64'})
+        self.assertEqual(RESOURCES.architectures(built['universal']), {'arm64', 'x86_64'})
+        with self.assertRaises(subprocess.CalledProcessError):
+            RESOURCES.architectures(source)
 
     def test_old_translations_are_rejected(self):
         (self.widget / 'Contents/Resources/Translations.json').write_bytes(b'{}')

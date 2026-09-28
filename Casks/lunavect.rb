@@ -7,6 +7,11 @@ cask "lunavect" do
   desc "Claude Code and Codex session status, usage limits, and desktop widgets"
   homepage "https://github.com/lovach/Lunavect"
 
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
   auto_updates true
   depends_on macos: :sonoma
 

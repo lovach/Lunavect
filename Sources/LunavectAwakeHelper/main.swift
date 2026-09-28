@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import os
 #if SWIFT_PACKAGE
 import AwakeService
 #endif
@@ -90,7 +91,13 @@ do {
     listener.resume()
     withExtendedLifetime((listener, delegate, timer, termination)) { dispatchMain() }
 } catch {
-    // launchd retries, including restoration after transient pmset failures.
-    fputs("Lunavect Awake could not initialize: \((error as? AwakeFailure ?? .system).rawValue)\n", stderr)
-    exit(1)
+    // Every failure here is permanent for this installation: no root, a signing
+    // identity without a team, an unsafe recovery folder. launchd no longer
+    // respawns the helper (no KeepAlive), so exit normally and say why once.
+    // A failed restoration of sleep does not end up here: the lease keeps
+    // running and retries it (AwakeLease.init, tick).
+    let reason = (error as? AwakeFailure ?? .system).rawValue
+    Logger(subsystem: AwakeServiceID.app, category: "awake").error("Helper could not start: \(reason, privacy: .public)")
+    fputs("Lunavect Awake could not initialize: \(reason)\n", stderr)
+    exit(0)
 }

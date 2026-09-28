@@ -166,10 +166,21 @@ def compare_baseline(output: Path, baseline: Path, images: list[dict], environme
             "changed": changed, "reason": "No differences" if not changed else "PNG bytes changed; inspect side-by-side gallery"}
 
 
+def record_baseline(report: dict) -> None:
+    """Marks a passed render without comparison as the next reference. Only an
+    explicit manual dispatch asks for this; find-render-baseline.py accepts no
+    other uncompared render."""
+    if report.get("render", {}).get("status") == "passed" and report.get("comparison", {}).get("status") == "not-run":
+        report["baseline_record"] = {"status": "recorded",
+                                     "reason": "Recorded as the next reference by an explicit manual dispatch; review the gallery first"}
+
+
 def write_report(output: Path, report: dict) -> None:
     (output / "render-report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     rows = ["# Isolated native render check", "", "Synthetic fixtures only; no live accounts, system widget placement or accessibility interaction verified.", ""]
-    for key in ("build", "isolation", "render", "comparison", "provenance", "visual_review"):
+    for key in ("build", "isolation", "render", "comparison", "baseline_record", "provenance", "visual_review"):
+        if key not in report:
+            continue
         item = report[key]
         rows.append(f"- **{key}: {item['status']}** — {item.get('reason', '')}")
     scope = "Legacy value views: stale allowances, import reports at two widths, contour gaps and control icon alphabet." if report['environment'].get('suite') == 'legacy-values' else "Current/unknown/stale-expired limits in small and medium cards with two providers or Claude alone, plus large overview; clean contour with known zero, unknown gaps and current incomplete hour."
@@ -324,7 +335,10 @@ def main() -> int:
     parser.add_argument("--suite", choices=('smoke', 'legacy-values', 'public-gallery'), default='smoke', help='Only explicitly audited test methods are callable')
     parser.add_argument("--require-render", action="store_true", help="Fail when render is skipped or fails (recommended in the opt-in CI job)")
     parser.add_argument("--output", type=Path, required=True, help="New output directory; an existing directory is never reused")
-    parser.add_argument("--baseline", type=Path, help="Previous passed output from the same OS/toolchain; byte differences fail for manual review")
+    reference = parser.add_mutually_exclusive_group()
+    reference.add_argument("--baseline", type=Path, help="Previous reviewed output from the same OS/toolchain; byte differences fail for manual review")
+    reference.add_argument("--record-baseline", action="store_true",
+                           help="Record a passed render as the next reference (explicit manual dispatch only)")
     args = parser.parse_args()
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -351,6 +365,13 @@ def main() -> int:
                 raise ValueError("Source provenance checkpoint failed")
             report.pop("_active_stage", None)
         check(output, enabled=args.run, baseline=args.baseline.resolve() if args.baseline else None, report=report, suite=args.suite)
+        if args.baseline and report.get("comparison", {}).get("status") == "skipped":
+            # A supplied reference that cannot be compared is not a pass: after a runner
+            # update the weekly job would otherwise stay green comparing nothing (R2-U-07).
+            reason = report["comparison"].get("reason", "Baseline cannot be compared")
+            report["comparison"] = {"status": "failed", "reason": f"{reason}. Review this gallery and record a new baseline."}
+        if args.record_baseline:
+            record_baseline(report)
     except BlockingIOError:
         report["render"] = {"status": "skipped", "reason": "Another native render owns this checkout's build directory; no shared products changed"}
     except (ValueError, OSError, subprocess.SubprocessError) as error:

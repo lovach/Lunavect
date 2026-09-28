@@ -22,9 +22,17 @@ final class DataStorageGuaranteeTests: XCTestCase {
     func testSharedStateRejectsPipesWithoutWaitingForAWriter() throws {
         let file = try root().appendingPathComponent("snapshot.json")
         XCTAssertEqual(mkfifo(file.path, 0o600), 0)
-        XCTAssertThrowsError(try SnapshotStore.loadRecovering(from: file))
-        XCTAssertThrowsError(try ActivityHistory.load(from: file))
-        XCTAssertThrowsError(try ActivityDetails.load(from: file))
+        // Opening a FIFO without O_NONBLOCK waits for a writer forever; fail instead.
+        let release = { TestDeadline.releaseFIFOReader(file) }
+        XCTAssertThrowsError(try TestDeadline.run("SnapshotStore reading a FIFO", release: release) { try SnapshotStore.loadRecovering(from: file) }) {
+            XCTAssertFalse($0 is DeadlineExceeded)
+        }
+        XCTAssertThrowsError(try TestDeadline.run("ActivityHistory reading a FIFO", release: release) { try ActivityHistory.load(from: file) }) {
+            XCTAssertFalse($0 is DeadlineExceeded)
+        }
+        XCTAssertThrowsError(try TestDeadline.run("ActivityDetails reading a FIFO", release: release) { try ActivityDetails.load(from: file) }) {
+            XCTAssertFalse($0 is DeadlineExceeded)
+        }
         var info = stat()
         XCTAssertEqual(lstat(file.path, &info), 0)
         XCTAssertEqual(info.st_mode & S_IFMT, S_IFIFO,
@@ -80,6 +88,38 @@ final class DataStorageGuaranteeTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: selection.path), selectionTarget.path)
         XCTAssertEqual(try JSONDecoder().decode(Date.self, from: Data(contentsOf: selectionTarget)), now.addingTimeInterval(10))
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: selectionTarget.path)[.posixPermissions] as? Int, 0o600)
+    }
+    /// The test guard covers every storage change, not only the final rename:
+    /// moving a damaged file aside, sweeping temporaries, clearing a widget
+    /// selection and creating folders (R2-P-02). Proven on a temporary folder the
+    /// test marks as protected; nothing is aimed at the real home folder.
+    func testStorageRecoveryAndSavesRefuseAProtectedFolder() throws {
+        let root = try root().resolvingSymlinksInPath(), home = root.appendingPathComponent("home")
+        let history = home.appendingPathComponent("activity.json"), snapshot = home.appendingPathComponent("snapshot.json")
+        let temporary = home.appendingPathComponent(".\(UUID().uuidString).tmp")
+        let selection = home.appendingPathComponent("ActivitySelection/LunavectActivityWidget-week-all.json")
+        try FileManager.default.createDirectory(at: selection.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for file in [history, snapshot, temporary] { try Data("damaged fixture".utf8).write(to: file) }
+        try JSONEncoder().encode(Date()).write(to: selection)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-7200)], ofItemAtPath: temporary.path)
+        let before = try FileManager.default.subpathsOfDirectory(atPath: home.path).sorted()
+        LiveWriteGuard.protect(home)
+        defer { LiveWriteGuard.unprotect(home) }
+        let missing = home.appendingPathComponent("missing")
+        let changes: [(String, () throws -> Void)] = [
+            ("history recovery", { _ = try LocalStateRecovery.load(from: history, empty: ActivityHistory(), read: { try ActivityHistory.load(from: $0) }) }),
+            ("snapshot recovery", { _ = try SnapshotStore.loadRecovering(from: snapshot) }),
+            ("temporary sweep", { _ = try LocalStateRecovery.removeAbandonedTemporaries(in: home) }),
+            ("selection clear", { try ActivityWidgetSelection.write(nil, kind: "LunavectActivityWidget", period: .week, source: .all, directory: home) }),
+            ("selection folder", { try ActivityWidgetSelection.write(Date(), kind: "LunavectActivityWidget", period: .day, source: .all, directory: missing) }),
+            ("history folder", { try ActivityHistory().save(to: missing.appendingPathComponent("activity.json")) }),
+            ("details folder", { try ActivityDetails().save(to: missing.appendingPathComponent("activity-details.json")) }),
+        ]
+        for (name, change) in changes {
+            XCTAssertThrowsError(try change(), name) { XCTAssertTrue($0 is LiveWriteGuard.Refused, "\(name): \($0)") }
+        }
+        XCTAssertEqual(try FileManager.default.subpathsOfDirectory(atPath: home.path).sorted(), before, "nothing moved, removed or created")
+        XCTAssertEqual(try Data(contentsOf: history), Data("damaged fixture".utf8))
     }
     func testStatusLineRecoversCorruptionWithoutLosingOriginalAndUsesSameSymlinkTarget() throws {
         let root = try root(), target = root.appendingPathComponent("quota.json"), link = root.appendingPathComponent("legacy-quota.json")

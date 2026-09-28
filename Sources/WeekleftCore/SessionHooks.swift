@@ -2,6 +2,70 @@ import Foundation
 import Darwin
 import CryptoKit
 
+/// Where Claude Code and Codex find Lunavect's hook helper (owner decision 18).
+/// Commands name a stable symbolic link in Lunavect's support folder; every launch
+/// points it at the running copy's helper, so moving, renaming or updating the app
+/// never requires rewriting client configuration. A copy that macOS runs from App
+/// Translocation is temporary: it neither retargets the link nor installs commands.
+public struct HookHelperLocation: Sendable, Equatable {
+    public static var defaultLink: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Weekleft/bin/LunavectHook")
+    }
+    public let link: URL
+    public let bundle: URL
+    /// Command-line development builds have no embedded helper.
+    public let fallback: String?
+    public init(link: URL = HookHelperLocation.defaultLink, bundle: URL = Bundle.main.bundleURL,
+                fallback: String? = Bundle.main.executablePath) {
+        self.link = link; self.bundle = bundle; self.fallback = fallback
+    }
+    public static func isTranslocated(_ bundle: URL) -> Bool { bundle.path.contains("/AppTranslocation/") }
+    public var isTranslocated: Bool { Self.isTranslocated(bundle) }
+    /// The running copy's helper, or the development fallback.
+    public var bundledHelper: String? { SessionHooks.monitorExecutable(bundle: bundle, fallback: fallback) }
+    /// A symbolic link (never a file placed there) that leads to an executable.
+    public var linkIsUsable: Bool {
+        (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil
+            && FileManager.default.isExecutableFile(atPath: link.path)
+    }
+    /// The executable new or repaired commands name; nil from a translocated copy.
+    public var commandExecutable: String? {
+        guard !isTranslocated else { return nil }
+        return linkIsUsable ? link.path : bundledHelper
+    }
+    /// Executables whose commands count as a working connection: the link and,
+    /// for installations made before it existed, the running copy's own helper.
+    public var acceptedExecutables: [String] {
+        var result: [String] = []
+        if linkIsUsable { result.append(link.path) }
+        if !isTranslocated, let helper = bundledHelper, FileManager.default.isExecutableFile(atPath: helper) { result.append(helper) }
+        return result
+    }
+    public enum LinkUpdate: Equatable, Sendable { case unchanged, updated, translocated, missingHelper }
+    /// Points the link at this copy's helper, atomically. Only a symbolic link is
+    /// ever replaced; any other file at that path is left untouched and reported.
+    @discardableResult public func refreshLink() throws -> LinkUpdate {
+        guard !isTranslocated else { return .translocated }
+        guard let target = bundledHelper, FileManager.default.isExecutableFile(atPath: target) else { return .missingHelper }
+        try LiveWriteGuard.check(link)
+        let current = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)
+        if current == target { return .unchanged }
+        var info = stat()
+        if current == nil, lstat(link.path, &info) == 0 { throw CocoaError(.fileWriteFileExists) }
+        let directory = link.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let temporary = directory.appendingPathComponent(".LunavectHook-" + UUID().uuidString)
+        try FileManager.default.createSymbolicLink(atPath: temporary.path, withDestinationPath: target)
+        guard rename(temporary.path, link.path) == 0 else {
+            let code = errno
+            unlink(temporary.path)
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
+        return .updated
+    }
+}
+
 public enum SessionHooks {
     public static func monitorExecutable(bundle: URL = Bundle.main.bundleURL, fallback: String? = Bundle.main.executablePath) -> String? {
         let helper = bundle.appendingPathComponent("Contents/Helpers/LunavectHook").path
@@ -42,18 +106,60 @@ public enum SessionHooks {
             (group["hooks"] as? [[String: Any]] ?? []).contains { ($0["command"] as? String)?.hasSuffix(marker(provider)) == true }
         }
     }
-    public static func installed(_ provider: ProviderID, configURL: URL? = nil, executable: String? = SessionHooks.monitorExecutable()) -> Bool {
-        guard let executable, FileManager.default.isExecutableFile(atPath: executable) else { return false }
-        let expected = "\(quote(executable)) --session-hook \(provider.rawValue) \(marker(provider))"
-        guard let data = try? Data(contentsOf: configURL ?? self.configURL(provider)),
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            root["disableAllHooks"] as? Bool != true, let hooks = root["hooks"] as? [String: [[String: Any]]]
+    /// The exact command Lunavect installs for one provider's lifecycle events.
+    /// Claude Code and Codex run it with /bin/sh; the path is single-quoted.
+    public static func command(_ provider: ProviderID, executable: String) -> String {
+        "\(quote(executable)) --session-hook \(provider.rawValue) \(marker(provider))"
+    }
+    public static func installed(_ provider: ProviderID, configURL: URL? = nil, executable: String?) -> Bool {
+        installed(provider, configURL: configURL, accepting: executable.map { [$0] } ?? [])
+    }
+    /// Every event has a Lunavect handler naming one of `executables`: the stable
+    /// link or, for older installations, the running copy's own helper path.
+    public static func installed(_ provider: ProviderID, configURL: URL? = nil,
+                                 accepting executables: [String] = HookHelperLocation().acceptedExecutables) -> Bool {
+        let expected = Set(executables.filter { FileManager.default.isExecutableFile(atPath: $0) }.map { command(provider, executable: $0) })
+        guard !expected.isEmpty,
+              let data = try? Data(contentsOf: configURL ?? self.configURL(provider)),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              root["disableAllHooks"] as? Bool != true, let hooks = root["hooks"] as? [String: [[String: Any]]]
         else { return false }
         return events(provider).allSatisfy { event in
             (hooks[event] ?? []).contains { group in
-                (group["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == expected && $0["type"] as? String == "command" }
+                (group["hooks"] as? [[String: Any]] ?? []).contains {
+                    ($0["command"] as? String).map(expected.contains) == true && $0["type"] as? String == "command"
+                }
             }
         }
+    }
+    /// The path a Lunavect command names, from its leading single-quoted word.
+    static func quotedExecutable(_ command: String) -> String? {
+        guard command.hasPrefix("'") else { return nil }
+        var result = "", rest = command.dropFirst()
+        while let close = rest.firstIndex(of: "'") {
+            result += rest[..<close]
+            rest = rest[rest.index(after: close)...]
+            guard rest.hasPrefix("\"'\"'") else { return result }
+            result += "'"; rest = rest.dropFirst(4)
+        }
+        return nil
+    }
+    /// The first path named by Lunavect's own handlers that no longer leads to an
+    /// executable, for example after the app was moved or ran from a temporary copy.
+    public static func missingCommandExecutable(_ provider: ProviderID, configURL: URL? = nil) -> String? {
+        guard let root = try? readConfiguration(at: configURL ?? self.configURL(provider)),
+              let hooks = root["hooks"] as? [String: [[String: Any]]] else { return nil }
+        for event in events(provider) {
+            for handler in (hooks[event] ?? []).flatMap({ $0["hooks"] as? [[String: Any]] ?? [] }) {
+                guard let command = handler["command"] as? String, command.hasSuffix(marker(provider)),
+                      let path = quotedExecutable(command) else { continue }
+                if !FileManager.default.isExecutableFile(atPath: path) { return path }
+            }
+        }
+        if provider == .claude, let command = (root["statusLine"] as? [String: Any])?["command"] as? String,
+           command.hasSuffix(" --claude-statusline"), let path = quotedExecutable(command),
+           !FileManager.default.isExecutableFile(atPath: path) { return path }
+        return nil
     }
     public static func install(provider: ProviderID, executable: String, configURL: URL? = nil, backupDirectory: URL? = nil,
                                checkpoint: (ClientConnection.LocalStep) throws -> Void = { _ in }) throws {
@@ -67,10 +173,52 @@ public enum SessionHooks {
     }
     static func readConfiguration(at url: URL) throws -> [String: Any] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
-        let data = try Data(contentsOf: url)
-        guard data.count < 5_000_000,
+        return try strictObject(Data(contentsOf: url))
+    }
+    /// Foundation's parser also accepts comments and trailing commas, which a
+    /// rewrite would silently drop. Such settings are unreadable for Lunavect: it
+    /// never rewrites or backs them up (audit 05 §5 item 3).
+    public static func strictObject(_ data: Data) throws -> [String: Any] {
+        guard data.count < 5_000_000, !isLenientJSON(data),
               let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw SessionError.invalidResponse }
         return root
+    }
+    /// A comment or a comma before a closing bracket, outside string literals.
+    static func isLenientJSON(_ data: Data) -> Bool {
+        var inString = false, escaped = false, previous: UInt8 = 0
+        for byte in data {
+            if inString {
+                if escaped { escaped = false } else if byte == 0x5C { escaped = true } else if byte == 0x22 { inString = false }
+                continue
+            }
+            switch byte {
+            case 0x22: inString = true; previous = 0; continue
+            case 0x20, 0x09, 0x0A, 0x0D: continue  // whitespace keeps the previous token
+            case 0x2F where previous == 0x2F, 0x2A where previous == 0x2F: return true
+            case 0x7D where previous == 0x2C, 0x5D where previous == 0x2C: return true
+            default: break
+            }
+            previous = byte
+        }
+        return false
+    }
+    /// Pretty, key-sorted JSON with a final newline (owner decision 19). Sorting
+    /// keeps the bytes deterministic so an untouched connection can be undone exactly.
+    public static func serialized(_ root: [String: Any]) throws -> Data {
+        var data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        data.append(0x0A)
+        return data
+    }
+    /// The file a write through `url` replaces, following links even when the
+    /// final target does not exist yet (a dotfile link to a missing file).
+    static func writeTarget(_ url: URL) -> URL {
+        var current = url.standardizedFileURL
+        for _ in 0..<16 {
+            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: current.path) else { return current }
+            current = (destination.hasPrefix("/") ? URL(fileURLWithPath: destination)
+                : current.deletingLastPathComponent().appendingPathComponent(destination)).standardizedFileURL
+        }
+        return current
     }
     static func validateEdit(provider: ProviderID, executable: String?, url: URL) throws {
         _ = try editedConfiguration(provider: provider, executable: executable, root: readConfiguration(at: url))
@@ -98,17 +246,57 @@ public enum SessionHooks {
         if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
         return root
     }
+    /// Launch repair (owner decision 17): each Lunavect handler that names another
+    /// path is rewritten in place to `executable`. Events without a Lunavect handler
+    /// stay without one, foreign handlers and their order are untouched, and a
+    /// duplicate Lunavect handler within one event is dropped.
+    /// - Returns: whether the configuration changed.
+    @discardableResult public static func retarget(provider: ProviderID, executable: String, configURL: URL? = nil,
+                                                   backupDirectory: URL? = nil) throws -> Bool {
+        let url = configURL ?? self.configURL(provider)
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        let desired = command(provider, executable: executable)
+        return try edit(provider: provider, url: url, backup: backupDirectory ?? directory.appendingPathComponent("backups"),
+                        disconnecting: false, checkpoint: { _ in }) { original in
+            var root = original
+            if root["disableAllHooks"] as? Bool == true { throw SessionError.disabled }
+            guard root["hooks"] == nil || root["hooks"] is [String: [[String: Any]]] else { throw SessionError.invalidResponse }
+            var hooks = root["hooks"] as? [String: [[String: Any]]] ?? [:]
+            for (event, groups) in hooks {
+                var seen = false, kept: [[String: Any]] = []
+                for var group in groups {
+                    guard let handlers = group["hooks"] as? [[String: Any]] else { throw SessionError.invalidResponse }
+                    var updated: [[String: Any]] = []
+                    for var handler in handlers {
+                        guard (handler["command"] as? String)?.hasSuffix(marker(provider)) == true else { updated.append(handler); continue }
+                        guard !seen else { continue }
+                        seen = true
+                        handler["command"] = desired; handler["type"] = "command"
+                        updated.append(handler)
+                    }
+                    if !updated.isEmpty || handlers.isEmpty { group["hooks"] = updated; kept.append(group) }
+                }
+                if kept.isEmpty { hooks.removeValue(forKey: event) } else { hooks[event] = kept }
+            }
+            if !hooks.isEmpty { root["hooks"] = hooks }
+            return root
+        }
+    }
     private static func edit(provider: ProviderID, executable: String?, url: URL, backup: URL,
                              checkpoint: (ClientConnection.LocalStep) throws -> Void) throws {
+        try edit(provider: provider, url: url, backup: backup, disconnecting: executable == nil, checkpoint: checkpoint) {
+            try editedConfiguration(provider: provider, executable: executable, root: $0)
+        }
+    }
+    @discardableResult private static func edit(provider: ProviderID, url: URL, backup: URL, disconnecting: Bool,
+                                                checkpoint: (ClientConnection.LocalStep) throws -> Void,
+                                                change: ([String: Any]) throws -> [String: Any]) throws -> Bool {
+        try LiveWriteGuard.check(url, backup)
         let old = try FileManager.default.fileExists(atPath: url.path) ? Data(contentsOf: url) : nil
         let original: [String: Any]
-        if let old {
-            guard old.count < 5_000_000,
-                  let root = try JSONSerialization.jsonObject(with: old) as? [String: Any] else { throw SessionError.invalidResponse }
-            original = root
-        } else { original = [:] }
-        let root = try editedConfiguration(provider: provider, executable: executable, root: original)
-        if (original as NSDictionary).isEqual(to: root) { return }
+        if let old { original = try strictObject(old) } else { original = [:] }
+        let root = try change(original)
+        if (original as NSDictionary).isEqual(to: root) { return false }
         try checkpoint(.hooksBackup)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if let old { try secureWriteVerified(old, to: backup.appendingPathComponent("\(provider.rawValue)-\(UUID().uuidString).json")) }
@@ -116,11 +304,11 @@ public enum SessionHooks {
         let current = try FileManager.default.fileExists(atPath: url.path) ? Data(contentsOf: url) : nil
         guard current == old else { throw SessionError.changedConfig }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try writeConfigurationChange(original: old,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+        try writeConfigurationChange(original: old, updated: serialized(root),
             to: url, restorationURL: restorationURL(for: url, in: backup, prefix: provider.rawValue),
-            disconnecting: executable == nil)
+            disconnecting: disconnecting)
         try pruneOwnedBackups(in: backup, prefix: provider.rawValue + "-")
+        return true
     }
     private struct ConfigurationRestoration: Codable {
         var original: Data?
@@ -134,13 +322,13 @@ public enum SessionHooks {
     /// If another tool edited the configuration, use the caller's semantic merge.
     public static func writeConfigurationChange(original: Data?, updated: Data, to url: URL,
                                                  restorationURL: URL, disconnecting: Bool) throws {
+        try LiveWriteGuard.check(url, restorationURL)
         let previous = (try? Data(contentsOf: restorationURL)).flatMap { try? JSONDecoder().decode(ConfigurationRestoration.self, from: $0) }
         let ownsSnapshot = previous?.installed == original
         if disconnecting {
-            if ownsSnapshot, let previous {
-                if let bytes = previous.original { try writeConfigurationVerified(bytes, to: url) }
-                else { try FileManager.default.removeItem(at: url.resolvingSymlinksInPath()) }
-            } else { try writeConfigurationVerified(updated, to: url) }
+            // A file that did not exist before connecting stays, without Lunavect's
+            // entries: tools that created it meanwhile keep a valid file (H-08).
+            try writeConfigurationVerified(ownsSnapshot ? previous?.original ?? updated : updated, to: url)
             if FileManager.default.fileExists(atPath: restorationURL.path) { try FileManager.default.removeItem(at: restorationURL) }
         } else if !ownsSnapshot, containsOwnedEntries(original) {
             // These bytes already hold Lunavect's own (older) handlers, e.g. after an app
@@ -160,19 +348,66 @@ public enum SessionHooks {
     }
     /// Client-owned configuration keeps its existing mode. Private monitor data
     /// continues to use secureWriteVerified's 0600 policy.
-    public static func writeConfigurationVerified(_ data: Data, to url: URL) throws {
-        let target = url.resolvingSymlinksInPath()
+    /// Write, flush, then rename (H-07): a power loss leaves either the old or the
+    /// new complete file. A link is kept and its target replaced.
+    public static func writeConfigurationVerified(_ data: Data, to url: URL,
+                                                  synchronize: (Int32) throws -> Void = flush) throws {
+        let target = writeTarget(url)
+        try LiveWriteGuard.check(url, target)
         let mode = (try? FileManager.default.attributesOfItem(atPath: target.path)[.posixPermissions]) as? NSNumber
         if let mode, mode.intValue & 0o222 == 0 { throw CocoaError(.fileWriteNoPermission) }
         let temporary = target.deletingLastPathComponent().appendingPathComponent(".lunavect-" + UUID().uuidString + ".tmp")
-        guard FileManager.default.createFile(atPath: temporary.path, contents: data, attributes: [.posixPermissions: mode?.intValue ?? 0o600]) else { throw CocoaError(.fileWriteUnknown) }
+        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode_t(mode?.intValue ?? 0o600))
+        guard descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
         defer { try? FileManager.default.removeItem(at: temporary) }
-        guard rename(temporary.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        do {
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+            try handle.write(contentsOf: data)
+            // open() applies the umask; restore the client file's own mode.
+            guard fchmod(descriptor, mode_t(mode?.intValue ?? 0o600)) == 0 else { throw CocoaError(.fileWriteUnknown) }
+            try synchronize(descriptor)
+        } catch { close(descriptor); throw error }
+        guard close(descriptor) == 0, rename(temporary.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        let folder = open(target.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        if folder >= 0 { _ = fsync(folder); close(folder) }
         guard try Data(contentsOf: target) == data else { throw SessionError.changedConfig }
+    }
+    /// F_FULLFSYNC reaches the storage medium; plain fsync is the fallback.
+    public static func flush(_ descriptor: Int32) throws {
+        guard fcntl(descriptor, F_FULLFSYNC) == 0 || fsync(descriptor) == 0 else { throw CocoaError(.fileWriteUnknown) }
+    }
+    /// Older releases created saved settings copies with mode 0644 (audit H-12).
+    /// Restrict Lunavect's own backup names to 0600: regular files of this user
+    /// only, never a link or a foreign file. Returns how many were changed.
+    @discardableResult public static func restrictOwnBackups(bridgeDirectory: URL, backupDirectory: URL) throws -> Int {
+        func uuid(_ name: String, after prefix: String) -> Bool {
+            name.hasPrefix(prefix) && name.hasSuffix(".json")
+                && UUID(uuidString: String(name.dropFirst(prefix.count).dropLast(5))) != nil
+        }
+        let rules: [(URL, (String) -> Bool)] = [
+            (bridgeDirectory, { $0 == "previous-statusline.json" || uuid($0, after: "settings-backup-") || $0.hasPrefix("statusline-restoration-") && $0.hasSuffix(".json") }),
+            (backupDirectory, { name in ProviderID.allCases.contains { uuid(name, after: $0.rawValue + "-") || name.hasPrefix($0.rawValue + "-restoration-") && name.hasSuffix(".json") } }),
+        ]
+        var changed = 0
+        for (directory, owned) in rules {
+            try LiveWriteGuard.check(directory)
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { continue }
+            for name in names where owned(name) {
+                let descriptor = open(directory.appendingPathComponent(name).path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+                guard descriptor >= 0 else { continue }
+                defer { close(descriptor) }
+                var info = stat()
+                guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid(),
+                      info.st_mode & 0o077 != 0 else { continue }
+                if fchmod(descriptor, 0o600) == 0 { changed += 1 }
+            }
+        }
+        return changed
     }
     /// Match only our UUID backup filenames, excluding foreign files, links,
     /// restoration metadata and other providers' backups.
     public static func pruneOwnedBackups(in directory: URL, prefix: String, keeping limit: Int = 8) throws {
+        try LiveWriteGuard.check(directory)
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey])
         let backups = files.filter { file in
             let name = file.deletingPathExtension().lastPathComponent
@@ -193,18 +428,39 @@ public enum SessionHooks {
     public static func secureWrite(_ data: Data, to url: URL) throws {
         try LocalStateRecovery.write(data, to: url)
     }
-    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil) throws {
+    /// `isInternal` identifies Lunavect's own quota probe by its folder. `--safe-mode`
+    /// currently disables hooks there; this keeps a future client from recording it.
+    public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil,
+                               runtimePID: Int32? = nil,
+                               isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) },
+                               isAlive: (Int32) -> Bool = SessionSources.isProcessAlive) throws {
+        try LiveWriteGuard.check(directory)
         let now = Date()
         let initial = try SessionRecord.event(data, provider: provider, previous: nil, now: now, client: client)
+        if provider == .claude, isInternal(initial.session.cwd) { return }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let file = directory.appendingPathComponent("\(provider.rawValue)-\(initial.session.sessionID).json")
         let lock = open(directory.appendingPathComponent(".capture.lock").path, O_CREAT | O_RDWR, 0o600)
         guard lock >= 0 else { throw SessionError.unavailable }
         defer { flock(lock, LOCK_UN); close(lock) }
         guard flock(lock, LOCK_EX) == 0 else { throw SessionError.unavailable }
-        let previous = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(SessionRecord.self, from: $0) }
+        let existing = try? Data(contentsOf: file)
+        // A turn whose recorded runtime is gone ended with it (R2-03, for example resume after kill).
+        let previous = existing.flatMap { try? JSONDecoder().decode(SessionRecord.self, from: $0) }
+            .map { provider == .claude ? SessionRecord.endingReplacedRuntime($0, runtimePID: runtimePID, isAlive: isAlive) : $0 }
+        // A record that no longer decodes loses its turn start and pending
+        // approvals. Keep its bytes aside for diagnosis and say so (S-09).
+        let unreadable = existing != nil && previous == nil
+        if unreadable {
+            try? FileManager.default.moveItem(at: file, to: directory.appendingPathComponent(file.lastPathComponent + Self.corruptMarker + UUID().uuidString))
+        }
         var record = try SessionRecord.event(data, provider: provider, previous: previous, now: now, client: client)
+        if unreadable { record.session.hookDiagnostic = HookDiagnostic(kind: .unreadableRecord, at: now) }
+        // An ignored notice for a session without a record carries no lifecycle.
+        if previous == nil, record.session.phase == .unknown { return }
         if provider == .claude, let nestedClaudeRuntime { record.session.isNestedClaudeSession = nestedClaudeRuntime }
+        // Replaced on every event: a resumed session runs in a new process.
+        if provider == .claude { record.session.runtimePID = runtimePID }
         if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
         if let ide {
             record.session.ideLocation = ide; record.session.client = ide.editor.client
@@ -234,9 +490,11 @@ public enum SessionHooks {
         }
     }
     private static let loadedRecords = LocalFileCache<AgentSession>()
+    static let corruptMarker = ".corrupt-"
     /// Lifecycle observations expire after a day. Clean only this monitor's
     /// records, under the same lock as capture; never touch provider transcripts.
     @discardableResult public static func prune(at directory: URL = directory, now: Date = Date()) throws -> Int {
+        try LiveWriteGuard.check(directory)
         let stamp = directory.appendingPathComponent(".last-prune")
         if let modified = try? stamp.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
            now.timeIntervalSince(modified) >= 0, now.timeIntervalSince(modified) < 3600 { return 0 }
@@ -255,14 +513,29 @@ public enum SessionHooks {
                 name.hasPrefix(provider.rawValue + "-") && SessionParser.validID(String(name.dropFirst(provider.rawValue.count + 1)))
             }
         }
+        /// `<provider>-<id>.json.corrupt-<uuid>`, set aside by capture.
+        func setAside(_ url: URL) -> Bool {
+            let name = url.lastPathComponent
+            guard let marker = name.range(of: ".json" + corruptMarker) else { return false }
+            return owned(URL(fileURLWithPath: String(name[..<marker.lowerBound]) + ".json")) && UUID(uuidString: String(name[marker.upperBound...])) != nil
+        }
         var removed = 0
         for file in files {
             guard let values = try? file.resourceValues(forKeys: keys), values.isRegularFile == true,
                   values.isSymbolicLink != true, let modified = values.contentModificationDate, modified < cutoff else { continue }
-            if file.pathExtension == "json", owned(file), (values.fileSize ?? 0) < 65536,
-               let data = try? Data(contentsOf: file), let record = try? JSONDecoder().decode(SessionRecord.self, from: data),
-               file.lastPathComponent == "\(record.session.provider.rawValue)-\(record.session.sessionID).json",
-               record.session.observedAt < cutoff {
+            if file.pathExtension == "json", owned(file) {
+                let loadable = (values.fileSize ?? 0) < 65536
+                let data = loadable ? try? Data(contentsOf: file) : nil
+                if let data, let record = try? JSONDecoder().decode(SessionRecord.self, from: data) {
+                    guard file.lastPathComponent == "\(record.session.provider.rawValue)-\(record.session.sessionID).json",
+                          record.session.observedAt < cutoff else { continue }
+                } else if loadable && data == nil {
+                    continue // Not readable right now (for example permissions): not proof of damage.
+                }
+                // Expired, or never loadable again (damaged, oversized or rejected
+                // by a stricter decoder): it would be decoded on every poll forever.
+                try FileManager.default.removeItem(at: file); removed += 1
+            } else if setAside(file) {
                 try FileManager.default.removeItem(at: file); removed += 1
             }
         }
@@ -289,6 +562,7 @@ public enum SessionHooks {
     /// Terminal runs a launcher once and `exec`s the client, so it is only needed
     /// until Terminal starts it. Remove only Lunavect's own launchers after a day.
     @discardableResult public static func pruneOpeners(in directory: URL, now: Date = Date()) throws -> Int {
+        try LiveWriteGuard.check(directory)
         guard FileManager.default.fileExists(atPath: directory.path) else { return 0 }
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         var removed = 0

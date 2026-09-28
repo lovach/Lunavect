@@ -159,3 +159,33 @@ test('cancellation during provider activation or command discovery never dispatc
     }
   } finally { await fs.rm(cwd, { recursive: true, force: true }); }
 });
+
+// R2-N-04: VS Code reports an extension webview panel's tab as TabInputWebview whose
+// viewType carries the workbench prefix: mainThreadWebviewPanels opens it with
+// webviewPanelViewType.fromExternal(viewType) ('mainThreadWebview-' + viewType), and
+// mainThreadEditorTabs/extHostEditorTabs pass that value on unchanged.
+test('the Claude panel is recognized by the tab type VS Code reports, and only that panel', async () => {
+  const fs = require('node:fs/promises'), os = require('node:os'), path = require('node:path'), vm = require('node:vm');
+  const source = await fs.readFile(path.join(__dirname, 'routing.js'), 'utf8');
+  const module = { exports: {} };
+  let clock = 0; // virtual monotonic time: an unrecognized tab ends in 'timeout' without waiting 2.5 s
+  const load = name => name === 'node:perf_hooks' ? { performance: { now: () => clock += 100 } } : require(name);
+  vm.runInThisContext('(function(require,module,setTimeout){' + source + '\n})')(load, module, callback => queueMicrotask(callback));
+  const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'lunavect-claude-panel-')));
+  try {
+    for (const [viewType, expected] of [['mainThreadWebview-claudeVSCodePanel', 'focused'], ['claudeVSCodePanel', 'focused'],
+                                        ['mainThreadWebview-markdown.preview', 'timeout'], ['mainThreadWebview-xclaudeVSCodePanel', 'timeout']]) {
+      const api = editor([]), id = '01234567-89ab-cdef-0123-456789abcdef';
+      api.TabInputWebview = class { constructor(type) { this.viewType = type; } };
+      api.TabInputCustom = class {};
+      const group = { tabs: [] };
+      api.window.tabGroups = { all: [group], activeTabGroup: group };
+      api.workspace.workspaceFolders = [{ uri: { scheme: 'file', fsPath: cwd } }];
+      api.extensions.getExtension = () => ({ activate: async () => {} });
+      api.commands = { getCommands: async () => ['claude-vscode.primaryEditor.open'],
+        executeCommand: async () => { group.activeTab = { input: new api.TabInputWebview(viewType) }; } };
+      clock = 0;
+      assert.equal((await module.exports.focusTarget(api, { kind: 'claude', sessionID: id, cwd })).status, expected, viewType);
+    }
+  } finally { await fs.rm(cwd, { recursive: true, force: true }); }
+});

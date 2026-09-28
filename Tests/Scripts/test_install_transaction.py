@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import plistlib
 import platform
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -18,7 +19,10 @@ name, args = Path(sys.argv[0]).name, sys.argv[1:]
 root = Path(os.environ['INSTALL_FIXTURE_HOME'])
 with (root / 'trace').open('a') as f: f.write(json.dumps([name, args]) + '\\n')
 if name == 'pgrep': sys.exit(1)
-if name in ('ps', 'pkill', 'chflags'): sys.exit(0)
+if name == 'ps':
+    print(os.environ.get('INSTALL_FIXTURE_PROCESSES', ''))
+    sys.exit(0)
+if name in ('pkill', 'chflags'): sys.exit(0)
 # Model the observed macOS invalidation: removing a duplicate extension loses
 # its containing-host lookup, even when the installed extension still exists.
 lookup = root / 'host-registered'
@@ -37,7 +41,7 @@ if name == os.environ.get('INSTALL_FIXTURE_FAIL') and matches and not (root / 'f
 @unittest.skipUnless(platform.system() == 'Darwin', 'Installer uses macOS tools')
 class InstallTransactionTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='lunavect-install-fixture-')
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect install fixture 'q' ")  # a HOME with spaces and a quote
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.bin = self.root / 'bin'; self.bin.mkdir()
@@ -46,10 +50,12 @@ class InstallTransactionTests(unittest.TestCase):
             tool.write_text('#!' + sys.executable + '\n' + TOOL); tool.chmod(0o755)
         scripts = self.root / 'scripts'; scripts.mkdir()
         source = (ROOT / 'scripts/install.sh').read_text().replace('$HOME', '$INSTALL_FIXTURE_HOME')
-        source = source.replace(REGISTER, str(self.bin / 'lsregister')).replace('/usr/bin/pkill', str(self.bin / 'pkill'))
+        # Both the rewritten default and LUNAVECT_LSREGISTER below point at the shim.
+        # Quoted: the fixture may live below a TMPDIR with spaces or quotes, like a real HOME.
+        source = source.replace(REGISTER, str(self.bin / 'lsregister')).replace('/usr/bin/pkill', shlex.quote(str(self.bin / 'pkill')))
         self.global_app = self.root / 'global/Lunavect.app'
         assert 'GLOBAL_APP=/Applications/Lunavect.app\n' in source
-        source = source.replace('GLOBAL_APP=/Applications/Lunavect.app\n', 'GLOBAL_APP=' + str(self.global_app) + '\n')
+        source = source.replace('GLOBAL_APP=/Applications/Lunavect.app\n', 'GLOBAL_APP=' + shlex.quote(str(self.global_app)) + '\n')
         (scripts / 'install.sh').write_text(source)
         for name in ('verify-product-resources.py', 'verify-hook-helper.py', 'verify-app-groups.py', 'migrate-app-group.py'):
             (scripts / name).write_text('raise SystemExit(0)\n')
@@ -58,6 +64,7 @@ class InstallTransactionTests(unittest.TestCase):
         self.source = self.root / 'source.app'
         self.bundle(self.source, 'new'); self.bundle(self.dest, 'old')
         self.env = dict(os.environ, INSTALL_FIXTURE_HOME=str(self.root), LUNAVECT_INSTALL_SOURCE=str(self.source),
+                        LUNAVECT_LSREGISTER=str(self.bin / 'lsregister'),
                         TMPDIR=str(self.root), PATH=str(self.bin) + os.pathsep + os.environ['PATH'])
         # Kernel isolation forbids all mutations outside this temporary fixture.
         self.profile = self.root / 'sandbox.sb'
@@ -69,10 +76,16 @@ class InstallTransactionTests(unittest.TestCase):
         (path / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': identifier}))
         (path / 'marker').write_text(marker)
 
-    def run_install(self, failure=''):
+    def run_install(self, failure='', processes=''):
         return subprocess.run(['/usr/bin/sandbox-exec', '-f', str(self.profile), '/bin/bash',
-                               str(self.root / 'scripts/install.sh')], env=dict(self.env, INSTALL_FIXTURE_FAIL=failure),
+                               str(self.root / 'scripts/install.sh')],
+                              env=dict(self.env, INSTALL_FIXTURE_FAIL=failure, INSTALL_FIXTURE_PROCESSES=processes),
                               text=True, capture_output=True, timeout=20)
+
+    def mutating_calls(self):
+        trace = self.root / 'trace'
+        calls = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
+        return [call for call in calls if call[0] != 'ps']
 
     def test_foreign_legacy_rejected_before_any_side_effect(self):
         self.bundle(self.legacy, 'foreign', 'other.app')
@@ -80,16 +93,30 @@ class InstallTransactionTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((self.dest / 'marker').read_text(), 'old')
         self.assertEqual((self.legacy / 'marker').read_text(), 'foreign')
-        self.assertFalse((self.root / 'trace').exists())
+        self.assertEqual(self.mutating_calls(), [])
 
     def test_second_copy_in_applications_is_rejected_before_any_side_effect(self):
         self.bundle(self.global_app, 'dmg')
         result = self.run_install()
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('Another Lunavect is installed at ' + str(self.global_app), result.stderr)
+        self.assertNotIn('Running now', result.stderr)
         self.assertEqual((self.dest / 'marker').read_text(), 'old')
         self.assertEqual((self.global_app / 'marker').read_text(), 'dmg')
-        self.assertFalse((self.root / 'trace').exists())
+        self.assertEqual(self.mutating_calls(), [])
+
+    def test_second_copy_refusal_names_the_running_copy(self):
+        # Widgets usually follow the running copy; name it so the owner keeps the right one.
+        self.bundle(self.global_app, 'dmg')
+        for running in (self.global_app, self.dest):
+            with self.subTest(running=running.parent.name):
+                result = self.run_install(processes=str(running / 'Contents/MacOS/Lunavect') + '\n/usr/libexec/other')
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('Running now: ' + str(running), result.stderr)
+                other = self.dest if running == self.global_app else self.global_app
+                self.assertNotIn('Running now: ' + str(other), result.stderr)
+                self.assertEqual(self.mutating_calls(), [])
+                self.assertEqual((self.global_app / 'marker').read_text(), 'dmg')
 
     def test_unrelated_or_linked_applications_entry_does_not_block_install(self):
         self.global_app.parent.mkdir()

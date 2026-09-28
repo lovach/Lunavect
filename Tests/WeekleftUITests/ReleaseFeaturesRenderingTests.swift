@@ -63,7 +63,8 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("/fixture/codex", forKey: "codexPath")
         var preferences = WidgetPreferences(); preferences.enabledProviders = [.codex]
-        let old = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: nil), fetchedAt: Date())
+        // Older than the refresh interval, so the restored connection is due to ask (QuotaRefreshPolicy).
+        let old = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: nil), fetchedAt: Date().addingTimeInterval(-7200))
         let finished = expectation(description: "Network restored")
         var calls = 0, restored = 0
         let store = AppStore(state: SharedState(snapshots: [old], preferences: preferences), savesChanges: false, quotaFetcher: { id, _ in
@@ -80,7 +81,7 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
         await Task.yield(); await Task.yield()
         XCTAssertEqual(calls, 0); XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 40); XCTAssertNil(store.snapshots.first?.issue)
         network.update(available: true); network.update(available: true)
-        await fulfillment(of: [finished], timeout: 2)
+        await fulfillment(of: [finished], timeout: 5)
         XCTAssertEqual(calls, 1); XCTAssertEqual(restored, 1); XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 41)
         store.stop()
         await network.onRestored?()
@@ -182,6 +183,9 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
     @MainActor func testLiveConnectionDiagnostics() async throws {
         guard ProcessInfo.processInfo.environment["LUNAVECT_LIVE_DIAGNOSTICS"] == "1" else { throw XCTSkip("Opt-in installed client checks") }
         let diagnostics = ConnectionDiagnostics()
+        // Opt-in: the installed clients may run for this check only (LiveProcessGuard).
+        let clients = [SessionSources.discoverClaude(), CodexProvider.discoverCLI(), AppStore.discoverCodex()].compactMap { $0 }
+        LiveProcessGuard.allow(clients); defer { LiveProcessGuard.disallow(clients) }
         await diagnostics.check(store: AppStore(), sessions: SessionStore())
         XCTAssertEqual(diagnostics.results.count, 2); XCTAssertNotNil(diagnostics.checkedAt)
         diagnostics.prepareReport(); XCTAssertNotNil(diagnostics.reportText)

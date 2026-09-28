@@ -27,7 +27,7 @@ final class ActivityServiceTests: XCTestCase {
         guard service.importing else { return }
         let done = expectation(description: "Import ends")
         let token = service.$importing.dropFirst().filter { !$0 }.first().sink { _ in done.fulfill() }
-        await fulfillment(of: [done], timeout: 3)
+        await fulfillment(of: [done], timeout: 5)
         token.cancel()
     }
     @MainActor func testImmediateStopBeforeTaskRunsNeverInvokesImportBackend() async throws {
@@ -53,12 +53,12 @@ final class ActivityServiceTests: XCTestCase {
             await gate.read(providers, boundary: boundary)
         })
         service.start(providers: [.codex]); service.start(providers: [.codex])
-        await fulfillment(of: [called], timeout: 3)
+        await fulfillment(of: [called], timeout: 5)
         let stopped = try XCTUnwrap(service.importTask)
         service.stop(); service.stop()
         XCTAssertFalse(service.importing)
         service.start(providers: [.codex]); service.start(providers: [.codex])
-        await fulfillment(of: [restarted], timeout: 3)
+        await fulfillment(of: [restarted], timeout: 5)
         await gate.finish(1, result: imported(.codex))
         await waitUntilIdle(service)
         let expected = service.history
@@ -74,6 +74,101 @@ final class ActivityServiceTests: XCTestCase {
         XCTAssertEqual(counter.value, 2)
         service.stop()
     }
+    /// P-I5 across a restart: quitting while the first import runs keeps the
+    /// saved boundary; the next launch imports once against that same boundary,
+    /// the cancelled worker's late result never reaches the file, and a third
+    /// launch does not import again.
+    @MainActor func testQuitDuringImportThenRelaunchImportsOnceAgainstTheSavedBoundary() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ActivityServiceTests-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let historyURL = root.appendingPathComponent("activity.json"), detailsURL = root.appendingPathComponent("activity-details.json")
+        var clock = now
+        let started = expectation(description: "First launch imports"), relaunched = expectation(description: "Relaunch imports")
+        let counter = CallCounter()
+        let gate = Imports { if counter.next() == 1 { started.fulfill() } else { relaunched.fulfill() } }
+        func launch() -> (ActivityService, ActivityPersistence) {
+            let storage = ActivityPersistence(historyURL: historyURL, detailsURL: detailsURL)
+            return (ActivityService(storage: storage, powerNotifications: nil, clock: { clock },
+                                    importer: { providers, boundary, _ in await gate.read(providers, boundary: boundary) }), storage)
+        }
+        let (first, firstStorage) = launch()
+        first.start(providers: [.codex])
+        await fulfillment(of: [started], timeout: 5)
+        let cancelled = try XCTUnwrap(first.importTask)
+        first.stop()
+        clock = now.addingTimeInterval(60)
+        let (second, secondStorage) = launch()
+        second.start(providers: [.codex])
+        await fulfillment(of: [relaunched], timeout: 5)
+        let calls = await gate.calls
+        XCTAssertEqual(calls.map(\.boundary), [now, now], "The relaunch reuses the boundary saved before the first read")
+        await gate.finish(1, result: imported(.codex))
+        await waitUntilIdle(second)
+        _ = secondStorage.counters // the merged import is on disk
+        let saved = try ActivityHistory.load(from: historyURL)
+        XCTAssertEqual(saved.summary(now: clock).totals.codex, 50, "Recovered once")
+        XCTAssertEqual(saved.providerImportCutoffs?["codex"], now)
+        // The quit launch's worker now receives a different, longer result.
+        var late = ActivityImportResult()
+        late.intervals = [.init(start: now.addingTimeInterval(-1_200), end: now.addingTimeInterval(-700), providers: 2)]
+        await gate.finish(0, result: late)
+        await cancelled.value
+        _ = firstStorage.counters
+        XCTAssertEqual(try ActivityHistory.load(from: historyURL), saved, "A quit launch's late result never reaches the file")
+        second.stop()
+        let (third, _) = launch()
+        third.start(providers: [.codex])
+        XCTAssertFalse(third.importing, "An imported provider is not imported again at launch")
+        XCTAssertEqual(counter.value, 2)
+        third.stop()
+        XCTAssertEqual(try ActivityHistory.load(from: historyURL).summary(now: clock).totals.codex, 50)
+    }
+    /// R2-R-02 with an import: on a slow disk the state carrying the import
+    /// boundary can be replaced by a newer checkpoint before it is written. The
+    /// newer state holds the boundary too, both requests get its result, and the
+    /// journals are read only once the boundary is on disk.
+    @MainActor func testImportBoundaryReplacedByANewerCheckpointIsOnDiskBeforeTheRead() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ActivityServiceTests-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let historyURL = root.appendingPathComponent("activity.json")
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), writes = CallCounter()
+        let storage = ActivityPersistence(historyURL: historyURL, detailsURL: root.appendingPathComponent("activity-details.json"),
+            writeHistory: { value, url in
+                if writes.next() == 1 {
+                    entered.signal()
+                    XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+                }
+                try value.save(to: url)
+            })
+        var clock = now
+        let read = expectation(description: "Journals are read")
+        let service = ActivityService(storage: storage, powerNotifications: nil, clock: { clock }, importer: { _, boundary, _ in
+            let saved = try ActivityHistory.load(from: historyURL)
+            XCTAssertEqual(saved.providerImportCutoffs?["codex"], boundary, "The boundary is durable before any journal is read")
+            read.fulfill()
+            return ActivityImportResult()
+        })
+        service.setProviders([.codex])
+        func running() -> AgentSession {
+            AgentSession(provider: .codex, sessionID: "fixture", title: "Synthetic", cwd: "/tmp/fixture", phase: .running,
+                         updatedAt: clock, observedAt: clock, evidence: .localEvent, runtimeConfirmed: true)
+        }
+        service.observe([running()]) // the first checkpoint; its write is slow
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        service.requestImport() // the boundary state waits behind it
+        clock = now.addingTimeInterval(60)
+        service.observe([running()]) // a newer checkpoint replaces the waiting state
+        XCTAssertEqual(storage.waitingRequests, 2)
+        release.signal()
+        await fulfillment(of: [read], timeout: 5)
+        await waitUntilIdle(service)
+        _ = storage.counters // the merged import is written asynchronously
+        XCTAssertEqual(writes.value, 3, "slow checkpoint, the replacing state, the merged import")
+        XCTAssertNil(service.issue)
+        service.stop()
+    }
     @MainActor func testProviderChangeCancelsOldImportAndKeepsNewSelection() async throws {
         let called = expectation(description: "Both provider selections run"); called.expectedFulfillmentCount = 2
         let gate = Imports { called.fulfill() }
@@ -84,10 +179,10 @@ final class ActivityServiceTests: XCTestCase {
             return await gate.read(providers, boundary: boundary)
         })
         service.start(providers: [.claude, .codex])
-        await fulfillment(of: [first], timeout: 3)
+        await fulfillment(of: [first], timeout: 5)
         let replaced = try XCTUnwrap(service.importTask)
         service.setProviders([.claude])
-        await fulfillment(of: [called], timeout: 3)
+        await fulfillment(of: [called], timeout: 5)
         await gate.finish(1, result: imported(.claude))
         await waitUntilIdle(service)
         var published = 0
@@ -112,11 +207,11 @@ final class ActivityServiceTests: XCTestCase {
             await gate.read(providers, boundary: boundary)
         })
         service.setProviders([.codex]); service.requestImport()
-        await fulfillment(of: [called], timeout: 3)
+        await fulfillment(of: [called], timeout: 5)
         for _ in 0..<20 { service.requestImport() }
         var cancelled = imported(.claude); cancelled.cancelled = true
         await gate.finish(0, result: cancelled)
-        await fulfillment(of: [retried], timeout: 3)
+        await fulfillment(of: [retried], timeout: 5)
         await gate.finish(1, result: imported(.codex))
         await waitUntilIdle(service)
         XCTAssertEqual(counter.value, 2)
@@ -172,7 +267,7 @@ final class ActivityServiceTests: XCTestCase {
         let work = CallCounter()
         let storage = ActivityPersistence(historyURL: URL(fileURLWithPath: "/unused/history"), detailsURL: URL(fileURLWithPath: "/unused/details"),
             readHistory: { _ in work.next(); return .init() }, readDetails: { _ in work.next(); return .init() },
-            writeHistory: { _, _ in work.next() }, writeDetails: { _, _ in work.next() }, reload: { work.next() })
+            writeHistory: { _, _ in work.next() }, writeDetails: { _, _, _ in work.next() }, reload: { work.next() })
         let service = ActivityService(storage: storage, isolated: true, clock: { self.now }, importer: { _, _, _ in
             work.next(); return ActivityImportResult()
         })

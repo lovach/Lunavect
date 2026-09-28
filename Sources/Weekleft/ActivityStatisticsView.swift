@@ -12,6 +12,9 @@ struct ActivityStatisticsView: View {
     @State private var detailDate: Date?
     @State private var showingBreakdown = false
     @State var historyExpanded = false
+    /// nil until the user asks; the check reads other Lunavect locations only then.
+    @State private var legacyData: [URL]?
+    @State private var legacyMoved = 0
     private var effectiveSource: ActivitySource { Self.resolvedSource(source, enabledProviders: store.providers) }
     private var providers: [ProviderID] { effectiveSource.providers(from: store.providers) }
     private var selectionScope: ActivityChartSelectionScope {
@@ -114,10 +117,22 @@ struct ActivityStatisticsView: View {
                     }
                 }
                 }
+                if let gaps = store.activityHistory.observationGaps, gaps.count > 0 {
+                    Text(L("Не засчитано разрывов наблюдения: {0}, всего {1}, с {2}.", String(gaps.count), ActivitySummary.duration(gaps.seconds),
+                           gaps.since.formatted(.dateTime.day().month().locale(L10n.locale))))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if store.activityUnavailable, !store.importingActivity {
+                    Text(L("Файл статистики не читается. Lunavect сохранит его копию рядом и начнёт новую историю, восстановив недавние журналы."))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack {
                     if store.importingActivity {
                         ProgressView().controlSize(.small)
                         Text(L("Восстанавливаем историю…"))
+                    } else if store.activityUnavailable {
+                        // The only action that keeps a copy of the unreadable file and starts over.
+                        Button(L("Сохранить копию и начать заново")) { store.startOverActivityHistory() }
                     } else {
                         Button(L("Обновить историю")) { store.importActivityHistory() }
                         if store.activityHistory.importedAt != nil, store.activityHistory.importReport == nil {
@@ -131,17 +146,53 @@ struct ActivityStatisticsView: View {
                     Text(L("Часть журналов недоступна или пропущена. Показаны только прочитанные данные.")).foregroundStyle(.orange)
                 }
                 if let issue = store.activityIssue { Text(L(issue)).foregroundStyle(.orange) }
+                legacyDataControls
             }.font(.system(size: 13)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true).padding(16)
                 .background(sectionBackground, in: RoundedRectangle(cornerRadius: 12))
         }.accessibilityIdentifier("statistics-history-disclosure")
     }
+    /// Copies left by an earlier installation (decision 24): found and moved to
+    /// the Trash only on request, never automatically.
+    @ViewBuilder private var legacyDataControls: some View {
+        HStack(alignment: .firstTextBaseline) {
+            if let legacyData, !legacyData.isEmpty {
+                LegacyCopiesList(urls: legacyData)
+                Spacer(minLength: 8)
+                Button(L("Переместить в Корзину")) {
+                    let remaining = LegacySharedData.moveToTrash(legacyData)
+                    legacyMoved = legacyData.count - remaining.count; self.legacyData = remaining
+                }
+            } else if legacyData != nil {
+                Text(legacyMoved > 0 ? L("Перемещено в Корзину: {0}.", String(legacyMoved)) : L("Данные прежней установки не найдены."))
+            } else {
+                Button(L("Найти данные прежней установки")) { legacyData = LegacySharedData.find(); legacyMoved = 0 }
+            }
+        }
+    }
     private func historyExplanation(_ title: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(L(title)).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary).accessibilityAddTraits(.isHeader)
             Text(L(text)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Copies of an earlier installation: what would move to the Trash, with its last
+/// change, before anything is moved (R3-07).
+struct LegacyCopiesList: View {
+    let urls: [URL]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L("Прежняя установка оставила копии, которые Lunavect не читает: {0}.", String(urls.count)))
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(LegacySharedData.details(of: urls), id: \.url) { item in
+                Text((item.url.path as NSString).abbreviatingWithTildeInPath + (item.modified.map { " · " + $0.formatted(.dateTime.day().month().year().locale(L10n.locale)) } ?? ""))
+                    .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    .lineLimit(2).truncationMode(.middle)
+            }
+        }
     }
 }
 

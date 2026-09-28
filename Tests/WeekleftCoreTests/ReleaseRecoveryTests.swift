@@ -32,7 +32,8 @@ final class ReleaseRecoveryTests: XCTestCase {
         XCTAssertThrowsError(try SessionProcess.run(path: script.path, arguments: [], timeout: 0.3)) {
             XCTAssertEqual(($0 as? SessionError)?.errorDescription, SessionError.timeout.errorDescription)
         }
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+        // The descendant holding the output sleeps 10 s; the run must end at its 0.3 s budget.
+        TimingBound.assertPrompt(since: start, strict: 1.5)
         XCTAssertThrowsError(try CodexProvider.read(cliPath: script.path, timeout: 0.3)) {
             XCTAssertEqual(($0 as? UsageError)?.errorDescription, UsageError.timeout.errorDescription)
         }
@@ -93,7 +94,7 @@ final class ReleaseRecoveryTests: XCTestCase {
     func testInvalidCachedQuotaRecoversHealthyProviderAndPreferences() throws {
         let now = Date(timeIntervalSince1970: 1_900_000_000)
         let healthy = try UsageSnapshot(provider: .claude,
-            weekly: QuotaWindow(usedPercent: 23, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3600)),
+            weekly: QuotaWindow(usedPercent: 23, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3600), resetPrecision: .minute),
             fetchedAt: now, source: ClaudeUsageProbe.source)
         let healthyJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(healthy))
         var preferences = WidgetPreferences()
@@ -184,7 +185,7 @@ final class ReleaseRecoveryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file), legacy)
 
         let now = Date(timeIntervalSince1970: 1_900_000_000)
-        let window = try QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(-1))
+        let window = try QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(-1), resetPrecision: .minute)
         let model = ModelQuota(name: "Sonnet", window: window, fetchedAt: now)
         let current = SharedState(snapshots: [UsageSnapshot(provider: .claude, weekly: window, fetchedAt: now, source: "Claude Code /usage", modelQuotas: [model]),
                                             UsageSnapshot(provider: .codex)], preferences: loaded.value.preferences)
@@ -274,12 +275,20 @@ final class ReleaseRecoveryTests: XCTestCase {
     func testFreshCacheAvoidsProbeButExpiredWindowRequiresRefresh() throws {
         let now = Date(), end = now.addingTimeInterval(3600)
         var snapshot = UsageSnapshot(
-            provider: .claude, weekly: try QuotaWindow(usedPercent: 20, durationMinutes: 10080, resetsAt: end),
-            fiveHour: try QuotaWindow(usedPercent: 5, durationMinutes: 300, resetsAt: end), fetchedAt: now,
+            provider: .claude, weekly: try QuotaWindow(usedPercent: 20, durationMinutes: 10080, resetsAt: end, resetPrecision: .minute),
+            fiveHour: try QuotaWindow(usedPercent: 5, durationMinutes: 300, resetsAt: end, resetPrecision: .minute), fetchedAt: now,
             source: ClaudeUsageProbe.source)
-        XCTAssertTrue(ClaudeProvider.cacheIsCurrent(snapshot, now: now.addingTimeInterval(20)))
-        XCTAssertFalse(ClaudeProvider.cacheIsCurrent(snapshot, now: now.addingTimeInterval(301)))
-        snapshot.fiveHour = try QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: now)
-        XCTAssertFalse(ClaudeProvider.cacheIsCurrent(snapshot, now: now))
+        // Rewritten for QuotaRefreshPolicy: the old 300 s cache equalled the timer
+        // period, so every tick probed. The policy reuses a verified value.
+        let policy = QuotaRefreshPolicy()
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now.addingTimeInterval(20)))
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now.addingTimeInterval(301)))
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: end.addingTimeInterval(29)))
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: end.addingTimeInterval(30)))
+        // An expired window needs a confirming probe once the CLI has loaded the new
+        // window: 30 s after the end of the shown minute (WP-1b).
+        snapshot.fiveHour = try QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: now, resetPrecision: .minute)
+        XCTAssertFalse(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now))
+        XCTAssertTrue(policy.shouldFetch(.claude, snapshot: snapshot, trigger: .timer, now: now.addingTimeInterval(30)))
     }
 }

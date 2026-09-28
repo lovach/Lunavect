@@ -63,6 +63,193 @@ public enum CodexProvider {
     }
 }
 
+/// When Lunavect asks a client for new quota data. A Claude probe starts the
+/// interactive CLI (visible to the user as a short session) and Codex starts its
+/// app-server, so both run when the window state calls for it, never on a fixed
+/// cadence (docs/connections.md, "When limits are refreshed").
+///
+/// - While any window is used up with a future reset nothing is asked, not even
+///   about the other window's passed reset: no request is possible, so nothing
+///   can change before that reset.
+/// - After a reset one confirming request runs once the grace has passed. An
+///   answer that still shows the passed reset is not a confirmation: the next one
+///   follows the failure backoff.
+/// - A verified observation is reused for 15 minutes while sessions are active
+///   (an event in the last hour) and for an hour otherwise.
+/// - A finished response (session event) asks after a quiet debounce when the
+///   observation is older than two minutes.
+/// - Failures back off 5, 10, 20, 40, then 60 minutes. Wake and a restored
+///   network start over only for a transient cause; a cause the user has to
+///   change (trust, sign-in, billing, format) waits for an explicit refresh or a
+///   changed connection. Claude's "limit reached" pauses until the earliest known
+///   reset. An answer without any known window backs off like a failure. An
+///   explicit refresh asks at most once per 30 seconds.
+public struct QuotaRefreshPolicy: Sendable {
+    public enum Trigger: String, Sendable { case launch, timer, sessionEvent, wake, networkRestored, resetDue, manual }
+    public struct Timing: Sendable, Equatable {
+        public var activeInterval: TimeInterval = 900
+        public var idleInterval: TimeInterval = 3600
+        public var activityWindow: TimeInterval = 3600
+        public var eventMinimumAge: TimeInterval = 120
+        public var eventDebounce: TimeInterval = 90
+        public var wakeSettle: TimeInterval = 4
+        public var manualMinimumInterval: TimeInterval = 30
+        public var backoff: [TimeInterval] = [300, 600, 1200, 2400, 3600]
+        public init() {}
+    }
+    struct ProviderState: Sendable {
+        var lastCompleted: Date?
+        var lastVerified: Date?
+        var lastEvent: Date?
+        var failures = 0
+        var lastFailure: Date?
+        /// Wake or a restored network may have removed the cause of the last failure.
+        var transientFailure = false
+        /// The limit is reached: no automatic request before this moment.
+        var pausedUntil: Date?
+    }
+    public let timing: Timing
+    private var states: [ProviderID: ProviderState] = [:]
+    public init(timing: Timing = Timing()) { self.timing = timing }
+
+    public func shouldFetch(_ provider: ProviderID, snapshot: UsageSnapshot?, trigger: Trigger, now: Date) -> Bool {
+        let state = states[provider] ?? ProviderState()
+        if trigger == .manual { return manualRetryDate(provider, now: now) == nil }
+        if let paused = state.pausedUntil, now < paused { return false }
+        if let retry = retryDate(state), let failed = state.lastFailure, now >= failed, now < retry { return false }
+        guard let snapshot, snapshot.fetchedAt != nil, snapshot.hasQuota || snapshot.unlimited == true else { return true }
+        let windows = [snapshot.weekly, snapshot.fiveHour].compactMap { $0 }
+        // Usage within a window never decreases, and no request is possible while
+        // a window is used up: nothing changes before its reset, including another
+        // window whose reset has passed (both are confirmed together afterwards).
+        if windows.contains(where: { $0.remaining < 1 && ($0.resetsAt.map { $0 > now } ?? false) }) { return false }
+        // A passed reset: the saved values belong to the previous window, also when
+        // an answer after the reset still showed it. Confirm the new windows once the
+        // grace (minute rounding of the CLI) after the latest passed reset is over;
+        // failures then back off.
+        if let reset = windows.compactMap(\.resetsAt).filter({ $0 <= now }).max() {
+            return now.timeIntervalSince(reset) >= snapshot.resetGrace
+        }
+        // statusLine has no server observation time; only a probe verifies the value.
+        guard let verified = snapshot.freshnessVerified ? snapshot.fetchedAt : state.lastVerified else { return true }
+        let age = now.timeIntervalSince(verified)
+        if age < 0 { return true }
+        if trigger == .sessionEvent { return age > timing.eventMinimumAge }
+        return age >= interval(state, snapshot: snapshot, now: now)
+    }
+    /// When an explicit refresh may ask this provider again; nil when it may now.
+    public func manualRetryDate(_ provider: ProviderID, now: Date) -> Date? {
+        guard let last = states[provider]?.lastCompleted else { return nil }
+        let since = now.timeIntervalSince(last)
+        guard since >= 0, since < timing.manualMinimumInterval else { return nil }
+        return last.addingTimeInterval(timing.manualMinimumInterval)
+    }
+    private func interval(_ state: ProviderState, snapshot: UsageSnapshot, now: Date) -> TimeInterval {
+        // An unstarted window changes only with a request, reported by a session event.
+        let unstarted = snapshot.weekly.map { $0.resetsAt == nil && $0.usedPercent == 0 } ?? false
+        let active = state.lastEvent.map { let since = now.timeIntervalSince($0); return since >= 0 && since <= timing.activityWindow } ?? false
+        return active && !unstarted && snapshot.unlimited != true ? timing.activeInterval : timing.idleInterval
+    }
+    /// The end of the current backoff step, if a failure is being backed off.
+    private func retryDate(_ state: ProviderState) -> Date? {
+        guard state.failures > 0, let failed = state.lastFailure, !timing.backoff.isEmpty else { return nil }
+        return failed.addingTimeInterval(timing.backoff[min(state.failures, timing.backoff.count) - 1])
+    }
+    public mutating func noteEvent(_ provider: ProviderID, at date: Date) {
+        let previous = states[provider]?.lastEvent ?? .distantPast
+        states[provider, default: ProviderState()].lastEvent = max(previous, date)
+    }
+    /// A request finished. A snapshot carrying an issue is a failure that keeps the
+    /// old values; `reason` is its typed cause when known. On a failure `snapshot`
+    /// is the observation the app still shows (its resets bound a "limit reached" pause).
+    public mutating func record(_ provider: ProviderID, snapshot: UsageSnapshot?, succeeded: Bool,
+                                reason: ClientIntegrationIssue.Reason? = nil, at now: Date) {
+        var state = states[provider] ?? ProviderState()
+        state.lastCompleted = now
+        var succeeded = succeeded, reason = reason
+        if succeeded, let snapshot, let observed = snapshot.fetchedAt {
+            if !snapshot.hasQuota && snapshot.unlimited != true {
+                // No window Lunavect knows and no explicit "unlimited": unknown data.
+                succeeded = false; reason = .waitingForData
+            } else if [snapshot.weekly, snapshot.fiveHour].contains(where: { ($0?.resetsAt).map { $0 <= observed } ?? false }) {
+                // Still the window whose reset has passed: not the new window's first data.
+                succeeded = false; reason = .staleData
+            }
+        }
+        if succeeded {
+            state.failures = 0; state.lastFailure = nil; state.transientFailure = false; state.pausedUntil = nil
+            if let snapshot, snapshot.freshnessVerified, let fetchedAt = snapshot.fetchedAt { state.lastVerified = fetchedAt }
+        } else {
+            state.failures += 1; state.lastFailure = now
+            state.transientFailure = reason.map(Self.isTransient) ?? true
+            state.pausedUntil = nil
+            if reason == .limitReached {
+                // Nothing changes before a reset. The binding window is not named, so the
+                // earliest known reset is the first moment the limit may have lifted.
+                let reset = [snapshot?.weekly, snapshot?.fiveHour].compactMap { $0?.resetsAt }.filter { $0 > now }.min()
+                state.pausedUntil = reset.map { $0.addingTimeInterval(snapshot?.resetGrace ?? 0) }
+                    ?? now.addingTimeInterval(timing.backoff.last ?? timing.idleInterval)
+            }
+        }
+        states[provider] = state
+    }
+    /// Causes that wake or a restored network may have removed: the network, a
+    /// timeout, the client's own usage request or a window not loaded yet. An
+    /// unknown cause counts as one. Trust, sign-in, billing, format and a reached
+    /// limit wait for an explicit refresh or a changed connection.
+    static func isTransient(_ reason: ClientIntegrationIssue.Reason) -> Bool {
+        [.timedOut, .usageFetchFailed, .sourceUnavailable, .staleData].contains(reason)
+    }
+    /// Wake or a restored network may have removed a transient cause of earlier failures.
+    public mutating func resetBackoff() {
+        for provider in states.keys where states[provider]?.transientFailure == true {
+            states[provider]?.failures = 0; states[provider]?.lastFailure = nil
+        }
+    }
+    /// A changed client path or connection: earlier results are not about it.
+    public mutating func forget(_ provider: ProviderID) { states[provider] = nil }
+    /// The next moment an automatic request may become due without any other
+    /// trigger: the earliest future reset plus its grace, or, while a passed reset
+    /// is still unconfirmed, the end of the provider's backoff step or pause.
+    public func nextCheck(_ snapshots: [UsageSnapshot], now: Date) -> Date? {
+        var dates = Self.nextResetCheck(snapshots, now: now).map { [$0] } ?? []
+        for snapshot in snapshots where [snapshot.weekly, snapshot.fiveHour].contains(where: { ($0?.resetsAt).map { $0 <= now } ?? false }) {
+            guard let state = states[snapshot.provider] else { continue }
+            dates += [retryDate(state), state.pausedUntil].compactMap { $0 }
+        }
+        return dates.filter { $0 > now }.min()
+    }
+    /// The earliest future reset plus its grace, for a one-shot confirming request.
+    public static func nextResetCheck(_ snapshots: [UsageSnapshot], now: Date) -> Date? {
+        snapshots.flatMap { snapshot in
+            [snapshot.weekly, snapshot.fiveHour].compactMap { $0?.resetsAt }.map { $0.addingTimeInterval(snapshot.resetGrace) }
+        }.filter { $0 > now }.min()
+    }
+}
+
+/// What `Lunavect --probe` prints: the result of a real /usage probe (or its typed
+/// failure), the saved status-line observation and Codex. Nothing is saved.
+public enum QuotaProbeReport {
+    public static func lines(claudeProbe: () async throws -> UsageSnapshot, claudeStatusLine: () async throws -> UsageSnapshot,
+                             codex: () async throws -> UsageSnapshot) async -> [String] {
+        var lines: [String] = []
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        func line(_ label: String, _ read: () async throws -> UsageSnapshot) async {
+            do { lines.append(label + ": " + String(decoding: try encoder.encode(try await read()), as: UTF8.self)) }
+            catch { lines.append(label + ": " + describe(error)) }
+        }
+        await line("Claude /usage", claudeProbe)
+        await line("Claude statusLine", claudeStatusLine)
+        await line("Codex", codex)
+        return lines
+    }
+    /// A typed code and fixed message; never a raw client error text.
+    public static func describe(_ error: Error) -> String {
+        if let issue = error as? ClientIntegrationIssue { return issue.code + " " + issue.message }
+        return (error as? UsageError)?.errorDescription ?? "unavailable: the client returned no usable data"
+    }
+}
+
 public enum ClaudeProvider {
     public static let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Weekleft/ClaudeStatusLine")
     public static var cacheURL: URL { directory.appendingPathComponent("quota.json") }
@@ -72,7 +259,7 @@ public enum ClaudeProvider {
         var snapshot = try JSONDecoder().decode(UsageSnapshot.self, from: data)
         guard snapshot.provider == .claude, snapshot.source == "Claude Code statusLine", snapshot.fetchedAt != nil,
             [snapshot.weekly, snapshot.fiveHour].compactMap({ $0 }).allSatisfy({
-                $0.resetsAt != nil && $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
+                hasResetOrIsInactive($0) && $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
             })
         else { throw UsageError.invalidResponse }
         if snapshot.isStale(now: now) { snapshot.issue = UsageError.claudeQuotaStale.errorDescription }
@@ -80,18 +267,30 @@ public enum ClaudeProvider {
         return snapshot
     }
     public static var usageCacheURL: URL { directory.appendingPathComponent("usage.json") }
+    /// When the status line last delivered quotas (its receipt time), if ever.
+    public static func statusLineObservedAt(url: URL = cacheURL) -> Date? {
+        guard let data = try? LocalStateRecovery.read(from: url, maximumBytes: 1_000_000),
+              let snapshot = try? JSONDecoder().decode(UsageSnapshot.self, from: data),
+              snapshot.source == "Claude Code statusLine" else { return nil }
+        return snapshot.fetchedAt
+    }
     public static func isTrustedSnapshot(_ snapshot: UsageSnapshot) -> Bool {
         snapshot.provider == .claude && ["Claude Code statusLine", ClaudeUsageProbe.source].contains(snapshot.source)
             && snapshot.fetchedAt != nil && snapshot.hasQuota
             && [snapshot.weekly, snapshot.fiveHour].compactMap({ $0 }).allSatisfy {
-                $0.resetsAt != nil && $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
+                hasResetOrIsInactive($0) && $0.usedPercent.isFinite && (0...100).contains($0.usedPercent)
             }
             && (snapshot.modelQuotas ?? []).count <= 20
             && (snapshot.modelQuotas ?? []).allSatisfy {
                 !$0.name.isEmpty && $0.name.count <= 60 && !$0.name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
-                    && $0.window.durationMinutes == 10080 && $0.window.resetsAt != nil
+                    && $0.window.durationMinutes == 10080 && hasResetOrIsInactive($0.window)
                     && $0.window.usedPercent.isFinite && (0...100).contains($0.window.usedPercent)
             }
+    }
+    /// A window reports its reset once it has started. Before the first request
+    /// it is a confirmed 0% with no reset time (never an invented one).
+    private static func hasResetOrIsInactive(_ window: QuotaWindow) -> Bool {
+        window.resetsAt != nil || window.usedPercent == 0
     }
     public static func latest(statusLineURL: URL = cacheURL, usageURL: URL = usageCacheURL, now: Date = Date()) throws -> UsageSnapshot {
         let observations = [statusLineURL, usageURL].compactMap { url -> UsageSnapshot? in
@@ -111,31 +310,23 @@ public enum ClaudeProvider {
     }
     public static func preferredObservation(_ observations: [UsageSnapshot], now: Date) -> UsageSnapshot? {
         let current = observations.filter { $0.freshnessVerified && !$0.isStale(now: now) }
+        // Equal observation times prefer the verified probe, whatever the reading order.
         return (current.isEmpty ? observations : current).max {
-            ($0.fetchedAt ?? .distantPast) < ($1.fetchedAt ?? .distantPast)
+            (($0.fetchedAt ?? .distantPast), $0.freshnessVerified ? 1 : 0) < (($1.fetchedAt ?? .distantPast), $1.freshnessVerified ? 1 : 0)
         }
     }
-    static func cacheIsCurrent(_ snapshot: UsageSnapshot, now: Date = Date()) -> Bool {
-        guard !snapshot.isStale(now: now), let fetchedAt = snapshot.fetchedAt,
-              now.timeIntervalSince(fetchedAt) >= 0, now.timeIntervalSince(fetchedAt) < 300,
-              let weekly = snapshot.weekly, weekly.resetsAt.map({ $0 > now }) ?? false else { return false }
-        if let fiveHour = snapshot.fiveHour, fiveHour.resetsAt.map({ $0 <= now }) ?? true { return false }
-        return (snapshot.modelQuotas ?? []).allSatisfy { !$0.isStale(now: now) }
-    }
-    public static func refresh(force: Bool = true) async throws -> UsageSnapshot {
-        try await refresh(force: force, cached: { try latest() }, probe: {
+    /// Runs one `/usage` probe. Whether to ask at all is the app's decision
+    /// (`QuotaRefreshPolicy` in `AppStore`), made before this is called.
+    public static func refresh() async throws -> UsageSnapshot {
+        try await refresh(cached: { try latest() }, probe: {
             try Task.checkCancellation()
             guard let path = SessionSources.discoverClaude() else { throw UsageError.claudeCLIUnavailable }
             return try await ClaudeUsageProbe.fetch(cliPath: path)
         }, save: { try saveUsage($0) })
     }
-    static func refresh(force: Bool, now: Date = Date(), cached: () throws -> UsageSnapshot,
-                        probe: () async throws -> UsageSnapshot, save: (UsageSnapshot) throws -> Void) async throws -> UsageSnapshot {
+    static func refresh(cached: () throws -> UsageSnapshot, probe: () async throws -> UsageSnapshot,
+                        save: (UsageSnapshot) throws -> Void) async throws -> UsageSnapshot {
         try Task.checkCancellation()
-        if !force, let snapshot = try? cached(), cacheIsCurrent(snapshot, now: now) {
-            try Task.checkCancellation()
-            return snapshot
-        }
         do {
             try Task.checkCancellation()
             let snapshot = try await probe()
@@ -157,6 +348,7 @@ public enum ClaudeProvider {
     public static func saveUsage(_ snapshot: UsageSnapshot, destination: URL = usageCacheURL) throws {
         try Task.checkCancellation()
         guard isTrustedSnapshot(snapshot), snapshot.source == ClaudeUsageProbe.source else { throw UsageError.invalidResponse }
+        try LiveWriteGuard.check(destination)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try Task.checkCancellation()
         try LocalStateRecovery.write(JSONEncoder().encode(snapshot), to: destination)
@@ -169,6 +361,8 @@ public enum ClaudeProvider {
         do { snapshot = try UsageParser.claude(limits, now: now) }
         catch { throw ClientIntegrationIssue.classify(error, provider: .claude, capability: .statusLine) ?? error }
         guard snapshot.weekly != nil || snapshot.fiveHour != nil else { return }
+        // Before the folder, the lock file and the recovery move, not only the final write.
+        try LiveWriteGuard.check(destination)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         // Quota values alone do not identify a replay: a later API response may
         // legitimately contain identical (or lower) values. Include documented
@@ -228,15 +422,21 @@ public enum ClaudeProvider {
               let status = root["statusLine"] as? [String: Any], let command = status["command"] as? String else { return false }
         return ownsStatusLine(command)
     }
-    public static func statusLineInstalled(settingsURL: URL? = nil, executable: String? = SessionHooks.monitorExecutable()) -> Bool {
-        guard let executable, FileManager.default.isExecutableFile(atPath: executable) else { return false }
+    public static func statusLineInstalled(settingsURL: URL? = nil, executable: String?) -> Bool {
+        statusLineInstalled(settingsURL: settingsURL, accepting: executable.map { [$0] } ?? [])
+    }
+    /// The status line names one of `executables`: the stable helper link or, for
+    /// installations made before it existed, the running copy's own helper.
+    public static func statusLineInstalled(settingsURL: URL? = nil,
+                                           accepting executables: [String] = HookHelperLocation().acceptedExecutables) -> Bool {
+        let expected = Set(executables.filter { FileManager.default.isExecutableFile(atPath: $0) }.map(statusLineCommand))
         let config = settingsURL ?? SessionHooks.configURL(.claude)
-        guard let data = try? Data(contentsOf: config),
+        guard !expected.isEmpty, let data = try? Data(contentsOf: config),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               root["disableAllHooks"] as? Bool != true,
               let status = root["statusLine"] as? [String: Any],
               let command = status["command"] as? String else { return false }
-        return command == statusLineCommand(executable) && status["type"] as? String == "command"
+        return expected.contains(command) && status["type"] as? String == "command"
     }
     static func validateStatusLine(settingsURL: URL, bridgeDirectory: URL, connecting: Bool) throws {
         let root = try SessionHooks.readConfiguration(at: settingsURL)
@@ -256,11 +456,12 @@ public enum ClaudeProvider {
     public static func installStatusLine(executable: String, settingsURL: URL? = nil, bridgeDirectory: URL = directory,
                                          checkpoint: (ClientConnection.LocalStep) throws -> Void = { _ in }) throws {
         let settings = settingsURL ?? SessionHooks.configURL(.claude)
+        try LiveWriteGuard.check(settings, bridgeDirectory)
         try validateStatusLine(settingsURL: settings, bridgeDirectory: bridgeDirectory, connecting: true)
         let oldData = try FileManager.default.fileExists(atPath: settings.path) ? Data(contentsOf: settings) : nil
         var root: [String: Any] = [:]
         if let oldData {
-            guard oldData.count < 5_000_000, let object = try JSONSerialization.jsonObject(with: oldData) as? [String: Any] else { throw UsageError.invalidResponse }
+            guard let object = try? SessionHooks.strictObject(oldData) else { throw UsageError.invalidResponse }
             root = object
         }
         guard root["disableAllHooks"] as? Bool != true else { throw UsageError.statusLineDisabled }
@@ -285,7 +486,7 @@ public enum ClaudeProvider {
         let current = try FileManager.default.fileExists(atPath: settings.path) ? Data(contentsOf: settings) : nil
         guard current == oldData else { throw SessionError.changedConfig }
         try SessionHooks.writeConfigurationChange(original: oldData,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+            updated: SessionHooks.serialized(root),
             to: settings, restorationURL: SessionHooks.restorationURL(for: settings, in: bridgeDirectory, prefix: "statusline"),
             disconnecting: false)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")
@@ -293,10 +494,11 @@ public enum ClaudeProvider {
     public static func removeStatusLine(settingsURL: URL? = nil, bridgeDirectory: URL = directory,
                                         checkpoint: (ClientConnection.LocalStep) throws -> Void = { _ in }) throws {
         let settings = settingsURL ?? SessionHooks.configURL(.claude)
+        try LiveWriteGuard.check(settings, bridgeDirectory)
         try validateStatusLine(settingsURL: settings, bridgeDirectory: bridgeDirectory, connecting: false)
         guard FileManager.default.fileExists(atPath: settings.path) else { return }
         let oldData = try Data(contentsOf: settings)
-        guard var root = try JSONSerialization.jsonObject(with: oldData) as? [String: Any] else { throw UsageError.invalidResponse }
+        guard var root = try? SessionHooks.strictObject(oldData) else { throw UsageError.invalidResponse }
         guard let status = root["statusLine"] as? [String: Any], let command = status["command"] as? String, ownsStatusLine(command) else { return }
         // Restore only the two fields owned by the bridge. Metadata edited by the
         // client since installation (padding, refreshInterval, etc.) stays current.
@@ -309,25 +511,39 @@ public enum ClaudeProvider {
         try checkpoint(.statusLineWrite)
         guard try Data(contentsOf: settings) == oldData else { throw SessionError.changedConfig }
         try SessionHooks.writeConfigurationChange(original: oldData,
-            updated: JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+            updated: SessionHooks.serialized(root),
             to: settings, restorationURL: SessionHooks.restorationURL(for: settings, in: bridgeDirectory, prefix: "statusline"),
             disconnecting: true)
         try SessionHooks.pruneOwnedBackups(in: bridgeDirectory, prefix: "settings-backup-")
     }
+    /// How long the user's previous status line may run before the helper stops it.
+    /// The client cancels an in-flight status line when the next update starts; a
+    /// command that never ends must not keep the helper (and itself) running (Y-I5).
+    static let previousStatusLineTimeout: TimeInterval = 10
     public static func runStatusLine() {
-        let data = FileHandle.standardInput.readDataToEndOfFile()
-        do { try capture(data) } catch { fputs("Lunavect: quota data could not be saved.\n", stderr) }
+        runStatusLine(input: .standardInput, output: .standardOutput, errors: .standardError, directory: directory, destination: cacheURL)
+    }
+    static func runStatusLine(input: FileHandle, output: FileHandle, errors: FileHandle, directory: URL, destination: URL,
+                              timeout: TimeInterval = previousStatusLineTimeout) {
+        // `capture` keeps at most 1 MB; the payload is read no further than that.
+        var data = Data()
+        while data.count <= 1_000_000, let part = try? input.read(upToCount: 1 << 16), !part.isEmpty { data.append(part) }
+        do { try capture(data, destination: destination) } catch { fputs("Lunavect: quota data could not be saved.\n", stderr) }
         // Preserve the user's existing HUD, including stdin, stdout, environment and cwd.
         guard let prior = try? Data(contentsOf: directory.appendingPathComponent("previous-statusline.json")),
               let object = (try? JSONSerialization.jsonObject(with: prior)) as? [String: Any],
               let command = object["command"] as? String, !command.isEmpty, !command.contains("--claude-statusline") else { return }
-        let process = Process(), input = Pipe()
+        let process = Process(), pipe = Pipe(), exited = DispatchSemaphore(value: 0)
         process.executableURL = URL(fileURLWithPath: "/bin/sh"); process.arguments = ["-c", command]
-        process.standardInput = input; process.standardOutput = FileHandle.standardOutput; process.standardError = FileHandle.standardError
+        process.standardInput = pipe; process.standardOutput = output; process.standardError = errors
+        process.terminationHandler = { _ in exited.signal() }
         do {
             try process.run()
-            DispatchQueue.global().async { try? input.fileHandleForWriting.write(contentsOf: data); try? input.fileHandleForWriting.close() }
-            process.waitUntilExit()
+            DispatchQueue.global().async { try? pipe.fileHandleForWriting.write(contentsOf: data); try? pipe.fileHandleForWriting.close() }
+            guard exited.wait(timeout: .now() + timeout) == .timedOut else { return }
+            fputs("Lunavect: previous status line did not finish and was stopped.\n", stderr)
+            process.terminate()
+            if exited.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL); _ = exited.wait(timeout: .now() + 1) }
         } catch { fputs("Lunavect: previous status line could not be started.\n", stderr) }
     }
 }

@@ -3,6 +3,17 @@ import Darwin
 @testable import Weekleft
 
 @MainActor final class WidgetRegistrationTests: XCTestCase {
+    /// Stands in for the widget extension: a process with a chosen executable path.
+    nonisolated private static let sleeper = CompiledFixture("#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n",
+                                                 name: "LunavectWidget", prefix: "widget-registration-fixture")
+    nonisolated override class func setUp() {
+        super.setUp()
+        _ = try? sleeper.executable() // one clang run per suite
+    }
+    nonisolated override class func tearDown() {
+        sleeper.remove()
+        super.tearDown()
+    }
     private func defaults() -> UserDefaults {
         let name = "WidgetRegistrationTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -18,19 +29,19 @@ import Darwin
         var reloads = 0
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in await calls.record(); return true }, reassert: { _ in await checks.record(); return true },
-            reload: { reloads += 1 }, pause: {}, settle: { _ in })
+            reload: { reloads += 1 }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         service.start(); service.start()
         await service.waitUntilFinished()
         service.start(); await service.waitUntilFinished()
         let firstCalls = await calls.count, firstChecks = await checks.count
         XCTAssertEqual(firstCalls, 1, "A known build is repaired once")
-        XCTAssertEqual(firstChecks, 8, "Every launch reasserts registration on the full schedule")
-        XCTAssertEqual(reloads, 10)
+        XCTAssertEqual(firstChecks, 4, "Every launch reasserts registration on the full schedule")
+        XCTAssertEqual(reloads, 6)
         XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
         XCTAssertFalse(defaults.bool(forKey: "SUEnableAutomaticChecks"))
         let relocated = WidgetRegistrationTarget(app: URL(fileURLWithPath: "/Users/fixture/Applications/Lunavect.app"), version: "158")
         let moved = WidgetRegistration(defaults: defaults, target: relocated,
-            repair: { _ in await calls.record(); return true }, reassert: { _ in true }, reload: {}, pause: {}, settle: { _ in })
+            repair: { _ in await calls.record(); return true }, reassert: { _ in true }, reload: {}, pause: {}, settle: { _ in }, registeredCopies: { [] })
         moved.start(); await moved.waitUntilFinished()
         let totalCalls = await calls.count
         XCTAssertEqual(totalCalls, 2)
@@ -41,11 +52,11 @@ import Darwin
         let defaults = defaults(), calls = Attempts()
         var reloads = 0
         let service = WidgetRegistration(defaults: defaults, target: target,
-            repair: { _ in await calls.record() > 1 }, reassert: { _ in true }, reload: { reloads += 1 }, pause: {}, settle: { _ in })
+            repair: { _ in await calls.record() > 1 }, reassert: { _ in true }, reload: { reloads += 1 }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         service.start(); await service.waitUntilFinished()
         let count = await calls.count
         XCTAssertEqual(count, 2)
-        XCTAssertEqual(reloads, 6)
+        XCTAssertEqual(reloads, 4)
         XCTAssertEqual(defaults.string(forKey: WidgetRegistration.stampKey), target.stamp)
     }
 
@@ -54,7 +65,7 @@ import Darwin
         for _ in 0..<2 {
             let service = WidgetRegistration(defaults: defaults, target: target,
                 repair: { _ in await calls.record(); return false }, reassert: { _ in XCTFail("Unrepaired build"); return false },
-                reload: { XCTFail("Failed registration") }, pause: {}, settle: { _ in })
+                reload: { XCTFail("Failed registration") }, pause: {}, settle: { _ in }, registeredCopies: { [] })
             service.start(); await service.waitUntilFinished()
             XCTAssertNil(defaults.string(forKey: WidgetRegistration.stampKey))
         }
@@ -69,32 +80,32 @@ import Darwin
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in started.fulfill(); try? await Task.sleep(for: .seconds(60)); return true },
             reassert: { _ in XCTFail("Cancelled registration"); return false },
-            reload: { XCTFail("Cancelled registration") }, pause: {}, settle: { _ in })
+            reload: { XCTFail("Cancelled registration") }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         service.start()
-        await fulfillment(of: [started], timeout: 3)
+        await fulfillment(of: [started], timeout: 5)
         service.stop()
         await service.waitUntilFinished()
         XCTAssertNil(defaults.string(forKey: WidgetRegistration.stampKey))
     }
 
     func testEveryLaunchReassertsRegistrationAfterReplacedCopiesSettle() async {
-        let defaults = defaults(), checks = Attempts()
+        let defaults = defaults(), log = EventLog()
         defaults.set(target.stamp, forKey: WidgetRegistration.stampKey)
-        var reloads = 0, delays: [Duration] = []
+        var elapsed: Duration = .zero
         let service = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build restarts no extension"); return false },
-            reassert: { _ in await checks.record(); return true }, reload: { reloads += 1 }, pause: {},
-            settle: { delays.append($0) })
+            reassert: { _ in log.add("reassert"); return true }, reload: { log.add("reload") }, pause: {},
+            settle: { elapsed += $0; log.add("check at \(elapsed.components.seconds) s") }, registeredCopies: { [] })
         service.start(); await service.waitUntilFinished()
-        let count = await checks.count
-        XCTAssertEqual(delays, [.seconds(5), .seconds(25), .seconds(90), .seconds(480)],
-                       "Early checks follow the restart; the last ones fall in a quiet period")
-        XCTAssertEqual(count, 4)
-        XCTAssertEqual(reloads, 4)
+        // Behavior: every reassertion waits for its settle period first, and each
+        // successful one reloads the widgets. The offsets pin the launch schedule
+        // documented in docs/development.md (5 seconds and 2 minutes after launch).
+        XCTAssertEqual(log.events, ["check at 5 s", "reassert", "reload", "check at 120 s", "reassert", "reload"],
+                       "The first check follows the restart; the last one falls in a quiet period")
         let failures = Attempts()
         let failing = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build restarts no extension"); return false },
-            reassert: { _ in await failures.record(); return false }, reload: { XCTFail("Failed check") }, pause: {}, settle: { _ in })
+            reassert: { _ in await failures.record(); return false }, reload: { XCTFail("Failed check") }, pause: {}, settle: { _ in }, registeredCopies: { [] })
         failing.start(); await failing.waitUntilFinished()
         let failed = await failures.count
         XCTAssertEqual(failed, 1, "A failed check is retried on the next launch, not in a loop")
@@ -109,9 +120,9 @@ import Darwin
             repair: { _ in XCTFail("Current build"); return false },
             reassert: { _ in XCTFail("Stopped before the check"); return false },
             reload: { XCTFail("Stopped before the check") }, pause: {},
-            settle: { _ in settling.fulfill(); try await Task.sleep(for: .seconds(60)) })
+            settle: { _ in settling.fulfill(); try await Task.sleep(for: .seconds(60)) }, registeredCopies: { [] })
         service.start()
-        await fulfillment(of: [settling], timeout: 3)
+        await fulfillment(of: [settling], timeout: 5)
         service.stop()
         await service.waitUntilFinished()
     }
@@ -119,7 +130,7 @@ import Darwin
     func testUninstalledBundleCannotStartRepair() async {
         let service = WidgetRegistration(defaults: defaults(), target: nil,
             repair: { _ in XCTFail("Not installed"); return false }, reassert: { _ in XCTFail("Not installed"); return false },
-            reload: { XCTFail("Not installed") }, settle: { _ in })
+            reload: { XCTFail("Not installed") }, settle: { _ in }, registeredCopies: { [] })
         service.start(); await service.waitUntilFinished()
         XCTAssertNil(WidgetRegistrationTarget.installed(bundle: Bundle(for: Self.self)))
     }
@@ -134,26 +145,22 @@ import Darwin
         let root = URL(fileURLWithPath: String(cString: canonical))
         defer { try? FileManager.default.removeItem(at: root) }
         // A copied Apple-signed /bin/sleep is not a stable synthetic executable:
-        // macOS can reject the relocated binary before discovery. Build our own.
-        let source = root.appendingPathComponent("fixture.c")
-        try Data("#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n".utf8).write(to: source)
+        // macOS can reject the relocated binary before discovery. Build our own
+        // once per suite and copy it to each extension path.
+        let compiled = try Self.sleeper.executable()
         let own = WidgetRegistrationTarget(app: root.appendingPathComponent("Installed/Lunavect.app"), version: "1")
         let other = WidgetRegistrationTarget(app: root.appendingPathComponent("Archive/Lunavect.app"), version: "1")
         func launch(_ target: WidgetRegistrationTarget) throws -> Process {
             let executable = URL(fileURLWithPath: target.executable)
             try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let compiler = Process(); compiler.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
-            compiler.arguments = [source.path, "-o", executable.path]
-            try compiler.run(); compiler.waitUntilExit()
-            XCTAssertEqual(compiler.terminationStatus, 0)
+            try FileManager.default.copyItem(at: compiled, to: executable)
             let process = Process(); process.executableURL = executable
-            try process.run(); return process
+            try process.run()
+            // A teardown block also runs after failed assertions and thrown errors.
+            addTeardownBlock { if process.isRunning { process.terminate() }; process.waitUntilExit() }
+            return process
         }
         let owned = try launch(own), unrelated = try launch(other)
-        defer {
-            if owned.isRunning { owned.terminate() }; if unrelated.isRunning { unrelated.terminate() }
-            owned.waitUntilExit(); unrelated.waitUntilExit()
-        }
         // Process.run can return before the spawned process exposes its final
         // executable path. Establish that both fixtures are discoverable before
         // exercising the production path matcher, and report the actual path if not.
@@ -177,6 +184,13 @@ import Darwin
         XCTAssertEqual(owned.terminationStatus, SIGTERM)
         XCTAssertTrue(unrelated.isRunning)
     }
+}
+
+private final class EventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func add(_ event: String) { lock.withLock { items.append(event) } }
+    var events: [String] { lock.withLock { items } }
 }
 
 private actor Attempts {

@@ -2,11 +2,21 @@ import Foundation
 
 /// Counts elapsed wall time supported by two consecutive observations, never poll counts.
 public struct ActivityTracker {
+    /// The slowest session event poll (`SessionPolling` while nothing is active).
+    public static let defaultPollInterval: TimeInterval = 5
     public private(set) var history: ActivityHistory
     public private(set) var details: ActivityDetails
+    public let pollInterval: TimeInterval
+    /// Publication can lag behind the poll (titles, catalog, a slow disk). Three
+    /// poll steps plus 5 s still count; sleep is handled by `interruptObservation`.
+    public var maximumGap: TimeInterval { max(10, 3 * pollInterval + 5) }
     private var previous: (date: Date, rows: [AgentSession])?
     private var clockWasCorrected = false
-    public init(history: ActivityHistory = ActivityHistory(), details: ActivityDetails = ActivityDetails()) { self.history = history; self.details = details }
+    public init(history: ActivityHistory = ActivityHistory(), details: ActivityDetails = ActivityDetails(),
+                pollInterval: TimeInterval = ActivityTracker.defaultPollInterval) {
+        self.history = history; self.details = details
+        self.pollInterval = pollInterval.isFinite && pollInterval > 0 ? pollInterval : Self.defaultPollInterval
+    }
     public mutating func prepareImport(now: Date) -> Date { history.prepareImport(now: now) }
     public mutating func prepareImport(providers: Set<ProviderID>, now: Date) -> [ProviderID: Date] { history.prepareImport(providers: providers, now: now) }
     public mutating func mergeImport(_ result: ActivityImportResult, now: Date, providers: Set<ProviderID>? = nil) {
@@ -25,6 +35,8 @@ public struct ActivityTracker {
         details.merge(clipped, now: now)
     }
     public mutating func pruneDetails(now: Date) { details.prune(now: now) }
+    /// Sleep, wake or a stopped source: the next observation starts a new measurement.
+    public mutating func interruptObservation() { previous = nil }
     public mutating func observe(_ rows: [AgentSession], now: Date = Date()) {
         // History ending in the future means the clock moved back while no tracker
         // was observing (restart, provider change). Reconcile instead of waiting.
@@ -37,8 +49,18 @@ public struct ActivityTracker {
             return
         }
         defer { previous = (now, rows) }
-        guard let previous, now.timeIntervalSince(previous.date) <= 10,
-              clockWasCorrected || (history.intervals.last.map({ $0.end <= previous.date }) ?? true) else { return }
+        guard let previous else { return }
+        let gap = now.timeIntervalSince(previous.date)
+        guard gap <= maximumGap else {
+            // Not counted as work, but a session running at both ends means work
+            // was probably lost: keep a visible diagnostic instead of a silent drop.
+            let running = Set(rows.filter { $0.effectivePhase(now: now) == .running && $0.observedAt <= now }.map(\.id))
+            if previous.rows.contains(where: { running.contains($0.id) && $0.observedAt <= previous.date && $0.effectivePhase(now: previous.date) == .running }) {
+                history.recordObservationGap(seconds: gap, at: now)
+            }
+            return
+        }
+        guard clockWasCorrected || (history.intervals.last.map({ $0.end <= previous.date }) ?? true) else { return }
         let known = Set(rows.filter { $0.effectivePhase(now: now) != .unknown && $0.observedAt <= now }.map(\.id))
         // Without any continuing, fresh source there is no observation of
         // inactivity either. Preserve a gap instead of drawing a false zero.

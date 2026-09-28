@@ -1,16 +1,46 @@
 #!/usr/bin/env python3
 """Validate release identity against an explicitly supplied published appcast."""
 import argparse
+import os
 from pathlib import Path
 import plistlib
 import re
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from xml.parsers.expat import ExpatError
 
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 # build.sh numbers local builds above these copies, so they can outrank a release.
 INSTALLED_APPS = (Path.home() / 'Applications/Lunavect.app', Path('/Applications/Lunavect.app'))
+
+
+def fixture_overrides(environment=None):
+    """Registration overrides that must never shape a real release."""
+    environment = os.environ if environment is None else environment
+    return [(name, environment[name]) for name in ('LUNAVECT_INSTALLED_APPS', 'LUNAVECT_LSREGISTER', 'LUNAVECT_PLUGINKIT')
+            if name in environment]
+
+
+def refuse_fixture_overrides(parser, test_fixture, environment=None):
+    """Exit unless every registration override is explicitly accepted with
+    --test-fixture; announce the accepted ones. Shared by the release tools."""
+    overrides = fixture_overrides(environment)
+    if overrides and not test_fixture:
+        names = ', '.join(name for name, _ in overrides)
+        parser.exit(1, f'Release refused: {names} is set. These overrides are for test fixtures and can turn off the '
+                       'installed-build check or the registration cleanup; unset them for a release.\n')
+    for name, value in overrides:
+        print(f'Override active (test fixture): {name}={value}', file=sys.stderr)
+
+
+def default_installed_apps(environment=None):
+    """LUNAVECT_INSTALLED_APPS replaces the standard copies (os.pathsep-separated;
+    empty checks none), so fixtures never depend on the host's installations."""
+    value = (os.environ if environment is None else environment).get('LUNAVECT_INSTALLED_APPS')
+    if value is None:
+        return (Path.home() / 'Applications/Lunavect.app', Path('/Applications/Lunavect.app'))
+    return tuple(Path(item) for item in value.split(os.pathsep) if item)
 
 
 def marketing_version(value):
@@ -73,6 +103,15 @@ def validate_source(root, version):
         raise ValueError('Distribution requires full Git history and refreshed tags; shallow history cannot establish tag availability')
     if subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=all']):
         raise ValueError('Distribution requires a clean Git checkout; local build/check may remain dirty')
+    # The archive is built from this tree: its project version must be the one released (R2-B-12).
+    project = Path(root) / 'project.yml'
+    if project.is_file():
+        match = re.search(r'^\s*MARKETING_VERSION:\s*["\']?([0-9.]+)["\']?\s*$', project.read_text(encoding='utf-8'), re.MULTILINE)
+        if match is None:
+            raise ValueError('Cannot read MARKETING_VERSION from project.yml')
+        if match.group(1) != version:
+            raise ValueError('VERSION ' + version + ' differs from MARKETING_VERSION ' + match.group(1)
+                             + ' in project.yml; release the version the tree builds')
     tag = 'refs/tags/v' + version
     result = subprocess.run(['git', '-C', str(root), 'show-ref', '--verify', '--quiet', tag])
     if result.returncode == 0:
@@ -89,13 +128,17 @@ def main():
                         help='Fresh downloaded published appcast; no automatic account/network access')
     parser.add_argument('--source-root', type=Path)
     parser.add_argument('--installed-app', type=Path, action='append',
-                        help='Installed copy whose build the release must exceed (default: ~/Applications and /Applications)')
+                        help='Installed copy whose build the release must exceed (default: ~/Applications and /Applications, '
+                             'or LUNAVECT_INSTALLED_APPS with --test-fixture)')
+    parser.add_argument('--test-fixture', action='store_true',
+                        help='Accept LUNAVECT_* registration overrides (script tests only); a release refuses them')
     args = parser.parse_args()
+    refuse_fixture_overrides(parser, args.test_fixture)
     try:
         validate_previous(args.version, args.build, args.previous_appcast)
         if args.source_root:
             validate_source(args.source_root, args.version)
-        validate_installed(args.build, args.installed_app or INSTALLED_APPS)
+        validate_installed(args.build, args.installed_app or default_installed_apps())
     except (ValueError, OSError, ET.ParseError, subprocess.SubprocessError) as error:
         parser.exit(1, str(error) + '\n')
     print('Release identity verified against supplied appcast' + (' and clean source/tags' if args.source_root else '')

@@ -63,17 +63,31 @@ public enum ActivityWidgetSelection {
             .appendingPathComponent("\(kind)-\(period.rawValue)-\(source.canonical.rawValue).json")
     }
     public static func read(kind: String, period: ActivityPeriod, source: ActivitySource, directory: URL = SnapshotStore.directory) -> Date? {
+        // The sandboxed widget reads a file the app writes: bounded, no special files.
         guard let url = url(kind: kind, period: period, source: source, directory: directory),
-              let data = try? Data(contentsOf: url) else { return nil }
+              let data = try? LocalStateRecovery.read(from: url, maximumBytes: 4096) else { return nil }
         return try? JSONDecoder().decode(Date.self, from: data)
     }
     public static func write(_ date: Date?, kind: String, period: ActivityPeriod, source: ActivitySource, directory: URL = SnapshotStore.directory) throws {
         guard let url = url(kind: kind, period: period, source: source, directory: directory) else { return }
+        try LiveWriteGuard.check(url)
         if let date {
             guard date.timeIntervalSince1970.isFinite else { return }
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try LocalStateRecovery.write(JSONEncoder().encode(date), to: url)
         } else if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
+}
+
+/// What a widget timeline shows for activity: the saved history, or an explicit
+/// unavailable state for a file it cannot read (too large, damaged). Widgets
+/// never repair or replace shared files; missing history is simply empty.
+public struct WidgetActivitySnapshot: Sendable {
+    public let history: ActivityHistory
+    public let unavailable: Bool
+    public static func load(from url: URL = ActivityHistory.fileURL) -> Self {
+        do { return Self(history: try ActivityHistory.load(from: url), unavailable: false) }
+        catch { return Self(history: ActivityHistory(), unavailable: true) }
     }
 }
 
@@ -101,7 +115,9 @@ public struct ActivityChartData: Sendable {
     public var stale: Bool { series.contains { $0.summary.lastLiveObservedAt.map { now.timeIntervalSince($0) > staleAfter } ?? false } }
     public init(history: ActivityHistory, now: Date = Date(), period: ActivityPeriod = .week, providers: [ProviderID] = ProviderID.allCases,
                 calendar: Calendar = .current, staleAfter: TimeInterval = 300) {
-        self.now = now; limited = history.importWasLimited == true; self.staleAfter = staleAfter
+        // Before report version 4 any skipped record set the flag; a stored report
+        // tells whether coverage was actually lost.
+        self.now = now; limited = history.importWasLimited == true && (history.importReport?.limited ?? true); self.staleAfter = staleAfter
         summary = history.summary(now: now, calendar: calendar, period: period, providers: providers)
         series = providers.map { ActivityChartSeries(provider: $0, summary: history.summary(now: now, calendar: calendar, period: period, providers: [$0])) }
     }

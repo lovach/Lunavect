@@ -46,7 +46,8 @@ final class UsageParserTests: XCTestCase {
         }
         for invalid in [true, false, "tomorrow", [1], ["time": reset]] as [Any] {
             XCTAssertThrowsError(try UsageParser.codex(decoded(["rateLimits": ["primary": ["usedPercent": 25, "windowDurationMins": 300, "resetsAt": invalid]]])))
-            XCTAssertThrowsError(try UsageParser.claude(decoded(["five_hour": ["used_percentage": 25, "resets_at": invalid]])))
+            // Q-10: a status-line window without a usable reset is absent, never a quota.
+            XCTAssertNil(try UsageParser.claude(decoded(["five_hour": ["used_percentage": 25, "resets_at": invalid]])).fiveHour)
         }
         for invalid in [true, false, 300.5, "300"] as [Any] {
             XCTAssertThrowsError(try UsageParser.codex(decoded(["rateLimits": ["primary": ["usedPercent": 25, "windowDurationMins": invalid, "resetsAt": reset]]])))
@@ -147,8 +148,93 @@ final class UsageParserTests: XCTestCase {
         }
         XCTAssertTrue(UsageSnapshot(provider: .codex, weekly: quota).isStale(now: now))
     }
-    func testClaudeRejectsQuotaWithoutResetTime() {
-        XCTAssertThrowsError(try UsageParser.claude(["seven_day": ["used_percentage": 42.5], "five_hour": ["used_percentage": 10]]))
+    /// Q-10: status-line windows are independent. One without a usable `resets_at`
+    /// (not started, or malformed) is absent; it no longer discards the other window.
+    func testClaudeWindowWithoutResetTimeIsAbsentAndKeepsTheOtherWindow() throws {
+        let reset = Date(timeIntervalSince1970: 1_900_000_000)
+        func decoded(_ value: [String: Any]) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: value)) as? [String: Any])
+        }
+        for missing in [NSNull(), 0, -1, "soon", true, [1]] as [Any] {
+            let weeklyOnly = try UsageParser.claude(decoded([
+                "seven_day": ["used_percentage": 42.5, "resets_at": reset.timeIntervalSince1970],
+                "five_hour": ["used_percentage": 10, "resets_at": missing]]))
+            XCTAssertEqual(weeklyOnly.weekly, try QuotaWindow(usedPercent: 42.5, durationMinutes: 10080, resetsAt: reset), "\(missing)")
+            XCTAssertNil(weeklyOnly.fiveHour, "\(missing)")
+            let fiveOnly = try UsageParser.claude(decoded([
+                "seven_day": ["used_percentage": 0, "resets_at": missing],
+                "five_hour": ["used_percentage": 10, "resets_at": reset.timeIntervalSince1970]]))
+            // R1-10: 0 % with `resets_at: null` is the unstarted window; a malformed reset stays absent.
+            XCTAssertEqual(fiveOnly.weekly, missing is NSNull ? try QuotaWindow(usedPercent: 0, durationMinutes: 10080, resetsAt: nil) : nil, "\(missing)")
+            XCTAssertEqual(fiveOnly.fiveHour?.usedPercent, 10, "\(missing)")
+        }
+        let neither = try UsageParser.claude(["seven_day": ["used_percentage": 42.5], "five_hour": ["used_percentage": 10]])
+        XCTAssertFalse(neither.hasQuota, "No window with a reset: nothing to store")
+        XCTAssertThrowsError(try UsageParser.claude(["seven_day": ["used_percentage": "42", "resets_at": reset.timeIntervalSince1970]]),
+                             "A malformed percentage is still an unsupported response")
+    }
+
+    /// Matrix L4 / 01-quota.md §6 п.7: a current status-line payload with extra
+    /// fields and one window without `resets_at` keeps the valid window.
+    func testCaptureKeepsTheValidWindowOfACurrentPayload() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("quota.json")
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let payload = #"""
+        {"session_id":"fixture","model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"version":"2.1.280",
+         "cost":{"total_cost_usd":0.12,"total_api_duration_ms":2300},"exceeds_200k_tokens":false,"agent":{"name":"main"},
+         "context_window":{"total_input_tokens":1200,"total_output_tokens":80,"current_usage":{"input_tokens":10}},
+         "rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1900003600},
+                        "seven_day":{"used_percentage":0,"resets_at":null},
+                        "spend_limit":{"used_percentage":162.8,"resets_at":1902592000},
+                        "future_window":{"used_percentage":5}}}
+        """#
+        try ClaudeProvider.capture(Data(payload.utf8), destination: destination, now: now)
+        let stored = try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: destination))
+        XCTAssertEqual(stored.fiveHour, try QuotaWindow(usedPercent: 23.5, durationMinutes: 300, resetsAt: Date(timeIntervalSince1970: 1_900_003_600)))
+        XCTAssertEqual(stored.weekly, try QuotaWindow(usedPercent: 0, durationMinutes: 10080, resetsAt: nil),
+                       "R1-10: the unstarted weekly window is the inactive state, not an error")
+        XCTAssertEqual(stored.source, "Claude Code statusLine")
+    }
+
+    /// R1-10: the status line's unstarted window (0 %, `resets_at: null`) is the same
+    /// fact as `/usage`'s inactive block (decision 5): a confirmed 0 % whose window
+    /// starts with the first request. A used window without a reset stays absent.
+    func testStatusLineUnstartedWindowIsTheInactiveStateLikeTheProbe() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("quota.json")
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let payload = #"{"session_id":"fixture","rate_limits":{"seven_day":{"used_percentage":0,"resets_at":null},"five_hour":{"used_percentage":12,"resets_at":null}}}"#
+        try ClaudeProvider.capture(Data(payload.utf8), destination: destination, now: now)
+        let stored = try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: destination))
+        XCTAssertEqual(stored.weekly, try QuotaWindow(usedPercent: 0, durationMinutes: 10080, resetsAt: nil))
+        XCTAssertNil(stored.fiveHour, "A used window without its reset stays unknown")
+        XCTAssertTrue(ClaudeProvider.isTrustedSnapshot(stored))
+        let fetched = try await ClaudeProvider.fetch(from: destination, now: now)
+        XCTAssertEqual(fetched.weekly, stored.weekly, "`--probe` reads it as well")
+        let probe = try ClaudeUsageText.parse("Current week (all models)\n0% used\nEsc to cancel", now: now)
+        XCTAssertEqual(stored.weekly, probe.weekly, "One fact, one value")
+        let status = stored.status(of: stored.weekly, now: now), probed = probe.status(of: probe.weekly, now: now)
+        XCTAssertEqual(status, .inactive(stale: true), "statusLine carries no server observation time")
+        XCTAssertEqual(probed, .inactive(stale: false))
+        XCTAssertEqual(status.note(now: now, language: "ru"), probed.note(now: now, language: "ru"))
+        XCTAssertEqual(status.remaining(of: stored.weekly), 100)
+    }
+
+    /// Matrix L10: a Codex reply with only a model bucket (Spark) has no account
+    /// limit; the model's value is never shown as the main limit.
+    func testCodexModelBucketAloneLeavesTheMainLimitUnknown() throws {
+        let spark: [String: Any] = ["limitId": "codex_spark", "primary": ["usedPercent": 99, "windowDurationMins": 10080, "resetsAt": 1_900_000_000]]
+        XCTAssertThrowsError(try UsageParser.codex(["rateLimitsByLimitId": ["codex_spark": spark]])) {
+            XCTAssertEqual($0 as? UsageError, .invalidResponse)
+        }
+        XCTAssertThrowsError(try UsageParser.codex(["rateLimitsByLimitId": ["codex_spark": spark], "rateLimits": spark]))
+        let main: [String: Any] = ["limitId": "codex", "primary": ["usedPercent": 12, "windowDurationMins": 10080, "resetsAt": 1_900_000_000]]
+        let snapshot = try UsageParser.codex(["rateLimitsByLimitId": ["codex_spark": spark], "rateLimits": main])
+        XCTAssertEqual(snapshot.weekly?.usedPercent, 12, "The account bucket of the legacy field, never Spark")
+        XCTAssertNotEqual(snapshot.unlimited, true)
     }
     func testResetZeroDoesNotRefillQuota() throws {
         let now = Date(), window = try QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(-1))
@@ -221,6 +307,38 @@ final class ClaudeStatusLineTests: XCTestCase {
         XCTAssertTrue(snapshot.isStale(now: now))
         XCTAssertFalse(try XCTUnwrap(snapshot.weekly).isExpired(at: now))
         XCTAssertTrue(try XCTUnwrap(snapshot.fiveHour).isExpired(at: now))
+    }
+    /// Y-I5 (proposed by Y): the user's previous status line still receives the
+    /// payload and prints to the client; one that never ends, even ignoring SIGTERM,
+    /// is stopped so the helper does not stay behind. Temporary files only.
+    func testPreviousStatusLineGetsThePayloadAndAHungOneIsStopped() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r2-Q-" + UUID().uuidString)
+        let bridge = root.appendingPathComponent("bridge"), pidFile = root.appendingPathComponent("pid")
+        try FileManager.default.createDirectory(at: bridge, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = bridge.appendingPathComponent("quota.json")
+        let reset = Date().addingTimeInterval(3600).timeIntervalSince1970
+        let payload = try JSONSerialization.data(withJSONObject: ["session_id": "fixture",
+            "rate_limits": ["seven_day": ["used_percentage": 27, "resets_at": reset]]])
+        func run(_ command: String, timeout: TimeInterval) throws -> (output: Pipe, elapsed: TimeInterval) {
+            try JSONSerialization.data(withJSONObject: ["type": "command", "command": command])
+                .write(to: bridge.appendingPathComponent("previous-statusline.json"))
+            let input = Pipe(), output = Pipe(), errors = Pipe()
+            try input.fileHandleForWriting.write(contentsOf: payload); try input.fileHandleForWriting.close()
+            let started = ProcessInfo.processInfo.systemUptime
+            ClaudeProvider.runStatusLine(input: input.fileHandleForReading, output: output.fileHandleForWriting,
+                                         errors: errors.fileHandleForWriting, directory: bridge, destination: destination, timeout: timeout)
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            try output.fileHandleForWriting.close()
+            return (output, elapsed)
+        }
+        let working = try run("/bin/cat", timeout: 10)
+        XCTAssertEqual(working.output.fileHandleForReading.readDataToEndOfFile(), payload, "The HUD gets the payload and prints to the client")
+        XCTAssertEqual(try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: destination)).weekly?.remaining, 73)
+        let hung = try run("echo $$ > '\(pidFile.path)'; trap '' TERM; while :; do /bin/sleep 1; done", timeout: 0.5)
+        XCTAssertLessThan(hung.elapsed, 4, "Stopped after its timeout, SIGKILL after SIGTERM is ignored")
+        let pid = try XCTUnwrap(Int32(String(contentsOf: pidFile).trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertEqual(kill(pid, 0), -1, "The hung command does not outlive the helper")
     }
     func testInstallPreservesExistingHUDAndOtherSettingsAndIsIdempotent() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

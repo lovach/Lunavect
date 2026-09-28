@@ -83,15 +83,12 @@ final class SessionActionsTests: XCTestCase {
         let url = try XCTUnwrap(session.claudeDesktopURL(desktopID: "local_1234-abcd"))
         XCTAssertEqual(url.absoluteString, "claude://claude.ai/epitaxy/local_1234-abcd")
         XCTAssertNil(session.claudeDesktopURL(desktopID: "../bad?prompt=hello"))
-        XCTAssertEqual(session.vscodeURL?.query, "session=" + id)
-        XCTAssertNil(row(.codex).vscodeURL)
         XCTAssertEqual(row(.codex).codexURL?.absoluteString, "codex://threads/" + id)
         let script = try XCTUnwrap(session.terminalScript(executable: "/opt/Claude Code/claude"))
         XCTAssertTrue(script.contains("cd -- '/tmp/a'\"'\"'$(touch bad)' || exit 1"))
         XCTAssertTrue(script.contains("exec '/opt/Claude Code/claude' --resume '" + id + "'"))
         var bad = session; bad.sessionID = "x; touch bad"
         XCTAssertNil(bad.terminalScript(executable: "/bin/claude"))
-        XCTAssertNil(bad.vscodeURL)
     }
     func testOldQuotaIsSavedNotMissingWithoutClaimingFreshness() throws {
         let now = Date()

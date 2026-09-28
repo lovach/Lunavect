@@ -91,28 +91,36 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     let stale: Bool
     let value: String
     let detail: String
+    /// The state's sentence (reset passed, window not started, no limits).
+    var note: String? = nil
 
     static func make(snapshots: [UsageSnapshot], providers: [ProviderID], preferences: MenuBarLimitsPreferences,
                      now: Date = Date()) -> [Self] {
         ProviderID.allCases.filter { providers.contains($0) && preferences.provider.includes($0) }.map { provider in
             let snapshot = snapshots.first { $0.provider == provider } ?? UsageSnapshot(provider: provider)
-            let window = preferences.period.window(in: snapshot).flatMap { $0.isExpired(at: now) ? nil : $0 }
-            let stale = snapshot.isStale(window: window, now: now)
-            let percent = window.map { String(Int($0.remaining.rounded())) }
-            let value = window.map { PercentText.format(Int($0.remaining.rounded())) + (stale ? "*" : "") } ?? "—"
+            let observed = preferences.period.window(in: snapshot)
+            let status = snapshot.status(of: observed, now: now)
+            let remaining = status.remaining(of: observed)
+            // An exhausted window keeps its countdown and is not marked: 0 % cannot change before the reset.
+            let window = remaining == nil ? nil : observed
+            let stale = status.isStale
+            let note = status.note(now: now)
+            let percent = remaining.map { String(Int($0.rounded())) }
+            let value = status == .unlimited ? "∞" : remaining.map { PercentText.format(Int($0.rounded())) + (stale ? "*" : "") } ?? "—"
             // This is time until the actual reset, never the duration of the quota window.
             let countdown = window?.countdown(now: now) ?? "—"
             let resetDate = window?.resetsAt?.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))
             var detail = [provider.title + " · " + preferences.period.title,
-                          percent.map { L("Осталось {0}%", $0) } ?? L("Нет данных")]
+                          percent.map { L("Осталось {0}%", $0) } ?? note ?? L("Нет данных")]
+            if percent != nil, let note { detail.append(note) }
             if let resetDate { detail.append(L("Сброс через {0}", countdown)); detail.append(resetDate) }
-            if stale && window != nil { detail.append(L("Показаны последние полученные данные")) }
+            if stale { detail.append(L("Показаны последние полученные данные")) }
             if let fetchedAt = snapshot.fetchedAt {
                 detail.append(L("Последние данные: {0}", fetchedAt.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
             }
-            return Self(provider: provider, remaining: window?.remaining, countdown: countdown,
+            return Self(provider: provider, remaining: remaining, countdown: countdown,
                         compactCountdown: compactCountdown(window: window, now: now), resetDate: resetDate,
-                        fetchedAt: snapshot.fetchedAt, stale: stale, value: value, detail: detail.joined(separator: "\n"))
+                        fetchedAt: snapshot.fetchedAt, stale: stale, value: value, detail: detail.joined(separator: "\n"), note: note)
         }
     }
     private static func compactCountdown(window: QuotaWindow?, now: Date) -> String {
@@ -260,6 +268,23 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     @Published var offline = false
 }
 
+/// Shows and hides the limits popover. The default presents the real popover
+/// below the status item; tests substitute a recorder so opening and closing
+/// can be checked without a visible menu bar window.
+struct MenuBarPopoverPresenter {
+    var isShown: @MainActor (NSPopover) -> Bool
+    var show: @MainActor (NSPopover, NSView) -> Void
+    var close: @MainActor (NSPopover) -> Void
+
+    static var native: MenuBarPopoverPresenter {
+        MenuBarPopoverPresenter(isShown: { $0.isShown }, show: { popover, anchor in
+            NSApp.activate(ignoringOtherApps: true)
+            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+        }, close: { $0.performClose(nil) })
+    }
+}
+
 @MainActor final class MenuBarLimitsController: NSObject, NSPopoverDelegate {
     private(set) var statusItem: NSStatusItem?
     let content = MenuBarLimitsContent(frame: .zero)
@@ -280,6 +305,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     private let onHide: () -> Void
     private let contextMenu: (() -> NSMenu)?
     private let autosaveName: String?
+    private let presenter: MenuBarPopoverPresenter
 
     /// `language` and `defaults` give the popover the same language and theme
     /// as the sessions panel; the live application uses the shared settings.
@@ -288,9 +314,10 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
          onShow: @escaping () -> Void = {}, onHide: @escaping () -> Void = {}, onOpenMenu: @escaping () -> Void = {},
          contextMenu: (() -> NSMenu)? = nil,
          language: LanguageSettings? = nil, defaults: UserDefaults = .standard, network: NetworkConnection? = nil,
-         autosaveName: String? = "LunavectLimits",
+         autosaveName: String? = "LunavectLimits", presenter: MenuBarPopoverPresenter = .native,
          onOpenLimits: @escaping () -> Void) {
         self.onOpenLimits = onOpenLimits; self.onSelectPeriod = onSelectPeriod; self.onRefresh = onRefresh
+        self.presenter = presenter
         self.onOpenMenu = onOpenMenu
         self.contextMenu = contextMenu
         self.onShow = onShow; self.onHide = onHide; self.autosaveName = autosaveName
@@ -305,7 +332,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             .sink { [weak self] offline in
                 guard let self else { return }
                 panel.offline = offline
-                if popover.isShown { sizePopoverToContent() }
+                if isPopoverShown { sizePopoverToContent() }
             }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -341,11 +368,11 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
         content.frame = button.bounds; content.entries = entries; content.style = preferences.style
         content.iconColor = preferences.iconColor; content.meterColor = preferences.meterColor
         content.showsResetCountdown = preferences.showsResetCountdown
-        if !popover.isShown { item.length = content.preferredWidth }
+        if !isPopoverShown { item.length = content.preferredWidth }
         content.frame = button.bounds
         button.toolTip = entries.map(\.detail).joined(separator: "\n\n")
         button.setAccessibilityLabel(L("Лимиты") + ". " + entries.map(\.detail).joined(separator: ". "))
-        if popover.isShown { sizePopoverToContent() }
+        if isPopoverShown { sizePopoverToContent() }
     }
     func selectPeriod(_ period: MenuBarLimitsPeriod) {
         preferences.period = period; onSelectPeriod(period); refresh()
@@ -355,14 +382,13 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             close(); item.menu = menu; item.button?.performClick(nil); item.menu = nil
             return
         }
-        guard !popover.isShown else { close(); return }
+        guard !isPopoverShown else { close(); return }
         guard let button = statusItem?.button else { return }
         onShow()
         sizePopoverToContent()
-        NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        presenter.show(popover, button)
     }
+    var isPopoverShown: Bool { presenter.isShown(popover) }
     private func sizePopoverToContent() {
         guard let host = popover.contentViewController as? NSHostingController<MenuBarLimitsPopoverRoot> else { return }
         // Measure without the current window's size proposal. Translations and
@@ -375,7 +401,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
         dismissal.stop(); onHide()
         if let statusItem { statusItem.length = content.preferredWidth }
     }
-    func close() { popover.performClose(nil) }
+    func close() { presenter.close(popover) }
     func stop() {
         close(); dismissal.stop(); timer?.invalidate(); timer = nil; networkObserver = nil
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
@@ -414,7 +440,8 @@ struct MenuBarLimitsPopover: View {
                     if model.refreshing { ProgressView().controlSize(.small).frame(width: 18, height: 18) }
                     else { Image(systemName: "arrow.clockwise").frame(width: 18, height: 18) }
                 }
-                    .buttonStyle(.borderless).disabled(model.refreshing || model.offline).help(L("Обновить лимиты"))
+                    .buttonStyle(.borderless).disabled(model.refreshing || model.offline)
+                    .help(L(QuotaCheckAvailability(refreshing: model.refreshing, offline: model.offline).reason ?? "Обновить лимиты"))
                     .accessibilityLabel(L("Обновить лимиты")).accessibilityIdentifier("menu-limits-refresh")
                 Button(action: onMenu) {
                     Image(systemName: "slider.horizontal.3").frame(width: 18, height: 18)
@@ -451,8 +478,8 @@ struct MenuBarLimitsPopover: View {
                         Text(L("Сброс через {0}", entry.countdown)).font(.system(size: 12, weight: .medium))
                         Text(resetDate).font(.system(size: 11)).foregroundStyle(.secondary)
                     } else {
-                        Text(L(entry.remaining == nil ? "Нет данных" : "Время сброса неизвестно"))
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(entry.note ?? L(entry.remaining == nil ? "Нет данных" : "Время сброса неизвестно"))
+                            .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     if entry.stale, entry.remaining != nil {
                         Text(L("Показаны последние полученные данные")).font(.system(size: 11)).foregroundStyle(.secondary)

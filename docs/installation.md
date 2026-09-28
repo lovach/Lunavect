@@ -18,7 +18,7 @@ brew install --cask lovach/lunavect/lunavect
 open -a Lunavect
 ```
 
-The cask downloads the signed release DMG and checks its SHA-256 checksum.
+The cask downloads the release DMG and checks its SHA-256 checksum. The app inside is Developer ID signed and notarized by Apple; the disk image itself is not separately signed.
 
 ## Direct download
 
@@ -40,7 +40,7 @@ You can connect either service or both. Existing authentication stays with the o
 2. Search for **Lunavect** and choose a widget and size.
 3. For an activity widget, right-click the placed widget and choose **Edit Widget** to set its source and time period.
 
-macOS schedules widget refreshes. Native layouts have been inspected; placement and refresh of the release on the real desktop remain unverified. See the [compatibility notes](verification.md).
+macOS schedules widget refreshes. Existing widgets rendered live after the 0.2.4 update on the test Mac; adding and editing widgets, other Macs and every refresh condition remain unverified. See the [compatibility notes](verification.md).
 
 ## Update
 

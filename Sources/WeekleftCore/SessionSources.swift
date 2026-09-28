@@ -66,6 +66,8 @@ public enum SessionSources {
         candidates += versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }.map { nvm + "/" + $0 + "/bin/claude" }
         return candidates.first { ClientExecutableResolver.isExecutableFile($0) }
     }
+    /// Whether a recorded client process still exists (kill(pid, 0) != ESRCH).
+    public static func isProcessAlive(_ pid: Int32) -> Bool { SessionProcess.isAlive(pid) }
     /// npm-style launchers are `#!/usr/bin/env node` scripts; their Node lives next to them.
     static func environment(forExecutable path: String, base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var environment = base
@@ -74,9 +76,15 @@ public enum SessionSources {
         return environment
     }
     public static func claude(path: String) async throws -> [AgentSession] {
+        try await claude(path: path, isInternal: { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: $1) })
+    }
+    static func claude(path: String, isInternal: @escaping @Sendable (String, Int32?) -> Bool) async throws -> [AgentSession] {
         try await SessionProcess.detached {
+            // The listing describes the moment the command started. A hook event
+            // written while it runs (0.1-0.5 s) must remain the newer observation.
+            let observedAt = Date()
             let data = try SessionProcess.run(path: path, arguments: ["agents", "--json", "--all"])
-            return try SessionParser.claude(data, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
+            return try SessionParser.claude(data, now: observedAt, isInternal: isInternal, nestedRuntime: { SessionProcess.nestedClaudeRuntime(startPID: $0) }, terminal: {
                 SessionProcess.terminalLocation(parentPID: $0, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
             }, ide: {
                 IDEProcessLocation.locate(parentPID: $0, provider: .claude)
@@ -114,15 +122,17 @@ public enum SessionSources {
             return try SessionProcess.codexCatalog(path: path, proxy: false, prioritySessionIDs: prioritySessionIDs, timeout: remaining, discovery: discovery)
         }
     }
-    public static func legacyEvents(catalog: [AgentSession], now: Date = Date()) -> [AgentSession] {
+    public static func legacyEvents(catalog: [AgentSession], now: Date = Date(), directory: URL? = nil,
+                                    isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) }) -> [AgentSession] {
         guard !Task.isCancelled else { return [] }
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d")
+        let dir = directory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/statusbar/state.d")
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey, .isSymbolicLinkKey])) ?? []
         let codexIDs = Set(catalog.filter { $0.provider == .codex }.map(\.sessionID))
         return files.filter { $0.pathExtension == "json" }.compactMap { file in
             guard !Task.isCancelled else { return nil }
+            // The size check is advisory; the read itself is bounded (the file can change after stat).
             guard let size = try? file.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey]), size.isSymbolicLink != true, (size.fileSize ?? 0) < 65536,
-                  let data = try? Data(contentsOf: file), let row = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let data = try? LocalStateRecovery.read(from: file, maximumBytes: 65535), let row = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let id = row["sessionId"] as? String, SessionParser.validID(id), row["started"] as? Bool == true,
                   let ts = row["ts"] as? Double, now.timeIntervalSince1970 - ts < 86400,
                   let pid = row["pid"] as? Int32, pid > 1, kill(pid, 0) == 0 else { return nil }
@@ -139,6 +149,7 @@ public enum SessionSources {
             default: phase = .unknown
             }
             let cwd = row["cwd"] as? String ?? ""
+            guard provider != .claude || !isInternal(cwd) else { return nil }
             let client = SessionProcess.client(parentPID: pid, entrypoint: entrypoint, terminal: row["term_program"] as? String ?? "")
             return AgentSession(
                 provider: provider, sessionID: id, title: SessionParser.text(row["project"]), cwd: cwd, client: client,
@@ -264,6 +275,7 @@ enum SessionProcess {
     /// it never waits for descendants or signals a user's independent client.
     static func withRunningProcess<T>(_ process: Process, operation: () throws -> T) throws -> T {
         try Task.checkCancellation()
+        try LiveProcessGuard.check(process.executableURL)
         try process.run()
         defer { stop(process) }
         try Task.checkCancellation()
@@ -412,6 +424,7 @@ enum SessionProcess {
     static func readCodexCatalog(prioritySessionIDs: [String] = [], maxPages: Int = 8, maxPriorityReads: Int = 16,
                                  discovery: CodexSessionDiscovery.Result = .empty, maxDiscoveryReads: Int = 32,
                                  deadline: TimeInterval, uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                                 clock: () -> Date = Date.init,
                                  request: (String, [String: Any], TimeInterval) throws -> [String: Any]) throws -> CodexSessionCatalog {
         var sessions: [AgentSession] = [], indices: [String: Int] = [:], pagesRead = 0
         try Task.checkCancellation()
@@ -431,10 +444,12 @@ enum SessionProcess {
                 try Task.checkCancellation()
                 guard index < max(0, maxDiscoveryReads), uptime() < discoveryDeadline else { discoveryLimited = true; break }
                 do {
+                    // Each summary describes the moment its request started (S-07).
+                    let requestedAt = clock()
                     let reply = try request("thread/read", ["threadId": id, "includeTurns": false], min(discoveryDeadline, uptime() + 1))
                     guard let row = reply["thread"] as? [String: Any], row["id"] as? String == id else { discoveryLimited = true; continue }
                     try ClientResponseContract.validateCodexThreadList(["data": [row]])
-                    let parsed = try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]))
+                    let parsed = try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]), now: requestedAt)
                     guard parsed.count == 1, parsed.first?.sessionID == id else { discoveryLimited = true; continue }
                     append(parsed)
                 } catch is CancellationError { throw CancellationError() }
@@ -452,9 +467,10 @@ enum SessionProcess {
             try Task.checkCancellation()
             guard uptime() < priorityDeadline else { break }
             do {
+                let requestedAt = clock()
                 let reply = try request("thread/read", ["threadId": id, "includeTurns": false], min(priorityDeadline, uptime() + 1))
                 guard let row = reply["thread"] as? [String: Any], row["id"] as? String == id else { continue }
-                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]])))
+                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: ["data": [row]]), now: requestedAt))
             } catch is CancellationError { throw CancellationError() }
             catch { try Task.checkCancellation(); continue }
         }
@@ -470,8 +486,9 @@ enum SessionProcess {
                                          "sourceKinds": ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]]
             if let cursor { params["cursor"] = cursor }
             do {
+                let requestedAt = clock()
                 let reply = try request("thread/list", params, deadline)
-                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: reply)))
+                append(try SessionParser.codex(JSONSerialization.data(withJSONObject: reply), now: requestedAt))
                 try ClientResponseContract.validateCodexThreadList(reply)
                 pagesRead += 1
                 if reply["nextCursor"] is NSNull { return try result() }
@@ -515,7 +532,26 @@ enum SessionProcess {
         if path.contains("/claude/versions/"),
            name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"#, options: .regularExpression) != nil { return .claude }
         if name == "codex" { return .codex }
+        // The standalone Codex release binary keeps its download name.
+        if ["codex-aarch64-apple-darwin", "codex-x86_64-apple-darwin"].contains(name) { return .codex }
         return nil
+    }
+    /// The client runtime that ran a hook: the nearest ancestor that is not a
+    /// shell or command wrapper. Hook runners may or may not exec the command.
+    static func hookClientPID(startPID: Int32, read: (Int32) -> RuntimeProcess? = runtimeProcess) -> Int32? {
+        let runners: Set<String> = ["sh", "bash", "zsh", "dash", "ksh", "fish", "tcsh", "csh", "env", "timeout", "gtimeout", "nohup", "nice"]
+        var pid = startPID, seen = Set<Int32>()
+        for _ in 0..<8 {
+            guard pid > 1, seen.insert(pid).inserted, let process = read(pid) else { return nil }
+            if !runners.contains(URL(fileURLWithPath: process.executable).lastPathComponent) { return pid }
+            pid = process.parentPID
+        }
+        return nil
+    }
+    /// ESRCH only: a process that exists but belongs to someone else is alive.
+    static func isAlive(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        return kill(pid, 0) == 0 || errno != ESRCH
     }
     /// Only executable paths and parent PIDs: no commands, prompts or foreign environment.
     /// Missing/cyclic/truncated ancestry is unknown, not evidence of an independent task.
@@ -545,71 +581,139 @@ enum SessionProcess {
         return nil
     }
 
-    static func client(parentPID: Int32, entrypoint: String, terminal: String) -> SessionClient {
+    /// Metadata of one ancestor, read with libproc only: parent, controlling device and
+    /// executable path. A field is nil when macOS does not disclose it (for example the
+    /// path of Terminal's root-owned login); never arguments, environment or terminal text.
+    struct TerminalProcess: Sendable {
+        let parentPID: Int32?
+        let tty: String?
+        let executable: String?
+    }
+    static func terminalProcess(_ pid: Int32) -> TerminalProcess? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout.size(ofValue: info))
+        let hasInfo = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size
+        var tty: String?
+        if hasInfo, info.e_tdev != UInt32.max, let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) {
+            tty = "/dev/" + String(cString: name)
+        }
+        var parent = hasInfo ? Int32(info.pbi_ppid) : nil
+        if !hasInfo {
+            // Another user's process (Terminal's root-owned login): the short record
+            // needs no same-user access and still names the parent (R2-10).
+            var short = proc_bsdshortinfo()
+            let shortSize = Int32(MemoryLayout.size(ofValue: short))
+            if proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, &short, shortSize) == shortSize { parent = Int32(short.pbsi_ppid) }
+        }
+        // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
+        // that expression macro is not imported into Swift.
+        var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let executable = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0
+            ? String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self) : nil
+        guard parent != nil || executable != nil else { return nil }
+        return TerminalProcess(parentPID: parent, tty: tty, executable: executable)
+    }
+
+    static func client(parentPID: Int32, entrypoint: String, terminal: String,
+                       read: (Int32) -> TerminalProcess? = terminalProcess,
+                       bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> SessionClient {
         // Query executable paths and parent PIDs directly. Never spawn ps, read
         // arguments, or inspect environment variables of another process.
-        var pid = parentPID
+        var pid = parentPID, device: String?, otherHost = false
         for _ in 0..<16 {
-            // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
-            // that expression macro is not imported into Swift.
-            var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
-            let name = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+            guard let process = read(pid) else { break }
+            let outsideSession = device != nil && process.tty != device
+            if device == nil, let candidate = process.tty, TerminalLocation.valid(candidate) { device = candidate }
+            guard let name = process.executable else { break }
             // A CLI binary bundled in an app's Resources (for example ChatGPT.app's
             // codex) says nothing about the host; its parent decides.
             let bundledCLI = name.contains("/Contents/Resources/")
             if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
             if !bundledCLI, let range = name.range(of: ".app/Contents/"),
-               let bundle = IDEProcessLocation.bundleIdentifier(String(name[..<range.lowerBound]) + ".app"),
-               let editor = SessionIDE.identify(bundleIdentifier: bundle) { return editor.client }
+               let identifier = bundle(String(name[..<range.lowerBound]) + ".app"),
+               let editor = SessionIDE.identify(bundleIdentifier: identifier) { return editor.client }
             if name.contains("/Terminal.app/") || name.contains("/iTerm.app/") { return .terminal }
-            var info = proc_bsdinfo()
-            let size = Int32(MemoryLayout.size(ofValue: info))
-            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
-                  info.pbi_ppid > 1, info.pbi_ppid != UInt32(pid) else { break }
-            pid = Int32(info.pbi_ppid)
+            // Another application owning the session's device (a VS Code fork, Ghostty,
+            // kitty…) hosts a terminal, whatever TERM_PROGRAM it passed on.
+            if outsideSession, terminalHostApp(name) != nil { otherHost = true; break }
+            guard let parent = process.parentPID, parent > 1, parent != pid else { break }
+            pid = parent
         }
         if entrypoint.contains("desktop") { return .desktop }
+        if otherHost { return .terminal }
         if terminal.lowercased().contains("vscode") { return .vscode }
-        if !terminal.isEmpty || entrypoint == "cli" { return .terminal }
+        // A controlling terminal is a terminal session even without TERM_PROGRAM
+        // (ssh, kitty): never treat it as a Desktop task.
+        if !terminal.isEmpty || entrypoint == "cli" || device != nil { return .terminal }
         return .unknown
+    }
+    /// Multiplexers and remote shells own their panes' devices; a pane is not a tab
+    /// of the terminal that displays it.
+    static let terminalMultiplexers = ["tmux": "tmux", "screen": "screen", "zellij": "Zellij", "mosh-server": "mosh",
+                                       "sshd": "SSH", "sshd-session": "SSH"]
+    /// The application of an app's own executable (or its helper app), such as a
+    /// terminal emulator. Bundled CLIs, developer tools and agent runtimes are not hosts.
+    static func terminalHostApp(_ path: String) -> String? {
+        guard !path.contains("/Contents/Resources/"), runtimeProvider(ofExecutable: path) == nil,
+              let range = path.range(of: ".app/Contents/") else { return nil }
+        let inside = path[range.upperBound...]
+        guard inside.hasPrefix("MacOS/") || (inside.hasPrefix("Frameworks/") && inside.contains(".app/Contents/MacOS/")) else { return nil }
+        let name = URL(fileURLWithPath: String(path[..<range.lowerBound]) + ".app").deletingPathExtension().lastPathComponent
+        return name.isEmpty ? nil : name
     }
     /// The controlling terminal device of the client process and the terminal
     /// application that owns it. Reads only process metadata, never arguments or environment.
-    static func terminalLocation(parentPID: Int32, termProgram: String) -> (tty: String, app: String)? {
+    /// The app is "Terminal" or "iTerm2", the name of another host (which has no
+    /// navigation route), or empty when a root-owned login hides the host.
+    static func terminalLocation(parentPID: Int32, termProgram: String,
+                                 read: (Int32) -> TerminalProcess? = terminalProcess,
+                                 bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> (tty: String, app: String)? {
         // Hook runners may call setsid(), losing their own controlling TTY.
         // Follow their parents to the client rather than giving up at the hook.
         // Read only process metadata; never arguments, environment or terminal text.
         var tty: String?, pid = parentPID, seen = Set<Int32>()
         let markedApp = termProgram == "Apple_Terminal" ? "Terminal" : termProgram == "iTerm.app" ? "iTerm2" : nil
+        func isEditorOrDesktop(_ path: String) -> Bool {
+            guard !path.contains("/Contents/Resources/") else { return false }
+            if ["/Claude.app/", "/ChatGPT.app/", "/Codex.app/", "/Visual Studio Code.app/"].contains(where: path.contains) { return true }
+            guard let range = path.range(of: ".app/Contents/"), let identifier = bundle(String(path[..<range.lowerBound]) + ".app") else { return false }
+            return SessionIDE.identify(bundleIdentifier: identifier) != nil
+        }
         for _ in 0..<16 {
-            guard pid > 1, seen.insert(pid).inserted else { return nil }
-            var info = proc_bsdinfo()
-            let size = Int32(MemoryLayout.size(ofValue: info))
-            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { break }
-            if tty == nil, info.e_tdev != UInt32.max, let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) {
-                let candidate = "/dev/" + String(cString: name)
-                if TerminalLocation.valid(candidate) { tty = candidate }
+            // launchd, a cycle or an unreadable process ends the walk; the device is kept.
+            guard pid > 1, seen.insert(pid).inserted, let process = read(pid), let parent = process.parentPID else { break }
+            // Terminal's login runs as root: macOS may hide its device and path, but
+            // not its parent. Look through it to the application hosting the tab (R2-10).
+            if tty != nil, process.executable.map({ URL(fileURLWithPath: $0).lastPathComponent == "login" })
+                ?? (process.tty == nil || process.tty == tty) {
+                pid = parent; continue
             }
-            // Terminal's root-owned login can block further process inspection.
-            if let tty, let markedApp { return (tty, markedApp) }
-            var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { break }
-            let path = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+            if let tty, process.tty != tty {
+                // The first ancestor outside the session's device hosts it: the terminal
+                // application, a multiplexer or another emulator. Anything else (a
+                // launcher that detached, a process macOS hides) leaves TERM_PROGRAM to decide.
+                guard let path = process.executable else { break }
+                let name = URL(fileURLWithPath: path).lastPathComponent
+                if path.contains("/Terminal.app/") { return (tty, "Terminal") }
+                // iTerm2 session restoration hosts shells in iTermServer, outside the app bundle.
+                if path.contains("/iTerm.app/") || name.hasPrefix("iTermServer") { return (tty, "iTerm2") }
+                // A Desktop/editor runtime must not inherit an ancestor shell's tab.
+                if isEditorOrDesktop(path) { return nil }
+                if let host = terminalMultiplexers[name] ?? terminalHostApp(path) { return (tty, host) }
+                break
+            }
+            if tty == nil, let candidate = process.tty, TerminalLocation.valid(candidate) { tty = candidate }
+            // Terminal's root-owned login can hide its path; TERM_PROGRAM then names the host.
+            guard let path = process.executable else { break }
             if let tty, path.contains("/Terminal.app/") { return (tty, "Terminal") }
             if let tty, path.contains("/iTerm.app/") { return (tty, "iTerm2") }
-            // A Desktop/editor runtime must not inherit an ancestor shell's tab.
-            if !path.contains("/Contents/Resources/"),
-               ["/Claude.app/", "/ChatGPT.app/", "/Codex.app/", "/Visual Studio Code.app/"].contains(where: path.contains) { return nil }
-            if !path.contains("/Contents/Resources/"), let range = path.range(of: ".app/Contents/"),
-               let bundle = IDEProcessLocation.bundleIdentifier(String(path[..<range.lowerBound]) + ".app"),
-               SessionIDE.identify(bundleIdentifier: bundle) != nil { return nil }
-            pid = Int32(info.pbi_ppid)
+            if isEditorOrDesktop(path) { return nil }
+            pid = parent
         }
-        // A root-owned login process can hide the terminal app's ancestry while
-        // the client's TTY remains known. The navigation layer can match that
-        // exact device against running supported terminals without guessing a tab.
-        return tty.map { ($0, termProgram) }
+        // An unreadable ancestor can still hide the terminal app while the client's
+        // TTY remains known. The navigation layer can match that exact device
+        // against running supported terminals without guessing a tab.
+        return tty.map { ($0, markedApp ?? termProgram) }
     }
 }
 
@@ -630,7 +734,8 @@ public extension SessionHooks {
         let client = ide?.editor.client ?? SessionProcess.client(parentPID: getppid(), entrypoint: env["CLAUDE_CODE_ENTRYPOINT"] ?? "", terminal: env["TERM_PROGRAM"] ?? "")
         let nested = provider == .claude ? SessionProcess.nestedClaudeRuntime(startPID: getppid()) : nil
         let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
-        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide)
+        let runtimePID = provider == .claude ? SessionProcess.hookClientPID(startPID: getppid()) : nil
+        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide, runtimePID: runtimePID)
         print("{}")
     }
 }
