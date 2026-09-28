@@ -64,7 +64,8 @@ import XCTest
     }
 
     private func makeStore(_ h: Harness, snapshots: [UsageSnapshot], providers: [ProviderID],
-                           network: NetworkConnection? = nil) throws -> AppStore {
+                           network: NetworkConnection? = nil,
+                           local: @escaping @Sendable (Date) async -> UsageSnapshot? = { _ in nil }) throws -> AppStore {
         let network = network ?? NetworkConnection(settle: {}, makeMonitor: { nil })
         let suite = "QuotaRefreshStore." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -82,7 +83,7 @@ import XCTest
             })
         let store = AppStore(state: .init(snapshots: snapshots, preferences: preferences), network: network, defaults: defaults,
             dataServices: .init(snapshots: SnapshotPersistence(url: root.appendingPathComponent("snapshot.json")),
-                activity: ActivityService(isolated: true), clock: { h.now }, localQuota: { _ in nil },
+                activity: ActivityService(isolated: true), clock: { h.now }, localQuota: local,
                 refreshQuota: { id, _, _ in
                     if id == .claude {
                         // Production path: the store's policy has decided; ClaudeProvider probes
@@ -486,4 +487,63 @@ import XCTest
         XCTAssertEqual(h.probes.count, 1, "The event is evaluated once the running refresh ends")
         XCTAssertEqual(h.codexFetches.count, 1)
     }
+
+    /// R2-Q-02: the local reader (every 5 s) rereads the saved files. After a failed
+    /// probe they hold the same observation without the failure, which must not
+    /// erase it: the value keeps its "*" and the reason until newer data arrives.
+    func testLocalReaderKeepsTheFailureOfTheLatestProbe() async throws {
+        let h = Harness(now: start)
+        let saved = try claude(used: 40, fetchedAt: start.addingTimeInterval(-180), reset: start.addingTimeInterval(3 * 86400))
+        let unreadable = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse)
+        h.result = { _, _ in throw unreadable }
+        // The saved files hold this observation throughout (a failed probe saves nothing).
+        let store = try makeStore(h, snapshots: [saved], providers: [.claude], local: { [saved] _ in saved })
+        store.start(); await settle(store)
+        XCTAssertEqual(h.probes.count, 0, "A three-minute-old observation is current")
+        await store.refresh(); await settle(store)
+        XCTAssertEqual(h.probes.count, 1)
+        XCTAssertEqual(store.snapshots.first?.issue, unreadable.message)
+        h.now = start.addingTimeInterval(5); h.ticks[5]?(); await settle(store)
+        let shown = try XCTUnwrap(store.snapshots.first { $0.provider == .claude })
+        XCTAssertEqual(shown.issue, unreadable.message, "The saved copy of the same observation does not erase the failure")
+        XCTAssertEqual(shown.status(of: shown.weekly, now: h.now), .current(stale: true))
+        let diagnostic = ConnectionDiagnostic(provider: .claude, clientFound: true, signIn: .signedIn, eventsConfigured: true,
+                                              snapshot: shown, sessionIssue: nil, now: h.now)
+        XCTAssertEqual(diagnostic.state, .unsupportedResponse)
+        // A later successful probe is shown; a local read that started before it was
+        // saved returns the older observation, which never rolls the new one back.
+        h.result = { _, date in try self.claude(used: 45, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
+        h.now = start.addingTimeInterval(40); await store.refresh(); await settle(store)
+        XCTAssertEqual(h.probes.count, 2)
+        let probed = try XCTUnwrap(store.snapshots.first { $0.provider == .claude })
+        XCTAssertEqual(probed.weekly?.usedPercent, 45)
+        XCTAssertNil(probed.issue)
+        h.now = start.addingTimeInterval(45); h.ticks[5]?(); await settle(store)
+        XCTAssertEqual(store.snapshots.first { $0.provider == .claude }, probed)
+    }
+
+    /// An explicit refresh pressed while an automatic request for the other provider
+    /// runs is not dropped: it is evaluated once that request ends.
+    func testExplicitRefreshDuringAnotherProvidersRequestIsEvaluatedAfterIt() async throws {
+        let h = Harness(now: start)
+        let fresh = try claude(used: 40, fetchedAt: start.addingTimeInterval(-600), reset: start.addingTimeInterval(3 * 86400))
+        func codex(_ date: Date) throws -> UsageSnapshot {
+            try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 10, durationMinutes: 10080, resetsAt: self.start.addingTimeInterval(4 * 86400)),
+                              fetchedAt: date, source: "Codex CLI")
+        }
+        h.result = { id, date in id == .codex ? try codex(date) : try self.claude(used: 45, fetchedAt: date, reset: self.start.addingTimeInterval(3 * 86400)) }
+        var release: CheckedContinuation<Void, Never>?
+        h.holdCodex = { await withCheckedContinuation { release = $0 } }
+        let store = try makeStore(h, snapshots: [fresh, try codex(start.addingTimeInterval(-2 * 3600))], providers: [.claude, .codex])
+        store.start()
+        await wait(until: { h.codexFetches.count == 1 && release != nil })
+        XCTAssertEqual(h.probes.count, 0, "At launch only Codex is due")
+        await store.refresh(provider: .claude)
+        XCTAssertEqual(h.probes.count, 0, "One request at a time")
+        h.holdCodex = nil; release?.resume()
+        await settle(store)
+        XCTAssertEqual(h.probes.count, 1, "The explicit refresh runs after the running request")
+        XCTAssertEqual(store.snapshots.first { $0.provider == .claude }?.weekly?.usedPercent, 45)
+    }
 }
+

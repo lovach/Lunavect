@@ -281,9 +281,17 @@ import WeekleftCore
                   self.providerGenerations[.claude, default: 0] == providerGeneration, let snapshot,
                   let index = self.snapshots.firstIndex(where: { $0.provider == .claude }),
                   snapshot != self.snapshots[index],
+                  // The saved copy of the shown observation lacks the failure of the latest
+                  // request; it must not erase that failure and its mark (R2-Q-02).
+                  !Self.isSameObservation(snapshot, self.snapshots[index]) || self.snapshots[index].issue == nil,
                   ClaudeProvider.preferredObservation([self.snapshots[index], snapshot], now: self.clock()) == snapshot else { return }
             self.snapshots[index] = snapshot; self.persist(); self.scheduleResetCheck()
         }
+    }
+    /// The same reading apart from the issue attached to it.
+    private static func isSameObservation(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
+        var lhs = lhs; lhs.issue = rhs.issue
+        return lhs == rhs
     }
     /// An automatic evaluation. One that arrives while a refresh runs is kept and
     /// evaluated after it: that refresh may not have included its provider.
