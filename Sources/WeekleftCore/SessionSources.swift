@@ -870,6 +870,9 @@ public extension SessionHooks {
         return data
     }
     static func captureFromStandardInput(provider: ProviderID) {
+        // Hooks carry no event time: the helper's start orders concurrent events,
+        // not the end of the process inspection below (S-I3).
+        let now = Date()
         // Lifecycle tools must never block, approve, or inject context into the source session.
         guard let data = readHookPayload(from: .standardInput) else { print("{}"); return }
         let env = ProcessInfo.processInfo.environment
@@ -878,7 +881,7 @@ public extension SessionHooks {
         let nested = provider == .claude ? SessionProcess.nestedClaudeRuntime(startPID: getppid()) : nil
         let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
         let runtimePID = provider == .claude ? SessionProcess.hookClientPID(startPID: getppid()) : nil
-        try? capture(data, provider: provider, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide, runtimePID: runtimePID)
+        try? capture(data, provider: provider, now: now, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide, runtimePID: runtimePID)
         print("{}")
     }
 }

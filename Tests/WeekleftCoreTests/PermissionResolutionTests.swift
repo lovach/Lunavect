@@ -184,6 +184,36 @@ final class PermissionResolutionTests: XCTestCase {
         XCTAssertEqual(waiting, [0, 0, 1, 0, 0, 0])
     }
 
+    /// «No» without a comment, or Esc, stops Claude's turn and reports nothing. The
+    /// idle reminder (the input prompt idle for about a minute) ends the main
+    /// conversation's requests: an open dialog sends permission_prompt instead.
+    func testIdleReminderEndsTheMainConversationsRequests() throws {
+        let open = try play([("UserPromptSubmit", [:]), ("PreToolUse", call("Bash", "x")), ("PermissionRequest", request("Bash")),
+                             ("Notification", ["notification_type": "permission_prompt"])])
+        XCTAssertEqual(open.last?.session.phase, .permission, "An open dialog and its reminder")
+        let idle = try event("Notification", ["notification_type": "idle_prompt"], provider: .claude, after: open.last!, at: 70)
+        XCTAssertEqual(idle.session.phase, .idle)
+        XCTAssertTrue(idle.pendingApprovals.isEmpty && idle.unidentifiedApproval == nil)
+        XCTAssertFalse(idle.session.effectivePhase(now: start.addingTimeInterval(70)).isActive)
+
+        // An idle reminder older than the request, delivered after it, changes nothing.
+        let late = try event("Notification", ["notification_type": "idle_prompt"], provider: .claude, after: open[2], at: 1.5)
+        XCTAssertEqual(late.session.phase, .permission)
+        XCTAssertEqual(late.session.observedAt, open[2].session.observedAt)
+
+        // A subagent's dialog is not the input prompt's.
+        let both = try play([("UserPromptSubmit", [:]), ("PreToolUse", call("Agent", "task")), ("PreToolUse", call("Bash", "a1", agent: "agent-a")),
+                             ("PermissionRequest", request("Bash", agent: "agent-a")), ("PreToolUse", call("WebFetch", "m1")),
+                             ("PermissionRequest", request("WebFetch"))])
+        let reminded = try event("Notification", ["notification_type": "idle_prompt"], provider: .claude, after: both.last!, at: 70)
+        XCTAssertEqual(reminded.session.phase, .permission)
+        XCTAssertEqual(reminded.approvals?.map(\.context), ["agent-a"])
+
+        // Without an open request it stays a reminder about a finished reply.
+        let ready = try play([("UserPromptSubmit", [:]), ("Stop", [:])]).last!
+        XCTAssertEqual(try event("Notification", ["notification_type": "idle_prompt"], provider: .claude, after: ready, at: 70).session, ready.session)
+    }
+
     /// Claude's session list reports every wait as "waiting" (it has no waitingFor
     /// since 2.1.280). A newer listing during an open dialog confirms the wait: it
     /// does not turn "Permission needed" into "Input needed" or announce it again.
@@ -230,6 +260,29 @@ final class PermissionResolutionTests: XCTestCase {
         // Stop's background list may be missing; SubagentStop still ends its own dialogs.
         XCTAssertEqual(try capture("SubagentStop", ["agent_id": "agent-a", "agent_type": "Explore"]), .running)
         XCTAssertEqual(try capture("Stop", [:]), .ready)
+    }
+
+    /// Hooks carry no event time. The helper stamps an event when it starts, before
+    /// it reads its input and inspects processes, so a reminder that started first
+    /// but reached the record last is still the older event (S-I3).
+    func testCaptureOrdersEventsByTheirOwnTime() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lunavect-r26-S2-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        func capture(_ name: String, _ extra: [String: Any], at seconds: Double) throws -> AgentSession? {
+            var payload: [String: Any] = ["session_id": "parent-session", "cwd": "/Users/fixture/Projects/lunavect", "hook_event_name": name]
+            payload.merge(extra) { $1 }
+            try SessionHooks.capture(JSONSerialization.data(withJSONObject: payload), provider: .claude, at: root, now: start.addingTimeInterval(seconds),
+                                     client: .terminal, runtimePID: 4242, isInternal: { _ in false }, isAlive: { _ in true })
+            return SessionHooks.load(at: root).first
+        }
+        XCTAssertEqual(try capture("UserPromptSubmit", [:], at: 0)?.phase, .running)
+        XCTAssertEqual(try capture("PreToolUse", call("Bash", "x"), at: 1)?.phase, .running)
+        XCTAssertEqual(try capture("PermissionRequest", request("Bash"), at: 2)?.phase, .permission)
+        XCTAssertEqual(try capture("PostToolUse", call("Bash", "x"), at: 8)?.phase, .running)
+        let late = try capture("Notification", ["notification_type": "permission_prompt"], at: 7.9)
+        XCTAssertEqual(late?.phase, .running)
+        XCTAssertEqual(late?.observedAt, start.addingTimeInterval(8))
     }
 
     /// Records written by earlier releases keep their wait until progress.

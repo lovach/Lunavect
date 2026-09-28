@@ -603,10 +603,14 @@ public struct SessionRecord: Codable, Sendable {
                 record.session.phase = .permission
             }
             else if type == "idle_prompt" {
-                // Reminder about an already finished response, not a new request.
-                // Do not refresh stale work evidence from a delayed notification.
-                if previous != nil { return record }
-                record.session.phase = .idle
+                // The input prompt has been idle for about a minute; an open dialog sends
+                // permission_prompt instead. So the main conversation's requests are over
+                // («No» without a comment and Esc report nothing else). A subagent's are not.
+                let answered = previous != nil && record.closeApprovals(where: { $0.context == nil || $0.context == "" })
+                // Otherwise a reminder about an already finished response, not a new
+                // request: do not refresh stale work evidence from a delayed notification.
+                if previous != nil && !answered { return record }
+                if (record.approvals ?? []).isEmpty { record.session.phase = .idle }
             } else if type == "elicitation_complete" || type == "elicitation_response" {
                 // The MCP form or link was answered; the same reply continues.
                 record.session.phase = .running
