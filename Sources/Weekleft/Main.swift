@@ -580,7 +580,7 @@ enum InstanceHandover {
         if command == .claudeStatusLine { ClaudeProvider.runStatusLine(); return }
         if command == .installClaudeStatusLine {
             let location = HookHelperLocation()
-            try? location.refreshLink()
+            _ = try? location.refreshLink()
             guard let executable = CommandLineMaintenance.statusLineExecutable(location: location, argument: CommandLine.arguments[0]) else {
                 fputs("StatusLine setup needs Lunavect in Applications: run it from its installed location with an absolute path.\n", stderr)
                 exit(1)
