@@ -130,18 +130,22 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         issue = try values.decodeIfPresent(String.self, forKey: .issue)
         modelQuotas = try values.decodeIfPresent([ModelQuota].self, forKey: .modelQuotas)
         unlimited = try values.decodeIfPresent(Bool.self, forKey: .unlimited)
-        if source == Self.usageProbeSource {
-            // Written before `/usage` resets carried their precision (Q-05).
-            let observed = fetchedAt
-            do {
+        // Written before `/usage` resets carried their precision (Q-05). Claude's model
+        // buckets always come from `/usage`, also inside a status-line snapshot that
+        // kept them (0.2.4 snapshot.json); the status line's own windows are exact.
+        do {
+            if source == Self.usageProbeSource {
+                let observed = fetchedAt
                 weekly = try weekly?.completingShownMinute(observedAt: observed)
                 fiveHour = try fiveHour?.completingShownMinute(observedAt: observed)
+            }
+            if source == Self.usageProbeSource || provider == .claude {
                 modelQuotas = try modelQuotas?.map {
                     ModelQuota(name: $0.name, window: try $0.window.completingShownMinute(observedAt: $0.fetchedAt), fetchedAt: $0.fetchedAt)
                 }
-            } catch {
-                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid quota window", underlyingError: error))
             }
+        } catch {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid quota window", underlyingError: error))
         }
         guard weekly.map({ $0.durationMinutes == 10080 }) ?? true else {
             throw DecodingError.dataCorruptedError(forKey: .weekly, in: values, debugDescription: "Invalid weekly duration")

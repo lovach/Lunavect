@@ -105,6 +105,26 @@ final class ResetPrecisionTests: XCTestCase {
         XCTAssertEqual(tracker.update([decoded], threshold: 10, now: statusLineReset).map(\.kind), [.restored])
     }
 
+    /// R1-12: a snapshot.json from 0.2.4 can hold the probe's model buckets inside a
+    /// status-line snapshot. They are `/usage` readings and move to the end of their
+    /// shown minute as well; the status line's own windows stay exact.
+    func testProbeModelBucketsInsideAStatusLineSnapshotDecodeToTheEndOfTheMinute() throws {
+        let fetched = probeReset.addingTimeInterval(-7200).timeIntervalSinceReferenceDate
+        let legacy = """
+        {"provider":"claude","source":"Claude Code statusLine","fetchedAt":\(fetched),
+         "weekly":{"usedPercent":60,"durationMinutes":10080,"resetsAt":\(statusLineReset.timeIntervalSinceReferenceDate)},
+         "modelQuotas":[{"name":"Fable","fetchedAt":\(fetched),"window":{"usedPercent":40,"durationMinutes":10080,"resetsAt":\(probeReset.timeIntervalSinceReferenceDate)}}]}
+        """
+        let decoded = try JSONDecoder().decode(UsageSnapshot.self, from: Data(legacy.utf8))
+        XCTAssertEqual(decoded.weekly?.resetsAt, statusLineReset, "The status line's exact reset is not moved")
+        XCTAssertNil(decoded.weekly?.resetPrecision)
+        XCTAssertEqual(decoded.modelQuotas?.first?.window.resetsAt, statusLineReset)
+        XCTAssertEqual(decoded.modelQuotas?.first?.window.resetPrecision, .minute)
+        XCTAssertEqual(try JSONDecoder().decode(UsageSnapshot.self, from: JSONEncoder().encode(decoded)), decoded, "Moved once, not on every load")
+        let model = try XCTUnwrap(decoded.modelQuotas?.first)
+        XCTAssertNotEqual(model.status(now: probeReset.addingTimeInterval(30)), .resetPassed(probeReset), "Not expired inside the shown minute")
+    }
+
     /// WP-1a's confirming probe ran 90 s after the shown minute's start. The reset is
     /// now stored 60 s later, so the grace is 30 s: the probe keeps its moment.
     func testConfirmingProbeKeepsItsMomentAfterTheShownMinute() throws {
