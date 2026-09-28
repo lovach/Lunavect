@@ -8,6 +8,8 @@ final class ClientConnectionTests: XCTestCase {
         }
         for provider in ProviderID.allCases {
             let path = try XCTUnwrap(provider == .claude ? SessionSources.discoverClaude() : CodexProvider.discoverCLI())
+            // Opt-in: the installed client may run for this check only (LiveProcessGuard).
+            LiveProcessGuard.allow([path]); defer { LiveProcessGuard.disallow([path]) }
             let state = await ClientConnection.signInState(provider, executable: path)
             XCTAssertEqual(state, .signedIn, provider.rawValue)
         }

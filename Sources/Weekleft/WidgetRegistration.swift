@@ -221,6 +221,7 @@ enum WidgetRegistrationSystem {
 
     /// Reads which widget extension PlugInKit uses; never changes a registration.
     static func widgetHost() -> WidgetHostLookup {
+        guard (try? LiveProcessGuard.check(URL(fileURLWithPath: "/usr/bin/pluginkit"))) != nil else { return .unknown }
         let process = Process(), finished = DispatchSemaphore(value: 0), output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
         process.arguments = ["-m", "-v", "-i", widgetIdentifier]
@@ -265,6 +266,8 @@ enum WidgetRegistrationSystem {
     }
 
     private static func register(_ target: WidgetRegistrationTarget) -> Bool {
+        // Also before LSRegisterURL: a test never registers an installed copy (R2-X-03).
+        guard (try? LiveProcessGuard.check(URL(fileURLWithPath: "/usr/bin/pluginkit"))) != nil else { return false }
         guard !Task.isCancelled, LSRegisterURL(target.app as CFURL, true) == noErr else { return false }
         // Use argv, never a shell; register just the current embedded appex.
         let process = Process(), finished = DispatchSemaphore(value: 0)
@@ -291,6 +294,7 @@ enum WidgetRegistrationSystem {
     /// Match the complete executable path immediately before signalling. Other
     /// widgets, other app copies and the system widget host are never stopped.
     @discardableResult static func stopExtension(_ target: WidgetRegistrationTarget) -> Bool {
+        guard !LiveProcessGuard.refuses("stopping the widget extension") else { return false }
         let capacity = proc_listallpids(nil, 0)
         guard capacity > 0 else { return false }
         var pids = [pid_t](repeating: 0, count: Int(capacity) + 128)

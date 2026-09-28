@@ -868,7 +868,10 @@ enum SessionNavigation {
         let action: String
         var errorDescription: String? { "Test isolation: refused \(action)" }
     }
-    @MainActor static var allowsLiveSystemInTests = false
+    @MainActor static var allowsLiveSystemInTests = false {
+        // Terminal focus runs osascript through SessionProcess (R2-X-03).
+        didSet { allowsLiveSystemInTests ? LiveProcessGuard.allow(["/usr/bin/osascript"]) : LiveProcessGuard.disallow(["/usr/bin/osascript"]) }
+    }
     @MainActor static func checkLiveSystem(_ action: String) throws {
         guard LiveWriteGuard.underTestsForStores, !allowsLiveSystemInTests else { return }
         fputs("LUNAVECT TEST ISOLATION: refused live navigation (\(action))\n", stderr)
@@ -955,13 +958,16 @@ enum SessionNavigation {
         }
     }
     @MainActor static func copy(_ text: String) {
+        guard (try? checkLiveSystem("clipboard")) != nil else { return }
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
     }
     @MainActor static func openCodex(_ session: AgentSession) -> Bool {
+        guard (try? checkLiveSystem("codex link")) != nil else { return false }
         guard let url = session.codexURL else { return false }
         return NSWorkspace.shared.open(url)
     }
     @MainActor static func revealProject(_ session: AgentSession) -> Bool {
+        guard (try? checkLiveSystem("reveal folder")) != nil else { return false }
         guard session.cwd.hasPrefix("/"), FileManager.default.fileExists(atPath: session.cwd) else { return false }
         return NSWorkspace.shared.open(URL(fileURLWithPath: session.cwd))
     }

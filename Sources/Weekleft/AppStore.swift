@@ -102,7 +102,7 @@ import WeekleftCore
     private var started = false
     private let preferenceWrites = DeferredWrite()
     private let savesChanges: Bool
-    private let isolated: Bool
+    let isolated: Bool
     private let defaults: UserDefaults
     private let quotaFetcher: ((ProviderID, String) async throws -> UsageSnapshot)?
     let network: NetworkConnection

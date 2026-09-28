@@ -157,6 +157,8 @@ final class ClaudeUsageProbeTests: XCTestCase {
     func testLiveUsageCommandWithoutModelRequest() async throws {
         guard ProcessInfo.processInfo.environment["LUNAVECT_LIVE_CLAUDE_USAGE"] == "1" else { throw XCTSkip("Opt-in /usage through installed Claude Code") }
         let path = try XCTUnwrap(SessionSources.discoverClaude())
+        // Opt-in: the installed client may run for this check only (LiveProcessGuard).
+        LiveProcessGuard.allow([path]); defer { LiveProcessGuard.disallow([path]) }
         let result = try await ClaudeUsageProbe.fetch(cliPath: path)
         XCTAssertEqual(result.provider, .claude)
         XCTAssertNotNil(result.weekly)

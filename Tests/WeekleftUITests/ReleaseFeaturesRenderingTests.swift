@@ -183,6 +183,9 @@ final class ReleaseFeaturesRenderingTests: XCTestCase {
     @MainActor func testLiveConnectionDiagnostics() async throws {
         guard ProcessInfo.processInfo.environment["LUNAVECT_LIVE_DIAGNOSTICS"] == "1" else { throw XCTSkip("Opt-in installed client checks") }
         let diagnostics = ConnectionDiagnostics()
+        // Opt-in: the installed clients may run for this check only (LiveProcessGuard).
+        let clients = [SessionSources.discoverClaude(), CodexProvider.discoverCLI(), AppStore.discoverCodex()].compactMap { $0 }
+        LiveProcessGuard.allow(clients); defer { LiveProcessGuard.disallow(clients) }
         await diagnostics.check(store: AppStore(), sessions: SessionStore())
         XCTAssertEqual(diagnostics.results.count, 2); XCTAssertNotNil(diagnostics.checkedAt)
         diagnostics.prepareReport(); XCTAssertNotNil(diagnostics.reportText)

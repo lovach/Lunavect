@@ -51,8 +51,10 @@ import WeekleftCore
         guard acceptsResult() else { return }
         sessions.updateHookConfiguration()
         let providers = store.providers.filter { requestedProvider == nil || $0 == requestedProvider }
-        let discoveredCodex = AppStore.discoverCodex()
-        let resolver = ClientExecutableResolver(codexPath: store.codexPath, discoverCodex: { discoveredCodex })
+        // Preview and fixture stores never find or ask the installed clients (R2-X-03).
+        let discoveredCodex = store.isolated ? nil : AppStore.discoverCodex()
+        let resolver = store.isolated ? ClientExecutableResolver(codexPath: "", discoverCodex: { nil }, discoverClaude: { nil })
+            : ClientExecutableResolver(codexPath: store.codexPath, discoverCodex: { discoveredCodex })
         let claude = try? resolver.resolve(.claude), codex = try? resolver.resolve(.codex)
         let codexPathIssue: ClientIntegrationIssue? = !store.codexPath.isEmpty && codex == nil
             ? .init(provider: .codex, capability: .initialization, reason: .clientPathUnavailable) : nil

@@ -12,6 +12,7 @@ import WeekleftCore
     static let completionURL = AnimationResources.url(forResource: "lunavect-complete", withExtension: "wav")
     private static let completion = completionURL.flatMap { NSSound(contentsOf: $0, byReference: false) }
     static func play(_ kind: SessionNoticeKind) {
+        guard !LiveProcessGuard.refuses("notification sound") else { return }
         if kind == .completed { completion?.stop(); completion?.play() }
         else { NSSound(named: "Glass")?.play() }
     }
@@ -71,12 +72,20 @@ struct PanelShortcut: Codable, Equatable {
         guard Bundle.main.bundleIdentifier == "com.weekleft.app" else { throw CocoaError(.featureUnsupported) }
         return try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
     }
-    func registerLogin() throws { try SMAppService.mainApp.register() }
-    func unregisterLogin() async throws { try await SMAppService.mainApp.unregister() }
-    func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
+    // Under XCTest neither the login item nor System Settings is touched (R2-X-03).
+    func registerLogin() throws {
+        guard !LiveProcessGuard.refuses("login item registration") else { throw CocoaError(.featureUnsupported) }
+        try SMAppService.mainApp.register()
+    }
+    func unregisterLogin() async throws {
+        guard !LiveProcessGuard.refuses("login item removal") else { throw CocoaError(.featureUnsupported) }
+        try await SMAppService.mainApp.unregister()
+    }
+    func openLoginSettings() { if !LiveProcessGuard.refuses("System Settings") { SMAppService.openSystemSettingsLoginItems() } }
     func openNotificationSettings() -> Bool {
+        guard !LiveProcessGuard.refuses("System Settings") else { return false }
         // System Settings supports this pane URL; approval is still a user action.
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.weekleft.app")!)
+        return NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.weekleft.app")!)
     }
 }
 
@@ -460,6 +469,7 @@ struct PanelShortcut: Codable, Equatable {
         setIssue(nil, for: .login)
         if value == shortcut, hotKey != nil { return }
         var candidate: EventHotKeyRef?
+        if value != nil, LiveProcessGuard.refuses("global shortcut") { return }
         if let value {
             if hotKeyHandler == nil {
                 var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
