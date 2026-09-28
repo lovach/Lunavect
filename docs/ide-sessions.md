@@ -1,15 +1,16 @@
-# Sessions in VS Code and JetBrains
+# Sessions in VS Code, Cursor and JetBrains
 
 The IDE companions let Lunavect select the **existing terminal tab** where Claude Code or Codex is running. Clicking a live session does not run a resume command or start another agent.
 
 | Session location | Navigation |
 | --- | --- |
 | VS Code / VS Code Insiders, local integrated terminal | Selects the terminal by its live process ancestry, then confirms window and terminal focus |
+| Cursor and other editors built on VS Code (Windsurf, VSCodium…), local integrated terminal | Same as VS Code. The editor is recognized from its `Contents/Resources/app/product.json`, whose bundle identifier must match the app; messages use its product name. Cursor is the exercised fork |
 | JetBrains 2026.2 IDEs, Terminal tool window | Selects the exact Reworked or Classic terminal and its project window. Every `com.jetbrains.<product>` IDE and its EAP build is recognized; IntelliJ IDEA is the exercised product |
-| Official Claude Code extension in local VS Code | Opens the session ID through the provider extension in the matching workspace |
-| Official Codex extension in local VS Code | Opens the session's custom editor, reusing its existing editor group |
+| Official Claude Code extension in local VS Code or an editor built on it | Opens the session ID through the provider extension in the matching workspace |
+| Official Codex extension in local VS Code or an editor built on it | Opens the session's custom editor, reusing its existing editor group |
 | JetBrains AI Chat / Claude Agent / Codex Agent panels | Not supported by this companion |
-| Other JetBrains versions, remote SSH, containers, WSL, VS Code forks (Cursor, Windsurf, VSCodium) | Not supported by this version; forks are reported by name |
+| Other JetBrains versions, remote SSH, containers, WSL | Not supported by this version |
 
 The JetBrains terminal companion supports both providers in the **Terminal tool window**. It matches a tab by the process the tab started, so a Reworked tab whose Claude process has no controlling terminal is still found. Claude Code installed with npm (`npm i -g @anthropic-ai/claude-code`) is recognized like the native installer: current releases run the package's `bin/claude.exe`, earlier ones `node …/@anthropic-ai/claude-code/cli.js`. Separate chat panels, including terminals owned by other plugins outside that tool window, need their own navigation integration. JetBrains' built-in Codex integration also uses a separate session home; this feature does not import that account or configure its hooks.
 
@@ -17,11 +18,11 @@ The JetBrains terminal companion supports both providers in the **Terminal tool 
 
 1. In Lunavect, enable the provider's local events under **Settings → Connections**.
 2. Expand **Sessions in editors**, then select **Show installer** beside your editor.
-3. In VS Code, use **Extensions → … → Install from VSIX** and select `lunavect-vscode.vsix`. In JetBrains 2026.2, use **Settings → Plugins → ⚙ → Install Plugin from Disk** and select `lunavect-jetbrains.zip`.
+3. In VS Code, Cursor or another editor built on VS Code, use **Extensions → … → Install from VSIX** and select `lunavect-vscode.vsix`. In JetBrains 2026.2, use **Settings → Plugins → ⚙ → Install Plugin from Disk** and select `lunavect-jetbrains.zip`.
 4. Reload/restart the editor if it asks. Open your local project, return to Lunavect and choose **Refresh connection**. The status should say **Companion connected**.
 5. Restart sessions which were already running before you enabled local events, so their next events carry the editor identity.
 
-Lunavect 0.2.6 bundles VS Code companion **0.1.2** and JetBrains companion **0.1.2** (0.2.5 bundled JetBrains 0.1.1). Replacing the app does not replace editor plugins: repeat step 3 with the new installer and reload/restart the editor.
+Lunavect 0.2.7 bundles VS Code companion **0.1.3** and JetBrains companion **0.1.2** (0.2.6 bundled VS Code 0.1.2). The VS Code companion 0.1.3 is required in Cursor and other editors built on VS Code: it reports the editor's own bundle identifier, where 0.1.2 always reported VS Code's. Replacing the app does not replace editor plugins: repeat step 3 with the new installer and reload/restart the editor.
 
 From 0.1.2 each companion reports its version. **Settings → Connections → Sessions in editors** then shows “Installed X, available Y: reinstall the companion” when the app bundles a newer one; 0.1.0 and 0.1.1 report no version and appear as “0.1.1 or earlier”. The same rows distinguish a companion that is installed but not answering and one whose descriptor protocol does not match this app.
 
