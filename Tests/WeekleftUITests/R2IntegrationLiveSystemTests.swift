@@ -53,10 +53,11 @@ import Carbon
         // Scripts without `tell` address no application even if osascript were started.
         do { _ = try await TerminalLocation.executeFocusScript("return true", app: "Terminal", timeout: 2); XCTFail("osascript") }
         catch { XCTAssertEqual(error as? SessionOpeningError, .terminalFocusFailed("Terminal")) }
-        // A read-only listing; a missing bundle is never registered or signalled.
+        // A read-only listing, and an extension path outside the fixture folder that no
+        // process runs: a regression lists or signals nothing that exists.
         XCTAssertEqual(WidgetRegistrationSystem.widgetHost(), .unknown, "pluginkit is not asked")
         XCTAssertFalse(WidgetRegistrationSystem.stopExtension(WidgetRegistrationTarget(
-            app: root.appendingPathComponent("Lunavect.app"), version: "1")))
+            app: URL(fileURLWithPath: "/nonexistent-lunavect-r2-X/Lunavect.app"), version: "1")), "Only fixture extensions are signalled")
     }
 
     func testRowActionsLeaveClipboardLinksAndFinderAlone() throws {

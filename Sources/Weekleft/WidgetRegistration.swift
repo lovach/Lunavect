@@ -294,7 +294,8 @@ enum WidgetRegistrationSystem {
     /// Match the complete executable path immediately before signalling. Other
     /// widgets, other app copies and the system widget host are never stopped.
     @discardableResult static func stopExtension(_ target: WidgetRegistrationTarget) -> Bool {
-        guard !LiveProcessGuard.refuses("stopping the widget extension") else { return false }
+        // Under XCTest only a fixture extension in the temporary folder is signalled (R2-X-03).
+        guard (try? LiveProcessGuard.check(URL(fileURLWithPath: target.executable))) != nil else { return false }
         let capacity = proc_listallpids(nil, 0)
         guard capacity > 0 else { return false }
         var pids = [pid_t](repeating: 0, count: Int(capacity) + 128)
