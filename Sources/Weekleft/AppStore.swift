@@ -278,20 +278,26 @@ import WeekleftCore
             let snapshot = await reader(now)
             guard let self, self.lifecycleGeneration == generation else { return }
             guard !Task.isCancelled, self.started, self.providers.contains(.claude),
-                  self.providerGenerations[.claude, default: 0] == providerGeneration, let snapshot,
-                  let index = self.snapshots.firstIndex(where: { $0.provider == .claude }),
-                  snapshot != self.snapshots[index],
-                  // The saved copy of the shown observation lacks the failure of the latest
-                  // request; it must not erase that failure and its mark (R2-Q-02).
-                  !Self.isSameObservation(snapshot, self.snapshots[index]) || self.snapshots[index].issue == nil,
-                  ClaudeProvider.preferredObservation([self.snapshots[index], snapshot], now: self.clock()) == snapshot else { return }
+                  self.providerGenerations[.claude, default: 0] == providerGeneration, var snapshot,
+                  let index = self.snapshots.firstIndex(where: { $0.provider == .claude }) else { return }
+            let current = self.snapshots[index]
+            if Self.isSameReading(snapshot, current) {
+                // The saved files hold the reading that is shown. Their windows are the
+                // original: snapshot.json rewritten by an older copy of the app loses the
+                // reset precision (R2-P-04). They do not know the failure of the latest
+                // request, which stays with its mark (R2-Q-02).
+                snapshot.issue = current.issue ?? snapshot.issue
+                if snapshot.modelQuotas == nil { snapshot.modelQuotas = current.modelQuotas }
+            } else {
+                guard ClaudeProvider.preferredObservation([current, snapshot], now: self.clock()) == snapshot else { return }
+            }
+            guard snapshot != current else { return }
             self.snapshots[index] = snapshot; self.persist(); self.scheduleResetCheck()
         }
     }
-    /// The same reading apart from the issue attached to it.
-    private static func isSameObservation(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
-        var lhs = lhs; lhs.issue = rhs.issue
-        return lhs == rhs
+    /// One observation of one source: the same observation time.
+    private static func isSameReading(_ lhs: UsageSnapshot, _ rhs: UsageSnapshot) -> Bool {
+        lhs.provider == rhs.provider && lhs.source == rhs.source && lhs.fetchedAt != nil && lhs.fetchedAt == rhs.fetchedAt
     }
     /// An automatic evaluation. One that arrives while a refresh runs is kept and
     /// evaluated after it: that refresh may not have included its provider.

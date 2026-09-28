@@ -545,5 +545,37 @@ import XCTest
         XCTAssertEqual(h.probes.count, 1, "The explicit refresh runs after the running request")
         XCTAssertEqual(store.snapshots.first { $0.provider == .claude }?.weekly?.usedPercent, 45)
     }
-}
 
+    /// R2-P-04: 0.2.4 (a second installed copy) rewrites snapshot.json without the
+    /// reset precision it does not know, so the next launch reads the end of the
+    /// shown minute as its start and moves the reset another minute later. The
+    /// saved probe file still holds the original reading; the local reader takes
+    /// its windows for the same reading instead of keeping the shifted ones.
+    func testSavedProbeReadingRepairsWindowsShiftedByAnOlderCopy() async throws {
+        let h = Harness(now: start)
+        let reset = start.addingTimeInterval(3 * 86400)
+        let original = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: reset, resetPrecision: .minute),
+            fiveHour: QuotaWindow(usedPercent: 12, durationMinutes: 300, resetsAt: start.addingTimeInterval(3600), resetPrecision: .minute),
+            fetchedAt: start.addingTimeInterval(-60), source: ClaudeUsageProbe.source,
+            modelQuotas: [ModelQuota(name: "Model", window: QuotaWindow(usedPercent: 30, durationMinutes: 10080, resetsAt: reset, resetPrecision: .minute),
+                                     fetchedAt: start.addingTimeInterval(-60))])
+        // What 0.2.4 writes back: the same JSON without the keys it does not know.
+        func strippingPrecision(_ value: Any) -> Any {
+            if var object = value as? [String: Any] {
+                object.removeValue(forKey: "resetPrecision")
+                return object.mapValues(strippingPrecision)
+            }
+            if let array = value as? [Any] { return array.map(strippingPrecision) }
+            return value
+        }
+        let rewritten = try JSONSerialization.data(withJSONObject: strippingPrecision(JSONSerialization.jsonObject(with: JSONEncoder().encode(original))))
+        let shifted = try JSONDecoder().decode(UsageSnapshot.self, from: rewritten)
+        XCTAssertEqual(shifted.weekly?.resetsAt, reset.addingTimeInterval(60), "The two meanings of a saved reset cannot be told apart")
+        let store = try makeStore(h, snapshots: [shifted], providers: [.claude], local: { [original] _ in original })
+        store.start(); await settle(store)
+        XCTAssertEqual(h.probes.count, 0)
+        h.now = start.addingTimeInterval(5); h.ticks[5]?(); await settle(store)
+        XCTAssertEqual(store.snapshots.first { $0.provider == .claude }, original)
+    }
+}
