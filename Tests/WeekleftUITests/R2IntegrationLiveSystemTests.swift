@@ -6,10 +6,11 @@ import Carbon
 
 /// r2 audit X, R2-X-03: under XCTest nothing reaches the user's system other
 /// than files (LiveWriteGuard covers those): no installed client or system tool
-/// starts, no link or Finder window opens, the clipboard, login items, System
-/// Settings and global shortcuts stay untouched. Every proof uses a harmless
-/// witness (a marker file `/usr/bin/touch` would create, the pasteboard change
-/// count, the returned value); none reads the user's data.
+/// starts, no link or Finder window opens, the clipboard and global shortcuts
+/// stay untouched, and diagnostics of preview stores never look for clients.
+/// Every witness stays harmless even if a guard regresses: programs that only
+/// list or touch a fixture file, a private pasteboard, a recording opener, an
+/// unused key combination. None reads the user's data.
 @MainActor final class R2IntegrationLiveSystemTests: XCTestCase {
     private func folder() throws -> URL {
         let url = FileManager.default.temporaryDirectory
@@ -39,16 +40,20 @@ import Carbon
         XCTAssertEqual(String(decoding: try SessionProcess.run(path: fixture.path, arguments: [], timeout: 2), as: UTF8.self), "ok")
     }
 
+    /// `/bin/ls` stands in for a client: outside the fixture folder, and harmless
+    /// with any arguments should a regression let it start.
     func testClientProbesAndToolsGoThroughTheGuard() async throws {
         let root = try folder()
         // Every production launch of a client or tool shares SessionProcess.withRunningProcess.
-        do { _ = try await ClaudeUsageProbe.fetch(cliPath: "/usr/bin/touch", timeout: 2, directory: root.appendingPathComponent("probe")); XCTFail("probe") }
+        do { _ = try await ClaudeUsageProbe.fetch(cliPath: "/bin/ls", timeout: 2, directory: root.appendingPathComponent("probe")); XCTFail("probe") }
         catch { XCTAssertTrue(error is LiveWriteGuard.Refused, "probe: \(error)") }
-        XCTAssertThrowsError(try CodexProvider.read(cliPath: "/usr/bin/touch", timeout: 2)) { XCTAssertTrue($0 is LiveWriteGuard.Refused, "codex: \($0)") }
-        let state = await ClientConnection.signInState(.claude, executable: "/usr/bin/touch", timeout: 2)
+        XCTAssertThrowsError(try CodexProvider.read(cliPath: "/bin/ls", timeout: 2)) { XCTAssertTrue($0 is LiveWriteGuard.Refused, "codex: \($0)") }
+        let state = await ClientConnection.signInState(.claude, executable: "/bin/ls", timeout: 2)
         XCTAssertEqual(state, .unavailable)
+        // Scripts without `tell` address no application even if osascript were started.
         do { _ = try await TerminalLocation.executeFocusScript("return true", app: "Terminal", timeout: 2); XCTFail("osascript") }
         catch { XCTAssertEqual(error as? SessionOpeningError, .terminalFocusFailed("Terminal")) }
+        // A read-only listing; a missing bundle is never registered or signalled.
         XCTAssertEqual(WidgetRegistrationSystem.widgetHost(), .unknown, "pluginkit is not asked")
         XCTAssertFalse(WidgetRegistrationSystem.stopExtension(WidgetRegistrationTarget(
             app: root.appendingPathComponent("Lunavect.app"), version: "1")))
@@ -58,24 +63,27 @@ import Carbon
         let root = try folder()
         let session = AgentSession(provider: .codex, sessionID: "11111111-2222-3333-4444-555555555555", title: "Fixture",
                                    cwd: root.path, phase: .ready, updatedAt: Date(), observedAt: Date())
-        let pasteboard = NSPasteboard.general.changeCount
-        SessionNavigation.copy(session.resumeCommand)
-        XCTAssertEqual(NSPasteboard.general.changeCount, pasteboard, "The user's clipboard is not replaced")
-        XCTAssertFalse(SessionNavigation.openCodex(session), "No codex:// link is opened")
-        XCTAssertFalse(SessionNavigation.revealProject(session), "No Finder window is opened")
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("lunavect-r2-X-" + UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
+        let before = pasteboard.changeCount
+        SessionNavigation.copy(session.resumeCommand, to: pasteboard)
+        XCTAssertEqual(pasteboard.changeCount, before, "Nothing is copied")
+        var opened: [URL] = []
+        XCTAssertFalse(SessionNavigation.openCodex(session) { opened.append($0); return true }, "No codex:// link is opened")
+        XCTAssertFalse(SessionNavigation.revealProject(session) { opened.append($0); return true }, "No Finder window is opened")
+        XCTAssertEqual(opened, [])
     }
 
-    func testFeaturesWithSystemAccessTouchNoLoginItemSettingsOrShortcut() async throws {
-        let access = SystemFeaturePermissionAccess()
-        XCTAssertThrowsError(try access.registerLogin())
-        do { try await access.unregisterLogin(); XCTFail("login item removal") } catch {}
-        XCTAssertFalse(access.openNotificationSettings(), "System Settings is not opened")
+    /// Only the shortcut is exercised: a regression in the login item or System
+    /// Settings refusal would act on the real system, so those rest on review.
+    func testFeaturesRegisterNoGlobalShortcut() throws {
         let suite = "lunavect-r2-X." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let features = AppFeatures(defaults: defaults, playSound: { _ in })
         defer { features.stop() }
-        features.registerShortcut(PanelShortcut(keyCode: 37, modifiers: UInt32(cmdKey | optionKey), label: "L"))
+        // F19 with every modifier: nothing a person uses, should a regression register it.
+        features.registerShortcut(PanelShortcut(keyCode: UInt32(kVK_F19), modifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey), label: "F19"))
         XCTAssertNil(features.shortcut, "No global shortcut is registered")
         XCTAssertNil(defaults.data(forKey: "panelShortcut"))
     }

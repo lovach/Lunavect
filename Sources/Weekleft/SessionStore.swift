@@ -957,19 +957,21 @@ enum SessionNavigation {
             throw error
         }
     }
-    @MainActor static func copy(_ text: String) {
+    // The pasteboard and opener are parameters so tests prove the refusal on a
+    // private pasteboard and a recorder, never on the user's clipboard or Finder.
+    @MainActor static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
         guard (try? checkLiveSystem("clipboard")) != nil else { return }
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+        pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
     }
-    @MainActor static func openCodex(_ session: AgentSession) -> Bool {
+    @MainActor static func openCodex(_ session: AgentSession, open: (URL) -> Bool = { NSWorkspace.shared.open($0) }) -> Bool {
         guard (try? checkLiveSystem("codex link")) != nil else { return false }
         guard let url = session.codexURL else { return false }
-        return NSWorkspace.shared.open(url)
+        return open(url)
     }
-    @MainActor static func revealProject(_ session: AgentSession) -> Bool {
+    @MainActor static func revealProject(_ session: AgentSession, open: (URL) -> Bool = { NSWorkspace.shared.open($0) }) -> Bool {
         guard (try? checkLiveSystem("reveal folder")) != nil else { return false }
         guard session.cwd.hasPrefix("/"), FileManager.default.fileExists(atPath: session.cwd) else { return false }
-        return NSWorkspace.shared.open(URL(fileURLWithPath: session.cwd))
+        return open(URL(fileURLWithPath: session.cwd))
     }
 }
 
