@@ -208,3 +208,57 @@ final class AwakeLeaseTests: XCTestCase {
         _ = try SystemSleepSetting().isDisabled()
     }
 }
+
+/// Without a launchd respawn rule (decision 16) the helper itself must keep
+/// retrying recovery, and its system boundaries are checked on fixtures only:
+/// no pmset and no root journal (audit 05 H-02, H-11, §5 items 8 and 15).
+final class AwakeHelperBoundaryTests: XCTestCase {
+    func testRecoveryFailureAtStartupKeepsTheHelperRetryingInsteadOfExiting() throws {
+        let setting = Setting(), journal = Journal()
+        // A crashed lease left sleep disabled; pmset fails once at boot.
+        setting.disabled = true; journal.pending = true; setting.failRestore = true
+        let lease = try AwakeLease(setting: setting, journal: journal)
+        XCTAssertFalse(lease.isIdle, "a pending restoration keeps the helper running")
+        XCTAssertEqual(lease.lastFailure, .recovery)
+        XCTAssertThrowsError(try lease.begin(owner: UUID(), seconds: 0), "no new lease before sleep is restored")
+        setting.failRestore = false
+        lease.tick()
+        XCTAssertFalse(setting.disabled); XCTAssertFalse(journal.pending); XCTAssertTrue(lease.isIdle)
+    }
+    func testSleepSettingParsesPmsetOutputAndRejectsUnknownOutput() throws {
+        let header = "System-wide power settings:\n"
+        let current = "Currently in use:\n standby              1\n sleep                1 (sleep prevented by powerd)\n displaysleep         10\n"
+        XCTAssertTrue(try SystemSleepSetting.parse(header + " SleepDisabled\t\t1\n" + current))
+        XCTAssertFalse(try SystemSleepSetting.parse(header + " SleepDisabled\t\t0\n" + current))
+        XCTAssertFalse(try SystemSleepSetting.parse(header + current), "never set: header without the key")
+        XCTAssertFalse(try SystemSleepSetting.parse(current), "never set: no system-wide section at all")
+        for unknown in ["", "pmset: command failed\n", header + " SleepDisabled\t\t2\n" + current,
+                        header + " SleepDisabled 1 (by another tool)\n" + current] {
+            XCTAssertThrowsError(try SystemSleepSetting.parse(unknown), unknown) { XCTAssertEqual($0 as? AwakeFailure, .system) }
+        }
+    }
+    func testRecoveryJournalSurvivesARestartAndRefusesUnsafeFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("awake-journal-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("com.weekleft.awake").path, owner = geteuid()
+        let journal = try SystemAwakeJournal(path: path, owner: owner)
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+        XCTAssertFalse(try journal.hasPendingRestore())
+        try journal.mark()
+        XCTAssertThrowsError(try journal.mark(), "an existing marker is never replaced")
+        let restarted = try SystemAwakeJournal(path: path, owner: owner)
+        XCTAssertTrue(try restarted.hasPendingRestore(), "a restarted helper sees the crash marker")
+        try restarted.clear(); try restarted.clear()
+        XCTAssertFalse(try journal.hasPendingRestore())
+        XCTAssertThrowsError(try SystemAwakeJournal(path: path, owner: owner + 1), "another owner's folder")
+        chmod(path, 0o755)
+        XCTAssertThrowsError(try SystemAwakeJournal(path: path, owner: owner), "a folder others can read")
+        chmod(path, 0o700)
+        let link = root.appendingPathComponent("linked").path
+        XCTAssertEqual(symlink(path, link), 0)
+        XCTAssertThrowsError(try SystemAwakeJournal(path: link, owner: owner), "a linked folder is not followed")
+        XCTAssertEqual(symlink("/etc/hosts", path + "/restore-sleep"), 0)
+        XCTAssertThrowsError(try restarted.hasPendingRestore(), "a linked marker is not followed")
+    }
+}

@@ -4,17 +4,22 @@ import IOKit.ps
 
 public struct SystemSleepSetting: SleepSetting {
     public init() {}
-    public func isDisabled() throws -> Bool {
-        let output = try run(["-g"])
+    public func isDisabled() throws -> Bool { try Self.parse(run(["-g"])) }
+    /// `pmset -g` output. A SleepDisabled line must be exactly `SleepDisabled 0|1`;
+    /// anything else is unknown output, never a guess that sleep is enabled.
+    static func parse(_ output: String) throws -> Bool {
         for line in output.split(separator: "\n") {
             let fields = line.split(whereSeparator: { $0.isWhitespace })
-            if fields.first == "SleepDisabled", fields.count == 2 {
-                guard fields[1] == "0" || fields[1] == "1" else { throw AwakeFailure.system }
-                return fields[1] == "1"
-            }
+            guard fields.first == "SleepDisabled" else { continue }
+            guard fields.count == 2, fields[1] == "0" || fields[1] == "1" else { throw AwakeFailure.system }
+            return fields[1] == "1"
         }
-        // pmset omits SleepDisabled when no override has ever been set.
-        guard output.contains("System-wide power settings:") else { throw AwakeFailure.system }
+        // pmset omits SleepDisabled when no override has ever been set. Some
+        // releases then print no system-wide section, only the active profile.
+        let recognized = output.split(separator: "\n").contains {
+            $0 == "System-wide power settings:" || $0 == "Currently in use:"
+        }
+        guard recognized else { throw AwakeFailure.system }
         return false
     }
     public func setDisabled(_ disabled: Bool) throws {
@@ -42,17 +47,21 @@ public struct SystemSleepSetting: SleepSetting {
 /// Root-only, symlink-resistant recovery record. No client supplies a path.
 public final class SystemAwakeJournal: AwakeJournal {
     private let directory: Int32
-    public init() throws {
+    private let owner: uid_t
+    public convenience init() throws {
         guard geteuid() == 0 else { throw AwakeFailure.permission }
-        let path = "/var/db/com.weekleft.awake"
+        try self.init(path: "/var/db/com.weekleft.awake", owner: 0)
+    }
+    /// Fixtures use a temporary folder owned by the test user.
+    init(path: String, owner: uid_t) throws {
         if mkdir(path, 0o700) != 0 && errno != EEXIST { throw AwakeFailure.recovery }
         let fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { throw AwakeFailure.recovery }
         var metadata = stat()
-        guard fstat(fd, &metadata) == 0, metadata.st_uid == 0, metadata.st_mode & 0o077 == 0 else {
+        guard fstat(fd, &metadata) == 0, metadata.st_uid == owner, metadata.st_mode & 0o077 == 0 else {
             close(fd); throw AwakeFailure.recovery
         }
-        directory = fd
+        directory = fd; self.owner = owner
     }
     deinit { close(directory) }
     public func hasPendingRestore() throws -> Bool {
@@ -61,7 +70,7 @@ public final class SystemAwakeJournal: AwakeJournal {
             if errno == ENOENT { return false }
             throw AwakeFailure.recovery
         }
-        guard metadata.st_uid == 0, metadata.st_mode & S_IFMT == S_IFREG,
+        guard metadata.st_uid == owner, metadata.st_mode & S_IFMT == S_IFREG,
               metadata.st_mode & 0o077 == 0 else { throw AwakeFailure.recovery }
         return true
     }
