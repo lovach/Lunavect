@@ -5,6 +5,7 @@
 ### Limits
 
 - The current `/usage` screen of a signed-in subscription is pinned by a test on a real capture: the session and weekly windows, the separate weekly Fable window, the usage breakdown and Usage credits are read correctly.
+- When a Claude model's weekly limit (for example Fable) has less left than the weekly limit for all models, the limits popover shows it under Claude with its own meter; otherwise the popover is unchanged.
 - When Claude Code is not signed in, the limits popover and the sessions panel say so with **Sign in again**, and one notification is sent when this starts; previously only Connections said it.
 
 ### Sessions
