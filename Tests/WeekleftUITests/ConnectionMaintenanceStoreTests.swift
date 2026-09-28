@@ -1,5 +1,7 @@
 import XCTest
 import WeekleftCore
+import AppKit
+import SwiftUI
 @testable import Weekleft
 
 /// Launch maintenance of client connections through SessionStore (audit 02 S-16,
@@ -120,5 +122,169 @@ import WeekleftCore
                        [running.path])
         try FileManager.default.removeItem(at: running)
         XCTAssertTrue(InstalledCopies.others(running: system.appendingPathComponent("Lunavect.app"), applications: system, home: home).isEmpty)
+    }
+}
+
+/// Audit H-05 and 05 §5 item 16: turning events off on purpose is a state of its
+/// own, not unfinished setup; also the paused and missing-path card states.
+@MainActor final class EventsDisabledByUserTests: XCTestCase {
+    private var root: URL!
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("Lunavect events " + UUID().uuidString).resolvingSymlinksInPath()
+        let helper = root.appendingPathComponent("Applications/Lunavect.app/Contents/Helpers/LunavectHook")
+        try FileManager.default.createDirectory(at: helper.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nprintf '{}'\n".write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Client"), withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent("Client/claude"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.appendingPathComponent("Client/claude").path)
+    }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+    private func store(defaults: UserDefaults) -> SessionStore {
+        let location = HookHelperLocation(link: root.appendingPathComponent("bin/LunavectHook"), bundle: root.appendingPathComponent("Applications/Lunavect.app"), fallback: nil)
+        let base: URL = root
+        let setup: (ProviderID) -> ClientConnection.LocalSetup = { provider in
+            ClientConnection.LocalSetup(provider: provider, location: location,
+                                        configURL: base.appendingPathComponent(provider == .claude ? ".claude/settings.json" : ".codex/hooks.json"),
+                                        bridgeDirectory: base.appendingPathComponent("bridge"), backupDirectory: base.appendingPathComponent("backups"))
+        }
+        var dependencies = SessionStore.Dependencies()
+        dependencies.allowsClientConfiguration = true
+        dependencies.clientSetup = setup
+        dependencies.hooksState = { Dictionary(uniqueKeysWithValues: ProviderID.allCases.map { ($0, setup($0).inspect().hooks == .ready) }) }
+        return SessionStore(directory: root.appendingPathComponent("sessions"), defaults: defaults, isolated: true, dependencies: dependencies)
+    }
+    func testDisablingEventsIsRememberedAndShownAsAChoiceNotAsSetup() throws {
+        let suite = "EventsDisabled." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = store(defaults: defaults)
+        XCTAssertTrue(try XCTUnwrap(store.localSetup(.claude)).apply(.connect).connected)
+        store.updateHookConfiguration()
+        XCTAssertEqual(store.hooksInstalled[.claude], true)
+        store.toggleHooks(.claude)
+        XCTAssertEqual(store.hooksInstalled[.claude], false)
+        XCTAssertTrue(store.eventsDisabledByUser.contains(.claude))
+        XCTAssertTrue(self.store(defaults: defaults).eventsDisabledByUser.contains(.claude), "kept across launches")
+        let client = root.appendingPathComponent("Client/claude").path
+        let resolver = ClientExecutableResolver(discoverClaude: { client })
+        let card = ConnectionCardState(provider: .claude, resolver: resolver, configured: false, snapshot: nil,
+                                       local: store.connectionStates[.claude], eventsDisabled: true)
+        XCTAssertFalse(card.needsSetup, "a deliberate choice is not unfinished setup")
+        XCTAssertEqual(card.action, .enableEvents)
+        XCTAssertEqual(card.actionTitle, "Включить события")
+        XCTAssertEqual(card.statusTitle, "События отключены")
+        let now = Date()
+        let quota = UsageSnapshot(provider: .claude, weekly: try QuotaWindow(usedPercent: 10, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3600)),
+                                  fetchedAt: now, source: ClaudeUsageProbe.source)
+        let diagnostic = ConnectionDiagnostic(provider: .claude, clientFound: true, signIn: .signedIn, eventsConfigured: false,
+                                              snapshot: quota, sessionIssue: nil, now: now)
+        XCTAssertEqual(diagnostic.state, .eventsMissing)
+        XCTAssertEqual(ConnectionDiagnosticSummary.eventsChoice(for: diagnostic, eventsDisabled: true), "События отключены вами")
+        XCTAssertNil(ConnectionDiagnosticSummary.eventsChoice(for: diagnostic, eventsDisabled: false))
+        store.toggleHooks(.claude)
+        XCTAssertEqual(store.hooksInstalled[.claude], true)
+        XCTAssertFalse(store.eventsDisabledByUser.contains(.claude))
+    }
+    func testPausedAndMissingPathCardsSayWhatHappened() throws {
+        let client = root.appendingPathComponent("Client/claude").path
+        let resolver = ClientExecutableResolver(discoverClaude: { client })
+        let paused = ConnectionCardState(provider: .claude, resolver: resolver, configured: false, snapshot: nil,
+                                         local: .init(statusLine: .paused, hooks: .paused))
+        XCTAssertFalse(paused.needsSetup, "Lunavect cannot and must not undo disableAllHooks")
+        XCTAssertEqual(paused.statusTitle, "События приостановлены: в настройках клиента включено disableAllHooks")
+        XCTAssertEqual(paused.action, .refresh)
+        let moved = ConnectionCardState(provider: .claude, resolver: resolver, configured: false, snapshot: nil,
+                                        local: .init(statusLine: .partial, hooks: .partial, missingExecutable: "/gone/Lunavect.app/Contents/Helpers/LunavectHook"))
+        XCTAssertTrue(moved.needsSetup)
+        XCTAssertEqual(moved.action, .setup)
+        XCTAssertEqual(moved.statusTitle, "Команда Lunavect указывает на удалённый файл. Завершите настройку, чтобы обновить её.")
+    }
+}
+
+/// Opt-in native render of the new connection card states and the launch
+/// notice, for visual review. Isolated stores and temporary folders only.
+@MainActor final class ConnectionStatesRenderingTests: XCTestCase {
+    func testRenderConnectionCardStatesAndLaunchNotice() throws {
+        guard let output = ProcessInfo.processInfo.environment["LUNAVECT_RENDER_CONNECTION_STATES"] else { throw XCTSkip("Opt-in native render") }
+        _ = NSApplication.shared
+        let oldLanguage = L10n.selection
+        defer { L10n.defaults.set(oldLanguage, forKey: "languageCode") }
+        L10n.defaults.set(ProcessInfo.processInfo.environment["LUNAVECT_RENDER_LANGUAGE"] ?? "en", forKey: "languageCode")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Lunavect card render " + UUID().uuidString).resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = root.appendingPathComponent("Applications/Lunavect.app/Contents/Helpers/LunavectHook")
+        try FileManager.default.createDirectory(at: helper.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        let client = root.appendingPathComponent("claude")
+        try Data().write(to: client); try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let environment = try AppEnvironment.preview(rows: [])
+        defer { environment.stop() }
+        var images: [NSImage] = []
+        for state in ["disabled", "paused", "moved"] {
+            let base = root.appendingPathComponent(state)
+            let settings = base.appendingPathComponent(".claude/settings.json")
+            try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let location = HookHelperLocation(link: base.appendingPathComponent("bin/LunavectHook"), bundle: root.appendingPathComponent("Applications/Lunavect.app"), fallback: nil)
+            let setup = ClientConnection.LocalSetup(provider: .claude, location: location, configURL: settings,
+                                                    bridgeDirectory: base.appendingPathComponent("bridge"), backupDirectory: base.appendingPathComponent("backups"))
+            switch state {
+            case "paused":
+                try setup.apply(.connect)
+                var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as? [String: Any])
+                object["disableAllHooks"] = true
+                try JSONSerialization.data(withJSONObject: object).write(to: settings)
+            case "moved":
+                try SessionHooks.install(provider: .claude, executable: "/Users/demo/Downloads/Lunavect.app/Contents/Helpers/LunavectHook",
+                                         configURL: settings, backupDirectory: base.appendingPathComponent("backups"))
+            default: try setup.apply(.connect)
+            }
+            var dependencies = SessionStore.Dependencies()
+            dependencies.allowsClientConfiguration = true
+            dependencies.clientSetup = { $0 == .claude ? setup : nil }
+            dependencies.hooksState = { [.claude: setup.inspect().hooks == .ready] }
+            let suite = "ConnectionStatesRender." + UUID().uuidString
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let sessions = SessionStore(directory: base.appendingPathComponent("sessions"), defaults: defaults, isolated: true, dependencies: dependencies)
+            sessions.useProviders([.claude]); sessions.updateHookConfiguration()
+            if state == "disabled" { sessions.toggleHooks(.claude) }
+            var prefs = WidgetPreferences(); prefs.enabledProviders = [.claude]
+            let store = AppStore(state: SharedState(snapshots: [], preferences: prefs), savesChanges: false, isolated: true, defaults: defaults)
+            store.codexPath = ""
+            let view = ScrollView { ConnectionsView(store: store, sessions: sessions).frame(width: 560).padding(20) }
+                .frame(width: 600, height: 520).background(Color(nsColor: .windowBackgroundColor))
+            images.append(try snapshot(view, size: NSSize(width: 600, height: 520)))
+            _ = client
+        }
+        let panel = environment.sessions
+        panel.setupNotice = .init(message: L("Команды Lunavect в настройках {0} обновлены: теперь они не зависят от расположения приложения.", "Claude Code, Codex")
+                                  + "\n" + L("Установлена ещё одна копия Lunavect: {0}. Оставьте одну копию, чтобы виджеты и подключения работали с ней.", "/Applications/Lunavect.app"),
+                                  warning: true)
+        images.append(try snapshot(SessionsView(store: panel, updates: environment.updates, awake: environment.awake, onSettings: {}),
+                                   size: NSSize(width: 360, height: 520)))
+        let width = images.map(\.size.width).reduce(0, +) + CGFloat(images.count - 1) * 10
+        let sheet = NSImage(size: NSSize(width: width, height: 520))
+        sheet.lockFocus()
+        var x: CGFloat = 0
+        for image in images { image.draw(at: NSPoint(x: x, y: 520 - image.size.height), from: .zero, operation: .copy, fraction: 1); x += image.size.width + 10 }
+        sheet.unlockFocus()
+        let data = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(sheet.tiffRepresentation))?.representation(using: .png, properties: [:]))
+        try data.write(to: URL(fileURLWithPath: output))
+    }
+    private func snapshot<V: View>(_ view: V, size: NSSize) throws -> NSImage {
+        let host = NSHostingView(rootView: view.preferredColorScheme(.dark))
+        host.appearance = NSAppearance(named: .darkAqua)
+        host.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let image = NSImage(size: size); image.addRepresentation(bitmap)
+        return image
     }
 }

@@ -3121,6 +3121,55 @@
     "fr": "Vérifier les données",
     "zh-Hans": "检查数据"
   },
+  "События отключены": {
+    "de": "Ereignisse ausgeschaltet",
+    "en": "Events turned off",
+    "es": "Eventos desactivados",
+    "fr": "Événements désactivés",
+    "zh-Hans": "事件已关闭"
+  },
+  "Включить события": {
+    "de": "Ereignisse einschalten",
+    "en": "Turn on events",
+    "es": "Activar eventos",
+    "fr": "Activer les événements",
+    "zh-Hans": "开启事件"
+  },
+  "События приостановлены: в настройках клиента включено disableAllHooks": {
+    "de": "Ereignisse pausiert: In den Client-Einstellungen ist disableAllHooks aktiviert",
+    "en": "Events paused: disableAllHooks is on in the client’s settings",
+    "es": "Eventos en pausa: disableAllHooks está activado en los ajustes del cliente",
+    "fr": "Événements en pause : disableAllHooks est activé dans les réglages du client",
+    "zh-Hans": "事件已暂停：客户端设置中启用了 disableAllHooks"
+  },
+  "Команда Lunavect указывает на удалённый файл. Завершите настройку, чтобы обновить её.": {
+    "de": "Der Lunavect-Befehl verweist auf eine Datei, die nicht mehr existiert. Schließen Sie die Einrichtung ab, um ihn zu aktualisieren.",
+    "en": "Lunavect’s command points to a file that no longer exists. Complete setup to update it.",
+    "es": "El comando de Lunavect apunta a un archivo que ya no existe. Completa la configuración para actualizarlo.",
+    "fr": "La commande de Lunavect désigne un fichier qui n’existe plus. Terminez la configuration pour la mettre à jour.",
+    "zh-Hans": "Lunavect 命令指向的文件已不存在。完成设置即可更新。"
+  },
+  "Не найден файл: {0}": {
+    "de": "Datei nicht gefunden: {0}",
+    "en": "File not found: {0}",
+    "es": "Archivo no encontrado: {0}",
+    "fr": "Fichier introuvable : {0}",
+    "zh-Hans": "找不到文件：{0}"
+  },
+  "События отключены вами": {
+    "de": "Sie haben die Ereignisse ausgeschaltet",
+    "en": "You turned events off",
+    "es": "Desactivaste los eventos",
+    "fr": "Vous avez désactivé les événements",
+    "zh-Hans": "你已关闭事件"
+  },
+  "Lunavect не получает события сессий этого клиента, пока вы их не включите.": {
+    "de": "Lunavect empfängt die Sitzungsereignisse dieses Clients erst, wenn Sie sie einschalten.",
+    "en": "Lunavect does not receive this client’s session events until you turn them on.",
+    "es": "Lunavect no recibe los eventos de sesión de este cliente hasta que los actives.",
+    "fr": "Lunavect ne reçoit pas les événements de session de ce client tant que vous ne les activez pas.",
+    "zh-Hans": "在你开启之前，Lunavect 不会接收此客户端的会话事件。"
+  },
   "Проверить обновления": {
     "de": "Nach Updates suchen",
     "en": "Check for updates",

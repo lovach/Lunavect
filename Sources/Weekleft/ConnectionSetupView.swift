@@ -282,6 +282,7 @@ struct ConnectionSetupView: View {
         do {
             guard let setup = sessions.localSetup(provider) else { throw SessionError.unavailable }
             localState = try setup.apply(.connect)
+            sessions.eventsConnected(provider)
             store.setProvider(provider, enabled: true); sessions.useProviders(store.providers)
             store.importActivityHistory()
             await waitForRefresh()

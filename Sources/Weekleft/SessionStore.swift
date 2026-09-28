@@ -110,6 +110,13 @@ import WeekleftCore
     }
     /// A launch finding shown on the session panel until dismissed.
     @Published var setupNotice: SetupNotice?
+    /// Providers whose events the user turned off here (audit H-05). Kept in the
+    /// store's defaults; connecting or turning events on again clears it.
+    @Published private(set) var eventsDisabledByUser: Set<ProviderID> = [] {
+        didSet { defaults.set(eventsDisabledByUser.map(\.rawValue).sorted(), forKey: Self.eventsDisabledKey) }
+    }
+    private static let eventsDisabledKey = "connection.eventsDisabledByUser"
+    func eventsConnected(_ provider: ProviderID) { eventsDisabledByUser.remove(provider) }
     @Published var connectionMessage: String? {
         didSet { titleSaveOwnsConnectionMessage = false }
     }
@@ -178,6 +185,7 @@ import WeekleftCore
         self.dependencies = dependencies ?? (isolated ? Dependencies() : LiveWriteGuard.underTestsForStores
             ? Dependencies(initialEvents: { SessionHooks.load(at: $0) }) : .live(directory: base))
         if isolated { resolveClient = { ClientExecutableResolver(discoverCodex: { nil }, discoverClaude: { nil }) } }
+        eventsDisabledByUser = Set((defaults.stringArray(forKey: Self.eventsDisabledKey) ?? []).compactMap(ProviderID.init(rawValue:)))
         let savedMinutes = defaults.integer(forKey: "sessionAutoHideMinutes")
         autoHideMinutes = [5, 10, 20].contains(savedMinutes) ? savedMinutes : 0
         self.undoDelay = undoDelay
@@ -793,6 +801,7 @@ import WeekleftCore
         defer { updateHookConfiguration() }
         do {
             try setup.apply(.disconnect)
+            eventsDisabledByUser.remove(provider)
             return true
         } catch {
             let state = (error as? ClientConnection.LocalFailure)?.state ?? setup.inspect()
@@ -812,6 +821,7 @@ import WeekleftCore
         do {
             if hooksInstalled[provider] == true {
                 try SessionHooks.remove(provider: provider, configURL: setup.configURL, backupDirectory: setup.backupDirectory)
+                eventsDisabledByUser.insert(provider)
                 connectionMessage = L("События {0} отключены. Остальные обработчики сохранены.", provider.title)
             } else {
                 guard let executable = setup.executable else {
@@ -819,6 +829,7 @@ import WeekleftCore
                 }
                 try SessionHooks.install(provider: provider, executable: executable, configURL: setup.configURL,
                                          backupDirectory: setup.backupDirectory)
+                eventsDisabledByUser.remove(provider)
                 connectionMessage = provider == .codex
                     ? L("Обработчики добавлены. В Codex откройте /hooks и разрешите команды Lunavect. До первого события статус останется неизвестным.")
                     : L("Обработчики добавлены. События появятся при следующем действии в Claude Code; уже открытой сессии может потребоваться перезапуск.")
