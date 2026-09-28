@@ -319,8 +319,10 @@ public enum UsageParser {
     public static func claude(_ result: [String: Any], now: Date = Date()) throws -> UsageSnapshot {
         func window(_ key: String, _ minutes: Int) throws -> QuotaWindow? {
             guard let raw = result[key] as? [String: Any] else { return nil }
-            guard let used = number(raw["used_percentage"]) else { throw UsageError.invalidResponse }
-            guard let epoch = number(raw["resets_at"]), epoch.doubleValue > 0 else { throw UsageError.invalidResponse }
+            guard let used = number(raw["used_percentage"]), (0...100).contains(used.doubleValue) else { throw UsageError.invalidResponse }
+            // Windows are independent (Q-10): one that has not started (resets_at
+            // null) or carries no usable reset is absent; the other window stays.
+            guard let epoch = number(raw["resets_at"]), epoch.doubleValue > 0 else { return nil }
             let date = Date(timeIntervalSince1970: epoch.doubleValue)
             return try QuotaWindow(usedPercent: used.doubleValue, durationMinutes: minutes, resetsAt: date)
         }

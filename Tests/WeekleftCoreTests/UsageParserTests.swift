@@ -46,7 +46,8 @@ final class UsageParserTests: XCTestCase {
         }
         for invalid in [true, false, "tomorrow", [1], ["time": reset]] as [Any] {
             XCTAssertThrowsError(try UsageParser.codex(decoded(["rateLimits": ["primary": ["usedPercent": 25, "windowDurationMins": 300, "resetsAt": invalid]]])))
-            XCTAssertThrowsError(try UsageParser.claude(decoded(["five_hour": ["used_percentage": 25, "resets_at": invalid]])))
+            // Q-10: a status-line window without a usable reset is absent, never a quota.
+            XCTAssertNil(try UsageParser.claude(decoded(["five_hour": ["used_percentage": 25, "resets_at": invalid]])).fiveHour)
         }
         for invalid in [true, false, 300.5, "300"] as [Any] {
             XCTAssertThrowsError(try UsageParser.codex(decoded(["rateLimits": ["primary": ["usedPercent": 25, "windowDurationMins": invalid, "resetsAt": reset]]])))
@@ -147,8 +148,66 @@ final class UsageParserTests: XCTestCase {
         }
         XCTAssertTrue(UsageSnapshot(provider: .codex, weekly: quota).isStale(now: now))
     }
-    func testClaudeRejectsQuotaWithoutResetTime() {
-        XCTAssertThrowsError(try UsageParser.claude(["seven_day": ["used_percentage": 42.5], "five_hour": ["used_percentage": 10]]))
+    /// Q-10: status-line windows are independent. One without a usable `resets_at`
+    /// (not started, or malformed) is absent; it no longer discards the other window.
+    func testClaudeWindowWithoutResetTimeIsAbsentAndKeepsTheOtherWindow() throws {
+        let reset = Date(timeIntervalSince1970: 1_900_000_000)
+        func decoded(_ value: [String: Any]) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: value)) as? [String: Any])
+        }
+        for missing in [NSNull(), 0, -1, "soon", true, [1]] as [Any] {
+            let weeklyOnly = try UsageParser.claude(decoded([
+                "seven_day": ["used_percentage": 42.5, "resets_at": reset.timeIntervalSince1970],
+                "five_hour": ["used_percentage": 10, "resets_at": missing]]))
+            XCTAssertEqual(weeklyOnly.weekly, try QuotaWindow(usedPercent: 42.5, durationMinutes: 10080, resetsAt: reset), "\(missing)")
+            XCTAssertNil(weeklyOnly.fiveHour, "\(missing)")
+            let fiveOnly = try UsageParser.claude(decoded([
+                "seven_day": ["used_percentage": 0, "resets_at": missing],
+                "five_hour": ["used_percentage": 10, "resets_at": reset.timeIntervalSince1970]]))
+            XCTAssertNil(fiveOnly.weekly, "\(missing)")
+            XCTAssertEqual(fiveOnly.fiveHour?.usedPercent, 10, "\(missing)")
+        }
+        let neither = try UsageParser.claude(["seven_day": ["used_percentage": 42.5], "five_hour": ["used_percentage": 10]])
+        XCTAssertFalse(neither.hasQuota, "No window with a reset: nothing to store")
+        XCTAssertThrowsError(try UsageParser.claude(["seven_day": ["used_percentage": "42", "resets_at": reset.timeIntervalSince1970]]),
+                             "A malformed percentage is still an unsupported response")
+    }
+
+    /// Matrix L4 / 01-quota.md §6 п.7: a current status-line payload with extra
+    /// fields and one window without `resets_at` keeps the valid window.
+    func testCaptureKeepsTheValidWindowOfACurrentPayload() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("quota.json")
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let payload = #"""
+        {"session_id":"fixture","model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"version":"2.1.280",
+         "cost":{"total_cost_usd":0.12,"total_api_duration_ms":2300},"exceeds_200k_tokens":false,"agent":{"name":"main"},
+         "context_window":{"total_input_tokens":1200,"total_output_tokens":80,"current_usage":{"input_tokens":10}},
+         "rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1900003600},
+                        "seven_day":{"used_percentage":0,"resets_at":null},
+                        "spend_limit":{"used_percentage":162.8,"resets_at":1902592000},
+                        "future_window":{"used_percentage":5}}}
+        """#
+        try ClaudeProvider.capture(Data(payload.utf8), destination: destination, now: now)
+        let stored = try JSONDecoder().decode(UsageSnapshot.self, from: Data(contentsOf: destination))
+        XCTAssertEqual(stored.fiveHour, try QuotaWindow(usedPercent: 23.5, durationMinutes: 300, resetsAt: Date(timeIntervalSince1970: 1_900_003_600)))
+        XCTAssertNil(stored.weekly, "The unstarted weekly window is absent, not an error")
+        XCTAssertEqual(stored.source, "Claude Code statusLine")
+    }
+
+    /// Matrix L10: a Codex reply with only a model bucket (Spark) has no account
+    /// limit; the model's value is never shown as the main limit.
+    func testCodexModelBucketAloneLeavesTheMainLimitUnknown() throws {
+        let spark: [String: Any] = ["limitId": "codex_spark", "primary": ["usedPercent": 99, "windowDurationMins": 10080, "resetsAt": 1_900_000_000]]
+        XCTAssertThrowsError(try UsageParser.codex(["rateLimitsByLimitId": ["codex_spark": spark]])) {
+            XCTAssertEqual($0 as? UsageError, .invalidResponse)
+        }
+        XCTAssertThrowsError(try UsageParser.codex(["rateLimitsByLimitId": ["codex_spark": spark], "rateLimits": spark]))
+        let main: [String: Any] = ["limitId": "codex", "primary": ["usedPercent": 12, "windowDurationMins": 10080, "resetsAt": 1_900_000_000]]
+        let snapshot = try UsageParser.codex(["rateLimitsByLimitId": ["codex_spark": spark], "rateLimits": main])
+        XCTAssertEqual(snapshot.weekly?.usedPercent, 12, "The account bucket of the legacy field, never Spark")
+        XCTAssertNotEqual(snapshot.unlimited, true)
     }
     func testResetZeroDoesNotRefillQuota() throws {
         let now = Date(), window = try QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(-1))
