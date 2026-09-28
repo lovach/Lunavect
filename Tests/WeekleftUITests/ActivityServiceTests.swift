@@ -164,6 +164,7 @@ final class ActivityServiceTests: XCTestCase {
         release.signal()
         await fulfillment(of: [read], timeout: 5)
         await waitUntilIdle(service)
+        _ = storage.counters // the merged import is written asynchronously
         XCTAssertEqual(writes.value, 3, "slow checkpoint, the replacing state, the merged import")
         XCTAssertNil(service.issue)
         service.stop()
