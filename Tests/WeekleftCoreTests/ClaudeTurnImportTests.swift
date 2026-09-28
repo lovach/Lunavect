@@ -106,17 +106,56 @@ final class ClaudeTurnImportTests: XCTestCase {
         XCTAssertEqual(result.report.providers.first?.taskRecords, 1)
     }
 
-    func testLongTurnsAreBoundedAndIdleGapsInsideATurnAreNotWork() throws {
+    func testLongTurnsCountLikeLiveWorkAndIdleGapsInsideATurnAreNotWork() throws {
         let root = try directory()
-        // Three hours of continuous activity (a row every ten minutes) is capped at two hours.
+        // R3-05: three hours of continuous activity (a row every ten minutes) count
+        // in full, as live observation and Codex tasks count them; only silences split.
         var continuous = [prompt(-5 * 3600)]
         for step in 1...18 { continuous.append(assistant(-5 * 3600 + Double(step) * 600)) }
         try write(continuous, name: "continuous", to: root)
-        XCTAssertEqual(seconds(read(root)), 7200)
+        XCTAssertEqual(seconds(read(root)), 10_800)
         let gap = try directory()
         // A permission request left open for two hours splits the turn; the wait is not counted.
         try write([prompt(-3 * 3600), toolUse(-3 * 3600 + 10, id: "toolu_wait"), toolResult(-3000, id: "toolu_wait"), assistant(-2940)], to: gap)
         XCTAssertEqual(seconds(read(gap)), 10 + 60)
+    }
+
+    /// R3-05: live accounting counts neither Input needed nor the wait for a plan
+    /// approval. A question to the user (AskUserQuestion) or a plan waiting for
+    /// approval (ExitPlanMode) splits the recovered turn until the answer arrives.
+    func testQuestionsAndPlanApprovalsInsideATurnAreNotWork() throws {
+        for tool in ["AskUserQuestion", "ExitPlanMode"] {
+            let root = try directory()
+            try write([prompt(-3000), assistant(-2990), toolUse(-2980, name: tool, id: "toolu_ask"),
+                       toolResult(-2380, id: "toolu_ask", timing: ["answers": ["PRIVATE": "PRIVATE"]]), assistant(-2370)], to: root)
+            XCTAssertEqual(seconds(read(root)), 20 + 10, "\(tool): ten minutes waiting for the user are not counted")
+        }
+        // Other tools keep the turn going while they run.
+        let root = try directory()
+        try write([prompt(-3000), toolUse(-2980, id: "toolu_build"), toolResult(-2380, id: "toolu_build"), assistant(-2370)], to: root)
+        XCTAssertEqual(seconds(read(root)), 630)
+    }
+
+    /// R3-04: re-importing for a boundary in the past reads only journals that can
+    /// hold records before it: a file created after the boundary cannot. A boundary
+    /// older than the 35-day window reads nothing at all.
+    func testReimportSkipsJournalsThatCannotPrecedeTheBoundary() throws {
+        let root = try directory(), boundary = now.addingTimeInterval(-10 * 86400)
+        try write([prompt(-15 * 86400), assistant(-15 * 86400 + 60), prompt(-60), assistant(-30)], name: "spanning", to: root)
+        try write([prompt(-3 * 86400), assistant(-3 * 86400 + 60)], name: "later", to: root)
+        try FileManager.default.setAttributes([.creationDate: now.addingTimeInterval(-20 * 86400)],
+                                              ofItemAtPath: root.appendingPathComponent("spanning.jsonl").path)
+        try FileManager.default.setAttributes([.creationDate: now.addingTimeInterval(-5 * 86400)],
+                                              ofItemAtPath: root.appendingPathComponent("later.jsonl").path)
+        let result = read(root, before: boundary)
+        XCTAssertEqual(seconds(result), 60, "Only the turn before the boundary")
+        XCTAssertEqual(result.report.providers.first?.filesRead, 1, "The journal created after the boundary is not read")
+        XCTAssertFalse(result.limited)
+        let expired = read(root, before: now.addingTimeInterval(-36 * 86400))
+        XCTAssertEqual(expired.report.providers.first?.filesRead, 0, "Nothing inside the window can precede an older boundary")
+        XCTAssertEqual(expired.report.providers.first?.bytesRead, 0)
+        XCTAssertTrue(expired.intervals.isEmpty)
+        XCTAssertFalse(expired.limited)
     }
 
     func testAgentToolAndTurnDurationUnionWithMessageTurnsWithoutDoubleCounting() throws {
