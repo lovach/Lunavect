@@ -234,6 +234,9 @@ final class SessionTests: XCTestCase {
             ]
             record = try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: .codex, previous: record, now: now)
         }
+        // Read started alongside, before the request: its result does not answer
+        // the dialog. (A result of a call never seen starting counts as progress.)
+        try event("PreToolUse", "Read")
         try event("PermissionRequest", "Bash")
         try event("PostToolUse", "Read")
         XCTAssertEqual(record?.session.phase, .permission)
