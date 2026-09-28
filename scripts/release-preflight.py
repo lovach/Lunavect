@@ -103,6 +103,15 @@ def validate_source(root, version):
         raise ValueError('Distribution requires full Git history and refreshed tags; shallow history cannot establish tag availability')
     if subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=all']):
         raise ValueError('Distribution requires a clean Git checkout; local build/check may remain dirty')
+    # The archive is built from this tree: its project version must be the one released (R2-B-12).
+    project = Path(root) / 'project.yml'
+    if project.is_file():
+        match = re.search(r'^\s*MARKETING_VERSION:\s*["\']?([0-9.]+)["\']?\s*$', project.read_text(encoding='utf-8'), re.MULTILINE)
+        if match is None:
+            raise ValueError('Cannot read MARKETING_VERSION from project.yml')
+        if match.group(1) != version:
+            raise ValueError('VERSION ' + version + ' differs from MARKETING_VERSION ' + match.group(1)
+                             + ' in project.yml; release the version the tree builds')
     tag = 'refs/tags/v' + version
     result = subprocess.run(['git', '-C', str(root), 'show-ref', '--verify', '--quiet', tag])
     if result.returncode == 0:

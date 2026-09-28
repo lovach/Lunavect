@@ -206,6 +206,19 @@ app.mkdir(parents=True)
         GATE.validate_previous('0.1.1', '104', self.feed)
         GATE.validate_source(self.root, '0.1.1')
 
+    def test_release_version_must_match_the_project_version(self):
+        """R2-B-12: an archive of a tree whose project says 0.2.5 cannot be released as 0.2.6."""
+        (self.root / 'project.yml').write_text('settings:\n  base:\n    CURRENT_PROJECT_VERSION: 104\n    MARKETING_VERSION: 0.1.1\n')
+        self.git('add', 'project.yml')
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'project')
+        GATE.validate_source(self.root, '0.1.1')
+        with self.assertRaisesRegex(ValueError, 'differs from MARKETING_VERSION 0.1.1'):
+            GATE.validate_source(self.root, '0.1.2')
+        (self.root / 'project.yml').write_text('settings:\n  base:\n    CURRENT_PROJECT_VERSION: 104\n')
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qam', 'no version')
+        with self.assertRaisesRegex(ValueError, 'Cannot read MARKETING_VERSION'):
+            GATE.validate_source(self.root, '0.1.1')
+
     def test_all_appcast_entries_and_modern_element_form_are_checked(self):
         self.feed.write_text('<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>'
                              '<item><sparkle:version>200</sparkle:version><sparkle:shortVersionString>0.1.5</sparkle:shortVersionString><enclosure/></item>'
