@@ -581,6 +581,7 @@ struct SessionRow: View {
     /// The pin glyph is decorative; VoiceOver hears the pinned state with the status.
     var accessibilityStatus: String { isPinned ? statusTitle + ", " + L("Закреплена") : statusTitle }
     var statusTitle: String {
+        if session.isLimitsCheck == true { return L("Служебная проверка лимитов") }
         guard phase == .running else { return phase == .failed ? session.failure?.title ?? phase.title : phase.title }
         if offline { return L("Нет сети") }
         if session.compactionTrigger != nil { return session.activityTitle }

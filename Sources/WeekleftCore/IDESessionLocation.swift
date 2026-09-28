@@ -18,6 +18,23 @@ public enum SessionIDE: String, Codable, Sendable {
     public var client: SessionClient { self == .vscode ? .vscode : .jetbrains }
 }
 
+/// Where a runtime runs when Lunavect has no navigation route to it.
+public struct SessionLaunchHost: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        /// The terminal built into Claude or Codex: its tabs cannot be selected from outside.
+        case embeddedTerminal
+        /// Another application's terminal (Ghostty, kitty, a VS Code fork…).
+        case terminal
+        /// An application without a terminal (for example an editor extension panel).
+        case application
+    }
+    public let kind: Kind
+    /// The application's name as its bundle folder spells it (at most 64 characters).
+    public let name: String
+
+    public init(kind: Kind, name: String) { self.kind = kind; self.name = name }
+}
+
 /// Birth time prevents a recycled PID from identifying a different session.
 public struct SessionProcessIdentity: Codable, Equatable, Sendable {
     public let pid: Int32

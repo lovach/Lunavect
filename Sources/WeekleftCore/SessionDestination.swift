@@ -64,6 +64,18 @@ public extension AgentSession {
         ideLocation == nil && client != .vscode && client != .jetbrains &&
         !canLaunchTerminalSession && (client == .terminal || terminalTTY.map(TerminalLocation.valid) == true)
     }
+    /// A limits check run by hand is not opened at all (decision 28.09).
+    var limitsCheckRefusal: SessionOpeningError? { isLimitsCheck == true ? .limitsCheck : nil }
+    /// The place a catalog runtime runs in when no route leads there, named instead
+    /// of a generic failure. Nil when the host is unknown or supported.
+    var launchHostRefusal: SessionOpeningError? {
+        guard let launchHost else { return nil }
+        switch launchHost.kind {
+        case .embeddedTerminal: return .embeddedTerminal(launchHost.name)
+        case .terminal: return .terminalUnsupported(TerminalLocation.hostName(launchHost.name))
+        case .application: return .hostUnsupported(launchHost.name)
+        }
+    }
     /// Background attach is safe; foreground resume requires recorded exit.
     /// A session that may still be open is reported as such before the CLI is
     /// resolved: a missing or moving client (for example during an update) is
@@ -96,8 +108,13 @@ public enum SessionOpeningError: LocalizedError, Equatable {
     case ideBridgeMissing(String), ideSessionUnavailable(String), ideUnsupported(String), ideAmbiguous(String), ideTimedOut(String)
     case ideBridgeUnresponsive(String), ideCompanionIncompatible(String), ideActivationFailed(String)
     case missingCLI(ProviderID), missingProject, missingTerminal, invalidID, missingDesktopLink, missingClient(String), launchFailed(SessionClient)
+    case limitsCheck, embeddedTerminal(String), hostUnsupported(String)
     public var errorDescription: String? {
         switch self {
+        case .limitsCheck:
+            return L("Это служебная проверка лимитов Claude (команда /usage), а не рабочая сессия. Открывать её не нужно. Чтобы завершить её, нажмите Esc, затем Ctrl+C в окне, где она запущена.")
+        case .embeddedTerminal(let app): return L("Сессия запущена во встроенном терминале {0}. Lunavect не может переключить его вкладку: откройте окно {0}.", app)
+        case .hostUnsupported(let app): return L("Сессия запущена в {0}. Lunavect пока не умеет переходить к сессиям в этом приложении: откройте окно {0}.", app)
         case .sessionMayBeOpen: return L("Сессия может быть открыта в терминале. Вернитесь в исходное окно. Через «…» можно открыть папку проекта или скопировать ID сессии.")
         case .terminalTabUnavailable: return L("Не удалось найти исходную вкладку этой сессии. Убедитесь, что она открыта в Terminal или iTerm2, и повторите переход.")
         case .terminalAutomationDenied(let app): return L("Разрешите Lunavect управлять {0}: Системные настройки → Конфиденциальность и безопасность → Автоматизация. Затем повторите переход.", app)

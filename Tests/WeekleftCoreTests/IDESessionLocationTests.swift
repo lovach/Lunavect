@@ -154,6 +154,58 @@ final class IDESessionLocationTests: XCTestCase {
         XCTAssertNil(SessionProcess.nestedClaudeRuntime(startPID: 70, read: { chain[$0] }, arguments: { _ in nil }), "Without its arguments node is unknown, as before")
     }
 
+    /// Owner's case 28.09: `claude` in the embedded terminal of Claude Desktop is a catalog
+    /// row with neither an editor nor a Terminal/iTerm2 tab. Its host is named instead.
+    func testLaunchHostNamesPlacesWithoutARouteFromTheRuntimeAncestry() {
+        typealias Node = SessionProcess.TerminalProcess
+        let tty = "/dev/ttys007"
+        func host(_ tree: [Int32: Node], bundle: String? = nil) -> SessionLaunchHost? {
+            SessionProcess.launchHost(runtimePID: 90, read: { tree[$0] }, bundle: { _ in bundle })
+        }
+        let desktopTerminal: [Int32: Node] = [
+            90: Node(parentPID: 80, tty: tty, executable: "/Users/u/.local/share/claude/versions/2.1.283"),
+            80: Node(parentPID: 70, tty: tty, executable: "/bin/zsh"),
+            70: Node(parentPID: 60, tty: nil, executable: "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper"),
+            60: Node(parentPID: 1, tty: nil, executable: "/Applications/Claude.app/Contents/MacOS/Claude")]
+        XCTAssertEqual(host(desktopTerminal, bundle: "com.anthropic.claudefordesktop"), .init(kind: .embeddedTerminal, name: "Claude"))
+        var desktopTask = desktopTerminal
+        desktopTask[90] = Node(parentPID: 60, tty: nil, executable: "/Users/u/Library/Application Support/Claude/claude-code/2.1.283/claude.app/Contents/MacOS/claude")
+        XCTAssertNil(host(desktopTask), "A Claude Desktop task without a terminal keeps its Desktop link")
+        var codex = desktopTerminal
+        codex[70] = Node(parentPID: 1, tty: nil, executable: "/Applications/Codex.app/Contents/MacOS/Codex")
+        XCTAssertEqual(host(codex, bundle: "com.openai.codex"), .init(kind: .embeddedTerminal, name: "Codex"))
+        var fork = desktopTerminal
+        fork[90] = Node(parentPID: 70, tty: nil, executable: "/Users/u/.cursor/extensions/anthropic.claude-code/resources/native-binary/claude")
+        fork[70] = Node(parentPID: 1, tty: nil, executable: "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Plugin).app/Contents/MacOS/Cursor Helper (Plugin)")
+        XCTAssertEqual(host(fork, bundle: "com.todesktop.230313mzl4w4u92"), .init(kind: .application, name: "Cursor"))
+        var ghostty = desktopTerminal
+        ghostty[70] = Node(parentPID: 1, tty: nil, executable: "/Applications/Ghostty.app/Contents/MacOS/ghostty")
+        XCTAssertEqual(host(ghostty, bundle: "com.mitchellh.ghostty"), .init(kind: .terminal, name: "Ghostty"))
+        var bundledCLI = desktopTerminal
+        bundledCLI[80] = Node(parentPID: 70, tty: tty, executable: "/Applications/Codex.app/Contents/Resources/codex")
+        XCTAssertEqual(host(bundledCLI, bundle: "com.anthropic.claudefordesktop"), .init(kind: .embeddedTerminal, name: "Claude"),
+                       "A CLI in an app's Resources is not the host")
+        var terminal = desktopTerminal
+        terminal[70] = Node(parentPID: 1, tty: nil, executable: "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal")
+        XCTAssertNil(host(terminal), "Terminal has its own route")
+        var editor = desktopTerminal
+        editor[70] = Node(parentPID: 1, tty: nil, executable: "/Applications/PyCharm.app/Contents/MacOS/pycharm")
+        XCTAssertNil(host(editor, bundle: "com.jetbrains.pycharm"), "A JetBrains IDE has the companion route")
+        var detached = desktopTerminal
+        detached[80] = Node(parentPID: 1, tty: tty, executable: "/bin/zsh")
+        XCTAssertNil(host(detached), "An ancestry that ends at launchd names nothing")
+        XCTAssertNil(host([:]))
+        XCTAssertNil(host([90: Node(parentPID: 90, tty: tty, executable: "/bin/zsh")]), "A cycle ends the walk")
+        let rows: [[String: Any]] = [["pid": 90, "cwd": "/Users/u", "kind": "interactive", "sessionId": "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d77", "status": "waiting"]]
+        let parsed = try? SessionParser.claude(JSONSerialization.data(withJSONObject: rows), terminal: { _ in nil }, ide: { _ in nil },
+                                               host: { pid in pid == 90 ? host(desktopTerminal, bundle: "com.anthropic.claudefordesktop") : nil })
+        XCTAssertEqual(parsed?.first?.launchHost, .init(kind: .embeddedTerminal, name: "Claude"))
+        XCTAssertEqual(parsed?.first?.launchHostRefusal, .embeddedTerminal("Claude"))
+        let routed = try? SessionParser.claude(JSONSerialization.data(withJSONObject: rows), terminal: { _ in .init(tty: tty, app: "Terminal") },
+                                               host: { _ in XCTFail("A row with a route needs no host"); return nil })
+        XCTAssertNil(routed?.first?.launchHost)
+    }
+
     /// N-08 / §4 item 10: every JetBrains IDE product and its EAP build, not a fixed list;
     /// JetBrains apps that cannot host the companion are not editors.
     func testJetBrainsProductsAndEAPBuildsAreRecognizedByPrefix() {

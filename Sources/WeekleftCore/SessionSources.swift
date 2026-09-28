@@ -88,6 +88,10 @@ public enum SessionSources {
                 SessionProcess.terminalLocation(parentPID: $0, termProgram: "").map { TerminalLocation.Target(tty: $0.tty, app: $0.app) }
             }, ide: {
                 IDEProcessLocation.locate(parentPID: $0, provider: .claude)
+            }, limitsCheck: {
+                SessionProcess.isLimitsCheck(pid: $0)
+            }, host: {
+                SessionProcess.launchHost(runtimePID: $0)
             })
         }
     }
@@ -599,10 +603,15 @@ enum SessionProcess {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout.size(ofValue: info))
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid() else { return nil }
-        var mib: [Int32] = [CTL_KERN, KERN_ARGMAX], limit: Int32 = 0, length = MemoryLayout<Int32>.size
-        guard sysctl(&mib, 2, &limit, &length, nil, 0) == 0, limit > 0, limit <= 16 << 20 else { return nil }
-        var bytes = [UInt8](repeating: 0, count: Int(limit))
-        mib = [CTL_KERN, KERN_PROCARGS2, pid]; length = bytes.count
+        // The kernel reports the size of this process's arguments; fall back to ARG_MAX.
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid], length = 0
+        if sysctl(&mib, 3, nil, &length, nil, 0) != 0 || length <= 0 {
+            var limitMIB: [Int32] = [CTL_KERN, KERN_ARGMAX], limit: Int32 = 0, size = MemoryLayout<Int32>.size
+            guard sysctl(&limitMIB, 2, &limit, &size, nil, 0) == 0, limit > 0 else { return nil }
+            length = Int(limit)
+        }
+        guard length <= 16 << 20 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: length)
         guard sysctl(&mib, 3, &bytes, &length, nil, 0) == 0 else { return nil }
         return parseProcessArguments(Array(bytes.prefix(length)))
     }
@@ -623,6 +632,51 @@ enum SessionProcess {
             index += 1
         }
         return result.count == argc ? result : nil
+    }
+    /// The command line of Lunavect's own `/usage` probe (`ClaudeUsageProbe`), exactly:
+    /// `--safe-mode`, `--tools` with an empty value and `/usage` as the last argument.
+    /// An interactive `claude` in which someone types /usage has none of these.
+    static func isLimitsCheck(arguments: [String]) -> Bool {
+        let rest = Array(arguments.dropFirst())
+        guard rest.last == "/usage", rest.contains("--safe-mode") else { return false }
+        return zip(rest, rest.dropFirst()).contains { $0 == "--tools" && $1.isEmpty }
+    }
+    /// Reads the arguments of the user's own catalog runtime only to compare them
+    /// with that command line; they are not kept.
+    static func isLimitsCheck(pid: Int32, arguments: (Int32) -> [String]? = processArguments) -> Bool {
+        arguments(pid).map(isLimitsCheck(arguments:)) ?? false
+    }
+    /// The application a runtime runs in when Lunavect has no route there: the embedded
+    /// terminal of Claude or Codex (the runtime has a controlling terminal), another
+    /// application's terminal, or an application without one. Terminal, iTerm2, VS Code
+    /// and JetBrains IDEs, a Claude Desktop task without a terminal, and an unreadable
+    /// or detached ancestry return nil. Only parents, devices and executable paths are read.
+    static func launchHost(runtimePID: Int32, read: (Int32) -> TerminalProcess? = terminalProcess,
+                           bundle: (String) -> String? = IDEProcessLocation.bundleIdentifier) -> SessionLaunchHost? {
+        var pid = runtimePID, seen = Set<Int32>(), hasTerminal: Bool?
+        for _ in 0..<16 {
+            guard pid > 1, seen.insert(pid).inserted, let process = read(pid) else { return nil }
+            if hasTerminal == nil { hasTerminal = process.tty.map(TerminalLocation.valid) ?? false }
+            // A runtime (Claude Desktop's own claude.app) or a CLI bundled in an app's
+            // Resources says nothing about the host; its parent decides.
+            if let path = process.executable, runtimeProvider(ofExecutable: path) == nil,
+               !path.contains("/Contents/Resources/"), let range = path.range(of: ".app/Contents/") {
+                let app = String(path[..<range.lowerBound]) + ".app"
+                if path.contains("/Terminal.app/") || path.contains("/iTerm.app/") { return nil }
+                if let identifier = bundle(app), SessionIDE.identify(bundleIdentifier: identifier) != nil { return nil }
+                let terminal = hasTerminal == true
+                if path.contains("/Claude.app/") { return terminal ? .init(kind: .embeddedTerminal, name: "Claude") : nil }
+                for name in ["Codex", "ChatGPT"] where path.contains("/\(name).app/") {
+                    return .init(kind: terminal ? .embeddedTerminal : .application, name: name)
+                }
+                let name = URL(fileURLWithPath: app).deletingPathExtension().lastPathComponent
+                guard !name.isEmpty, name.count <= 64, !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return nil }
+                return .init(kind: terminal ? .terminal : .application, name: name)
+            }
+            guard let parent = process.parentPID, parent > 1, parent != pid else { return nil }
+            pid = parent
+        }
+        return nil
     }
     /// The client runtime that ran a hook: the nearest ancestor that is not a
     /// shell or command wrapper. Hook runners may or may not exec the command.
