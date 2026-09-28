@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5 — 2026-09-28
 
 ### Activity, storage and widgets
 
