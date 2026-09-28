@@ -38,6 +38,16 @@
 - Session records that can no longer be read are kept aside for diagnosis and removed after a day instead of being read again on every refresh.
 - If `claude agents --json` changes its format, Connections reports an unsupported response instead of showing an empty Claude list.
 
+### Keep Awake and connections
+
+- Keep Awake shows when the system helper is still registered from an earlier build or signing team and macOS does not start it, instead of reporting a generic timeout. **Renew registration** repairs it; if macOS refuses, the panel offers the maintenance command of this installation and Login Items. The first lease in a new build pings the helper for three seconds and renews its registration once when it does not answer.
+- The helper's launch definition no longer asks launchd to restart it after every exit. A helper whose program is missing no longer makes launchd retry every 30 seconds indefinitely. The first launch of this build renews the registration so installed helpers pick up the new definition. A helper that cannot restore sleep keeps retrying while it runs, and Lunavect starts a new helper instance when the previous one stops answering during a lease.
+- Claude Code and Codex settings name the hook helper through a link in Lunavect's support folder that every launch points at the running app. Moving, renaming or updating Lunavect no longer leaves the status line and event handlers pointing at a missing file. A copy that macOS runs from a temporary download location asks to be moved to Applications instead of writing its temporary path. Existing entries move to the link at the next launch, and the session panel says so.
+- Launch repair changes only Lunavect's own entries that point elsewhere. It no longer adds back an event handler you removed, and `disableAllHooks` is shown as paused instead of a failed repair after moving the app.
+- **Turn off events** is shown as your choice with a **Turn on events** button, not as unfinished setup. A command pointing at a deleted file is shown with its path.
+- Settings files with comments or trailing commas are left untouched. Rewritten files end with a newline, are flushed to disk before they replace the original, and keep a link to a settings file even when its file does not exist yet. Disconnecting keeps a settings file Lunavect created, without its entries. Older backups of client settings become private to your user.
+- A second installed copy of Lunavect is reported on the session panel. `weekleft://` links open the same pages as `lunavect://`. Updates are checked once a day instead of every hour.
+
 ## 0.2.4 — 2026-09-27
 
 - Terminal navigation stays responsive while macOS selects a tab. Slow or cancelled requests stop cleanly and retain specific permission and timeout messages.
