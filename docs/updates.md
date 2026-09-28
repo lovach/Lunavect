@@ -10,7 +10,7 @@ Lunavect checks for updates once a day (Sparkle's default interval, 86,400 secon
 
 Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](privacy.md#network-requests).
 
-The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.5) is 0.2.5 (192). It improves Claude limit checks, session state and navigation, Keep Awake registration recovery, and hook paths after moving or updating the app. It retains companion version 0.1.1; reinstall the editor companions from Settings → Connections if you have an older companion. See [IDE setup and compatibility](ide-sessions.md) for supported surfaces and remaining verification limits. Settings and client connections are retained.
+The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.5) is 0.2.5 (192). It improves Claude limit checks, session state and navigation, Keep Awake registration recovery, and hook paths after moving or updating the app. It bundles VS Code companion 0.1.2 and JetBrains companion 0.1.1. Reinstall the VS Code companion from Settings → Connections and reload the editor to receive its fixes. See [IDE setup and compatibility](ide-sessions.md) for supported surfaces and remaining verification limits. Settings and client connections are retained.
 
 ## Preparing a release
 
