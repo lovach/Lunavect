@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.7 — Unreleased
+## 0.2.7 — 2026-09-28
 
 ### Limits
 
