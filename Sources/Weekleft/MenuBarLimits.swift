@@ -93,6 +93,8 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     let detail: String
     /// The state's sentence (reset passed, window not started, no limits).
     var note: String? = nil
+    /// The client is signed out; the value above keeps its saved-data mark.
+    var attention: SignInAttention? = nil
 
     static func make(snapshots: [UsageSnapshot], providers: [ProviderID], preferences: MenuBarLimitsPreferences,
                      now: Date = Date()) -> [Self] {
@@ -110,8 +112,10 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             // This is time until the actual reset, never the duration of the quota window.
             let countdown = window?.countdown(now: now) ?? "—"
             let resetDate = window?.resetsAt?.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))
+            let attention = SignInAttention(snapshot)
             var detail = [provider.title + " · " + preferences.period.title,
                           percent.map { L("Осталось {0}%", $0) } ?? note ?? L("Нет данных")]
+            if let attention { detail.append(attention.title) }
             if percent != nil, let note { detail.append(note) }
             if let resetDate { detail.append(L("Сброс через {0}", countdown)); detail.append(resetDate) }
             if stale { detail.append(L("Показаны последние полученные данные")) }
@@ -120,7 +124,8 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             }
             return Self(provider: provider, remaining: remaining, countdown: countdown,
                         compactCountdown: compactCountdown(window: window, now: now), resetDate: resetDate,
-                        fetchedAt: snapshot.fetchedAt, stale: stale, value: value, detail: detail.joined(separator: "\n"), note: note)
+                        fetchedAt: snapshot.fetchedAt, stale: stale, value: value, detail: detail.joined(separator: "\n"), note: note,
+                        attention: attention)
         }
     }
     private static func compactCountdown(window: QuotaWindow?, now: Date) -> String {
@@ -303,6 +308,7 @@ struct MenuBarPopoverPresenter {
     private let onRefresh: () -> Void
     private let onShow: () -> Void
     private let onHide: () -> Void
+    private let onRepair: ((ConnectionRepairRequest) -> Void)?
     private let contextMenu: (() -> NSMenu)?
     private let autosaveName: String?
     private let presenter: MenuBarPopoverPresenter
@@ -310,9 +316,11 @@ struct MenuBarPopoverPresenter {
     /// `language` and `defaults` give the popover the same language and theme
     /// as the sessions panel; the live application uses the shared settings.
     /// `network` is the store's connection, whose offline state blocks refreshing.
+    /// `onRepair` opens the client's setup step, as the Connections card does;
+    /// without it the button opens the limits settings.
     init(onSelectPeriod: @escaping (MenuBarLimitsPeriod) -> Void = { _ in }, onRefresh: @escaping () -> Void = {},
          onShow: @escaping () -> Void = {}, onHide: @escaping () -> Void = {}, onOpenMenu: @escaping () -> Void = {},
-         contextMenu: (() -> NSMenu)? = nil,
+         onRepair: ((ConnectionRepairRequest) -> Void)? = nil, contextMenu: (() -> NSMenu)? = nil,
          language: LanguageSettings? = nil, defaults: UserDefaults = .standard, network: NetworkConnection? = nil,
          autosaveName: String? = "LunavectLimits", presenter: MenuBarPopoverPresenter = .native,
          onOpenLimits: @escaping () -> Void) {
@@ -320,14 +328,15 @@ struct MenuBarPopoverPresenter {
         self.presenter = presenter
         self.onOpenMenu = onOpenMenu
         self.contextMenu = contextMenu
-        self.onShow = onShow; self.onHide = onHide; self.autosaveName = autosaveName
+        self.onShow = onShow; self.onHide = onHide; self.onRepair = onRepair; self.autosaveName = autosaveName
         super.init()
         popover.behavior = .transient; popover.delegate = self
         popover.contentViewController = NSHostingController(rootView: MenuBarLimitsPopoverRoot(language: language ?? .shared, defaults: defaults,
             popover: MenuBarLimitsPopover(model: panel,
                 onPeriod: { [weak self] in self?.selectPeriod($0) }, onRefresh: onRefresh,
                 onMenu: { [weak self] in self?.close(); self?.onOpenMenu() },
-                onSettings: { [weak self] in self?.close(); self?.onOpenLimits() })))
+                onSettings: { [weak self] in self?.close(); self?.onOpenLimits() },
+                onRepair: { [weak self] in self?.repair($0) })))
         networkObserver = network?.$state.map { $0 == .offline }.removeDuplicates().receive(on: RunLoop.main)
             .sink { [weak self] offline in
                 guard let self else { return }
@@ -373,6 +382,10 @@ struct MenuBarPopoverPresenter {
         button.toolTip = entries.map(\.detail).joined(separator: "\n\n")
         button.setAccessibilityLabel(L("Лимиты") + ". " + entries.map(\.detail).joined(separator: ". "))
         if isPopoverShown { sizePopoverToContent() }
+    }
+    func repair(_ request: ConnectionRepairRequest) {
+        close()
+        if let onRepair { onRepair(request) } else { onOpenLimits() }
     }
     func selectPeriod(_ period: MenuBarLimitsPeriod) {
         preferences.period = period; onSelectPeriod(period); refresh()
@@ -431,6 +444,7 @@ struct MenuBarLimitsPopover: View {
     let onRefresh: () -> Void
     let onMenu: () -> Void
     let onSettings: () -> Void
+    var onRepair: (ConnectionRepairRequest) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -484,6 +498,7 @@ struct MenuBarLimitsPopover: View {
                     if entry.stale, entry.remaining != nil {
                         Text(L("Показаны последние полученные данные")).font(.system(size: 11)).foregroundStyle(.secondary)
                     }
+                    if let attention = entry.attention { signIn(attention) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
             }
@@ -494,6 +509,16 @@ struct MenuBarLimitsPopover: View {
                 Button(L("Подробнее"), action: onSettings).buttonStyle(.link).font(.system(size: 11))
             }
         }.padding(18).frame(width: 340, alignment: .topLeading)
+    }
+    /// The Connections card's sentence and button for the same state.
+    private func signIn(_ attention: SignInAttention) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            InterfaceLabel(attention.title, .warning).font(.system(size: 12, weight: .semibold)).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(attention.message).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button(L(attention.repair.title)) { onRepair(attention.request) }.buttonStyle(.link).font(.system(size: 12))
+                .accessibilityIdentifier("menu-limits-sign-in-" + attention.provider.rawValue)
+        }.padding(.top, 2)
     }
 }
 

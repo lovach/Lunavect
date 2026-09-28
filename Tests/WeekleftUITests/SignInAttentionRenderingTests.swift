@@ -28,9 +28,12 @@ import WeekleftCore
             fetchedAt: now.addingTimeInterval(-60), source: "Codex app-server")
         // A first connection while signed out: nothing was ever received.
         let empty = UsageSnapshot(provider: .claude, issue: signedOut)
+        // Claude Code's own login prompt on the /usage screen (claudeSignInRequired).
+        var setup = saved
+        setup.issue = UsageError.claudeSignInRequired.errorDescription
         let preview = try LegacyRenderFixture(snapshots: [saved, codex], now: now)
         defer { preview.stop() }
-        for (state, snapshots) in [("saved", [saved, codex]), ("empty", [empty, codex])] {
+        for (state, snapshots) in [("saved", [saved, codex]), ("empty", [empty, codex]), ("setup", [setup, codex])] {
             for scheme in [ColorScheme.dark, .light] {
                 let suffix = "\(state)-\(language)-\(scheme == .dark ? "dark" : "light")"
                 let model = MenuBarLimitsPanelModel()
@@ -39,6 +42,8 @@ import WeekleftCore
                 let popover = MenuBarLimitsPopover(model: model, onPeriod: { _ in }, onRefresh: {}, onMenu: {}, onSettings: {})
                 try render(popover, width: 340, scheme: scheme, to: output.appendingPathComponent("popover-\(suffix).png"))
                 let panel = SessionPanelState(isVisible: true)
+                panel.observeSignIn(snapshots, providers: ProviderID.allCases)
+                XCTAssertEqual(panel.signInNotices.map(\.provider), [.claude])
                 let sessions = SessionsView(store: preview.environment.sessions, panelState: panel, updates: preview.environment.updates,
                                             awake: preview.environment.awake, isPreview: false, onSettings: {})
                     .defaultAppStorage(preview.environment.defaults)
@@ -54,13 +59,19 @@ import WeekleftCore
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
         let host = NSHostingView(rootView: root)
         host.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        let size = CGSize(width: width, height: height ?? ceil(host.fittingSize.height))
-        host.sizingOptions = []
+        var size = CGSize(width: width, height: height ?? ceil(host.fittingSize.height))
         host.frame = CGRect(origin: .zero, size: size)
         let window = SignInRenderWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = host
         defer { window.contentView = nil }
-        for _ in 0..<4 { RunLoop.main.run(until: Date().addingTimeInterval(0.06)); host.layoutSubtreeIfNeeded() }
+        // The sessions panel measures its sections after the first layout, as in the popover.
+        for _ in 0..<3 {
+            for _ in 0..<4 { RunLoop.main.run(until: Date().addingTimeInterval(0.06)); host.layoutSubtreeIfNeeded() }
+            guard height == nil else { break }
+            let fitting = ceil(host.fittingSize.height)
+            XCTAssertGreaterThan(fitting, 100)
+            size.height = fitting; host.frame = CGRect(origin: .zero, size: size)
+        }
         XCTAssertFalse(window.isVisible)
         let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))

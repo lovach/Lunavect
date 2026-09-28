@@ -5661,5 +5661,40 @@
     "es": "Claude Code no ha iniciado sesión",
     "fr": "Claude Code n’est pas connecté",
     "zh-Hans": "Claude Code 未登录"
+  },
+  "{0} ждёт входа или настройки": {
+    "en": "{0} needs sign-in or setup",
+    "de": "{0} wartet auf Anmeldung oder Einrichtung",
+    "es": "{0} necesita que inicies sesión o termines la configuración",
+    "fr": "{0} attend une connexion ou une configuration",
+    "zh-Hans": "{0} 需要登录或完成设置"
+  },
+  "{0} не вошёл в аккаунт": {
+    "en": "{0} is not signed in",
+    "de": "{0} ist nicht angemeldet",
+    "es": "{0} no ha iniciado sesión",
+    "fr": "{0} n’est pas connecté",
+    "zh-Hans": "{0} 未登录"
+  },
+  "Лимиты {0} не обновляются. Нажмите, чтобы войти снова.": {
+    "en": "{0} limits are not updating. Click to sign in again.",
+    "de": "Die Limits von {0} werden nicht aktualisiert. Klicken Sie, um sich erneut anzumelden.",
+    "es": "Los límites de {0} no se actualizan. Haz clic para volver a iniciar sesión.",
+    "fr": "Les limites de {0} ne sont pas mises à jour. Cliquez pour vous reconnecter.",
+    "zh-Hans": "{0} 的额度未更新。点击重新登录。"
+  },
+  "Лимиты {0} не обновляются. Нажмите, чтобы завершить настройку.": {
+    "en": "{0} limits are not updating. Click to finish setup.",
+    "de": "Die Limits von {0} werden nicht aktualisiert. Klicken Sie, um die Einrichtung abzuschließen.",
+    "es": "Los límites de {0} no se actualizan. Haz clic para terminar la configuración.",
+    "fr": "Les limites de {0} ne sont pas mises à jour. Cliquez pour terminer la configuration.",
+    "zh-Hans": "{0} 的额度未更新。点击完成设置。"
+  },
+  "Лимиты {0} не обновляются.": {
+    "en": "{0} limits are not updating.",
+    "de": "Die Limits von {0} werden nicht aktualisiert.",
+    "es": "Los límites de {0} no se actualizan.",
+    "fr": "Les limites de {0} ne sont pas mises à jour.",
+    "zh-Hans": "{0} 的额度未更新。"
   }
 }
