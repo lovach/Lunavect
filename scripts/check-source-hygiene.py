@@ -4,13 +4,15 @@
 iCloud Drive and similar tools create siblings such as ``Name 2.swift`` or a
 ``folder 2`` directory. SwiftPM and XcodeGen include every file in a source
 directory, so a byte-identical copy redeclares types and fails the build with
-errors that do not name the cause. This check names the copies instead.
+errors that do not name the cause. GitHub also runs every workflow file and
+Pages publishes every docs file, so copies there act without being compiled.
+This check names the copies instead.
 """
 import argparse
 from pathlib import Path
 import re
 
-SCOPES = ('Sources', 'Tests', 'scripts', 'integrations', 'Config', 'Lunavect.xcodeproj')
+SCOPES = ('Sources', 'Tests', 'scripts', 'integrations', 'Config', 'Lunavect.xcodeproj', '.github', 'docs', 'design')
 # "Name 2.swift", "Name 3", "Name 2.tar.gz"; never a digit glued to the stem ("v2.swift").
 CONFLICT = re.compile(r'^.+ [0-9]+(?:\.[^./ ]+)*$')
 

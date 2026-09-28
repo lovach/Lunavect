@@ -115,7 +115,7 @@ else:
 
 class CheckRunnerTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='lunavect-check-tests-')
+        temporary = tempfile.TemporaryDirectory(prefix="lunavect check tests 'q' ")  # a checkout path with spaces
         self.addCleanup(temporary.cleanup)
         self.base = Path(temporary.name)
         self.bin = self.base / 'bin'
@@ -176,6 +176,9 @@ class CheckRunnerTests(unittest.TestCase):
                 import sys
                 assert not any(key.startswith('LUNAVECT_') for key in os.environ)
                 assert (Path(sys.argv[1]) / 'Contents/Info.plist').is_file()
+                if Path(sys.argv[0]).name == 'verify-product-resources.py':
+                    # The unsigned Release product is documented as universal; check it.
+                    assert '--universal' in sys.argv[2:] and '--source-root' in sys.argv[2:], sys.argv
             '''))
         (repo / 'Tests/Scripts/test_fixture.py').write_text(textwrap.dedent('''\
             import os

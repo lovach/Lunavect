@@ -2,6 +2,7 @@
 """Package a notarized Lunavect app in a read-only drag-to-Applications DMG."""
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import plistlib
@@ -10,6 +11,9 @@ import tempfile
 import sys
 
 ARTWORK = Path(__file__).resolve().parent / 'dmg'
+_spec = importlib.util.spec_from_file_location('release_preflight', Path(__file__).with_name('release-preflight.py'))
+preflight = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(preflight)
 REGISTER = '/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister'
 
 
@@ -70,7 +74,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--test-fixture', action='store_true',
+                        help='Accept LUNAVECT_* registration overrides (script tests only); a release refuses them')
     args = parser.parse_args()
+    # The retirement honours LUNAVECT_* registration overrides; a release must not.
+    preflight.refuse_fixture_overrides(parser, args.test_fixture)
     # Retire the exported source after success and failure alike; a cleanup
     # failure must not replace the reason packaging stopped.
     try:
