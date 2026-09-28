@@ -455,6 +455,20 @@ final class IDEBridgeTests: XCTestCase {
         XCTAssertEqual(IDEBridge.bundledCompanionVersions(manifest: Data(#"{"version":1}"#.utf8)), [:])
     }
 
+    /// The installers actually bundled with this build: a JetBrains 0.1.1 companion
+    /// (which reports no version) is offered the bundled 0.1.2, and 0.1.2 is current.
+    func testBundledManifestOffersJetBrainsCompanionUpdate() throws {
+        let manifest = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/Weekleft/Resources/IDEConnectors/manifest.json")
+        let bundled = IDEBridge.bundledCompanionVersions(manifest: try Data(contentsOf: manifest))
+        XCTAssertEqual(bundled, [.vscode: "0.1.2", .jetbrains: "0.1.2"])
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: nil, bundled: bundled[.jetbrains]), .available(installed: nil, bundled: "0.1.2"),
+                       "An installed 0.1.1 plugin is asked to reinstall")
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: "0.1.2", bundled: bundled[.jetbrains]), .current)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any])
+        XCTAssertNil(object["pendingSources"], "A release bundles the JetBrains installer built from the current sources")
+    }
+
     func testEndpointIdentityRejectsForeignPathsAndStaleRecords() throws {
         let now = Date()
         let id = UUID().uuidString

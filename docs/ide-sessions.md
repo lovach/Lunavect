@@ -21,7 +21,7 @@ The JetBrains terminal companion supports both providers in the **Terminal tool 
 4. Reload/restart the editor if it asks. Open your local project, return to Lunavect and choose **Refresh connection**. The status should say **Companion connected**.
 5. Restart sessions which were already running before you enabled local events, so their next events carry the editor identity.
 
-Lunavect 0.2.5 bundles VS Code companion **0.1.2** and JetBrains companion **0.1.1**. JetBrains companion 0.1.2 is prepared in source but is not included in this release; its installer still needs to be rebuilt with the IntelliJ SDK. Replacing the app does not replace editor plugins: repeat step 3 with the new installer and reload/restart the editor.
+Lunavect 0.2.6 bundles VS Code companion **0.1.2** and JetBrains companion **0.1.2** (0.2.5 bundled JetBrains 0.1.1). Replacing the app does not replace editor plugins: repeat step 3 with the new installer and reload/restart the editor.
 
 From 0.1.2 each companion reports its version. **Settings → Connections → Sessions in editors** then shows “Installed X, available Y: reinstall the companion” when the app bundles a newer one; 0.1.0 and 0.1.1 report no version and appear as “0.1.1 or earlier”. The same rows distinguish a companion that is installed but not answering and one whose descriptor protocol does not match this app.
 
