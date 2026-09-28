@@ -2,7 +2,7 @@
   "Claude Code ждёт подтверждения доверия к папке проверки лимитов. Откройте проверку в терминале и подтвердите один раз.": {
     "de": "Claude Code wartet darauf, dass Sie dem Ordner für die Limitprüfung vertrauen. Öffnen Sie die Prüfung im Terminal und bestätigen Sie einmal.",
     "en": "Claude Code is waiting for you to trust the limit-check folder. Open the check in Terminal and confirm once.",
-    "es": "Claude Code espera que confíe en la carpeta de comprobación de límites. Abra la comprobación en Terminal y confírmelo una vez.",
+    "es": "Claude Code espera que confíes en la carpeta de comprobación de límites. Abre la comprobación en Terminal y confírmalo una vez.",
     "fr": "Claude Code attend que vous fassiez confiance au dossier de vérification des limites. Ouvrez la vérification dans Terminal et confirmez une fois.",
     "zh-Hans": "Claude Code 正在等待您信任额度检查文件夹。请在终端中打开检查并确认一次。"
   },
@@ -513,7 +513,7 @@
   "Включите Lunavect в разделе «Разрешить в фоне».": {
     "de": "Aktivieren Sie Lunavect unter „Im Hintergrund erlauben“.",
     "en": "Enable Lunavect under “Allow in the Background”.",
-    "es": "Active Lunavect en «Permitir en segundo plano».",
+    "es": "Activa Lunavect en «Permitir en segundo plano».",
     "fr": "Activez Lunavect dans «Autoriser en arrière-plan».",
     "zh-Hans": "在“允许在后台”中开启Lunavect。"
   },
@@ -709,7 +709,7 @@
   "Вход открывается в официальном клиенте. Lunavect не просит пароль и не читает хранилище токенов.": {
     "de": "Die Anmeldung erfolgt im offiziellen Client. Lunavect fragt nicht nach Ihrem Passwort und liest den Token-Speicher nicht.",
     "en": "Sign-in opens in the official client. Lunavect does not ask for your password or read the token store.",
-    "es": "El inicio de sesión se abre en el cliente oficial. Lunavect no pide su contraseña ni lee el almacén de tokens.",
+    "es": "El inicio de sesión se abre en el cliente oficial. Lunavect no pide tu contraseña ni lee el almacén de tokens.",
     "fr": "L’authentification s’ouvre dans le client officiel. Lunavect ne demande pas votre mot de passe et ne lit pas le stockage des jetons.",
     "zh-Hans": "登录在官方客户端中进行。Lunavect 不索取密码，也不读取令牌存储。"
   },
@@ -940,7 +940,7 @@
   "Для работы с закрытой крышкой разрешите Lunavect в настройках macOS.": {
     "de": "Erlauben Sie Lunavect in den macOS-Einstellungen für den Betrieb bei geschlossenem Deckel.",
     "en": "Allow Lunavect in macOS settings to keep working with the lid closed.",
-    "es": "Permita Lunavect en los ajustes de macOS para seguir trabajando con la tapa cerrada.",
+    "es": "Permite Lunavect en los ajustes de macOS para seguir trabajando con la tapa cerrada.",
     "fr": "Autorisez Lunavect dans les réglages macOS pour travailler avec le capot fermé.",
     "zh-Hans": "请在macOS设置中允许Lunavect，以在合盖后继续运行。"
   },
@@ -989,7 +989,7 @@
   "Добавьте виджет на рабочий стол": {
     "de": "Widget zum Schreibtisch hinzufügen",
     "en": "Add a desktop widget",
-    "es": "Añada un widget al escritorio",
+    "es": "Añade un widget al escritorio",
     "fr": "Ajoutez un widget au bureau",
     "zh-Hans": "将小组件添加到桌面"
   },
@@ -1500,7 +1500,7 @@
   "Лимиты Claude и Codex на рабочем столе, текущие сессии — в строке меню. Настроим всё за несколько шагов.": {
     "de": "Claude- und Codex-Limits auf dem Schreibtisch, aktuelle Sitzungen in der Menüleiste. Die Einrichtung dauert nur wenige Schritte.",
     "en": "Claude and Codex limits on your desktop, current sessions in your menu bar. Get set up in a few steps.",
-    "es": "Los límites de Claude y Codex en el escritorio y las sesiones actuales en la barra de menús. Configúrelo en unos pasos.",
+    "es": "Los límites de Claude y Codex en el escritorio y las sesiones actuales en la barra de menús. Configúralo en unos pasos.",
     "fr": "Les limites Claude et Codex sur le bureau, les sessions en cours dans la barre des menus. Configurez le tout en quelques étapes.",
     "zh-Hans": "在桌面查看 Claude 和 Codex 额度，在菜单栏访问当前会话。只需几步即可完成设置。"
   },
@@ -1633,7 +1633,7 @@
   "Можно подключить одно приложение или оба. Если клиент уже установлен, повторная установка не понадобится.": {
     "de": "Verbinden Sie eine oder beide Apps. Bereits installierte Clients müssen nicht erneut installiert werden.",
     "en": "Connect either app or both. If the client is already installed, there is no need to reinstall it.",
-    "es": "Puede conectar una aplicación o ambas. Si el cliente ya está instalado, no hace falta reinstalarlo.",
+    "es": "Puedes conectar una aplicación o ambas. Si el cliente ya está instalado, no hace falta reinstalarlo.",
     "fr": "Connectez une application ou les deux. Si le client est déjà installé, inutile de le réinstaller.",
     "zh-Hans": "可以连接一个或两个应用。客户端已安装时，无需重复安装。"
   },
@@ -1934,7 +1934,7 @@
   "Не удалось проверить или скачать обновление. Повторите попытку позже.": {
     "de": "Das Update konnte nicht geprüft oder geladen werden. Versuchen Sie es später erneut.",
     "en": "Could not check for or download an update. Try again later.",
-    "es": "No se pudo buscar o descargar la actualización. Inténtelo más tarde.",
+    "es": "No se pudo buscar o descargar la actualización. Inténtalo más tarde.",
     "fr": "Impossible de rechercher ou de télécharger la mise à jour. Réessayez plus tard.",
     "zh-Hans": "无法检查或下载更新，请稍后重试。"
   },
@@ -2291,7 +2291,7 @@
   "Обучение можно пропустить и открыть снова в настройках.": {
     "de": "Sie können die Einführung überspringen und in den Einstellungen erneut öffnen.",
     "en": "You can skip this guide and reopen it in Settings.",
-    "es": "Puede omitir esta guía y volver a abrirla en Ajustes.",
+    "es": "Puedes omitir esta guía y volver a abrirla en Ajustes.",
     "fr": "Vous pouvez passer ce guide et le rouvrir dans les réglages.",
     "zh-Hans": "可以跳过指南，之后在设置中重新打开。"
   },
@@ -2368,7 +2368,7 @@
   "Оставляйте Lunavect запущенным в строке меню для обновления данных. macOS сама выбирает момент обновления виджета.": {
     "de": "Lassen Sie Lunavect zum Aktualisieren der Daten in der Menüleiste laufen. macOS bestimmt, wann das Widget aktualisiert wird.",
     "en": "Keep Lunavect running in the menu bar to refresh data. macOS controls when the widget refreshes.",
-    "es": "Mantenga Lunavect en ejecución en la barra de menús para actualizar los datos. macOS decide cuándo actualiza el widget.",
+    "es": "Mantén Lunavect en ejecución en la barra de menús para actualizar los datos. macOS decide cuándo actualiza el widget.",
     "fr": "Laissez Lunavect ouvert dans la barre des menus pour actualiser les données. macOS décide du moment où le widget se rafraîchit.",
     "zh-Hans": "请让 Lunavect 在菜单栏中保持运行，以便更新数据。小组件的具体刷新时间由 macOS 决定。"
   },
@@ -2445,7 +2445,7 @@
   "Откроем нужный раздел macOS. Включите Lunavect и подтвердите доступ.": {
     "de": "Wir öffnen die passenden macOS-Einstellungen. Aktivieren Sie Lunavect und bestätigen Sie den Zugriff.",
     "en": "We’ll open the right macOS settings. Enable Lunavect and confirm access.",
-    "es": "Abriremos el apartado de macOS. Active Lunavect y confirme el acceso.",
+    "es": "Abriremos el apartado de macOS. Activa Lunavect y confirma el acceso.",
     "fr": "Nous ouvrirons les réglages macOS requis. Activez Lunavect et confirmez l’accès.",
     "zh-Hans": "我们会打开所需的macOS设置。请开启Lunavect并确认授权。"
   },
@@ -2795,7 +2795,7 @@
   "Повторите проверку. Если данные не появятся, откройте мастер подключения и завершите настройку клиента.": {
     "de": "Wiederholen Sie die Prüfung. Falls keine Daten erscheinen, öffnen Sie den Verbindungsassistenten und schließen Sie die Einrichtung ab.",
     "en": "Run the check again. If no data appears, open the connection assistant and complete client setup.",
-    "es": "Repita la comprobación. Si no aparecen datos, abra el asistente de conexión y complete la configuración del cliente.",
+    "es": "Repite la comprobación. Si no aparecen datos, abre el asistente de conexión y completa la configuración del cliente.",
     "fr": "Relancez la vérification. Si aucune donnée n’apparaît, ouvrez l’assistant de connexion et terminez la configuration du client.",
     "zh-Hans": "请重新检查。如果仍无数据，请打开连接向导并完成客户端设置。"
   },
@@ -2872,7 +2872,7 @@
   "Подключите приложения": {
     "de": "Apps verbinden",
     "en": "Connect your apps",
-    "es": "Conecte sus aplicaciones",
+    "es": "Conecta tus aplicaciones",
     "fr": "Connectez vos applications",
     "zh-Hans": "连接应用"
   },
@@ -2942,7 +2942,7 @@
   "Подтвердите доступ паролем или Touch ID.": {
     "de": "Bestätigen Sie mit Passwort oder Touch ID.",
     "en": "Confirm with your password or Touch ID.",
-    "es": "Confirme con su contraseña o Touch ID.",
+    "es": "Confirma con tu contraseña o Touch ID.",
     "fr": "Confirmez avec votre mot de passe ou Touch ID.",
     "zh-Hans": "使用密码或Touch ID确认。"
   },
@@ -3320,14 +3320,14 @@
   "Проверьте интернет и официальный клиент. Повторная проверка запросит лимиты заново. Сохранённые значения остаются на месте.": {
     "de": "Prüfen Sie Internetverbindung und offiziellen Client. Eine erneute Prüfung fragt aktuelle Limits ab. Gespeicherte Werte bleiben erhalten.",
     "en": "Check your internet connection and the official client. Running the check again requests fresh limits. Saved values are kept.",
-    "es": "Compruebe la conexión a internet y el cliente oficial. Al repetir la comprobación se solicitan límites nuevos. Los valores guardados se conservan.",
+    "es": "Comprueba la conexión a internet y el cliente oficial. Al repetir la comprobación se solicitan límites nuevos. Los valores guardados se conservan.",
     "fr": "Vérifiez la connexion Internet et le client officiel. Une nouvelle vérification demandera les limites à jour. Les valeurs enregistrées sont conservées.",
     "zh-Hans": "请检查网络和官方客户端。重新检查会再次请求额度，并保留已保存的数据。"
   },
   "Проверьте содержимое перед копированием или сохранением.": {
     "de": "Prüfen Sie den Inhalt vor dem Kopieren oder Speichern.",
     "en": "Review the contents before copying or saving.",
-    "es": "Revise el contenido antes de copiarlo o guardarlo.",
+    "es": "Revisa el contenido antes de copiarlo o guardarlo.",
     "fr": "Vérifiez le contenu avant de le copier ou de l’enregistrer.",
     "zh-Hans": "请在复制或保存前检查内容。"
   },
@@ -3453,7 +3453,7 @@
   "Разрешение пока не получено. Нажмите «Разрешить и включить», чтобы повторить.": {
     "de": "Noch keine Freigabe. Klicken Sie auf „Erlauben und aktivieren“, um es erneut zu versuchen.",
     "en": "Permission has not been granted. Click “Allow and turn on” to try again.",
-    "es": "Aún no hay permiso. Pulse «Permitir y activar» para reintentar.",
+    "es": "Aún no hay permiso. Pulsa «Permitir y activar» para reintentar.",
     "fr": "L’autorisation n’a pas été accordée. Cliquez sur «Autoriser et activer» pour réessayer.",
     "zh-Hans": "尚未获得授权。点击“允许并开启”重试。"
   },
@@ -3516,7 +3516,7 @@
   "Режим также блокирует ручной сон. Не убирайте работающий Mac в сумку.": {
     "de": "Auch manueller Ruhezustand wird blockiert. Den laufenden Mac nicht in eine Tasche stecken.",
     "en": "This also blocks manual sleep. Keep the running Mac out of bags.",
-    "es": "También bloquea el reposo manual. No guarde el Mac activo en una bolsa.",
+    "es": "También bloquea el reposo manual. No guardes el Mac activo en una bolsa.",
     "fr": "La veille manuelle est aussi bloquée. Ne rangez pas le Mac actif dans un sac.",
     "zh-Hans": "此模式也会阻止手动睡眠。请勿将运行中的Mac放入包内。"
   },
@@ -3796,7 +3796,7 @@
   "Сон уже отключён другой программой. Сначала выключите её режим без сна.": {
     "de": "Eine andere App hat den Ruhezustand deaktiviert. Schalten Sie zuerst deren Wachmodus aus.",
     "en": "Another app has already disabled sleep. Turn off its keep-awake mode first.",
-    "es": "Otra app ya desactivó el reposo. Desactive primero su modo activo.",
+    "es": "Otra app ya desactivó el reposo. Desactiva primero su modo activo.",
     "fr": "Une autre app a déjà désactivé la veille. Désactivez d’abord son mode actif.",
     "zh-Hans": "其他应用已禁用睡眠。请先关闭该应用的保持唤醒模式。"
   },
