@@ -311,9 +311,12 @@ public enum UsageParser {
             }
         }
         var snapshot = UsageSnapshot(provider: .codex, weekly: weekly, fiveHour: five, fetchedAt: now, source: "Codex CLI")
-        // No window at all in the account bucket (unlimited credits, some team
-        // plans): a known answer, not missing data.
-        if !["primary", "secondary"].contains(where: { bucket[$0] is [String: Any] }) { snapshot.unlimited = true }
+        // No window in the account bucket and the documented unlimited-credits flag
+        // (app-server v2 `CreditsSnapshot.unlimited`): a known answer. Without the
+        // flag (API-key sign-in, a plan name, an empty answer) the limit is unknown.
+        let credits = bucket["credits"] as? [String: Any]
+        let unlimitedCredits = (credits?["unlimited"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false
+        if unlimitedCredits, !["primary", "secondary"].contains(where: { bucket[$0] is [String: Any] }) { snapshot.unlimited = true }
         return snapshot
     }
     public static func claude(_ result: [String: Any], now: Date = Date()) throws -> UsageSnapshot {

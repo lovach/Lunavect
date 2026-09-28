@@ -26,9 +26,29 @@ final class CodexLimitStateTests: XCTestCase {
         XCTAssertEqual(snapshot.connectionQuotaTitle(now: now), "Лимиты получены")
     }
 
-    func testBucketWithoutAnyWindowIsUnlimitedButAMissingBucketStaysUnknown() throws {
-        let noWindows = try UsageParser.codex(decoded(["rateLimitsByLimitId": ["codex": ["limitId": "codex", "planType": "enterprise"]]]), now: now)
-        XCTAssertEqual(noWindows.unlimited, true)
+    /// R1-06: only the documented `credits.unlimited` flag means "no limits". A
+    /// bucket without windows for any other reason (API-key sign-in, a plan name,
+    /// a temporary empty answer) is unknown, never "∞".
+    func testOnlyTheUnlimitedCreditsFlagMeansNoLimits() throws {
+        let unknown: [[String: Any]] = [
+            ["limitId": "codex", "planType": "enterprise"],
+            ["limitId": "codex", "primary": NSNull(), "secondary": NSNull()],
+            ["limitId": "codex", "primary": NSNull(), "credits": ["hasCredits": true, "unlimited": false]],
+            ["limitId": "codex", "credits": ["hasCredits": true, "unlimited": "true"]],
+            ["limitId": "codex", "credits": ["hasCredits": true, "unlimited": 1]],
+        ]
+        for bucket in unknown {
+            let snapshot = try UsageParser.codex(decoded(["rateLimitsByLimitId": ["codex": bucket]]), now: now)
+            XCTAssertNil(snapshot.unlimited, "\(bucket)")
+            XCTAssertEqual(snapshot.status(of: snapshot.weekly, now: now), .unknown, "\(bucket)")
+            let diagnostic = ConnectionDiagnostic(provider: .codex, clientFound: true, signIn: .signedIn, eventsConfigured: true,
+                                                  snapshot: snapshot, sessionIssue: nil, now: now)
+            XCTAssertEqual(diagnostic.state, .waitingForQuota, "\(bucket)")
+        }
+        let explicit = try UsageParser.codex(decoded(["rateLimitsByLimitId": ["codex": ["limitId": "codex", "planType": "enterprise",
+            "credits": ["hasCredits": true, "unlimited": true]]]]), now: now)
+        XCTAssertEqual(explicit.unlimited, true)
+        XCTAssertEqual(explicit.status(of: explicit.weekly, now: now), .unlimited)
         XCTAssertThrowsError(try ClientResponseContract.validateCodexRateLimits(decoded(["rateLimitsByLimitId": ["codex_spark": ["primary": NSNull()]]])),
                              "Another model's bucket is never the main account limit")
     }
