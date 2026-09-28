@@ -8,9 +8,11 @@ public enum SessionIDE: String, Codable, Sendable {
     public static func identify(bundleIdentifier: String) -> SessionIDE? {
         let identifier = bundleIdentifier.lowercased()
         if ["com.microsoft.vscode", "com.microsoft.vscodeinsiders"].contains(identifier) { return .vscode }
-        let products = ["intellij", "intellij.ce", "pycharm", "pycharm.ce", "webstorm", "phpstorm", "goland", "clion", "rider", "rubymine", "datagrip", "rustrover"]
-        if products.contains(where: { identifier == "com.jetbrains." + $0 }) { return .jetbrains }
-        return nil
+        // Every JetBrains IDE product and its EAP build (`com.jetbrains.<product>[-EAP]`),
+        // as the companion accepts them. Toolbox, Gateway and Fleet cannot host it.
+        guard identifier.range(of: #"^com\.jetbrains\.[a-z][a-z0-9]*(\.ce)?(-eap)?\z"#, options: .regularExpression) != nil else { return nil }
+        let product = identifier.dropFirst("com.jetbrains.".count).split(separator: "-").first.map(String.init) ?? ""
+        return ["toolbox", "gateway", "fleet"].contains(product) ? nil : .jetbrains
     }
 
     public var client: SessionClient { self == .vscode ? .vscode : .jetbrains }
@@ -62,6 +64,19 @@ public enum IDEProcessLocation {
                            parentPID: Int32(info.pbi_ppid),
                            executable: String(decoding: bytes.prefix(while: { $0 != 0 }), as: UTF8.self),
                            hasTerminal: info.e_tdev != UInt32.max)
+    }
+
+    /// The product name for messages: CFBundleName of a JetBrains IDE (for example
+    /// "PyCharm CE"), or its bundle folder; VS Code keeps its client title.
+    public static func displayName(_ location: IDESessionLocation) -> String {
+        guard location.editor == .jetbrains else { return location.editor.client.title }
+        let app = URL(fileURLWithPath: location.appPath)
+        if let data = try? Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")),
+           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+           let name = plist["CFBundleName"] as? String, !name.isEmpty, name.count <= 64,
+           !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) { return name }
+        let folder = app.deletingPathExtension().lastPathComponent
+        return folder.isEmpty || folder.count > 64 ? location.editor.client.title : folder
     }
 
     static func bundleIdentifier(_ appPath: String) -> String? {

@@ -190,6 +190,227 @@ final class IDEBridgeTests: XCTestCase {
             } catch { XCTAssertEqual(error as? SessionOpeningError, .ideSessionUnavailable("VS Code")) }
         }
     }
+    // MARK: Navigation policy with fixture endpoints and exchanges
+
+    private final class Calls: @unchecked Sendable {
+        private let lock = OSAllocatedUnfairLock(initialState: [(id: String, action: String, timeout: TimeInterval)]())
+        func record(_ id: String, _ action: String, _ timeout: TimeInterval) { lock.withLock { $0.append((id, action, timeout)) } }
+        var all: [(id: String, action: String, timeout: TimeInterval)] { lock.withLock { $0 } }
+    }
+    private static let appPath = "/Applications/PyCharm.app"
+    private func endpoint(_ state: IDEBridge.Endpoint.State, editor: SessionIDE = .jetbrains, companion: String? = nil) -> IDEBridge.Endpoint {
+        let id = UUID().uuidString
+        let descriptor = IDEBridge.Descriptor(version: 1, id: id, editor: editor, pid: 4242, appPath: Self.appPath,
+                                              bundleIdentifier: "com.jetbrains.pycharm", socketPath: "/fixture/\(id).sock",
+                                              updatedAt: Date().timeIntervalSince1970)
+        return .init(editor: editor, bundleIdentifier: "com.jetbrains.pycharm", appPath: Self.appPath, companion: companion,
+                     state: state, descriptor: state == .incompatible ? nil : descriptor)
+    }
+    private func row() -> AgentSession {
+        var row = AgentSession(provider: .claude, sessionID: UUID().uuidString, title: "Fixture", cwd: "/tmp",
+                               client: .jetbrains, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        row.ideLocation = .init(editor: .jetbrains, bundleIdentifier: "com.jetbrains.pycharm", appPath: Self.appPath,
+                                runtime: .init(pid: 42, startedAtMicroseconds: 1), usesTerminal: true)
+        return row
+    }
+    private func open(_ endpoints: [IDEBridge.Endpoint], calls: Calls = Calls(), activated: Bool = true,
+                      reply: @escaping @Sendable (IDEBridge.Descriptor, String) throws -> IDEBridge.Reply) async throws {
+        let environment = IDEBridge.Environment(
+            endpoints: { endpoints }, ancestry: { _ in [42, 30] },
+            exchange: { descriptor, action, _, timeout, _ in calls.record(descriptor.id, action, timeout); return try reply(descriptor, action) },
+            displayName: { _ in "PyCharm" })
+        try await IDEBridge.open(row(), activateApp: { _ in activated }, openURL: { _, _ in XCTFail("JetBrains has no callback"); return false },
+                                 environment: environment)
+    }
+
+    /// N-04: a busy editor that does not answer the probe is a timeout, not a missing session.
+    func testBusyOrSlowProbeIsReportedAsTimeoutWithinAFiveSecondBudget() async throws {
+        for failure in ["timeout", "busy"] {
+            let calls = Calls()
+            do {
+                try await open([endpoint(.live)], calls: calls) { _, action in
+                    guard action == "probe" else { XCTFail("No open without a match"); return .init(status: "focused") }
+                    if failure == "timeout" { throw SessionError.timeout }
+                    return .init(status: "busy")
+                }
+                XCTFail("Expected a failure")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, .ideTimedOut("PyCharm"), failure) }
+            XCTAssertEqual(calls.all.map(\.timeout), [5], "\(failure): probes may take up to five seconds")
+        }
+        do {
+            try await open([endpoint(.live)]) { _, _ in .init(status: "notFound") }
+            XCTFail("Expected a failure")
+        } catch { XCTAssertEqual(error as? SessionOpeningError, .ideSessionUnavailable("PyCharm"), "An answer that it is not there stays distinct") }
+    }
+
+    /// N-05 / T-20 / §4 items 11 and 12: installed-but-unreachable and incompatible
+    /// companions are not reported as missing.
+    func testUnreachableIncompatibleAndMissingCompanionsHaveDistinctMessages() async throws {
+        let cases: [([IDEBridge.Endpoint], SessionOpeningError)] = [
+            ([], .ideBridgeMissing("PyCharm")),
+            ([endpoint(.unreachable)], .ideBridgeUnresponsive("PyCharm")),
+            ([endpoint(.incompatible)], .ideCompanionIncompatible("PyCharm")),
+            ([endpoint(.unreachable), endpoint(.incompatible)], .ideCompanionIncompatible("PyCharm"))
+        ]
+        for (endpoints, expected) in cases {
+            let calls = Calls()
+            do {
+                try await open(endpoints, calls: calls) { _, _ in XCTFail("Nothing reachable to ask"); return .init(status: "matched") }
+                XCTFail("Expected \(expected)")
+            } catch { XCTAssertEqual(error as? SessionOpeningError, expected) }
+            XCTAssertTrue(calls.all.isEmpty)
+        }
+        // After sleep the heartbeat can be late while the socket still answers.
+        let calls = Calls()
+        try await open([endpoint(.stale)], calls: calls) { _, action in .init(status: action == "probe" ? "matched" : "focused") }
+        XCTAssertEqual(calls.all.map(\.action), ["probe", "open"])
+        do {
+            try await open([endpoint(.stale)]) { _, _ in throw SessionError.unavailable }
+            XCTFail("Expected a failure")
+        } catch { XCTAssertEqual(error as? SessionOpeningError, .ideBridgeUnresponsive("PyCharm"), "A socket that refuses is unresponsive") }
+    }
+
+    /// N-11: macOS refusing to activate the IDE is not a missing session.
+    func testJetBrainsActivationFailureHasItsOwnMessage() async throws {
+        let calls = Calls()
+        do {
+            try await open([endpoint(.live)], calls: calls, activated: false) { _, _ in .init(status: "matched") }
+            XCTFail("Expected a failure")
+        } catch { XCTAssertEqual(error as? SessionOpeningError, .ideActivationFailed("PyCharm")) }
+        XCTAssertEqual(calls.all.map(\.action), ["probe"], "No focus request after a refused activation")
+    }
+
+    /// §4 item 9: two windows with the same project never pick one; separate
+    /// projects route the open request only to the matching window.
+    func testAmbiguousWindowsFailAndSeparateProjectsRouteToTheirWindow() async throws {
+        let first = endpoint(.live), second = endpoint(.live)
+        do {
+            try await open([first, second]) { _, _ in .init(status: "matched") }
+            XCTFail("Two matching windows are ambiguous")
+        } catch { XCTAssertEqual(error as? SessionOpeningError, .ideAmbiguous("PyCharm")) }
+        let calls = Calls()
+        let target = try XCTUnwrap(second.descriptor?.id)
+        try await open([first, second], calls: calls) { descriptor, action in
+            .init(status: descriptor.id == target ? (action == "probe" ? "matched" : "focused") : "notFound")
+        }
+        XCTAssertEqual(calls.all.filter { $0.action == "open" }.map(\.id), [target])
+    }
+
+    /// N-10: descriptors left by forced quits are removed after a day; nothing
+    /// that is not a Lunavect descriptor, or is still recent, is touched.
+    func testDescriptorsLeftByForcedQuitsArePrunedAfterADay() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date()
+        func write(_ name: String, _ data: Data, age: TimeInterval, mode: Int = 0o600) throws -> URL {
+            let url = root.appendingPathComponent(name)
+            try data.write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: mode, .modificationDate: now.addingTimeInterval(-age)], ofItemAtPath: url.path)
+            return url
+        }
+        func record(_ id: String) throws -> Data {
+            try JSONEncoder().encode(IDEBridge.Descriptor(version: 1, id: id, editor: .vscode, pid: 999_999, appPath: "/Applications/Visual Studio Code.app",
+                                                          bundleIdentifier: "com.microsoft.VSCode", socketPath: "/tmp/lunavect-ide-\(getuid())/\(id).sock",
+                                                          updatedAt: now.addingTimeInterval(-3 * 86_400).timeIntervalSince1970))
+        }
+        let old = UUID().uuidString, recent = UUID().uuidString, open = UUID().uuidString, foreign = UUID().uuidString
+        let removed = [try write(old + ".json", record(old), age: 2 * 86_400),
+                       try write(old + ".json.tmp", record(old), age: 2 * 86_400), try write(old + ".tmp", record(old), age: 2 * 86_400)]
+        let kept = [try write(recent + ".json", record(recent), age: 3_600),
+                    try write("notes.json", record(old), age: 2 * 86_400),
+                    try write(open + ".json", record(open), age: 2 * 86_400, mode: 0o644),
+                    try write(foreign + ".json", Data(#"{"theme":"dark"}"#.utf8), age: 2 * 86_400)]
+        XCTAssertTrue(IDEBridge.descriptors(at: root, now: now).isEmpty)
+        for file in removed { XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), file.lastPathComponent) }
+        for file in kept { XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), file.lastPathComponent) }
+        XCTAssertTrue(IDEBridge.descriptors(at: root, now: now).isEmpty, "A second reader, such as another app copy, is harmless")
+    }
+
+    /// N-05 / N-09 / N-16 / T-20 / §4 items 10-12: descriptors are classified for a
+    /// running editor: live, late heartbeat, missing socket, other protocol version.
+    /// Installed 0.1.1 descriptors (no version field, /tmp sockets) stay live.
+    func testScanClassifiesEndpointsOfRunningEditors() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+        let records = root.appendingPathComponent("IDEBridge"), app = root.appendingPathComponent("Fixture.app")
+        try FileManager.default.createDirectory(at: records, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("Link.app")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: app)
+        let sockets = "/tmp/lunavect-test-" + UUID().uuidString.prefix(8)
+        try FileManager.default.createDirectory(atPath: sockets, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(atPath: sockets) }
+        let now = Date()
+        func socket(_ id: String) throws {
+            let listener = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            defer { Darwin.close(listener) }
+            var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX); address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: Array((sockets + "/" + id + ".sock").utf8) + [0]) }
+            let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+            guard bound == 0, chmod(sockets + "/" + id + ".sock", 0o600) == 0 else { throw POSIXError(.EIO) }
+        }
+        func write(_ object: [String: Any]) throws -> String {
+            let id = object["id"] as! String
+            let file = records.appendingPathComponent(id + ".json")
+            try JSONSerialization.data(withJSONObject: object).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            return id
+        }
+        func record(pid: Int = 4242, socket directory: String = sockets, age: TimeInterval = 0, appPath: String = app.path) -> [String: Any] {
+            let id = UUID().uuidString
+            return ["version": 1, "id": id, "editor": "vscode", "pid": pid, "appPath": appPath, "bundleIdentifier": "com.microsoft.VSCode",
+                    "socketPath": directory + "/" + id + ".sock", "updatedAt": now.addingTimeInterval(-age).timeIntervalSince1970]
+        }
+        var current = record(); current["companion"] = "0.1.2"
+        let live = try write(current); try socket(live)
+        let legacy = try write(record(appPath: link.path)); try socket(legacy)
+        let late = try write(record(age: 200)); try socket(late)
+        let missing = try write(record())
+        var future = record(); future["version"] = 2; future["socketPath"] = "/elsewhere"; let incompatible = try write(future)
+        let foreign = try write(record(socket: "/tmp/other")); try? socket(foreign)
+        let dead = try write(record(pid: 999)); try socket(dead)
+        let endpoints = IDEBridge.scan(at: records, now: now, process: { pid in
+            pid == 4242 ? .init(identity: .init(pid: 4242, startedAtMicroseconds: 1), parentPID: 1,
+                                executable: app.path + "/Contents/MacOS/Electron", hasTerminal: false) : nil
+        }, bundle: { $0 == app.path ? "com.microsoft.VSCode" : nil }, socketDirectories: [sockets])
+        func state(_ id: String) -> IDEBridge.Endpoint.State? {
+            endpoints.first { $0.descriptor?.id == id || ($0.descriptor == nil && id == incompatible) }?.state
+        }
+        XCTAssertEqual(state(live), .live)
+        XCTAssertEqual(endpoints.first { $0.descriptor?.id == live }?.companion, "0.1.2")
+        XCTAssertEqual(state(legacy), .live, "An installed 0.1.1 companion keeps working")
+        XCTAssertNil(endpoints.first { $0.descriptor?.id == legacy }?.companion)
+        XCTAssertEqual(endpoints.first { $0.descriptor?.id == legacy }?.appPath, app.path, "Symlinked install paths compare resolved")
+        XCTAssertEqual(state(late), .stale)
+        XCTAssertEqual(state(missing), .unreachable)
+        XCTAssertEqual(endpoints.filter { $0.state == .incompatible }.count, 1)
+        XCTAssertNil(endpoints.first { $0.descriptor?.id == foreign }, "Sockets outside the private directories are never used")
+        XCTAssertNil(endpoints.first { $0.descriptor?.id == dead }, "A record of an exited editor is not an endpoint")
+        XCTAssertEqual(endpoints.count, 5)
+    }
+
+    func testCompanionSocketDirectoriesArePrivateAndIncludeInstalledCompanions() {
+        let directories = IDEBridge.socketDirectories
+        XCTAssertEqual(directories.first, "/tmp/lunavect-ide-\(getuid())", "Companions 0.1.0 and 0.1.1 keep working")
+        let temporary = directories.last ?? ""
+        XCTAssertTrue(temporary.hasSuffix("/T/lunavect"), temporary)
+        XCTAssertLessThan((temporary + "/" + UUID().uuidString + ".sock").utf8.count, 104, "Fits sockaddr_un with its terminator")
+    }
+
+    /// N-09 / §4 item 11: versions reported by companions against the bundled ones.
+    func testCompanionUpdateComparesInstalledAndBundledVersions() {
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: nil, bundled: "0.1.2"), .available(installed: nil, bundled: "0.1.2"),
+                       "0.1.0 and 0.1.1 report no version")
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: nil, bundled: "0.1.1"), .current, "Cannot tell 0.1.0 from 0.1.1")
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: "0.1.2", bundled: "0.1.10"), .available(installed: "0.1.2", bundled: "0.1.10"))
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: "0.1.2", bundled: "0.1.2"), .current)
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: "0.2.0", bundled: "0.1.2"), .current, "A newer companion is not downgraded")
+        XCTAssertEqual(IDEBridge.companionUpdate(installed: "0.1.2", bundled: nil), .current)
+        let manifest = Data(#"{"companionVersion":{"vscode":"0.1.2","jetbrains":"0.1.1","other":"1.0","bad":"x"},"version":1}"#.utf8)
+        XCTAssertEqual(IDEBridge.bundledCompanionVersions(manifest: manifest), [.vscode: "0.1.2", .jetbrains: "0.1.1"])
+        XCTAssertEqual(IDEBridge.bundledCompanionVersions(manifest: Data(#"{"version":1}"#.utf8)), [:])
+    }
+
     func testEndpointIdentityRejectsForeignPathsAndStaleRecords() throws {
         let now = Date()
         let id = UUID().uuidString
@@ -208,6 +429,19 @@ final class IDEBridgeTests: XCTestCase {
         object["updatedAt"] = now.timeIntervalSince1970
         object["bundleIdentifier"] = "com.apple.Terminal"
         XCTAssertFalse(IDEBridge.valid(try descriptor(), now: now))
+        object["bundleIdentifier"] = "com.microsoft.VSCode"
+        object["version"] = 2
+        XCTAssertFalse(IDEBridge.valid(try descriptor(), now: now), "T-20: another protocol version is never used")
+        object["version"] = 1
+        object["companion"] = "0.1.2"
+        XCTAssertEqual(try descriptor().companion, "0.1.2")
+        XCTAssertTrue(IDEBridge.valid(try descriptor(), now: now))
+        object["companion"] = "0.1.2; rm"
+        XCTAssertFalse(IDEBridge.valid(try descriptor(), now: now), "Only a plain version is shown in settings")
+        object["companion"] = nil
+        let temporary = IDEBridge.socketDirectories.last ?? ""
+        object["socketPath"] = temporary + "/\(id).sock"
+        XCTAssertTrue(IDEBridge.valid(try descriptor(), now: now), "Companions from 0.1.2 use the private temporary directory")
     }
 
     func testCallbackCannotOpenFilesCommandsOrAnotherExtension() {

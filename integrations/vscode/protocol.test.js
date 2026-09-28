@@ -9,7 +9,7 @@ const vm = require('node:vm');
 
 test('private socket protocol rejects invalid requests and requires the pending window callback',
   { skip: process.platform !== 'darwin' }, async () => {
-    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'lunavect-protocol-'));
+    const home = await fs.mkdtemp('/tmp/lv-');
     let handler, uri, serverSocket, focused = 0;
     const api = { env: { appRoot: '/Applications/Visual Studio Code.app/Contents/Resources/app', uriScheme: 'vscode', asExternalUri: async value => value },
       Uri: { parse: text => { uri = new URL(text); return { toString: () => text }; } },
@@ -19,7 +19,7 @@ test('private socket protocol rejects invalid requests and requires the pending 
     const source = await fs.readFile(path.join(__dirname, 'extension.js'), 'utf8');
     const module = { exports: {} };
     const localNet = { ...net, createServer: callback => net.createServer(socket => { serverSocket = socket; callback(socket); }) };
-    const load = name => name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => home } : name === 'node:net' ? localNet : require(name);
+    const load = name => name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => home, tmpdir: () => home } : name === 'node:net' ? localNet : require(name);
     vm.runInThisContext('(function(require,module){' + source + '\n})')(load, module);
     try {
       await module.exports.activate({ subscriptions: [] });
@@ -80,7 +80,7 @@ test('private socket protocol rejects invalid requests and requires the pending 
 for (const phase of ['startup', 'heartbeat']) {
 test(`deactivation during ${phase} leaves no descriptor or timer behind`,
   { skip: process.platform !== 'darwin' }, async () => {
-    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'lunavect-shutdown-'));
+    const home = await fs.mkdtemp('/tmp/lv-');
     let heartbeat, unblock, publishing, held = false, intervals = 0;
     let markPublishing;
     const hasStarted = new Promise(resolve => { markPublishing = resolve; });
@@ -95,7 +95,7 @@ test(`deactivation during ${phase} leaves no descriptor or timer behind`,
       window: { registerUriHandler: () => ({ dispose() {} }), terminals: [] } };
     const source = await fs.readFile(path.join(__dirname, 'extension.js'), 'utf8');
     const module = { exports: {} };
-    const load = name => name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => home } :
+    const load = name => name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => home, tmpdir: () => home } :
       name === 'node:fs/promises' ? customFS : require(name);
     vm.runInThisContext('(function(require,module,setInterval,clearInterval){' + source + '\n})')(
       load, module, callback => { heartbeat = callback; intervals++; return 1; }, handle => { if (handle !== undefined) intervals--; });
@@ -127,7 +127,7 @@ test(`deactivation during ${phase} leaves no descriptor or timer behind`,
 
 test('a slowly arriving incomplete request cannot keep a connection beyond its overall budget',
   { skip: process.platform !== 'darwin' }, async () => {
-    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'lunavect-slow-peer-'));
+    const home = await fs.mkdtemp('/tmp/lv-');
     const api = { env: { appRoot: '/Applications/Visual Studio Code.app/Contents/Resources/app', uriScheme: 'vscode' },
       window: { registerUriHandler: () => ({ dispose() {} }), terminals: [] } };
     const source = await fs.readFile(path.join(__dirname, 'extension.js'), 'utf8');
@@ -140,7 +140,7 @@ test('a slowly arriving incomplete request cannot keep a connection beyond its o
       socket.setTimeout = (ms, handler) => idle(scale(ms), handler);
       callback(socket);
     }); } };
-    const load = name => name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => home } :
+    const load = name => name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => home, tmpdir: () => home } :
       name === 'node:net' ? localNet : require(name);
     vm.runInThisContext('(function(require,module,setTimeout){' + source + '\n})')(
       load, module, (callback, ms) => setTimeout(callback, scale(ms)));
@@ -169,4 +169,110 @@ test('a slowly arriving incomplete request cannot keep a connection beyond its o
       clearInterval(trickle); clearTimeout(watchdog); socket?.destroy();
       await module.exports.deactivate(); await fs.rm(home, { recursive: true, force: true });
     }
+  });
+
+// A short private temporary directory keeps socket paths within sockaddr_un and
+// away from the real companion folders.
+async function loadCompanion({ intervals } = {}) {
+  const home = await fs.mkdtemp('/tmp/lv-');
+  const warnings = [];
+  const api = { env: { appRoot: '/Applications/Visual Studio Code.app/Contents/Resources/app', uriScheme: 'vscode', asExternalUri: async value => value },
+    Uri: { parse: text => ({ toString: () => text }) },
+    window: { state: { focused: true }, registerUriHandler: () => ({ dispose() {} }), terminals: [{ processId: Promise.resolve(12345), show() {} }],
+      showWarningMessage: async message => { warnings.push(message); } } };
+  const source = await fs.readFile(path.join(__dirname, 'extension.js'), 'utf8');
+  const module = { exports: {} };
+  const load = name => name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => home, tmpdir: () => home } : require(name);
+  const timers = intervals ?? { setInterval, clearInterval };
+  vm.runInThisContext('(function(require,module,setInterval,clearInterval){' + source + '\n})')(load, module, timers.setInterval, timers.clearInterval);
+  const cleanup = async () => { await module.exports.deactivate(); await fs.rm(home, { recursive: true, force: true }); };
+  return { home, api, module, warnings, cleanup };
+}
+async function readDescriptor(home) {
+  const directory = path.join(home, 'Library/Application Support/Lunavect/IDEBridge');
+  const [name] = (await fs.readdir(directory)).filter(file => file.endsWith('.json'));
+  return name ? JSON.parse(await fs.readFile(path.join(directory, name), 'utf8')) : undefined;
+}
+function probe(socketPath) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(socketPath); let buffer = '';
+    socket.setTimeout(1000, () => { socket.destroy(); reject(Error('fixture timeout')); });
+    socket.on('error', reject);
+    socket.on('connect', () => socket.write(JSON.stringify({ version: 1, action: 'probe', target: { kind: 'terminal', ancestors: [12345] } }) + '\n'));
+    socket.on('data', data => { buffer += data; if (buffer.includes('\n')) { socket.end(); resolve(JSON.parse(buffer.slice(0, buffer.indexOf('\n')))); } });
+  });
+}
+
+test('the descriptor names the companion version and the socket stays in the private temporary directory (N-09, N-16)',
+  { skip: process.platform !== 'darwin' }, async () => {
+    const companion = await loadCompanion();
+    try {
+      await companion.module.exports.activate({ subscriptions: [] });
+      const descriptor = await readDescriptor(companion.home);
+      assert.equal(descriptor.version, 1, 'The descriptor protocol stays 1: the new field is optional');
+      assert.equal(descriptor.companion, require('./package.json').version);
+      assert.equal(path.dirname(descriptor.socketPath), path.join(companion.home, 'lunavect'));
+      assert.equal((await fs.stat(path.dirname(descriptor.socketPath))).mode & 0o777, 0o700);
+      assert.equal((await fs.stat(descriptor.socketPath)).mode & 0o777, 0o600);
+      assert.ok(Buffer.byteLength(descriptor.socketPath) <= 103);
+      assert.equal((await probe(descriptor.socketPath)).status, 'matched');
+      assert.deepEqual(companion.warnings, []);
+    } finally { await companion.cleanup(); }
+  });
+
+test('a heartbeat recreates a deleted socket directory and serves again (N-05)',
+  { skip: process.platform !== 'darwin' }, async () => {
+    let heartbeat;
+    const companion = await loadCompanion({ intervals: { setInterval: callback => { heartbeat = callback; return 1; }, clearInterval: () => {} } });
+    try {
+      await companion.module.exports.activate({ subscriptions: [] });
+      const descriptor = await readDescriptor(companion.home);
+      // Never remove a directory outside this fixture (older code used the real /tmp folder).
+      assert.ok(descriptor.socketPath.startsWith(companion.home + '/'), 'The socket must live in the fixture directory');
+      await fs.rm(path.dirname(descriptor.socketPath), { recursive: true, force: true });
+      await assert.rejects(probe(descriptor.socketPath));
+      await heartbeat();
+      assert.equal((await probe(descriptor.socketPath)).status, 'matched', 'The endpoint is back without reloading the window');
+      assert.equal((await readDescriptor(companion.home)).socketPath, descriptor.socketPath);
+    } finally { await companion.cleanup(); }
+  });
+
+test('an unsafe socket directory is reported in the editor instead of failing silently (N-16)',
+  { skip: process.platform !== 'darwin' }, async () => {
+    const companion = await loadCompanion();
+    try {
+      await fs.mkdir(path.join(companion.home, 'elsewhere'));
+      await fs.symlink(path.join(companion.home, 'elsewhere'), path.join(companion.home, 'lunavect'));
+      await companion.module.exports.activate({ subscriptions: [] });
+      assert.equal(companion.warnings.length, 1);
+      assert.match(companion.warnings[0], /Lunavect/);
+      assert.equal(await readDescriptor(companion.home), undefined, 'No endpoint is advertised');
+    } finally { await companion.cleanup(); }
+  });
+
+test('at most eight connections are served at once; a freed slot is reused (§4 item 13)',
+  { skip: process.platform !== 'darwin' }, async () => {
+    const companion = await loadCompanion();
+    const held = [];
+    try {
+      await companion.module.exports.activate({ subscriptions: [] });
+      const { socketPath } = await readDescriptor(companion.home);
+      for (let index = 0; index < 8; index++) {
+        const socket = net.connect(socketPath);
+        await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
+        socket.write(' '); // an unfinished request keeps the slot
+        held.push(socket);
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const refused = await new Promise(resolve => {
+        const socket = net.connect(socketPath);
+        socket.on('error', () => resolve(true)); socket.on('close', () => resolve(true));
+        socket.on('data', () => resolve(false));
+        socket.on('connect', () => socket.write(JSON.stringify({ version: 1, action: 'probe', target: { kind: 'terminal', ancestors: [12345] } }) + '\n'));
+      });
+      assert.equal(refused, true, 'A ninth connection is closed without an answer');
+      held.shift().destroy();
+      await new Promise(resolve => setTimeout(resolve, 50));
+      assert.equal((await probe(socketPath)).status, 'matched');
+    } finally { for (const socket of held) socket.destroy(); await companion.cleanup(); }
   });

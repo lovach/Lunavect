@@ -756,21 +756,20 @@ enum SessionNavigation {
             catch { throw SessionOpeningError.launchFailed(session.client) }
             return
         }
+        // Editor sessions returned above: every VS Code or JetBrains row uses its companion.
         let url: URL?
         if session.provider == .codex { url = session.codexURL }
-        else if session.client == .vscode { url = session.vscodeURL }
         else {
             let records = await Task.detached { ClaudeSessionMetadata.records(for: [session.sessionID]) }.value
             url = records[session.sessionID].flatMap { session.claudeDesktopURL(desktopID: $0.desktopID) }
         }
-        guard let url else { throw session.provider == .claude && session.client != .vscode ? SessionOpeningError.missingDesktopLink : SessionOpeningError.invalidID }
-        let clientName = session.client == .vscode ? "VS Code" : session.provider.title
-        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { throw SessionOpeningError.missingClient(clientName) }
+        guard let url else { throw session.provider == .claude ? SessionOpeningError.missingDesktopLink : SessionOpeningError.invalidID }
+        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { throw SessionOpeningError.missingClient(session.provider.title) }
         guard NSWorkspace.shared.open(url) else { throw SessionOpeningError.launchFailed(session.client) }
     }
     @MainActor static func focusIDE(_ session: AgentSession) async throws {
         try await IDEBridge.open(session, activateApp: { pid in
-            await MainActor.run { NSRunningApplication(processIdentifier: pid)?.activate() ?? false }
+            await MainActor.run { activateEditor(pid) }
         }) { url, app in
             do {
                 _ = try await NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
@@ -778,36 +777,30 @@ enum SessionNavigation {
             } catch { return false }
         }
     }
+    /// Activation is cooperative on macOS 14 and later: yield to the editor first.
+    /// From a notification Lunavect itself may not be active, so the first request
+    /// can be refused; a request on behalf of the current app is the second try.
+    @MainActor static func activateEditor(_ pid: Int32) -> Bool {
+        guard let editor = NSRunningApplication(processIdentifier: pid) else { return false }
+        NSApp.yieldActivation(to: editor)
+        if editor.activate() { return true }
+        return editor.activate(from: NSRunningApplication.current, options: [])
+    }
     /// A live CLI session stays where it runs: bring its own tab to the front.
+    /// The policy lives in `TerminalLocation.focusSession`; only the running-app check needs AppKit.
     @MainActor static func focusTerminal(_ session: AgentSession) async throws -> Bool {
         let log = Logger(subsystem: "com.weekleft.app", category: "navigation")
-        guard let target = TerminalLocation.focusTarget(for: session) else {
-            log.notice("terminal focus unavailable: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
-            throw SessionOpeningError.terminalTabUnavailable
+        let environment = TerminalFocusEnvironment(isRunning: { bundle in
+            await MainActor.run { !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty }
+        })
+        do {
+            let focused = try await TerminalLocation.focusSession(session, environment: environment)
+            log.notice("terminal focus \(focused ? "succeeded" : "found no tab", privacy: .public)")
+            return focused
+        } catch {
+            log.notice("terminal focus failed: tty=\(session.terminalTTY ?? "nil", privacy: .public) app=\(session.terminalApp ?? "nil", privacy: .public)")
+            throw error
         }
-        // A root-owned login may hide the host's name. Match the exact device
-        // against running supported terminals; never launch an empty terminal.
-        let apps = target.app.isEmpty ? ["Terminal", "iTerm2"] : [target.app]
-        var failure: SessionOpeningError?
-        let deadline = ProcessInfo.processInfo.systemUptime + Double(TerminalLocation.focusTimeout)
-        for app in apps {
-            try Task.checkCancellation()
-            guard let bundle = TerminalLocation.bundleIdentifier(forApp: app),
-                  !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty else { continue }
-            do {
-                if try await TerminalLocation.focus(tty: target.tty, app: app,
-                                                    timeout: deadline - ProcessInfo.processInfo.systemUptime) {
-                    log.notice("terminal focus succeeded")
-                    return true
-                }
-            } catch {
-                try Task.checkCancellation()
-                if error is CancellationError { throw error }
-                log.notice("terminal focus failed")
-                failure = failure ?? (error as? SessionOpeningError) ?? .terminalFocusFailed(app)
-            }
-        }
-        throw failure ?? SessionOpeningError.terminalTabUnavailable
     }
     @MainActor static func copy(_ text: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
