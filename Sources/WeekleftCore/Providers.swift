@@ -68,14 +68,22 @@ public enum CodexProvider {
 /// app-server, so both run when the window state calls for it, never on a fixed
 /// cadence (docs/connections.md, "When limits are refreshed").
 ///
-/// - An exhausted window with a future reset is not asked about before the reset.
-/// - After a reset one confirming request runs once the grace has passed.
+/// - While any window is used up with a future reset nothing is asked, not even
+///   about the other window's passed reset: no request is possible, so nothing
+///   can change before that reset.
+/// - After a reset one confirming request runs once the grace has passed. An
+///   answer that still shows the passed reset is not a confirmation: the next one
+///   follows the failure backoff.
 /// - A verified observation is reused for 15 minutes while sessions are active
 ///   (an event in the last hour) and for an hour otherwise.
 /// - A finished response (session event) asks after a quiet debounce when the
 ///   observation is older than two minutes.
-/// - Failures back off 5, 10, 20, 40, then 60 minutes; wake and a restored
-///   network start over. An explicit refresh asks at most once per 30 seconds.
+/// - Failures back off 5, 10, 20, 40, then 60 minutes. Wake and a restored
+///   network start over only for a transient cause; a cause the user has to
+///   change (trust, sign-in, billing, format) waits for an explicit refresh or a
+///   changed connection. Claude's "limit reached" pauses until the earliest known
+///   reset. An answer without any known window backs off like a failure. An
+///   explicit refresh asks at most once per 30 seconds.
 public struct QuotaRefreshPolicy: Sendable {
     public enum Trigger: String, Sendable { case launch, timer, sessionEvent, wake, networkRestored, resetDue, manual }
     public struct Timing: Sendable, Equatable {
@@ -95,6 +103,10 @@ public struct QuotaRefreshPolicy: Sendable {
         var lastEvent: Date?
         var failures = 0
         var lastFailure: Date?
+        /// Wake or a restored network may have removed the cause of the last failure.
+        var transientFailure = false
+        /// The limit is reached: no automatic request before this moment.
+        var pausedUntil: Date?
     }
     public let timing: Timing
     private var states: [ProviderID: ProviderState] = [:]
@@ -107,22 +119,23 @@ public struct QuotaRefreshPolicy: Sendable {
             let since = now.timeIntervalSince(last)
             return since < 0 || since >= timing.manualMinimumInterval
         }
-        if state.failures > 0, let failed = state.lastFailure, !timing.backoff.isEmpty {
-            let since = now.timeIntervalSince(failed)
-            if since >= 0 && since < timing.backoff[min(state.failures, timing.backoff.count) - 1] { return false }
-        }
-        guard let snapshot, let fetchedAt = snapshot.fetchedAt, snapshot.hasQuota || snapshot.unlimited == true else { return true }
+        if let paused = state.pausedUntil, now < paused { return false }
+        if let retry = retryDate(state), let failed = state.lastFailure, now >= failed, now < retry { return false }
+        guard let snapshot, snapshot.fetchedAt != nil, snapshot.hasQuota || snapshot.unlimited == true else { return true }
         let windows = [snapshot.weekly, snapshot.fiveHour].compactMap { $0 }
-        let grace = snapshot.resetGrace
-        // A reset passed after the observation: confirm the new window once the
-        // grace (minute rounding of the CLI) has passed; failures then back off.
-        if let reset = windows.compactMap(\.resetsAt).filter({ $0 <= now && fetchedAt < $0.addingTimeInterval(grace) }).min() {
-            return now.timeIntervalSince(reset) >= grace
-        }
-        // Usage within a window never decreases: 0 % remains until the reset.
+        // Usage within a window never decreases, and no request is possible while
+        // a window is used up: nothing changes before its reset, including another
+        // window whose reset has passed (both are confirmed together afterwards).
         if windows.contains(where: { $0.remaining < 1 && ($0.resetsAt.map { $0 > now } ?? false) }) { return false }
+        // A passed reset: the saved values belong to the previous window, also when
+        // an answer after the reset still showed it. Confirm the new windows once the
+        // grace (minute rounding of the CLI) after the latest passed reset is over;
+        // failures then back off.
+        if let reset = windows.compactMap(\.resetsAt).filter({ $0 <= now }).max() {
+            return now.timeIntervalSince(reset) >= snapshot.resetGrace
+        }
         // statusLine has no server observation time; only a probe verifies the value.
-        guard let verified = snapshot.freshnessVerified ? fetchedAt : state.lastVerified else { return true }
+        guard let verified = snapshot.freshnessVerified ? snapshot.fetchedAt : state.lastVerified else { return true }
         let age = now.timeIntervalSince(verified)
         if age < 0 { return true }
         if trigger == .sessionEvent { return age > timing.eventMinimumAge }
@@ -134,28 +147,75 @@ public struct QuotaRefreshPolicy: Sendable {
         let active = state.lastEvent.map { let since = now.timeIntervalSince($0); return since >= 0 && since <= timing.activityWindow } ?? false
         return active && !unstarted && snapshot.unlimited != true ? timing.activeInterval : timing.idleInterval
     }
+    /// The end of the current backoff step, if a failure is being backed off.
+    private func retryDate(_ state: ProviderState) -> Date? {
+        guard state.failures > 0, let failed = state.lastFailure, !timing.backoff.isEmpty else { return nil }
+        return failed.addingTimeInterval(timing.backoff[min(state.failures, timing.backoff.count) - 1])
+    }
     public mutating func noteEvent(_ provider: ProviderID, at date: Date) {
         let previous = states[provider]?.lastEvent ?? .distantPast
         states[provider, default: ProviderState()].lastEvent = max(previous, date)
     }
-    /// A request finished. A snapshot carrying an issue is a failure that keeps the old values.
-    public mutating func record(_ provider: ProviderID, snapshot: UsageSnapshot?, succeeded: Bool, at now: Date) {
+    /// A request finished. A snapshot carrying an issue is a failure that keeps the
+    /// old values; `reason` is its typed cause when known. On a failure `snapshot`
+    /// is the observation the app still shows (its resets bound a "limit reached" pause).
+    public mutating func record(_ provider: ProviderID, snapshot: UsageSnapshot?, succeeded: Bool,
+                                reason: ClientIntegrationIssue.Reason? = nil, at now: Date) {
         var state = states[provider] ?? ProviderState()
         state.lastCompleted = now
+        var succeeded = succeeded, reason = reason
+        if succeeded, let snapshot, let observed = snapshot.fetchedAt {
+            if !snapshot.hasQuota && snapshot.unlimited != true {
+                // No window Lunavect knows and no explicit "unlimited": unknown data.
+                succeeded = false; reason = .waitingForData
+            } else if [snapshot.weekly, snapshot.fiveHour].contains(where: { ($0?.resetsAt).map { $0 <= observed } ?? false }) {
+                // Still the window whose reset has passed: not the new window's first data.
+                succeeded = false; reason = .staleData
+            }
+        }
         if succeeded {
-            state.failures = 0; state.lastFailure = nil
+            state.failures = 0; state.lastFailure = nil; state.transientFailure = false; state.pausedUntil = nil
             if let snapshot, snapshot.freshnessVerified, let fetchedAt = snapshot.fetchedAt { state.lastVerified = fetchedAt }
         } else {
             state.failures += 1; state.lastFailure = now
+            state.transientFailure = reason.map(Self.isTransient) ?? true
+            state.pausedUntil = nil
+            if reason == .limitReached {
+                // Nothing changes before a reset. The binding window is not named, so the
+                // earliest known reset is the first moment the limit may have lifted.
+                let reset = [snapshot?.weekly, snapshot?.fiveHour].compactMap { $0?.resetsAt }.filter { $0 > now }.min()
+                state.pausedUntil = reset.map { $0.addingTimeInterval(snapshot?.resetGrace ?? 0) }
+                    ?? now.addingTimeInterval(timing.backoff.last ?? timing.idleInterval)
+            }
         }
         states[provider] = state
     }
-    /// Wake or a restored network may have removed the cause of earlier failures.
+    /// Causes that wake or a restored network may have removed: the network, a
+    /// timeout, the client's own usage request or a window not loaded yet. An
+    /// unknown cause counts as one. Trust, sign-in, billing, format and a reached
+    /// limit wait for an explicit refresh or a changed connection.
+    static func isTransient(_ reason: ClientIntegrationIssue.Reason) -> Bool {
+        [.timedOut, .usageFetchFailed, .sourceUnavailable, .staleData].contains(reason)
+    }
+    /// Wake or a restored network may have removed a transient cause of earlier failures.
     public mutating func resetBackoff() {
-        for provider in states.keys { states[provider]?.failures = 0; states[provider]?.lastFailure = nil }
+        for provider in states.keys where states[provider]?.transientFailure == true {
+            states[provider]?.failures = 0; states[provider]?.lastFailure = nil
+        }
     }
     /// A changed client path or connection: earlier results are not about it.
     public mutating func forget(_ provider: ProviderID) { states[provider] = nil }
+    /// The next moment an automatic request may become due without any other
+    /// trigger: the earliest future reset plus its grace, or, while a passed reset
+    /// is still unconfirmed, the end of the provider's backoff step or pause.
+    public func nextCheck(_ snapshots: [UsageSnapshot], now: Date) -> Date? {
+        var dates = Self.nextResetCheck(snapshots, now: now).map { [$0] } ?? []
+        for snapshot in snapshots where [snapshot.weekly, snapshot.fiveHour].contains(where: { ($0?.resetsAt).map { $0 <= now } ?? false }) {
+            guard let state = states[snapshot.provider] else { continue }
+            dates += [retryDate(state), state.pausedUntil].compactMap { $0 }
+        }
+        return dates.filter { $0 > now }.min()
+    }
     /// The earliest future reset plus its grace, for a one-shot confirming request.
     public static func nextResetCheck(_ snapshots: [UsageSnapshot], now: Date) -> Date? {
         snapshots.flatMap { snapshot in

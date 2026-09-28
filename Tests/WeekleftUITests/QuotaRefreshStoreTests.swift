@@ -128,12 +128,15 @@ import XCTest
         XCTAssertEqual(h.probes.count, 1)
     }
 
-    // Q-01 / 01-quota.md §6 п.6, matrix L11: failures back off 5 -> 10 -> 20 -> 40 -> 60 min; wake resets.
+    // Q-01 / 01-quota.md §6 п.6, matrix L11: failures back off 5 -> 10 -> 20 -> 40 -> 60 min;
+    // wake starts over for a transient cause (R1-03: see the permanent causes below).
     func testRepeatedProbeFailuresBackOffAndWakeStartsOver() async throws {
         let failures: [(Error, String?)] = [
             (ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .usageFetchFailed),
              ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .usageFetchFailed).message),
-            (UsageError.claudeSignInRequired, UsageError.claudeSignInRequired.errorDescription),
+            (ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .timedOut),
+             ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .timedOut).message),
+            (UsageError.timeout, UsageError.timeout.errorDescription),
         ]
         for (failure, message) in failures {
             let h = Harness(now: start)
@@ -283,5 +286,176 @@ import XCTest
         await settle(store)
         XCTAssertEqual(h.probes.count, 1)
         XCTAssertFalse(store.refreshing)
+    }
+
+    // MARK: Review R1 (2026-09-28)
+
+    /// R1-01, the owner's complaint ("when limits are exhausted the probe keeps
+    /// appearing"): a used-up week cannot change before its reset, whatever the
+    /// other window does. The five-hour reset passes in the middle, every screen
+    /// before the weekly reset is unreadable, the Mac wakes, the network returns and
+    /// sessions keep reporting events: no probe until the weekly reset plus grace,
+    /// then exactly one confirmation.
+    func testExhaustedWeekIsNotProbedWhenTheFiveHourResetPassesInTheMiddle() async throws {
+        let h = Harness(now: start)
+        let weeklyReset = start.addingTimeInterval(3 * 86400), fiveReset = start.addingTimeInterval(2 * 3600)
+        let exhausted = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: weeklyReset, resetPrecision: .minute),
+            fiveHour: QuotaWindow(usedPercent: 60, durationMinutes: 300, resetsAt: fiveReset, resetPrecision: .minute),
+            fetchedAt: start.addingTimeInterval(-600), source: ClaudeUsageProbe.source)
+        let unreadable = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse)
+        h.result = { _, date in
+            guard date >= weeklyReset else { throw unreadable }
+            return try UsageSnapshot(provider: .claude, weekly: QuotaWindow(usedPercent: 0, durationMinutes: 10080, resetsAt: nil),
+                                     fiveHour: QuotaWindow(usedPercent: 0, durationMinutes: 300, resetsAt: nil),
+                                     fetchedAt: date, source: ClaudeUsageProbe.source)
+        }
+        let network = NetworkConnection(settle: {}, makeMonitor: { nil })
+        let store = try makeStore(h, snapshots: [exhausted], providers: [.claude], network: network)
+        store.start(); await settle(store)
+        store.observeSessionEvents([row(updatedAt: start.addingTimeInterval(-60))], now: start)
+        var minute = 0
+        while start.addingTimeInterval(Double(minute + 5) * 60) < weeklyReset {
+            minute += 5
+            h.now = start.addingTimeInterval(Double(minute) * 60)
+            h.fireDue(); h.ticks[300]?(); await settle(store)
+            // The user keeps trying: every finished (refused) response is a session event.
+            if minute % 60 == 0 { store.observeSessionEvents([row(updatedAt: h.now)], now: h.now) }
+            if minute % (12 * 60) == 0 {
+                h.wake?(); h.now = h.now.addingTimeInterval(5); h.fireDue(); await settle(store)
+                network.update(available: false); network.update(available: true); await settle(store)
+            }
+        }
+        XCTAssertEqual(h.probes, [], "No probe while the week is used up")
+        let shown = try XCTUnwrap(store.snapshots.first)
+        XCTAssertEqual(shown.status(of: shown.fiveHour, now: h.now), .resetPassed(fiveReset), "The passed five-hour reset is shown, not probed")
+        XCTAssertEqual(shown.status(of: shown.weekly, now: h.now), .exhausted)
+        h.now = weeklyReset.addingTimeInterval(29); h.fireDue(); h.ticks[300]?(); await settle(store)
+        XCTAssertEqual(h.probes, [])
+        h.now = weeklyReset.addingTimeInterval(30); h.fireDue(); await settle(store)
+        XCTAssertEqual(h.probes, [weeklyReset.addingTimeInterval(30)], "One confirmation after the weekly reset plus grace")
+        for step in 1...11 {
+            h.now = weeklyReset.addingTimeInterval(30 + Double(step) * 300); h.fireDue(); h.ticks[300]?(); await settle(store)
+        }
+        XCTAssertEqual(h.probes.count, 1, "The new window is current for the idle interval")
+        XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 0)
+    }
+
+    /// R1-02: Claude's own "limit reached" screen pauses automatic probes until the
+    /// earliest known reset. The saved value may still read below 100 %; it is kept,
+    /// never replaced by an invented 100 %.
+    func testLimitReachedPausesUntilTheEarliestKnownReset() async throws {
+        let h = Harness(now: start)
+        let weeklyReset = start.addingTimeInterval(3 * 86400), fiveReset = start.addingTimeInterval(2 * 3600)
+        let saved = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 92, durationMinutes: 10080, resetsAt: weeklyReset, resetPrecision: .minute),
+            fiveHour: QuotaWindow(usedPercent: 40, durationMinutes: 300, resetsAt: fiveReset, resetPrecision: .minute),
+            fetchedAt: start.addingTimeInterval(-2 * 3600), source: ClaudeUsageProbe.source)
+        let reached = ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .limitReached)
+        h.result = { _, _ in throw reached }
+        let store = try makeStore(h, snapshots: [saved], providers: [.claude])
+        store.start(); await settle(store)
+        XCTAssertEqual(h.probes, [start], "The two-hour-old value is asked about at launch")
+        XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 92, "No invented 100 %")
+        XCTAssertEqual(store.snapshots.first?.issue, reached.message)
+        for minute in stride(from: 5.0, through: 120, by: 5) {
+            h.now = start.addingTimeInterval(minute * 60); h.fireDue(); h.ticks[300]?(); await settle(store)
+            if minute == 60 { h.wake?(); h.now = h.now.addingTimeInterval(5); h.fireDue(); await settle(store) }
+        }
+        XCTAssertEqual(h.probes.count, 1, "Paused until the five-hour reset, the earliest one known")
+        h.now = fiveReset.addingTimeInterval(30); h.fireDue(); await settle(store)
+        XCTAssertEqual(h.probes.count, 2, "The earliest reset may have lifted the limit")
+        for hour in 1...24 {
+            h.now = fiveReset.addingTimeInterval(30 + Double(hour) * 3600); h.fireDue(); h.ticks[300]?(); await settle(store)
+        }
+        XCTAssertEqual(h.probes.count, 2, "Still reached: paused until the weekly reset")
+        h.now = weeklyReset.addingTimeInterval(30); h.fireDue(); await settle(store)
+        XCTAssertEqual(h.probes.count, 3)
+    }
+
+    /// R1-03: wake and a restored network cannot answer a trust question, sign in or
+    /// change the billing: those failures keep their backoff until an explicit refresh.
+    func testPermanentFailuresKeepTheirBackoffAcrossWakeAndNetwork() async throws {
+        let failures: [Error] = [
+            ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .workspaceTrustRequired),
+            ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .subscriptionUnavailable),
+            ClientIntegrationIssue(provider: .claude, capability: .usageProbe, reason: .unsupportedResponse),
+            UsageError.claudeSignInRequired,
+        ]
+        for failure in failures {
+            let h = Harness(now: start)
+            let saved = try claude(used: 40, fetchedAt: start.addingTimeInterval(-2 * 3600), reset: start.addingTimeInterval(3 * 86400))
+            h.result = { _, _ in throw failure }
+            let network = NetworkConnection(settle: {}, makeMonitor: { nil })
+            let store = try makeStore(h, snapshots: [saved], providers: [.claude], network: network)
+            store.start(); await settle(store)
+            for minute in stride(from: 5.0, through: 120, by: 5) {
+                h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await settle(store)
+            }
+            XCTAssertEqual(h.minutes(h.probes, from: start), [0, 5, 15, 35, 75], "\(failure)")
+            h.now = start.addingTimeInterval(121 * 60)
+            h.wake?(); h.now = h.now.addingTimeInterval(5); h.fireDue(); await settle(store)
+            XCTAssertEqual(h.probes.count, 5, "Wake does not remove this cause: \(failure)")
+            network.update(available: false); network.update(available: true); await settle(store)
+            XCTAssertEqual(h.probes.count, 5, "Nor does a restored network: \(failure)")
+            h.now = start.addingTimeInterval(135 * 60); h.fireDue(); h.ticks[300]?(); await settle(store)
+            XCTAssertEqual(h.probes.count, 6, "The backoff continues: \(failure)")
+            h.now = start.addingTimeInterval(136 * 60); await store.refresh(); await settle(store)
+            XCTAssertEqual(h.probes.count, 7, "An explicit refresh always asks: \(failure)")
+        }
+    }
+
+    /// R1-04: the CLI can still show the window that has just reset. Such an answer
+    /// is not the first data of the new window: the surfaces keep "reset at HH:MM,
+    /// waiting for data" and the next confirmation follows the backoff.
+    func testConfirmationThatStillShowsThePassedResetIsRetriedWithBackoff() async throws {
+        let h = Harness(now: start)
+        let reset = start.addingTimeInterval(40 * 60)
+        let exhausted = try claude(used: 100, fetchedAt: start, reset: reset)
+        h.result = { _, date in
+            date < reset.addingTimeInterval(120)
+                ? try self.claude(used: 100, fetchedAt: date, reset: reset)
+                : try self.claude(used: 0, fetchedAt: date, reset: nil)
+        }
+        let store = try makeStore(h, snapshots: [exhausted], providers: [.claude])
+        store.start(); await settle(store)
+        h.now = reset.addingTimeInterval(30); h.fireDue(); await settle(store)
+        XCTAssertEqual(h.probes.count, 1)
+        let shown = try XCTUnwrap(store.snapshots.first)
+        XCTAssertEqual(shown.status(of: shown.weekly, now: h.now), .resetPassed(reset), "Still waiting for the first data of the new window")
+        XCTAssertNotNil(h.pending.first { abs($0.fireAt.timeIntervalSince(reset.addingTimeInterval(330))) < 1 },
+                        "The next confirmation is scheduled after the first backoff step")
+        h.now = reset.addingTimeInterval(329); h.fireDue(); h.ticks[300]?(); await settle(store)
+        XCTAssertEqual(h.probes.count, 1)
+        h.now = reset.addingTimeInterval(330); h.fireDue(); await settle(store)
+        XCTAssertEqual(h.probes.count, 2)
+        XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 0)
+        XCTAssertNil(store.snapshots.first?.weekly?.resetsAt)
+        for step in 1...11 {
+            h.now = reset.addingTimeInterval(330 + Double(step) * 300); h.fireDue(); h.ticks[300]?(); await settle(store)
+        }
+        XCTAssertEqual(h.probes.count, 2, "The confirmed new window is current")
+    }
+
+    /// R1-05, R1-06: a Codex answer without any window Lunavect knows (another
+    /// window length, or no window and no unlimited flag) is unknown data. It follows
+    /// the failure backoff instead of starting the app-server on every tick.
+    func testCodexAnswerWithoutAKnownWindowFollowsTheBackoff() async throws {
+        let answers: [[String: Any]] = [
+            ["limitId": "codex", "primary": ["usedPercent": 30, "windowDurationMins": 1440, "resetsAt": 1_800_086_400]],
+            ["limitId": "codex", "primary": NSNull(), "secondary": NSNull()],
+        ]
+        for answer in answers {
+            let h = Harness(now: start)
+            h.result = { _, date in try UsageParser.codex(["rateLimits": answer], now: date) }
+            let store = try makeStore(h, snapshots: [], providers: [.codex])
+            store.start(); await settle(store)
+            for minute in stride(from: 5.0, through: 120, by: 5) {
+                h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await settle(store)
+            }
+            XCTAssertEqual(h.minutes(h.codexFetches, from: start), [0, 5, 15, 35, 75], "\(answer)")
+            let codex = try XCTUnwrap(store.snapshots.first { $0.provider == .codex })
+            XCTAssertEqual(codex.status(of: codex.weekly, now: h.now), .unknown, "\(answer)")
+        }
     }
 }

@@ -250,12 +250,13 @@ import WeekleftCore
             self.requestBackgroundRefresh(trigger: .sessionEvent, only: due)
         }
     }
-    /// One confirming request at the earliest reset plus its grace.
+    /// One confirming request at the earliest reset plus its grace, or at the end of
+    /// the backoff while a passed reset is still unconfirmed.
     private func scheduleResetCheck() {
         cancelResetCheck?(); cancelResetCheck = nil
         guard started else { return }
         let now = clock()
-        guard let date = QuotaRefreshPolicy.nextResetCheck(snapshots.filter { providers.contains($0.provider) }, now: now) else { return }
+        guard let date = refreshPolicy.nextCheck(snapshots.filter { providers.contains($0.provider) }, now: now) else { return }
         let generation = lifecycleGeneration
         cancelResetCheck = scheduling.after(date.timeIntervalSince(now)) { [weak self] in
             guard let self, self.started, self.lifecycleGeneration == generation else { return }
@@ -335,7 +336,8 @@ import WeekleftCore
             switch result {
             case .success(let snapshot):
                 // Claude's fallback returns the saved observation with the failure as its issue.
-                refreshPolicy.record(id, snapshot: snapshot, succeeded: snapshot.issue == nil, at: clock())
+                let reason = ClientIntegrationIssue.legacy(snapshot.issue, provider: id, capability: Self.quotaCapability(id))?.reason
+                refreshPolicy.record(id, snapshot: snapshot, succeeded: snapshot.issue == nil, reason: reason, at: clock())
                 if let index {
                     // The local reader may publish a newer Claude observation while a slower
                     // provider keeps this refresh open. A delayed fallback must not roll it back.
@@ -346,7 +348,10 @@ import WeekleftCore
                 }
                 else { snapshots.append(snapshot) }
             case .failure(let error):
-                if !(error is CancellationError) { refreshPolicy.record(id, snapshot: nil, succeeded: false, at: clock()) }
+                if !(error is CancellationError) {
+                    let reason = ClientIntegrationIssue.classify(error, provider: id, capability: Self.quotaCapability(id))?.reason
+                    refreshPolicy.record(id, snapshot: index.map { snapshots[$0] }, succeeded: false, reason: reason, at: clock())
+                }
                 guard !network.isOffline else { continue }
                 let message = (error as? ClientIntegrationIssue)?.message
                     ?? (error as? UsageError)?.errorDescription ?? (error as? SessionOpeningError)?.errorDescription
@@ -359,6 +364,7 @@ import WeekleftCore
         persist()
         scheduleResetCheck()
     }
+    private static func quotaCapability(_ id: ProviderID) -> ClientIntegrationIssue.Capability { id == .claude ? .usageProbe : .rateLimits }
     private func fetchIfEnabled(_ id: ProviderID, path: String, due: Set<ProviderID>) async -> Result<UsageSnapshot, Error>? {
         guard !Task.isCancelled, providers.contains(id), due.contains(id) else { return nil }
         guard !isolated || quotaFetcher != nil else { return nil }
