@@ -268,6 +268,23 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     @Published var offline = false
 }
 
+/// Shows and hides the limits popover. The default presents the real popover
+/// below the status item; tests substitute a recorder so opening and closing
+/// can be checked without a visible menu bar window.
+struct MenuBarPopoverPresenter {
+    var isShown: @MainActor (NSPopover) -> Bool
+    var show: @MainActor (NSPopover, NSView) -> Void
+    var close: @MainActor (NSPopover) -> Void
+
+    static var native: MenuBarPopoverPresenter {
+        MenuBarPopoverPresenter(isShown: { $0.isShown }, show: { popover, anchor in
+            NSApp.activate(ignoringOtherApps: true)
+            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+        }, close: { $0.performClose(nil) })
+    }
+}
+
 @MainActor final class MenuBarLimitsController: NSObject, NSPopoverDelegate {
     private(set) var statusItem: NSStatusItem?
     let content = MenuBarLimitsContent(frame: .zero)
@@ -288,6 +305,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     private let onHide: () -> Void
     private let contextMenu: (() -> NSMenu)?
     private let autosaveName: String?
+    private let presenter: MenuBarPopoverPresenter
 
     /// `language` and `defaults` give the popover the same language and theme
     /// as the sessions panel; the live application uses the shared settings.
@@ -296,9 +314,10 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
          onShow: @escaping () -> Void = {}, onHide: @escaping () -> Void = {}, onOpenMenu: @escaping () -> Void = {},
          contextMenu: (() -> NSMenu)? = nil,
          language: LanguageSettings? = nil, defaults: UserDefaults = .standard, network: NetworkConnection? = nil,
-         autosaveName: String? = "LunavectLimits",
+         autosaveName: String? = "LunavectLimits", presenter: MenuBarPopoverPresenter = .native,
          onOpenLimits: @escaping () -> Void) {
         self.onOpenLimits = onOpenLimits; self.onSelectPeriod = onSelectPeriod; self.onRefresh = onRefresh
+        self.presenter = presenter
         self.onOpenMenu = onOpenMenu
         self.contextMenu = contextMenu
         self.onShow = onShow; self.onHide = onHide; self.autosaveName = autosaveName
@@ -313,7 +332,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             .sink { [weak self] offline in
                 guard let self else { return }
                 panel.offline = offline
-                if popover.isShown { sizePopoverToContent() }
+                if isPopoverShown { sizePopoverToContent() }
             }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -349,11 +368,11 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
         content.frame = button.bounds; content.entries = entries; content.style = preferences.style
         content.iconColor = preferences.iconColor; content.meterColor = preferences.meterColor
         content.showsResetCountdown = preferences.showsResetCountdown
-        if !popover.isShown { item.length = content.preferredWidth }
+        if !isPopoverShown { item.length = content.preferredWidth }
         content.frame = button.bounds
         button.toolTip = entries.map(\.detail).joined(separator: "\n\n")
         button.setAccessibilityLabel(L("Лимиты") + ". " + entries.map(\.detail).joined(separator: ". "))
-        if popover.isShown { sizePopoverToContent() }
+        if isPopoverShown { sizePopoverToContent() }
     }
     func selectPeriod(_ period: MenuBarLimitsPeriod) {
         preferences.period = period; onSelectPeriod(period); refresh()
@@ -363,14 +382,13 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             close(); item.menu = menu; item.button?.performClick(nil); item.menu = nil
             return
         }
-        guard !popover.isShown else { close(); return }
+        guard !isPopoverShown else { close(); return }
         guard let button = statusItem?.button else { return }
         onShow()
         sizePopoverToContent()
-        NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        presenter.show(popover, button)
     }
+    var isPopoverShown: Bool { presenter.isShown(popover) }
     private func sizePopoverToContent() {
         guard let host = popover.contentViewController as? NSHostingController<MenuBarLimitsPopoverRoot> else { return }
         // Measure without the current window's size proposal. Translations and
@@ -383,7 +401,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
         dismissal.stop(); onHide()
         if let statusItem { statusItem.length = content.preferredWidth }
     }
-    func close() { popover.performClose(nil) }
+    func close() { presenter.close(popover) }
     func stop() {
         close(); dismissal.stop(); timer?.invalidate(); timer = nil; networkObserver = nil
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }

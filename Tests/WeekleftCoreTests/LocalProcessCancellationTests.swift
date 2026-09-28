@@ -33,7 +33,7 @@ import Darwin
         let started = ProcessInfo.processInfo.systemUptime
         task.cancel()
         await assertCancelled(task)
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 1.5)
+        TimingBound.assertPrompt(since: started, strict: 1.5)
         XCTAssertEqual(kill(pid, 0), -1, "The owned child must be gone before cancellation completes")
     }
 
@@ -46,7 +46,7 @@ import Darwin
         let started = ProcessInfo.processInfo.systemUptime
         task.cancel()
         await assertCancelled(task)
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 1.5)
+        TimingBound.assertPrompt(since: started, strict: 1.5)
         XCTAssertEqual(kill(pid, 0), -1)
     }
 
@@ -59,7 +59,7 @@ import Darwin
         let started = ProcessInfo.processInfo.systemUptime
         task.cancel()
         await assertCancelled(task)
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 1.5)
+        TimingBound.assertPrompt(since: started, strict: 1.5)
         XCTAssertEqual(kill(pid, 0), -1)
     }
 
@@ -110,7 +110,7 @@ import Darwin
         let started = ProcessInfo.processInfo.systemUptime
         task.cancel()
         await assertCancelled(task)
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 0.8)
+        TimingBound.assertPrompt(since: started, strict: 0.8)
     }
 
     func testCancellationAfterUsageProbeDoesNotWriteCacheOrReturnCachedFallback() async {
@@ -161,7 +161,8 @@ import Darwin
         let start = ProcessInfo.processInfo.systemUptime
         do { _ = try await task.value; XCTFail("Expected timeout") }
         catch { XCTAssertEqual(error as? SessionOpeningError, .terminalFocusTimedOut("Terminal")) }
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 2)
+        // The helper's own budget is 1 s; its fixture would otherwise sleep 30 s.
+        TimingBound.assertPrompt(since: start, strict: 2)
         XCTAssertEqual(kill(pid, 0), -1)
     }
 
@@ -178,7 +179,7 @@ import Darwin
         let start = ProcessInfo.processInfo.systemUptime
         task.cancel()
         await assertCancelled(task)
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+        TimingBound.assertPrompt(since: start, strict: 1.5)
         XCTAssertEqual(kill(pid, 0), -1)
         let alreadyCancelled = Task {
             withUnsafeCurrentTask { $0?.cancel() }
@@ -195,7 +196,7 @@ import Darwin
         catch { XCTAssertTrue(error is CancellationError, "Cancellation became \(error)", file: file, line: line) }
     }
     private func waitForFile(_ url: URL) async throws {
-        let end = ProcessInfo.processInfo.systemUptime + 3
+        let end = ProcessInfo.processInfo.systemUptime + TestDeadline.seconds
         while !FileManager.default.fileExists(atPath: url.path) {
             guard ProcessInfo.processInfo.systemUptime < end else { throw SessionError.timeout }
             try await Task.sleep(for: .milliseconds(5))
@@ -203,7 +204,7 @@ import Darwin
     }
     private func waitForPID(_ url: URL) async throws -> Int32 {
         try await waitForFile(url)
-        let end = ProcessInfo.processInfo.systemUptime + 1
+        let end = ProcessInfo.processInfo.systemUptime + TestDeadline.seconds
         while true {
             if let value = try? String(contentsOf: url), let pid = Int32(value.trimmingCharacters(in: .whitespacesAndNewlines)) { return pid }
             guard ProcessInfo.processInfo.systemUptime < end else { throw SessionError.timeout }

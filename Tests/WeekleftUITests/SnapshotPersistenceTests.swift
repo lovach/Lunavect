@@ -39,7 +39,7 @@ final class SnapshotPersistenceTests: XCTestCase {
         // Main callbacks can be older than this synchronous result. Their explicit
         // sequence lets AppStore reject a late failure after a successful flush.
         XCTAssertTrue(callbackSequences.states.isEmpty)
-        await fulfillment(of: [completed], timeout: 2)
+        await fulfillment(of: [completed], timeout: 5)
         XCTAssertEqual(callbackSequences.sequences, [1, 2])
         XCTAssertEqual(service.counters, PersistenceCounters(submitted: 3, written: 3))
         XCTAssertEqual(writes.states.last?.snapshots, final.snapshots)

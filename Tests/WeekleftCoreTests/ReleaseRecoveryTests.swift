@@ -32,7 +32,8 @@ final class ReleaseRecoveryTests: XCTestCase {
         XCTAssertThrowsError(try SessionProcess.run(path: script.path, arguments: [], timeout: 0.3)) {
             XCTAssertEqual(($0 as? SessionError)?.errorDescription, SessionError.timeout.errorDescription)
         }
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+        // The descendant holding the output sleeps 10 s; the run must end at its 0.3 s budget.
+        TimingBound.assertPrompt(since: start, strict: 1.5)
         XCTAssertThrowsError(try CodexProvider.read(cliPath: script.path, timeout: 0.3)) {
             XCTAssertEqual(($0 as? UsageError)?.errorDescription, UsageError.timeout.errorDescription)
         }

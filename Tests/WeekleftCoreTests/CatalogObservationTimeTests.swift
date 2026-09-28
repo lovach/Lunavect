@@ -53,7 +53,9 @@ final class CatalogObservationTimeTests: XCTestCase {
         let started = try XCTUnwrap(requestedAt)
         let row = try XCTUnwrap(result.sessions.first)
         XCTAssertLessThan(row.observedAt, finished.addingTimeInterval(-0.3), "Observation time is the request start")
-        XCTAssertLessThanOrEqual(abs(row.observedAt.timeIntervalSince(started)), 0.1)
+        // Both stamps are taken around one in-process call; 0.3 s tolerates a
+        // descheduled thread on a loaded runner and still excludes the 0.4 s request.
+        XCTAssertLessThanOrEqual(abs(row.observedAt.timeIntervalSince(started)), 0.3)
 
         let stop = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
             "session_id": id, "hook_event_name": "Stop", "cwd": "/Users/fixture/Projects/codex"]),

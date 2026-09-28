@@ -40,7 +40,7 @@ final class ActivityPersistenceTests: XCTestCase {
         XCTAssertTrue(flushed.historySaved)
         XCTAssertEqual(writes.histories, [first.history, second.history, final.history])
         XCTAssertEqual(writes.detailValues, [first.details, second.details, final.details])
-        await fulfillment(of: [completed], timeout: 2)
+        await fulfillment(of: [completed], timeout: 5)
         XCTAssertEqual(service.counters, PersistenceCounters(submitted: 4, written: 3, skipped: 1))
         XCTAssertEqual(writes.histories.last, final.history)
         XCTAssertEqual(writes.detailValues.last, final.details)

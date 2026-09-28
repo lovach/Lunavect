@@ -45,6 +45,16 @@ struct SessionsView: View {
         return (phases.count, phases.filter { $0 == .running }.count,
                 phases.filter { [.permission, .input].contains($0) }.count)
     }
+    /// What the header states about current sessions. Its metrics and the
+    /// waiting filter's accessibility label are read from this one value.
+    struct HeaderSummary: Equatable {
+        let working: Int, waiting: Int
+        var waitingLabel: String { L("В ожидании: {0}", String(waiting)) }
+    }
+    func headerSummary(at now: Date) -> HeaderSummary {
+        let counts = currentCounts(at: now)
+        return HeaderSummary(working: counts.working, waiting: counts.waiting)
+    }
     var body: some View {
         SessionPanelContent(state: panelState) {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -311,7 +321,7 @@ struct SessionsView: View {
         }
     }
     func header(at now: Date) -> some View {
-        let counts = currentCounts(at: now)
+        let counts = headerSummary(at: now)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 if let mark = AppArtwork.brandMark { Image(nsImage: mark).resizable().renderingMode(.original).scaledToFit().frame(width: 36, height: 36).accessibilityHidden(true) }
@@ -358,7 +368,7 @@ struct SessionsView: View {
                 }.buttonStyle(.plain)
                     .help(L("Показать сессии, которым нужен ответ или разрешение"))
                     .disabled(reorder.rows != nil)
-                    .accessibilityLabel(L("В ожидании: {0}", String(counts.waiting)))
+                    .accessibilityLabel(counts.waitingLabel)
                     .accessibilityValue(L(attentionOnly ? "Включено" : "Выключено"))
                     .accessibilityAddTraits(attentionOnly ? .isSelected : [])
                     .accessibilityIdentifier("session-attention-filter")

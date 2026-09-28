@@ -27,37 +27,45 @@ final class SessionTests: XCTestCase {
         XCTAssertNil(SessionProcess.nestedClaudeRuntime(startPID: 80, read: { Node(parentPID: $0 + 1, executable: "/bin/sh") }))
     }
 
+    /// Level 0 forks a `command-driver`, which runs a level-2 `claude` that prints its PID.
+    private static let nestedSource = #"""
+    #include <unistd.h>
+    #include <stdio.h>
+    #include <stdlib.h>
+    int main(int argc,char **argv) {
+        int level=argc>1?atoi(argv[1]):0;
+        if(level==2){printf("%d\n",getpid());fflush(stdout);}
+        else if(fork()==0){if(level==0)execl(argv[2],argv[2],"1",argv[3],NULL);else execl(argv[2],argv[2],"2",NULL);return 1;}
+        for(;;)pause();
+    }
+    """#
+    private static let natives = NativeFixtures(prefix: "nested-runtime-fixture")
+    override class func setUp() {
+        super.setUp()
+        // One clang run per suite; the driver is a renamed copy of the same binary.
+        guard let executable = try? natives.compileOnce(nestedSource, as: "claude") else { return }
+        try? FileManager.default.copyItem(at: executable, to: natives.directory.appendingPathComponent("command-driver"))
+    }
+    override class func tearDown() {
+        natives.removeDirectory()
+        super.tearDown()
+    }
+    override func tearDown() {
+        // Runs after assertion failures and thrown errors too: no pause() fixture survives.
+        Self.natives.stopAll()
+        super.tearDown()
+    }
+
     func testNestedClaudeRuntimeUsesActualParentProcesses() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("fixture.c"), executable = root.appendingPathComponent("claude")
-        let driver = root.appendingPathComponent("command-driver")
-        let code = #"""
-        #include <unistd.h>
-        #include <stdio.h>
-        #include <stdlib.h>
-        int main(int argc,char **argv) {
-            int level=argc>1?atoi(argv[1]):0;
-            if(level==2){printf("%d\n",getpid());fflush(stdout);}
-            else if(fork()==0){if(level==0)execl(argv[2],argv[2],"1",argv[3],NULL);else execl(argv[2],argv[2],"2",NULL);return 1;}
-            for(;;)pause();
-        }
-        """#
-        try code.write(to: source, atomically: true, encoding: .utf8)
-        let compiler = Process(); compiler.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
-        compiler.arguments = [source.path, "-o", executable.path]; try compiler.run(); compiler.waitUntilExit()
-        XCTAssertEqual(compiler.terminationStatus, 0)
-        try FileManager.default.copyItem(at: executable, to: driver)
-        let output = Pipe(), parent = Process(); parent.executableURL = executable
-        parent.arguments = ["0", driver.path, executable.path]; parent.standardOutput = output
-        try parent.run()
-        defer { parent.terminate(); parent.waitUntilExit() }
-        let bytes = output.fileHandleForReading.availableData
-        let child = try XCTUnwrap(Int32(String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
-        defer { _ = kill(child, SIGTERM) }
+        let executable = try Self.natives.compileOnce(Self.nestedSource, as: "claude")
+        let driver = Self.natives.directory.appendingPathComponent("command-driver")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: driver.path), "The driver copy is prepared once per suite")
+        let output = Pipe()
+        _ = try Self.natives.launch(executable, arguments: ["0", driver.path, executable.path], output: output)
+        let child = try XCTUnwrap(Int32(NativeFixtures.readLine(from: output.fileHandleForReading)))
+        Self.natives.track(child)
         let command = try XCTUnwrap(SessionProcess.runtimeProcess(child)).parentPID
-        defer { _ = kill(command, SIGTERM) }
+        Self.natives.track(command)
         XCTAssertEqual(SessionProcess.nestedClaudeRuntime(startPID: child), true)
     }
 

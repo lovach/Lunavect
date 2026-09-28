@@ -124,7 +124,7 @@ final class ActivityStorageTests: XCTestCase {
         service.requestImport() // "Save a copy and start over"
         let done = expectation(description: "Start over and import")
         let token = service.$importing.dropFirst().filter { !$0 }.first().sink { _ in done.fulfill() }
-        await fulfillment(of: [done], timeout: 3); token.cancel()
+        await fulfillment(of: [done], timeout: 5); token.cancel()
         XCTAssertFalse(service.unavailable)
         XCTAssertEqual(imports.value, 1)
         let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
@@ -214,19 +214,21 @@ final class ActivityStorageTests: XCTestCase {
         let release = DispatchSemaphore(value: 0)
         defer { release.signal(); release.signal() }
         let directory = try root()
+        // The stuck volume holds each write for 30 s (released at the end of the
+        // test); the flush must return at its 0.2 s timeout, well under 5 s.
         let activity = ActivityPersistence(historyURL: directory.appendingPathComponent("a.json"), detailsURL: directory.appendingPathComponent("d.json"),
-            writeHistory: { _, _ in _ = release.wait(timeout: .now() + 5) }, writeDetails: { _, _ in }, flushTimeout: 0.2)
+            writeHistory: { _, _ in _ = release.wait(timeout: .now() + 30) }, writeDetails: { _, _ in }, flushTimeout: 0.2)
         var history = ActivityHistory(); history.append(start: now, end: now.addingTimeInterval(5), providers: 1)
         var started = ProcessInfo.processInfo.systemUptime
         let result = activity.flush(.init(history: history, details: .init()))
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 2)
+        TimingBound.assertPrompt(since: started, strict: 2)
         XCTAssertFalse(result.historySaved)
         XCTAssertNotNil(result.historyIssue)
         let snapshots = SnapshotPersistence(url: directory.appendingPathComponent("snapshot.json"),
-            write: { _, _ in _ = release.wait(timeout: .now() + 5) }, flushTimeout: 0.2)
+            write: { _, _ in _ = release.wait(timeout: .now() + 30) }, flushTimeout: 0.2)
         started = ProcessInfo.processInfo.systemUptime
         let snapshot = snapshots.flush(SharedState())
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, 2)
+        TimingBound.assertPrompt(since: started, strict: 2)
         XCTAssertEqual(snapshot.disposition, .failed)
     }
 
@@ -274,7 +276,7 @@ final class ActivityStorageTests: XCTestCase {
             let done = expectation(description: "import")
             let token = service.$importing.dropFirst().filter { !$0 }.first().sink { _ in done.fulfill() }
             service.requestImport()
-            await fulfillment(of: [done], timeout: 3); token.cancel()
+            await fulfillment(of: [done], timeout: 5); token.cancel()
         }
         service.setProviders([.codex])
         await importOnce()

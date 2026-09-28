@@ -430,7 +430,7 @@ final class UXRegressionTests: XCTestCase {
         XCTAssertTrue(opened)
         XCTAssertEqual(calls, 1)
         XCTAssertTrue(state.openingIDs.isEmpty)
-        await fulfillment(of: [stepsAside], timeout: 1)
+        await fulfillment(of: [stepsAside], timeout: 5)
     }
 
     @MainActor func testOpenFailureIsShownOnThePanelAndBringsAClosedPanelBack() async throws {

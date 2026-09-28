@@ -367,7 +367,7 @@ final class ClientSignInCancellationTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
         let task = Task { await ClientConnection.signInState(.claude, executable: cli.path, timeout: 20) }
         defer { task.cancel() }
-        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        let deadline = ProcessInfo.processInfo.systemUptime + TestDeadline.seconds
         while !FileManager.default.fileExists(atPath: pidURL.path), ProcessInfo.processInfo.systemUptime < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -376,7 +376,7 @@ final class ClientSignInCancellationTests: XCTestCase {
         task.cancel()
         let state = await task.value
         XCTAssertEqual(state, .unavailable)
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+        TimingBound.assertPrompt(since: start, strict: 1.5, "Cancellation must not wait for the 20 s sign-in budget")
         XCTAssertNotEqual(kill(pid, 0), 0, "Cancelled auth fixture must not remain running")
     }
 }
