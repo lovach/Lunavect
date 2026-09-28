@@ -98,7 +98,7 @@ brew install --cask lovach/lunavect/lunavect
 
 Then choose **Connect Claude** or **Connect Codex**. Claude needs Claude Code CLI; Claude Desktop alone is not enough. Codex needs the official Codex app or CLI. Connect one provider or both. Sign-in stays with the official clients.
 
-For local VS Code or JetBrains 2026.2 terminals, install the bundled companion from **Settings → Connections → Sessions in editors** to return to the exact session tab. See [IDE setup and supported surfaces](docs/ide-sessions.md).
+For local VS Code, Cursor or JetBrains 2026.2 terminals, install the bundled companion from **Settings → Connections → Sessions in editors** to return to the exact session tab. See [IDE setup and supported surfaces](docs/ide-sessions.md).
 
 [Setup, updates and uninstall](docs/installation.md) · [Compatibility and known limitations](docs/verification.md)
 

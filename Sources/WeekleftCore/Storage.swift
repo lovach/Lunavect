@@ -70,6 +70,8 @@ public enum LiveProcessGuard {
 
 public struct WidgetPreferences: Codable, Equatable, Sendable {
     public var showFiveHour = false
+    /// Claude's weekly model limits (Fable) beside the five-hour value in widgets.
+    public var showModelLimits = false
     public var transparency = 0.5
     public var transparentBackground = false
     public var subscriptionDates: [String: String] = [:]
@@ -85,13 +87,14 @@ public struct WidgetPreferences: Codable, Equatable, Sendable {
     public init() {}
     public mutating func restoreAppearanceDefaults() {
         let base = WidgetPreferences()
-        showFiveHour = base.showFiveHour; transparency = base.transparency
+        showFiveHour = base.showFiveHour; showModelLimits = base.showModelLimits; transparency = base.transparency
         transparentBackground = base.transparentBackground
     }
-    private enum CodingKeys: String, CodingKey { case showFiveHour, transparency, transparentBackground, subscriptionDates, enabledProviders }
+    private enum CodingKeys: String, CodingKey { case showFiveHour, showModelLimits, transparency, transparentBackground, subscriptionDates, enabledProviders }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         showFiveHour = try values.decodeIfPresent(Bool.self, forKey: .showFiveHour) ?? false
+        showModelLimits = try values.decodeIfPresent(Bool.self, forKey: .showModelLimits) ?? false
         let alpha = try values.decodeIfPresent(Double.self, forKey: .transparency) ?? 0.5
         transparency = alpha.isFinite ? min(1, max(0, alpha)) : 0.5
         transparentBackground = try values.decodeIfPresent(Bool.self, forKey: .transparentBackground) ?? false
@@ -182,6 +185,33 @@ public enum SnapshotStore {
     }
 }
 
+/// The widget's note that WidgetKit asked it for a timeline: its build and when.
+/// The app compares it with its own build and its reload requests to notice an
+/// extension macOS no longer accepts, and repairs it without asking (owner report 28.09).
+public struct WidgetHeartbeat: Codable, Equatable, Sendable {
+    public static let key = "widgetHeartbeat"
+    /// Timeline requests can come several times a minute; one note a minute is enough.
+    static let spacing: TimeInterval = 60
+    public var build: String
+    public var at: Date
+    public init(build: String, at: Date) { self.build = build; self.at = at }
+
+    public static func read(_ defaults: UserDefaults = L10n.defaults) -> WidgetHeartbeat? {
+        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
+    }
+    /// Called by the widget extension. Tests never write the shared domain.
+    public static func record(build: String?, now: Date = Date(), defaults: UserDefaults = L10n.defaults) {
+        guard NSClassFromString("XCTestCase") == nil else { return }
+        write(build: build, now: now, defaults: defaults)
+    }
+    static func write(build: String?, now: Date, defaults: UserDefaults) {
+        guard let build, !build.isEmpty else { return }
+        if let last = read(defaults), last.build == build, now >= last.at, now.timeIntervalSince(last.at) < spacing { return }
+        guard let data = try? JSONEncoder().encode(WidgetHeartbeat(build: build, at: now)) else { return }
+        defaults.set(data, forKey: key)
+    }
+}
+
 public struct RecoveredLocalState<Value> {
     public var value: Value
     public let backupURL: URL?
@@ -204,7 +234,7 @@ public enum WidgetTimelineSchedule {
         let horizon = now.addingTimeInterval(86400)
         var dates = Set((0...3).map { now.addingTimeInterval(Double($0) * 300) })
         for snapshot in snapshots {
-            if let fetched = snapshot.fetchedAt { dates.insert(fetched.addingTimeInterval(901)) }
+            if let fetched = snapshot.fetchedAt { dates.insert(fetched.addingTimeInterval(QuotaFreshness.maximumAge + 1)) }
             for window in [snapshot.weekly, snapshot.fiveHour].compactMap({ $0 }) {
                 // At the reset the old value disappears; after the grace the app's
                 // confirming request may have replaced it (QuotaRefreshPolicy).

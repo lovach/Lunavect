@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.7 — Unreleased
+
+### Limits
+
+- Limits no longer show "Data is outdated" while Lunavect is simply waiting for its next scheduled check. Since 0.2.5 an idle provider is asked once an hour, but values were marked outdated after 15 minutes, so for most of every quiet hour Codex and Claude looked stale. A value is now outdated only when the app has missed its own schedule (70 minutes); a failed request still marks the provider at once.
+- A window at 99.4 % used shows "1%" and is treated as available, the same way everywhere; only a window that shows 0 % counts as used up.
+- Claude's weekly model limit (Fable) can be shown in widgets next to the five-hour value: **Show Fable limit** in Settings → Widgets and Settings → Limits (off by default). Settings keeps showing it as before.
+- Notifications warn before the Fable weekly limit runs out, at the same threshold as the other limits, with its own switch in Settings → Notifications (on by default).
+
+### Widgets
+
+- After an update, the widgets could keep the previous version's values for hours: a widget process of the old build kept running, and macOS rejected every timeline from it ("Bundle version did not match"). Lunavect now finds and stops such a process even after the update moved or deleted its files, and it checks every 10 minutes that WidgetKit still accepts the installed widget. When it does not, Lunavect repairs the widget itself without a notification, at most once an hour.
+
+### Editors
+
+- Cursor and other editors built on VS Code (Windsurf, VSCodium and others) are supported like VS Code: clicking a session selects its terminal tab or its Claude Code or Codex panel. The editor is recognized from its own `product.json`, and messages name it ("Cursor"). Install the companion the same way: **Extensions → Install from VSIX**.
+- The VS Code companion 0.1.3 reports the editor it runs in. Lunavect offers the update to installed 0.1.2 companions.
+
+### Updates
+
+- Cancelling or postponing the installer's authorization is no longer shown as a failed update check.
+
 ## 0.2.6 — 2026-09-28
 
 ### Limits

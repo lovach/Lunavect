@@ -173,7 +173,7 @@ enum StatusItemClick {
                 }
             }
             features.start()
-            let registration = WidgetRegistration(defaults: environment.defaults)
+            let registration = WidgetRegistration(defaults: environment.defaults, health: .live)
             widgetRegistration = registration
             registration.start()
             environment.updates.start()

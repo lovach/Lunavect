@@ -1,6 +1,17 @@
 import Foundation
 
-public enum LimitWindowKind: String, Codable, Sendable { case fiveHour, weekly }
+/// A quota window alerts are kept for: five hours, the week, or a model's weekly
+/// limit ("model:Fable"). Stored as its raw string, so states saved before model
+/// limits decode unchanged.
+public struct LimitWindowKind: RawRepresentable, Hashable, Codable, Sendable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public static let fiveHour = LimitWindowKind(rawValue: "fiveHour")
+    public static let weekly = LimitWindowKind(rawValue: "weekly")
+    public static func model(_ name: String) -> LimitWindowKind { LimitWindowKind(rawValue: "model:" + name) }
+    /// The model of a model limit (Claude's "Fable"), nil for the other windows.
+    public var modelName: String? { rawValue.hasPrefix("model:") ? String(rawValue.dropFirst("model:".count)) : nil }
+}
 
 public struct LimitAlert: Equatable, Sendable {
     public enum Kind: Equatable, Sendable { case low(remaining: Int), restored }
@@ -46,11 +57,17 @@ public struct LimitAlertTracker {
     ///   - announce: false while limit notifications cannot be delivered; a low
     ///     window is then not consumed, and returns close silently.
     ///   - providers: connected providers; returns of other providers close silently.
+    ///   - models: also Claude's weekly model limits (Fable), each with its own
+    ///     observation time; while off, their returns close silently.
     public mutating func update(_ snapshots: [UsageSnapshot], threshold: Int, now: Date,
-                                announce: Bool = true, providers: Set<ProviderID>? = nil) -> [LimitAlert] {
+                                announce: Bool = true, providers: Set<ProviderID>? = nil, models: Bool = false) -> [LimitAlert] {
         var alerts: [LimitAlert] = []
         for snapshot in snapshots where providers?.contains(snapshot.provider) ?? true {
-            for (kind, window) in [(LimitWindowKind.fiveHour, snapshot.fiveHour), (.weekly, snapshot.weekly)] {
+            var windows: [(LimitWindowKind, QuotaWindow?, Bool)] = [
+                (.fiveHour, snapshot.fiveHour, snapshot.isStale(window: snapshot.fiveHour, now: now)),
+                (.weekly, snapshot.weekly, snapshot.isStale(window: snapshot.weekly, now: now))]
+            if models { windows += (snapshot.modelQuotas ?? []).map { (.model($0.name), $0.window, $0.isStale(now: now)) } }
+            for (kind, window, stale) in windows {
                 guard let window, let resetsAt = window.resetsAt else { continue }
                 // A later reading of the same reset (the end of the minute `/usage`
                 // showed, the exact status-line epoch, a cycle saved by an earlier
@@ -62,7 +79,7 @@ public struct LimitAlertTracker {
                     && abs(state.cycles[other].resetsAt.timeIntervalSince(resetsAt)) <= Self.sameCycle && resetsAt > state.cycles[other].returnsAt {
                     state.cycles[other].latestReset = resetsAt
                 }
-                guard !snapshot.isStale(window: window, now: now), resetsAt > now else { continue }
+                guard !stale, resetsAt > now else { continue }
                 let index = state.cycles.firstIndex {
                     $0.provider == snapshot.provider && $0.window == kind && abs($0.resetsAt.timeIntervalSince(resetsAt)) <= Self.sameCycle
                 } ?? {
@@ -84,7 +101,8 @@ public struct LimitAlertTracker {
         for index in state.cycles.indices where !state.cycles[index].closed && state.cycles[index].returnsAt <= now {
             let cycle = state.cycles[index]
             state.cycles[index].closed = true
-            if announce, cycle.warned, providers?.contains(cycle.provider) ?? true, now.timeIntervalSince(cycle.returnsAt) <= Self.lateReset {
+            if announce, cycle.warned, providers?.contains(cycle.provider) ?? true, models || cycle.window.modelName == nil,
+               now.timeIntervalSince(cycle.returnsAt) <= Self.lateReset {
                 alerts.append(LimitAlert(provider: cycle.provider, window: cycle.window, kind: .restored, resetsAt: cycle.returnsAt))
             }
         }

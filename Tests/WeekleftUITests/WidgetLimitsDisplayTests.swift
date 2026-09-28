@@ -62,3 +62,44 @@ final class WidgetLimitsDisplayTests: XCTestCase {
         }
     }
 }
+
+/// 0.2.7: Claude's weekly model limit (Fable) in widgets, behind its own setting.
+final class WidgetModelLimitTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_900_000_000)
+    private func claude(fableUsed: Double?, fetchedAgo: TimeInterval = 0) throws -> UsageSnapshot {
+        let week = try QuotaWindow(usedPercent: 34, durationMinutes: 10080, resetsAt: now.addingTimeInterval(5 * 86400))
+        var snapshot = UsageSnapshot(provider: .claude, weekly: week, fetchedAt: now, source: "Claude Code /usage")
+        snapshot.modelQuotas = try fableUsed.map { [ModelQuota(name: "Fable", window: try QuotaWindow(usedPercent: $0, durationMinutes: 10080,
+            resetsAt: now.addingTimeInterval(5 * 86400)), fetchedAt: now.addingTimeInterval(-fetchedAgo))] }
+        return snapshot
+    }
+
+    func testFableAppearsOnlyWhenTheSettingIsOn() throws {
+        var preferences = WidgetPreferences()
+        XCTAssertFalse(preferences.showModelLimits, "off by default")
+        XCTAssertEqual(WidgetModelLimit.lines(try claude(fableUsed: 20), preferences: preferences, now: now), [])
+        preferences.showModelLimits = true
+        XCTAssertEqual(WidgetModelLimit.lines(try claude(fableUsed: 20), preferences: preferences, now: now), [.init(name: "Fable", value: "80%")])
+        XCTAssertEqual(WidgetModelLimit.lines(try claude(fableUsed: 20, fetchedAgo: QuotaFreshness.maximumAge + 1), preferences: preferences, now: now),
+                       [.init(name: "Fable", value: "80%*")])
+        XCTAssertEqual(WidgetModelLimit.lines(try claude(fableUsed: nil), preferences: preferences, now: now), [])
+        XCTAssertEqual(WidgetModelLimit.lines(UsageSnapshot(provider: .codex), preferences: preferences, now: now), [])
+    }
+
+    func testSettingIsKeptAndOlderPreferencesDecode() throws {
+        let old = try JSONDecoder().decode(WidgetPreferences.self, from: Data(#"{"showFiveHour":true}"#.utf8))
+        XCTAssertFalse(old.showModelLimits)
+        var preferences = WidgetPreferences(); preferences.showModelLimits = true
+        XCTAssertTrue(try JSONDecoder().decode(WidgetPreferences.self, from: JSONEncoder().encode(preferences)).showModelLimits)
+        XCTAssertEqual(claudeModelLimitNames([try claude(fableUsed: 20)]), "Fable")
+        XCTAssertNil(claudeModelLimitNames([try claude(fableUsed: nil)]))
+    }
+
+    func testCancelledInstallerAuthorizationIsNotAFailedCheck() {
+        for code in [1001, 4007, 4008] {
+            XCTAssertTrue(AppUpdates.endsQuietly(NSError(domain: "SUSparkleErrorDomain", code: code)), "\(code)")
+        }
+        XCTAssertFalse(AppUpdates.endsQuietly(NSError(domain: "SUSparkleErrorDomain", code: 4005)))
+        XCTAssertFalse(AppUpdates.endsQuietly(NSError(domain: NSURLErrorDomain, code: 4007)))
+    }
+}

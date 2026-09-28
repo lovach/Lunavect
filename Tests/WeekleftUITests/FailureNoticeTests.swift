@@ -15,7 +15,7 @@ final class FailureNoticeTests: XCTestCase {
         features.useSnapshots([UsageSnapshot(provider: .claude, weekly: exhausted, fetchedAt: now, source: "Claude Code statusLine")])
         XCTAssertNil(features.limitResetTime(for: .claude, now: now))
         features.useSnapshots([UsageSnapshot(provider: .claude, fetchedAt: now, source: "Claude Code /usage",
-            modelQuotas: [ModelQuota(name: "Model", window: exhausted, fetchedAt: now.addingTimeInterval(-901))])])
+            modelQuotas: [ModelQuota(name: "Model", window: exhausted, fetchedAt: now.addingTimeInterval(-(QuotaFreshness.maximumAge + 1)))])])
         XCTAssertNil(features.limitResetTime(for: .claude, now: now), "A new account observation cannot refresh an old model bucket")
         features.useSnapshots([UsageSnapshot(provider: .claude, fetchedAt: now, source: "Claude Code /usage",
             modelQuotas: [ModelQuota(name: "Model", window: exhausted, fetchedAt: now)])])
@@ -43,7 +43,7 @@ final class FailureNoticeTests: XCTestCase {
                                              fiveHour: try QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: reset), fetchedAt: now, source: "test")])
         XCTAssertEqual(features.limitResetTime(for: .claude, now: now), weeklyReset)
         features.useSnapshots([UsageSnapshot(provider: .claude, fiveHour: try QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: reset),
-                                             fetchedAt: now.addingTimeInterval(-1800), source: "test")])
+                                             fetchedAt: now.addingTimeInterval(-(QuotaFreshness.maximumAge + 1)), source: "test")])
         XCTAssertNil(features.limitResetTime(for: .claude, now: now))
         features.useSnapshots([UsageSnapshot(provider: .claude, weekly: try QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: weeklyReset),
                                              fiveHour: try QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: reset), fetchedAt: now, source: "test")])

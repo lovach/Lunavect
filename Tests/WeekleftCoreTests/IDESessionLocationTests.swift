@@ -168,8 +168,9 @@ final class IDESessionLocationTests: XCTestCase {
     func testLaunchHostNamesPlacesWithoutARouteFromTheRuntimeAncestry() {
         typealias Node = SessionProcess.TerminalProcess
         let tty = "/dev/ttys007"
-        func host(_ tree: [Int32: Node], bundle: String? = nil) -> SessionLaunchHost? {
-            SessionProcess.launchHost(runtimePID: 90, read: { tree[$0] }, bundle: { _ in bundle })
+        func host(_ tree: [Int32: Node], bundle: String? = nil,
+                  product: @escaping (String) -> VSCodeFamily.Product? = { _ in nil }) -> SessionLaunchHost? {
+            SessionProcess.launchHost(runtimePID: 90, read: { tree[$0] }, bundle: { _ in bundle }, product: product)
         }
         let desktopTerminal: [Int32: Node] = [
             90: Node(parentPID: 80, tty: tty, executable: "/Users/u/.local/share/claude/versions/2.1.283"),
@@ -186,7 +187,10 @@ final class IDESessionLocationTests: XCTestCase {
         var fork = desktopTerminal
         fork[90] = Node(parentPID: 70, tty: nil, executable: "/Users/u/.cursor/extensions/anthropic.claude-code/resources/native-binary/claude")
         fork[70] = Node(parentPID: 1, tty: nil, executable: "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Plugin).app/Contents/MacOS/Cursor Helper (Plugin)")
-        XCTAssertEqual(host(fork, bundle: "com.todesktop.230313mzl4w4u92"), .init(kind: .application, name: "Cursor"))
+        XCTAssertEqual(host(fork, bundle: "com.todesktop.230313mzl4w4u92"), .init(kind: .application, name: "Cursor"),
+                       "without VS Code's product file an app is only named")
+        XCTAssertNil(host(fork, bundle: "com.todesktop.230313mzl4w4u92", product: { $0 == "/Applications/Cursor.app" ? self.cursor : nil }),
+                     "Cursor has the editor route")
         var ghostty = desktopTerminal
         ghostty[70] = Node(parentPID: 1, tty: nil, executable: "/Applications/Ghostty.app/Contents/MacOS/ghostty")
         XCTAssertEqual(host(ghostty, bundle: "com.mitchellh.ghostty"), .init(kind: .terminal, name: "Ghostty"))
@@ -308,5 +312,60 @@ final class IDESessionLocationTests: XCTestCase {
         XCTAssertTrue(merged.terminalFocusCandidate)
         let encoded = try JSONEncoder().encode(merged)
         XCTAssertEqual(try JSONDecoder().decode(AgentSession.self, from: encoded), merged)
+    }
+
+
+    private let cursor = VSCodeFamily.Product(name: "Cursor", urlProtocol: "cursor", bundleIdentifier: "com.todesktop.230313mzl4w4u92")
+
+    func testCursorIsAVSCodeEditorByItsOwnProductFile() throws {
+        let processes: [Int32: IDEProcessLocation.ProcessInfo] = [
+            42: process(42, parent: 30, path: "/usr/local/bin/claude", tty: true),
+            30: process(30, parent: 20, path: "/bin/zsh", tty: true),
+            20: process(20, parent: 1, path: "/Applications/Cursor.app/Contents/MacOS/Cursor")
+        ]
+        let result = try XCTUnwrap(IDEProcessLocation.locate(parentPID: 42, provider: .claude, read: { processes[$0] },
+                                                            bundle: { _ in "com.todesktop.230313mzl4w4u92" },
+                                                            product: { $0 == "/Applications/Cursor.app" ? self.cursor : nil }))
+        XCTAssertEqual(result.editor, .vscode)
+        XCTAssertEqual(result.bundleIdentifier, "com.todesktop.230313mzl4w4u92")
+        XCTAssertTrue(result.usesTerminal)
+        // Without its product file, or with another app's identifier in it, the app is not an editor.
+        XCTAssertNil(IDEProcessLocation.locate(parentPID: 42, provider: .claude, read: { processes[$0] },
+                                               bundle: { _ in "com.todesktop.230313mzl4w4u92" }, product: { _ in nil }))
+        XCTAssertNil(SessionIDE.identify(bundleIdentifier: "com.example.other", appPath: "/Applications/Cursor.app", product: { _ in self.cursor }))
+        XCTAssertEqual(SessionIDE.identify(bundleIdentifier: "com.microsoft.VSCode", appPath: nil), .vscode)
+    }
+
+    func testProductFileIsReadStrictly() throws {
+        let valid = #"{"nameLong":"Cursor","nameShort":"Cursor","urlProtocol":"cursor","darwinBundleIdentifier":"com.todesktop.230313mzl4w4u92"}"#
+        XCTAssertEqual(VSCodeFamily.parse(Data(valid.utf8)), cursor)
+        for invalid in [#"{"nameLong":"Cursor","darwinBundleIdentifier":"x"}"#,
+                        #"{"nameLong":"Cursor","urlProtocol":"cursor://evil","darwinBundleIdentifier":"x"}"#,
+                        #"{"nameLong":"","urlProtocol":"cursor","darwinBundleIdentifier":"x"}"#,
+                        #"{"nameLong":"Cursor","urlProtocol":"cursor"}"#, "[]"] {
+            XCTAssertNil(VSCodeFamily.parse(Data(invalid.utf8)), invalid)
+        }
+    }
+
+    func testCompanionCallbackUsesTheEditorsOwnScheme() throws {
+        let id = UUID().uuidString
+        let schemes = VSCodeFamily.callbackSchemes(bundleIdentifier: "com.todesktop.230313mzl4w4u92", appPath: "/Applications/Cursor.app",
+                                                   product: { _ in self.cursor })
+        XCTAssertEqual(schemes, ["cursor"])
+        XCTAssertTrue(IDEBridge.validCallback(URL(string: "cursor://lovach.lunavect/focus/\(id)")!, schemes: schemes))
+        XCTAssertFalse(IDEBridge.validCallback(URL(string: "vscode://lovach.lunavect/focus/\(id)")!, schemes: schemes))
+        XCTAssertEqual(VSCodeFamily.callbackSchemes(bundleIdentifier: "com.microsoft.VSCodeInsiders", appPath: "/x.app"), ["vscode-insiders"])
+        XCTAssertEqual(VSCodeFamily.callbackSchemes(bundleIdentifier: "com.example.other", appPath: "/Applications/Cursor.app",
+                                                    product: { _ in self.cursor }), [])
+    }
+
+    func testLaunchPathSurvivesInTheArgumentBlock() {
+        var block = [UInt8](repeating: 0, count: 4)
+        block[0] = 1
+        block += Array("/Users/u/Applications/Lunavect.app/Contents/PlugIns/LunavectWidget.appex/Contents/MacOS/LunavectWidget".utf8) + [0, 0, 0]
+        block += Array("LunavectWidget".utf8) + [0]
+        XCTAssertEqual(SessionProcess.parseExecutablePath(block),
+                       "/Users/u/Applications/Lunavect.app/Contents/PlugIns/LunavectWidget.appex/Contents/MacOS/LunavectWidget")
+        XCTAssertNil(SessionProcess.parseExecutablePath([1, 0, 0, 0, 0]))
     }
 }

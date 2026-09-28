@@ -148,7 +148,7 @@ public enum IDEBridge {
     static func identified(_ descriptor: Descriptor, socketDirectories: [String]) -> Bool {
         descriptor.version == 1 && UUID(uuidString: descriptor.id) != nil && descriptor.pid > 1 &&
             descriptor.appPath.hasPrefix("/") && descriptor.appPath.hasSuffix(".app") &&
-            SessionIDE.identify(bundleIdentifier: descriptor.bundleIdentifier) == descriptor.editor &&
+            SessionIDE.identify(bundleIdentifier: descriptor.bundleIdentifier, appPath: descriptor.appPath) == descriptor.editor &&
             conventionalSocket(descriptor.socketPath, id: descriptor.id, socketDirectories: socketDirectories) &&
             descriptor.companion.map { $0.range(of: #"^[0-9]{1,4}(\.[0-9]{1,4}){1,3}\z"#, options: .regularExpression) != nil } != false
     }
@@ -242,8 +242,8 @@ public enum IDEBridge {
         return recent.compactMap { file -> Endpoint? in
             guard let data = read(file), let header = try? JSONDecoder().decode(Header.self, from: data),
                   UUID(uuidString: header.id) != nil, file.deletingPathExtension().lastPathComponent == header.id,
-                  let editor = SessionIDE.identify(bundleIdentifier: header.bundleIdentifier),
-                  let appPath = running(header) else { return nil }
+                  let appPath = running(header),
+                  let editor = SessionIDE.identify(bundleIdentifier: header.bundleIdentifier, appPath: appPath) else { return nil }
             guard header.version == 1 else {
                 return Endpoint(editor: editor, bundleIdentifier: header.bundleIdentifier, appPath: appPath,
                                 companion: nil, state: .incompatible, descriptor: nil)
@@ -395,8 +395,9 @@ public enum IDEBridge {
         try await SessionProcess.detached { try connection.send(JSONEncoder().encode(Request(action: action, target: target))) }
         let first = try await SessionProcess.detached { try connection.receive() }
         guard first.status == "ready" else { return first }
-        guard action == "open", descriptor.editor == .vscode,
-              let text = first.url, let url = URL(string: text), validCallback(url) else { throw SessionError.invalidResponse }
+        guard action == "open", descriptor.editor == .vscode, let text = first.url, let url = URL(string: text),
+              validCallback(url, schemes: VSCodeFamily.callbackSchemes(bundleIdentifier: descriptor.bundleIdentifier, appPath: descriptor.appPath))
+        else { throw SessionError.invalidResponse }
         try Task.checkCancellation()
         let opened = await openURL(url, URL(fileURLWithPath: descriptor.appPath))
         try Task.checkCancellation()
@@ -404,8 +405,10 @@ public enum IDEBridge {
         return try await SessionProcess.detached { try connection.receive() }
     }
 
-    static func validCallback(_ url: URL) -> Bool {
-        ["vscode", "vscode-insiders"].contains(url.scheme ?? "") && url.host == "lovach.lunavect" &&
+    /// The companion's own editor scheme only: `vscode`, `vscode-insiders`, or the
+    /// `urlProtocol` of an editor built from VS Code (`cursor`).
+    static func validCallback(_ url: URL, schemes: Set<String> = ["vscode", "vscode-insiders"]) -> Bool {
+        schemes.contains(url.scheme ?? "") && url.host == "lovach.lunavect" &&
             url.path.hasPrefix("/focus/") && UUID(uuidString: String(url.path.dropFirst("/focus/".count))) != nil &&
             url.user == nil && url.password == nil && url.port == nil && url.absoluteString.utf8.count <= 4096
     }

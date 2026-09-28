@@ -99,6 +99,10 @@ struct PanelShortcut: Codable, Equatable {
     @Published var input: Bool { didSet { defaults.set(input, forKey: "noticeInput") } }
     @Published var failure: Bool { didSet { defaults.set(failure, forKey: "noticeFailure") } }
     @Published var limits: Bool { didSet { defaults.set(limits, forKey: "noticeLimits") } }
+    /// Claude's weekly model limits (Fable) at the same threshold; a switch of its own.
+    @Published var modelLimits: Bool { didSet { defaults.set(modelLimits, forKey: "noticeModelLimits") } }
+    /// The model limits Claude reports, for the switch's label; nil while none is known.
+    @Published private(set) var modelLimitNames: String?
     static let limitThresholds = [5, 10, 20, 25]
     @Published var limitThreshold: Int {
         didSet {
@@ -177,6 +181,7 @@ struct PanelShortcut: Codable, Equatable {
         input = defaults.object(forKey: "noticeInput") as? Bool ?? true
         failure = defaults.object(forKey: "noticeFailure") as? Bool ?? true
         limits = defaults.object(forKey: "noticeLimits") as? Bool ?? true
+        modelLimits = defaults.object(forKey: "noticeModelLimits") as? Bool ?? true
         let threshold = defaults.object(forKey: "noticeLimitThreshold") as? Int ?? 10
         limitThreshold = Self.limitThresholds.contains(threshold) ? threshold : 10
         limitTracker = LimitAlertTracker(state: defaults.data(forKey: "noticeLimitState")
@@ -334,7 +339,11 @@ struct PanelShortcut: Codable, Equatable {
             deliver(title: title, body: body, sessionID: notice.session.id, kind: notice.kind)
         }
     }
-    func useSnapshots(_ snapshots: [UsageSnapshot]) { self.snapshots = snapshots }
+    func useSnapshots(_ snapshots: [UsageSnapshot]) {
+        self.snapshots = snapshots
+        let names = claudeModelLimitNames(snapshots)
+        if modelLimitNames != names { modelLimitNames = names }
+    }
     /// Low-limit warnings and returns, from fresh quota observations only.
     /// - Parameter providers: connected providers; nil treats every provider as connected.
     func observeLimits(_ snapshots: [UsageSnapshot], providers: Set<ProviderID>? = nil, at date: Date? = nil) {
@@ -357,19 +366,21 @@ struct PanelShortcut: Codable, Equatable {
     }
     private func evaluateLimits(at date: Date) {
         let alerts = limitTracker.update(snapshots, threshold: limitThreshold, now: date,
-                                         announce: limits && (banners || sounds), providers: limitProviders)
+                                         announce: limits && (banners || sounds), providers: limitProviders, models: modelLimits)
         if let data = try? JSONEncoder().encode(limitTracker.state) { defaults.set(data, forKey: "noticeLimitState") }
         scheduleLimitTimer(now: date)
         for alert in alerts {
             let provider = alert.provider.title
             switch alert.kind {
             case .low(let remaining):
-                let title = alert.window == .fiveHour ? L("{0}: осталось {1}% на 5 часов", provider, String(remaining))
-                                                      : L("{0}: осталось {1}% на неделю", provider, String(remaining))
+                let title = alert.window.modelName.map { L("{0}: осталось {1}% недельного лимита {2}", provider, String(remaining), $0) }
+                    ?? (alert.window == .fiveHour ? L("{0}: осталось {1}% на 5 часов", provider, String(remaining))
+                                                  : L("{0}: осталось {1}% на неделю", provider, String(remaining)))
                 deliver(title: title, body: L("Сброс: {0}", Self.resetText(alert.resetsAt, now: date)), sessionID: nil, kind: .limit)
             case .restored:
                 deliver(title: L("Лимит {0} снова доступен", provider),
-                        body: L(alert.window == .fiveHour ? "Пятичасовое окно обновилось" : "Недельный лимит обновился"), sessionID: nil, kind: .limit)
+                        body: alert.window.modelName.map { L("Недельный лимит {0} обновился", $0) }
+                            ?? L(alert.window == .fiveHour ? "Пятичасовое окно обновилось" : "Недельный лимит обновился"), sessionID: nil, kind: .limit)
             }
         }
     }
@@ -394,7 +405,7 @@ struct PanelShortcut: Codable, Equatable {
             [snapshot.fiveHour, snapshot.weekly].compactMap { $0 }.filter { !snapshot.isStale(window: $0, now: now) }
                 + (snapshot.modelQuotas ?? []).filter { !$0.isStale(now: now) }.map(\.window)
         }
-        return windows.filter { $0.remaining < 1 }.compactMap(\.resetsAt).filter { $0 > now }.max()
+        return windows.filter(\.isUsedUp).compactMap(\.resetsAt).filter { $0 > now }.max()
     }
     /// "12:20" today, otherwise the weekday with the time.
     static func resetText(_ date: Date, now: Date) -> String {
@@ -413,7 +424,7 @@ struct PanelShortcut: Codable, Equatable {
         guard !busy else { return false }
         await setBanners(false)
         sounds = false; completion = true; permission = true; input = true; failure = true
-        limits = true; limitThreshold = 10
+        limits = true; modelLimits = true; limitThreshold = 10
         completionCooldown = AppDefaultSettings.soundCooldown
         registerShortcut(nil)
         if permissionAccess.loginStatus != .notRegistered { await setLogin(false) }
@@ -688,6 +699,10 @@ struct NotificationSettingsView: View {
                             ForEach(AppFeatures.limitThresholds, id: \.self) { Text(L("{0}%", String($0))).tag($0) }
                         }.labelsHidden().accessibilityIdentifier("notification-limit-threshold")
                     }.disabled(!features.limits)
+                    if let models = features.modelLimitNames {
+                        Toggle(L("Лимит {0}", models), isOn: $features.modelLimits)
+                            .disabled(!features.limits).accessibilityIdentifier("notification-model-limits")
+                    }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
             }
             Button(L("Проверить уведомление")) { features.testNotification() }

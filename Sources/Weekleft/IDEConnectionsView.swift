@@ -13,9 +13,9 @@ struct IDEConnectionsView: View {
                 Text(L("Установите модуль Lunavect в редактор, чтобы переходить к нужной вкладке Claude или Codex."))
                     .fixedSize(horizontal: false, vertical: true)
                 IDEConnectionStatusList(endpoints: endpoints, bundled: bundled, package: Self.package)
-                Text(L("VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. После установки откройте проект и обновите подключение."))
+                Text(L("VS Code, Cursor и другие редакторы на основе VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. После установки откройте проект и обновите подключение."))
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Text(L("Поддерживаются локальные терминалы VS Code и JetBrains 2026.2, а также панели Claude Code и Codex в VS Code. AI Chat JetBrains и удалённые рабочие среды пока не поддерживаются."))
+                Text(L("Поддерживаются локальные терминалы VS Code, Cursor и других редакторов на основе VS Code и JetBrains 2026.2, а также панели Claude Code и Codex в редакторах на основе VS Code. AI Chat JetBrains и удалённые рабочие среды пока не поддерживаются."))
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button(L("Обновить подключение")) { Task { await refresh() } }
             }.font(.system(size: 12)).padding(.top, 8)
@@ -74,7 +74,7 @@ struct IDEConnectionStatusList: View {
         ForEach([SessionIDE.vscode, .jetbrains], id: \.rawValue) { editor in
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(editor.client.title).fontWeight(.medium)
+                    Text(editor == .vscode ? L("VS Code, Cursor и другие") : editor.client.title).fontWeight(.medium)
                     Text(IDEConnectionsView.status(editor, endpoints: endpoints, bundled: bundled[editor]))
                         .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }

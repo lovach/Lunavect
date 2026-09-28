@@ -28,7 +28,8 @@ final class ClaudeUsageScreenTests: XCTestCase {
     /// A stand-in for Claude Code: prints one screen into the PTY and then waits,
     /// like the interactive CLI, ignoring SIGTERM. No real client is started.
     /// `redrawing` (a printf format) is printed every 0.5 s after the screen.
-    private func probe(printing screen: String, timeout: TimeInterval = 8, redrawing: String? = nil) async throws -> (error: Error?, elapsed: TimeInterval) {
+    private func probe(printing screen: String, timeout: TimeInterval = 8, redrawing: String? = nil,
+                       capturedAt: Date? = nil) async throws -> (error: Error?, elapsed: TimeInterval) {
         let root = try temporaryDirectory()
         let screenFile = root.appendingPathComponent("screen"), pidFile = root.appendingPathComponent("pid")
         let executable = root.appendingPathComponent("cli")
@@ -38,7 +39,8 @@ final class ClaudeUsageScreenTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let started = Date()
         var failure: Error?
-        do { _ = try await ClaudeUsageProbe.fetch(cliPath: executable.path, timeout: timeout, directory: root.appendingPathComponent("probe")) }
+        do { _ = try await ClaudeUsageProbe.fetch(cliPath: executable.path, timeout: timeout, directory: root.appendingPathComponent("probe"),
+                                                  now: { capturedAt ?? Date() }) }
         catch { failure = error }
         let elapsed = Date().timeIntervalSince(started)
         if let pid = Int32((try? String(contentsOf: pidFile))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") {
@@ -302,7 +304,8 @@ final class ClaudeUsageScreenTests: XCTestCase {
     /// sections after the windows neither end the wait early nor become windows.
     func testRealSubscriptionScreenThroughTheProbe() async throws {
         guard let screen = ClaudeUsageScreenFixtures.subscription else { throw XCTSkip("No real subscription capture") }
-        let result = try await probe(printing: screen)
+        // Read at the capture time: afterwards its session reset lies in the past (it failed after 13:00 UTC on 28.09).
+        let result = try await probe(printing: screen, capturedAt: ClaudeUsageScreenFixtures.subscriptionCapturedAt)
         XCTAssertNil(result.error, "\(String(describing: result.error))")
         XCTAssertLessThan(result.elapsed, 6, "A complete screen is accepted without waiting for the deadline")
     }

@@ -115,6 +115,10 @@ struct WeekleftCard: View {
                         Text(L("5 ч") + " · " + (fiveHour.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—"))
                             .font(.system(size: 9)).monospacedDigit().foregroundStyle(WidgetInk(0.78)).fixedSize()
                     }
+                    ForEach(WidgetModelLimit.lines(snapshot, preferences: preferences, now: now), id: \.name) { limit in
+                        Text(limit.name + " · " + limit.value)
+                            .font(.system(size: 9)).monospacedDigit().foregroundStyle(WidgetInk(0.78)).fixedSize()
+                    }
                     Spacer(minLength: 0)
                     if !demo, display.dimmed, let fetched = snapshot.fetchedAt {
                         Text(widgetQuotaDate(fetched, now: now)).font(.system(size: 9)).foregroundStyle(WidgetInk(0.65)).fixedSize()
@@ -187,6 +191,13 @@ struct SingleProviderLimitsCard: View {
                     Text(five.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—").monospacedDigit()
                 }.font(.system(size: 10)).foregroundStyle(.secondary)
             }
+            ForEach(WidgetModelLimit.lines(snapshot, preferences: preferences, now: now).prefix(1), id: \.name) { limit in
+                HStack {
+                    Text(limit.name).lineLimit(1)
+                    Spacer()
+                    Text(limit.value).monospacedDigit()
+                }.font(.system(size: 10)).foregroundStyle(.secondary)
+            }
             Spacer(minLength: 0)
             Text(
                 display.showsStatus
@@ -243,6 +254,21 @@ struct GlassMaterial: NSViewRepresentable {
         return view
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+/// Claude's weekly model limits (Fable) as widgets show them when the setting is on:
+/// the same whole percentage as Settings, "*" for a saved value, a dash without one.
+struct WidgetModelLimit: Equatable {
+    let name: String
+    let value: String
+    static func lines(_ snapshot: UsageSnapshot, preferences: WidgetPreferences, now: Date) -> [WidgetModelLimit] {
+        guard preferences.showModelLimits, snapshot.provider == .claude else { return [] }
+        return (snapshot.modelQuotas ?? []).prefix(2).map { quota in
+            let status = quota.status(now: now)
+            let value = status.remaining(of: quota.window).map { PercentText.format(Int($0.rounded())) + (status.isStale ? "*" : "") } ?? "—"
+            return WidgetModelLimit(name: quota.name, value: value)
+        }
+    }
 }
 
 /// A compact state label is always visible, including with five-hour values.

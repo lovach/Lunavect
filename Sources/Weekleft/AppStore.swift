@@ -137,10 +137,12 @@ import WeekleftCore
         scheduling = dataServices?.scheduling ?? AppRefreshScheduling()
         codexDiscovery = dataServices?.discoverCodex ?? Self.discoverCodex
         snapshotPersistence = isolated ? nil : dataServices?.snapshots ?? SnapshotPersistence(reload: {
+            WidgetReloadLedger.shared.noteRequest()
             WidgetCenter.shared.reloadTimelines(ofKind: "WeekleftWidget")
             WidgetCenter.shared.reloadTimelines(ofKind: "LunavectOverviewWidget")
         }, reloadActivity: {
             // Quota receipts do not change activity; its history saves reload it.
+            WidgetReloadLedger.shared.noteRequest()
             WidgetCenter.shared.reloadTimelines(ofKind: "LunavectActivityWidget")
         })
         if isolated {
@@ -208,7 +210,7 @@ import WeekleftCore
                 self?.requestLocalRefresh()
             },
             // An evaluation tick: the policy decides whether any provider is due.
-            scheduling.repeating(300) { [weak self] in
+            scheduling.repeating(QuotaFreshness.evaluationTick) { [weak self] in
                 guard self?.lifecycleGeneration == generation else { return }
                 self?.requestBackgroundRefresh(trigger: .timer)
             },

@@ -301,8 +301,13 @@ final class TerminalLocationTests: XCTestCase {
          "/Applications/Cursor.app": "com.todesktop.230313mzl4w4u92", "/Applications/Visual Studio Code.app": "com.microsoft.VSCode",
          "/Applications/Warp.app": "dev.warp.Warp-Stable", "/Applications/PyCharm.app": "com.jetbrains.pycharm"][path]
     }
-    private func locate(_ table: Table, from pid: Int32 = 40, termProgram: String = "") -> (tty: String, app: String)? {
-        SessionProcess.terminalLocation(parentPID: pid, termProgram: termProgram, read: { table[$0] }, bundle: bundles)
+    /// Cursor's product file names its own bundle identifier, as the installed app does.
+    private let cursorProduct = VSCodeFamily.Product(name: "Cursor", urlProtocol: "cursor", bundleIdentifier: "com.todesktop.230313mzl4w4u92")
+    private func products(_ path: String) -> VSCodeFamily.Product? { path == "/Applications/Cursor.app" ? cursorProduct : nil }
+    /// Without product files unless a test asks: the host's installed editors never decide a fixture.
+    private func locate(_ table: Table, from pid: Int32 = 40, termProgram: String = "",
+                        product: (String) -> VSCodeFamily.Product? = { _ in nil }) -> (tty: String, app: String)? {
+        SessionProcess.terminalLocation(parentPID: pid, termProgram: termProgram, read: { table[$0] }, bundle: bundles, product: product)
     }
 
     /// §4 item 5: both Terminal profiles, with and without a root-owned login.
@@ -372,7 +377,8 @@ final class TerminalLocationTests: XCTestCase {
         let cursor: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
                              20: proc(10, "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Plugin).app/Contents/MacOS/Cursor Helper (Plugin)"),
                              10: proc(1, "/Applications/Cursor.app/Contents/MacOS/Cursor")]
-        XCTAssertEqual(locate(cursor, termProgram: "vscode")?.app, "Cursor")
+        XCTAssertEqual(locate(cursor, termProgram: "vscode")?.app, "Cursor", "an app without VS Code's product file hosts a terminal")
+        XCTAssertNil(locate(cursor, termProgram: "vscode", product: products), "Cursor terminals use the editor route")
         let restored: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(25, "/bin/zsh", tty: tty),
                                25: proc(20, "/usr/bin/login", tty: tty),
                                20: proc(1, "/Users/u/Library/Application Support/iTerm2/iTermServer-3.5.10")]
@@ -390,12 +396,14 @@ final class TerminalLocationTests: XCTestCase {
     /// are terminal sessions, not VS Code or Codex Desktop.
     func testClientDetectionForForksRemoteShellsAndUnlabelledTerminals() {
         let tty = "/dev/ttys010"
-        func client(_ table: Table, terminal: String = "", entrypoint: String = "") -> SessionClient {
-            SessionProcess.client(parentPID: 40, entrypoint: entrypoint, terminal: terminal, read: { table[$0] }, bundle: bundles)
+        func client(_ table: Table, terminal: String = "", entrypoint: String = "",
+                    product: (String) -> VSCodeFamily.Product? = { _ in nil }) -> SessionClient {
+            SessionProcess.client(parentPID: 40, entrypoint: entrypoint, terminal: terminal, read: { table[$0] }, bundle: bundles, product: product)
         }
         let cursor: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
                              20: proc(1, "/Applications/Cursor.app/Contents/MacOS/Cursor")]
-        XCTAssertEqual(client(cursor, terminal: "vscode"), .terminal, "A VS Code fork is not VS Code")
+        XCTAssertEqual(client(cursor, terminal: "vscode"), .terminal, "Without VS Code's product file a fork is a terminal")
+        XCTAssertEqual(client(cursor, terminal: "vscode", product: products), .vscode, "Cursor is an editor built on VS Code")
         let official: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
                                20: proc(1, "/Applications/Visual Studio Code.app/Contents/MacOS/Electron")]
         XCTAssertEqual(client(official, terminal: "vscode"), .vscode)

@@ -77,10 +77,10 @@ final class DataFreshnessTests: XCTestCase {
         try ClaudeProvider.saveUsage(probe, destination: usage)
         try ClaudeProvider.capture(payload(40), destination: status, now: now.addingTimeInterval(20))
         XCTAssertEqual(try ClaudeProvider.latest(statusLineURL: status, usageURL: usage, now: now.addingTimeInterval(30)), probe)
-        let fallback = try ClaudeProvider.latest(statusLineURL: status, usageURL: usage, now: now.addingTimeInterval(1000))
+        let fallback = try ClaudeProvider.latest(statusLineURL: status, usageURL: usage, now: now.addingTimeInterval(QuotaFreshness.maximumAge + 100))
         XCTAssertEqual(fallback.source, "Claude Code statusLine")
         XCTAssertEqual(fallback.fetchedAt, now.addingTimeInterval(20))
-        XCTAssertTrue(fallback.isStale(now: now.addingTimeInterval(1000)))
+        XCTAssertTrue(fallback.isStale(now: now.addingTimeInterval(QuotaFreshness.maximumAge + 100)))
     }
     /// Rewritten for the refresh policy (01-quota.md §3): the five-minute timer is an
     /// evaluation tick, not the probe period. A verified observation is reused for
@@ -158,7 +158,7 @@ final class DataFreshnessTests: XCTestCase {
         XCTAssertTrue(snapshot.isStale(window: fiveHour, now: now))
         XCTAssertTrue(snapshot.isStale(now: now), "A partially expired snapshot still needs refresh")
         XCTAssertTrue(snapshot.isStale(window: nil, now: now))
-        XCTAssertTrue(snapshot.isStale(window: weekly, now: now.addingTimeInterval(901)))
+        XCTAssertTrue(snapshot.isStale(window: weekly, now: now.addingTimeInterval(QuotaFreshness.maximumAge + 1)))
         var unverified = snapshot; unverified.source = "Claude Code statusLine"
         XCTAssertTrue(unverified.isStale(window: weekly, now: now))
     }
@@ -168,9 +168,9 @@ final class DataFreshnessTests: XCTestCase {
         let dates = WidgetTimelineSchedule.dates(from: now, snapshots: [snapshot])
         XCTAssertEqual(dates, dates.sorted())
         XCTAssertEqual(Set(dates).count, dates.count)
-        XCTAssertTrue(dates.contains(now.addingTimeInterval(901)))
+        XCTAssertTrue(dates.contains(now.addingTimeInterval(QuotaFreshness.maximumAge + 1)))
         XCTAssertTrue(dates.contains(reset))
-        XCTAssertTrue(snapshot.isStale(now: now.addingTimeInterval(901)))
+        XCTAssertTrue(snapshot.isStale(now: now.addingTimeInterval(QuotaFreshness.maximumAge + 1)))
         XCTAssertTrue(try XCTUnwrap(snapshot.weekly).isExpired(at: reset))
     }
     func testClockCorrectionStartsNewObservationWithoutFillingGapOrDoubleCounting() throws {
@@ -196,5 +196,31 @@ final class DataFreshnessTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         try tracker.details.save(to: file)
         XCTAssertEqual(try ActivityDetails.load(from: file), tracker.details)
+    }
+
+
+    /// Owner report 28.09: idle Codex data from 18:04 said "outdated" at 18:55 although
+    /// the app was not due to ask again before 19:04.
+    func testDataIsCurrentUntilTheAppMissesItsOwnSchedule() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let weekly = try QuotaWindow(usedPercent: 50, durationMinutes: 10080, resetsAt: now.addingTimeInterval(5 * 86400))
+        func snapshot(age: TimeInterval) -> UsageSnapshot {
+            UsageSnapshot(provider: .codex, weekly: weekly, fetchedAt: now.addingTimeInterval(-age), source: "Codex CLI")
+        }
+        XCTAssertFalse(snapshot(age: 51 * 60).isStale(now: now))
+        XCTAssertFalse(snapshot(age: 3600 + 300).isStale(now: now), "an idle hour plus one evaluation tick")
+        XCTAssertTrue(snapshot(age: QuotaFreshness.maximumAge + 1).isStale(now: now))
+        let timing = QuotaRefreshPolicy.Timing()
+        XCTAssertGreaterThanOrEqual(QuotaFreshness.maximumAge, max(timing.idleInterval, timing.activeInterval) + QuotaFreshness.evaluationTick)
+    }
+
+    func testAWindowIsUsedUpOnlyWhenItShowsZeroPercent() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000), reset = now.addingTimeInterval(3600)
+        let almost = try QuotaWindow(usedPercent: 99.4, durationMinutes: 300, resetsAt: reset)
+        let gone = try QuotaWindow(usedPercent: 99.6, durationMinutes: 300, resetsAt: reset)
+        XCTAssertFalse(almost.isUsedUp)
+        XCTAssertEqual(QuotaWindowStatus.of(almost, stale: false, now: now), .current(stale: false))
+        XCTAssertTrue(gone.isUsedUp)
+        XCTAssertEqual(QuotaWindowStatus.of(gone, stale: false, now: now), .exhausted)
     }
 }

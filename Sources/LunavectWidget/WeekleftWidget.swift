@@ -30,6 +30,7 @@ struct WeekleftTimeline: TimelineProvider {
         completion(entry(at: .now))
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<WeekleftEntry>) -> Void) {
+        WidgetHeartbeat.record(build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
         let now = Date(), snapshot = entry(at: .now)
         let entries = WidgetTimelineSchedule.dates(from: now, snapshots: snapshot.state.snapshots).map {
             WeekleftEntry(date: $0, state: snapshot.state,
@@ -48,6 +49,7 @@ struct ActivityTimeline: AppIntentTimelineProvider {
         return entry
     }
     func timeline(for configuration: ActivityConfiguration, in context: Context) async -> Timeline<WeekleftEntry> {
+        WidgetHeartbeat.record(build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
         let current = await snapshot(for: configuration, in: context)
         let entries = WidgetTimelineSchedule.dates(from: current.date, snapshots: current.state.snapshots).map { date in
             let entry = current

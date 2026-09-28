@@ -419,13 +419,6 @@
     "fr": "Accès rapide aux sessions",
     "zh-Hans": "快速访问会话"
   },
-  "В VS Code должен быть открыт проект этой сессии.": {
-    "de": "Das Projekt dieser Sitzung muss in VS Code geöffnet sein.",
-    "en": "This session’s project must be open in VS Code.",
-    "es": "El proyecto de esta sesión debe estar abierto en VS Code.",
-    "fr": "Le projet de cette session doit être ouvert dans VS Code.",
-    "zh-Hans": "需要先在 VS Code 中打开此会话所属的项目。"
-  },
   "В предпросмотре значки движутся всегда. Системная настройка уменьшения движения останавливает анимацию.": {
     "de": "Die Vorschau ist immer animiert. Die Systemeinstellung „Bewegung reduzieren“ hält Animationen an.",
     "en": "Preview icons animate continuously. The system’s Reduce Motion setting pauses animations.",
@@ -5613,20 +5606,6 @@
     "fr": "Afficher le programme d’installation",
     "zh-Hans": "显示安装包"
   },
-  "VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. После установки откройте проект и обновите подключение.": {
-    "en": "VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. After installation, open a project and refresh the connection.",
-    "de": "VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. Öffnen Sie danach ein Projekt und aktualisieren Sie die Verbindung.",
-    "es": "VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. Después, abre un proyecto y actualiza la conexión.",
-    "fr": "VS Code : Extensions → Install from VSIX. JetBrains : Settings → Plugins → Install Plugin from Disk. Ensuite, ouvrez un projet et actualisez la connexion.",
-    "zh-Hans": "VS Code：Extensions → Install from VSIX。JetBrains：Settings → Plugins → Install Plugin from Disk。安装后，请打开项目并刷新连接。"
-  },
-  "Поддерживаются локальные терминалы VS Code и JetBrains 2026.2, а также панели Claude Code и Codex в VS Code. AI Chat JetBrains и удалённые рабочие среды пока не поддерживаются.": {
-    "en": "Supports local terminals in VS Code and JetBrains 2026.2, plus Claude Code and Codex panels in VS Code. JetBrains AI Chat and remote workspaces are not supported yet.",
-    "de": "Unterstützt lokale Terminals in VS Code und JetBrains 2026.2 sowie Claude Code und Codex in VS Code. JetBrains AI Chat und Remote-Arbeitsbereiche werden noch nicht unterstützt.",
-    "es": "Admite terminales locales de VS Code y JetBrains 2026.2, y paneles de Claude Code y Codex en VS Code. Aún no admite AI Chat de JetBrains ni espacios de trabajo remotos.",
-    "fr": "Prend en charge les terminaux locaux de VS Code et JetBrains 2026.2, ainsi que les panneaux Claude Code et Codex de VS Code. AI Chat de JetBrains et les espaces de travail distants ne sont pas encore pris en charge.",
-    "zh-Hans": "支持 VS Code 和 JetBrains 2026.2 的本地终端，以及 VS Code 中的 Claude Code 和 Codex 面板。暂不支持 JetBrains AI Chat 和远程工作区。"
-  },
   "Обновить подключение": {
     "en": "Refresh connection",
     "de": "Verbindung aktualisieren",
@@ -5738,5 +5717,61 @@
     "es": "Se agota más rápido que el límite semanal de todos los modelos",
     "fr": "S’épuise plus vite que la limite hebdomadaire de tous les modèles",
     "zh-Hans": "比所有模型的每周额度消耗得更快"
+  },
+  "VS Code, Cursor и другие редакторы на основе VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. После установки откройте проект и обновите подключение.": {
+    "en": "VS Code, Cursor and other editors built on VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. After installation, open a project and refresh the connection.",
+    "de": "VS Code, Cursor und andere auf VS Code basierende Editoren: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. Öffnen Sie danach ein Projekt und aktualisieren Sie die Verbindung.",
+    "es": "VS Code, Cursor y otros editores basados en VS Code: Extensions → Install from VSIX. JetBrains: Settings → Plugins → Install Plugin from Disk. Después, abre un proyecto y actualiza la conexión.",
+    "fr": "VS Code, Cursor et les autres éditeurs basés sur VS Code : Extensions → Install from VSIX. JetBrains : Settings → Plugins → Install Plugin from Disk. Ensuite, ouvrez un projet et actualisez la connexion.",
+    "zh-Hans": "VS Code、Cursor 及其他基于 VS Code 的编辑器：Extensions → Install from VSIX。JetBrains：Settings → Plugins → Install Plugin from Disk。安装后，请打开项目并刷新连接。"
+  },
+  "Поддерживаются локальные терминалы VS Code, Cursor и других редакторов на основе VS Code и JetBrains 2026.2, а также панели Claude Code и Codex в редакторах на основе VS Code. AI Chat JetBrains и удалённые рабочие среды пока не поддерживаются.": {
+    "en": "Supports local terminals in VS Code, Cursor and other editors built on VS Code, and JetBrains 2026.2, plus Claude Code and Codex panels in editors built on VS Code. JetBrains AI Chat and remote workspaces are not supported yet.",
+    "de": "Unterstützt lokale Terminals in VS Code, Cursor und anderen auf VS Code basierenden Editoren sowie JetBrains 2026.2, außerdem Claude Code und Codex in auf VS Code basierenden Editoren. JetBrains AI Chat und Remote-Arbeitsbereiche werden noch nicht unterstützt.",
+    "es": "Admite terminales locales de VS Code, Cursor y otros editores basados en VS Code, y de JetBrains 2026.2, además de paneles de Claude Code y Codex en editores basados en VS Code. Aún no admite AI Chat de JetBrains ni espacios de trabajo remotos.",
+    "fr": "Prend en charge les terminaux locaux de VS Code, Cursor et des autres éditeurs basés sur VS Code, et de JetBrains 2026.2, ainsi que les panneaux Claude Code et Codex des éditeurs basés sur VS Code. AI Chat de JetBrains et les espaces de travail distants ne sont pas encore pris en charge.",
+    "zh-Hans": "支持 VS Code、Cursor 及其他基于 VS Code 的编辑器和 JetBrains 2026.2 的本地终端，以及基于 VS Code 的编辑器中的 Claude Code 和 Codex 面板。暂不支持 JetBrains AI Chat 和远程工作区。"
+  },
+  "В {0} должен быть открыт проект этой сессии.": {
+    "de": "Das Projekt dieser Sitzung muss in {0} geöffnet sein.",
+    "en": "This session’s project must be open in {0}.",
+    "es": "El proyecto de esta sesión debe estar abierto en {0}.",
+    "fr": "Le projet de cette session doit être ouvert dans {0}.",
+    "zh-Hans": "需要先在 {0} 中打开此会话所属的项目。"
+  },
+  "VS Code, Cursor и другие": {
+    "en": "VS Code, Cursor and others",
+    "de": "VS Code, Cursor und andere",
+    "es": "VS Code, Cursor y otros",
+    "fr": "VS Code, Cursor et autres",
+    "zh-Hans": "VS Code、Cursor 及其他"
+  },
+  "Показывать лимит {0}": {
+    "en": "Show {0} limit",
+    "de": "{0}-Limit anzeigen",
+    "es": "Mostrar límite de {0}",
+    "fr": "Afficher la limite de {0}",
+    "zh-Hans": "显示 {0} 额度"
+  },
+  "Показывать лимит {0} в виджете": {
+    "en": "Show {0} limit in widgets",
+    "de": "{0}-Limit im Widget anzeigen",
+    "es": "Mostrar límite de {0} en el widget",
+    "fr": "Afficher la limite de {0} dans le widget",
+    "zh-Hans": "在小组件中显示 {0} 额度"
+  },
+  "{0}: осталось {1}% недельного лимита {2}": {
+    "en": "{0}: {1}% of the {2} weekly limit left",
+    "de": "{0}: noch {1} % des wöchentlichen {2}-Limits",
+    "es": "{0}: queda un {1} % del límite semanal de {2}",
+    "fr": "{0} : {1} % restant de la limite hebdomadaire de {2}",
+    "zh-Hans": "{0}：{2} 本周额度剩余 {1}%"
+  },
+  "Недельный лимит {0} обновился": {
+    "en": "The {0} weekly limit has reset",
+    "de": "Das wöchentliche {0}-Limit wurde zurückgesetzt",
+    "es": "El límite semanal de {0} se ha restablecido",
+    "fr": "La limite hebdomadaire de {0} a été réinitialisée",
+    "zh-Hans": "{0} 每周额度已重置"
   }
 }
