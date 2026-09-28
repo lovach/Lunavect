@@ -95,6 +95,14 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
     var note: String? = nil
     /// The client is signed out; the value above keeps its saved-data mark.
     var attention: SignInAttention? = nil
+    /// A Claude model's weekly window (for example Fable) that has less left than the
+    /// weekly limit for all models: the limit that runs out first. Weekly period only.
+    struct ModelLine: Equatable {
+        let name: String
+        let remaining: Double
+        let value: String
+    }
+    var modelLines: [ModelLine] = []
 
     static func make(snapshots: [UsageSnapshot], providers: [ProviderID], preferences: MenuBarLimitsPreferences,
                      now: Date = Date()) -> [Self] {
@@ -118,6 +126,20 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             if let attention { detail.append(attention.title) }
             if percent != nil, let note { detail.append(note) }
             if let resetDate { detail.append(L("Сброс через {0}", countdown)); detail.append(resetDate) }
+            // Compared only with a known weekly value: an unknown week says nothing about which runs out first.
+            let overall = preferences.period == .weekly ? snapshot.status(of: snapshot.weekly, now: now).remaining(of: snapshot.weekly) : nil
+            let modelLines: [ModelLine] = overall.map { overall in
+                (snapshot.modelQuotas ?? []).compactMap { quota in
+                    let status = quota.status(now: now)
+                    guard let left = status.remaining(of: quota.window), left < overall - 0.5 else { return nil }
+                    return ModelLine(name: quota.name, remaining: left,
+                                     value: PercentText.format(Int(left.rounded())) + (status.isStale ? "*" : ""))
+                }
+            } ?? []
+            for line in modelLines {
+                detail.append(L("Неделя · {0}", line.name) + ": " + line.value)
+                detail.append(L("Тратится быстрее общего недельного лимита"))
+            }
             if stale { detail.append(L("Показаны последние полученные данные")) }
             if let fetchedAt = snapshot.fetchedAt {
                 detail.append(L("Последние данные: {0}", fetchedAt.formatted(.dateTime.day().month().hour().minute().locale(L10n.locale))))
@@ -125,7 +147,7 @@ struct MenuBarLimitEntry: Equatable, Identifiable {
             return Self(provider: provider, remaining: remaining, countdown: countdown,
                         compactCountdown: compactCountdown(window: window, now: now), resetDate: resetDate,
                         fetchedAt: snapshot.fetchedAt, stale: stale, value: value, detail: detail.joined(separator: "\n"), note: note,
-                        attention: attention)
+                        attention: attention, modelLines: modelLines)
         }
     }
     private static func compactCountdown(window: QuotaWindow?, now: Date) -> String {
@@ -498,6 +520,7 @@ struct MenuBarLimitsPopover: View {
                     if entry.stale, entry.remaining != nil {
                         Text(L("Показаны последние полученные данные")).font(.system(size: 11)).foregroundStyle(.secondary)
                     }
+                    ForEach(entry.modelLines, id: \.name) { line in modelLine(line, provider: entry.provider) }
                     if let attention = entry.attention { signIn(attention) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
@@ -509,6 +532,26 @@ struct MenuBarLimitsPopover: View {
                 Button(L("Подробнее"), action: onSettings).buttonStyle(.link).font(.system(size: 11))
             }
         }.padding(18).frame(width: 340, alignment: .topLeading)
+    }
+    /// A model's weekly window that runs out before the weekly limit for all models.
+    private func modelLine(_ line: MenuBarLimitEntry.ModelLine, provider: ProviderID) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(L("Неделя · {0}", line.name)).font(.system(size: 12, weight: .medium))
+                Spacer()
+                Text(line.value).font(.system(size: 15, weight: .semibold)).monospacedDigit()
+            }
+            GeometryReader { geometry in
+                Capsule().fill(Color.primary.opacity(0.1))
+                Capsule().fill((model.meterColor == .system ? Color.primary : activityAccent(provider, adaptive: true, scheme: scheme)).opacity(0.75))
+                    .frame(width: geometry.size.width * line.remaining / 100)
+            }.frame(height: 4).accessibilityHidden(true)
+            Text(L("Тратится быстрее общего недельного лимита")).font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("menu-limits-model-" + line.name)
     }
     /// The Connections card's sentence and button for the same state.
     private func signIn(_ attention: SignInAttention) -> some View {

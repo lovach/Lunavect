@@ -5724,5 +5724,19 @@
     "es": "Esta sesión se ejecuta en {0}. Lunavect aún no puede cambiar a sesiones de esta app: abre la ventana de {0}.",
     "fr": "Cette session s’exécute dans {0}. Lunavect ne peut pas encore basculer vers les sessions de cette app : ouvrez la fenêtre de {0}.",
     "zh-Hans": "此会话运行在 {0} 中。Lunavect 暂时无法切换到此应用中的会话：请打开 {0} 窗口。"
+  },
+  "Неделя · {0}": {
+    "en": "Week · {0}",
+    "de": "Woche · {0}",
+    "es": "Semana · {0}",
+    "fr": "Semaine · {0}",
+    "zh-Hans": "每周 · {0}"
+  },
+  "Тратится быстрее общего недельного лимита": {
+    "en": "Running out faster than the weekly limit for all models",
+    "de": "Wird schneller verbraucht als das Wochenlimit für alle Modelle",
+    "es": "Se agota más rápido que el límite semanal de todos los modelos",
+    "fr": "S’épuise plus vite que la limite hebdomadaire de tous les modèles",
+    "zh-Hans": "比所有模型的每周额度消耗得更快"
   }
 }
