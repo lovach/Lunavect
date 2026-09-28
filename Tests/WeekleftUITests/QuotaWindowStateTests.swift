@@ -169,4 +169,48 @@ final class QuotaWindowStateTests: XCTestCase {
             }
         }
     }
+
+    /// Q-I1/Q-I2 property (fixed seed): for arbitrary saved windows the menu value
+    /// follows the one window state. Unknown or passed never shows a number; "*"
+    /// exactly when the state is stale; a shown number is always the remaining
+    /// share, never the used one.
+    func testMenuValueFollowsTheWindowStateForArbitraryObservations() throws {
+        var random = SeededGenerator(seed: 0x51_2026_0928)
+        let sources = ["Claude Code /usage", "Claude Code statusLine", "Codex CLI"]
+        for _ in 0..<2_000 {
+            let used = [0, 0.4, 0.6, 50, 99.4, 99.6, 100, Double.random(in: 0...100, using: &random)].randomElement(using: &random)!
+            let reset: Date? = Bool.random(using: &random) ? nil : now.addingTimeInterval(Double.random(in: -2 * 86400...7 * 86400, using: &random))
+            let age = Double.random(in: -3600...(3 * 3600), using: &random)
+            guard let window = try? QuotaWindow(usedPercent: used, durationMinutes: 10080, resetsAt: reset,
+                                                resetPrecision: reset == nil ? nil : .minute) else { continue }
+            var snapshot = UsageSnapshot(provider: .codex, weekly: window, fetchedAt: now.addingTimeInterval(-age),
+                                         source: sources.randomElement(using: &random)!)
+            if Bool.random(using: &random) { snapshot.issue = "offline" }
+            let status = snapshot.status(of: window, now: now)
+            let shown = try entry(snapshot)
+            let context = "\(used) \(String(describing: reset)) \(age) \(snapshot.source) \(String(describing: snapshot.issue)) -> \(status)"
+            switch status {
+            case .resetPassed, .unknown:
+                XCTAssertEqual(shown.value, "—", context); XCTAssertNil(shown.remaining, context)
+            default:
+                XCTAssertEqual(shown.remaining, window.remaining, context)
+                XCTAssertTrue(shown.value.hasPrefix(PercentText.format(Int(window.remaining.rounded()))), context)
+            }
+            XCTAssertEqual(shown.value.hasSuffix("*"), status.isStale, context)
+            if reset.map({ $0 <= now }) == true { XCTAssertEqual(status, .resetPassed(reset!), context) }
+        }
+    }
+}
+
+/// A small deterministic generator (SplitMix64) for property checks with a fixed seed.
+private struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
 }
