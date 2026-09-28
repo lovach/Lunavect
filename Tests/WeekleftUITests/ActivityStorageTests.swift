@@ -72,7 +72,7 @@ final class ActivityStorageTests: XCTestCase {
     @MainActor func testPhaseChangesOutsideActivityDoNotWriteAndTransitionsAreDebounced() throws {
         let clock = StorageClock(now), writes = StorageCount()
         let storage = ActivityPersistence(historyURL: try root().appendingPathComponent("a.json"), detailsURL: try root().appendingPathComponent("d.json"),
-            writeHistory: { _, _ in writes.increment() }, writeDetails: { _, _ in }, clock: { clock.now })
+            writeHistory: { _, _ in writes.increment() }, writeDetails: { _, _, _ in }, clock: { clock.now })
         let service = ActivityService(history: .init(), details: .init(), storage: storage, powerNotifications: nil, clock: { clock.now })
         service.setProviders([.claude])
         clock.now = now; service.observe([row("a", .idle, at: now)]); _ = storage.counters
@@ -106,6 +106,60 @@ final class ActivityStorageTests: XCTestCase {
         service.stop()
     }
 
+    // MARK: R3-03 durable details at quit and before sleep
+
+    /// Details are written without fsync on the five-minute cadence (decision 23),
+    /// but a kernel panic or power loss after an unsynchronized rename can leave an
+    /// empty file and lose the whole 35-day breakdown. Quit and sleep write them durably.
+    @MainActor func testDetailsAreSynchronizedAtQuitAndBeforeSleepOnly() throws {
+        let directory = try root(), clock = StorageClock(now), center = NotificationCenter(), log = StorageSyncLog()
+        let storage = ActivityPersistence(historyURL: directory.appendingPathComponent("activity.json"),
+                                          detailsURL: directory.appendingPathComponent("activity-details.json"),
+                                          writeHistory: { _, _ in }, writeDetails: { _, _, synchronize in log.append(synchronize) },
+                                          clock: { clock.now })
+        let service = ActivityService(history: .init(), details: .init(), storage: storage, powerNotifications: center, clock: { clock.now })
+        service.setProviders([.claude])
+        for second in stride(from: 0.0, through: 900, by: 5) {
+            clock.now = now.addingTimeInterval(second)
+            service.observe([row("a", .running, at: clock.now)])
+        }
+        _ = storage.counters
+        XCTAssertFalse(log.values.isEmpty)
+        XCTAssertFalse(log.values.contains(true), "The periodic details writes stay without fsync")
+        let periodic = log.values.count
+        clock.now = now.addingTimeInterval(905)
+        service.observe([row("a", .running, at: clock.now)])
+        center.post(name: NSWorkspace.willSleepNotification, object: nil)
+        _ = storage.counters
+        XCTAssertEqual(log.values.dropFirst(periodic), [true], "Before sleep the latest details are written with fsync")
+        center.post(name: NSWorkspace.willSleepNotification, object: nil)
+        _ = storage.counters
+        XCTAssertEqual(log.values.count, periodic + 1, "Unchanged details already on disk are not written again")
+        center.post(name: NSWorkspace.didWakeNotification, object: nil)
+        clock.now = now.addingTimeInterval(960)
+        service.observe([row("a", .running, at: clock.now)])
+        service.stop()
+        XCTAssertEqual(log.values.last, true, "The final flush at quit writes details with fsync")
+    }
+
+    func testAnUnsynchronizedDetailsWriteIsRepeatedWhenDurabilityIsRequested() throws {
+        // A private folder: loading also sweeps abandoned temporaries next to the files.
+        let log = StorageSyncLog(), directory = try root()
+        let storage = ActivityPersistence(historyURL: directory.appendingPathComponent("activity.json"),
+                                          detailsURL: directory.appendingPathComponent("activity-details.json"),
+                                          writeHistory: { _, _ in }, writeDetails: { _, _, synchronize in log.append(synchronize) },
+                                          completionQueue: DispatchQueue(label: "ActivityStorageTests.completion"))
+        _ = storage.load(history: ActivityHistory(), details: ActivityDetails())
+        var state = ActivityPersistence.State(history: ActivityHistory(), details: ActivityDetails())
+        state.details.append(row("a", .running, at: now), start: now, end: now.addingTimeInterval(60))
+        let done = DispatchSemaphore(value: 0)
+        for durable in [false, true, true] {
+            storage.submit(state, durable: durable) { _ in done.signal() }
+            XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+        }
+        XCTAssertEqual(log.values, [false, true], "Same details: rewritten once with fsync, then left alone")
+    }
+
     // MARK: B-01 unreadable history
 
     @MainActor func testOversizedHistoryCanBeKeptAsACopyAndCollectionStartsOver() async throws {
@@ -121,7 +175,10 @@ final class ActivityStorageTests: XCTestCase {
         service.start(providers: [.claude])
         XCTAssertTrue(service.unavailable, "Launch never replaces an unreadable file on its own")
         XCTAssertEqual(try Data(contentsOf: historyURL).count, original.count)
-        service.requestImport() // "Save a copy and start over"
+        service.requestImport()
+        _ = storage.counters
+        XCTAssertTrue(service.unavailable, "An ordinary import request never starts over")
+        service.startOverPreservingHistory() // "Keep a copy and start over"
         let done = expectation(description: "Start over and import")
         let token = service.$importing.dropFirst().filter { !$0 }.first().sink { _ in done.fulfill() }
         await fulfillment(of: [done], timeout: 5); token.cancel()
@@ -133,6 +190,29 @@ final class ActivityStorageTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(copy).path)[.posixPermissions] as? Int, 0o600)
         XCTAssertNoThrow(try ActivityHistory.load(from: historyURL))
         XCTAssertNotNil(service.issue)
+        service.stop()
+    }
+
+    /// R3-02: the connection wizard imports history after connecting a provider
+    /// (`AppStore.importActivityHistory`). With an unreadable history that import
+    /// must not keep a copy and start over silently: only the explicit button may.
+    @MainActor func testWizardImportNeverMovesAnUnreadableHistoryAside() async throws {
+        let directory = try root(), historyURL = directory.appendingPathComponent("activity.json")
+        let original = Data(repeating: 0x20, count: 32_000_001)
+        try original.write(to: historyURL)
+        let imports = StorageCount()
+        let storage = ActivityPersistence(historyURL: historyURL, detailsURL: directory.appendingPathComponent("activity-details.json"))
+        let service = ActivityService(storage: storage, powerNotifications: nil, clock: { self.now }, importer: { _, _, _ in
+            imports.increment(); return ActivityImportResult()
+        })
+        service.start(providers: [.claude])
+        service.requestImport() // what the connection wizard calls
+        _ = storage.counters // drains the storage queue, where a start-over would move the file
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(service.unavailable, "The history stays unavailable until the user chooses to start over")
+        XCTAssertEqual(try Data(contentsOf: historyURL).count, original.count)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path).contains { $0.hasPrefix("activity.json.unreadable-") })
+        XCTAssertEqual(imports.value, 0)
         service.stop()
     }
 
@@ -217,7 +297,7 @@ final class ActivityStorageTests: XCTestCase {
         // The stuck volume holds each write for 30 s (released at the end of the
         // test); the flush must return at its 0.2 s timeout, well under 5 s.
         let activity = ActivityPersistence(historyURL: directory.appendingPathComponent("a.json"), detailsURL: directory.appendingPathComponent("d.json"),
-            writeHistory: { _, _ in _ = release.wait(timeout: .now() + 30) }, writeDetails: { _, _ in }, flushTimeout: 0.2)
+            writeHistory: { _, _ in _ = release.wait(timeout: .now() + 30) }, writeDetails: { _, _, _ in }, flushTimeout: 0.2)
         var history = ActivityHistory(); history.append(start: now, end: now.addingTimeInterval(5), providers: 1)
         var started = ProcessInfo.processInfo.systemUptime
         let result = activity.flush(.init(history: history, details: .init()))
@@ -321,6 +401,11 @@ private final class StorageClock: @unchecked Sendable {
     private let lock = NSLock(); private var date: Date
     init(_ date: Date) { self.date = date }
     var now: Date { get { lock.withLock { date } } set { lock.withLock { date = newValue } } }
+}
+private final class StorageSyncLog: @unchecked Sendable {
+    private let lock = NSLock(); private var log: [Bool] = []
+    var values: [Bool] { lock.withLock { log } }
+    func append(_ value: Bool) { lock.withLock { log.append(value) } }
 }
 private final class StorageCount: @unchecked Sendable {
     private let lock = NSLock(); private var count = 0

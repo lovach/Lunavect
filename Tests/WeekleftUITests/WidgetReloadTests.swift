@@ -50,15 +50,19 @@ final class WidgetReloadTests: XCTestCase {
         let duplicate = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build"); return false },
             reassert: { _ in checks.increment(); return true }, reload: { reloads.increment() }, pause: {}, settle: { _ in },
-            registeredCopies: { [URL(fileURLWithPath: "/Applications/Lunavect.app"), URL(fileURLWithPath: "/Users/fixture/Applications/Lunavect.app")] })
+            registeredCopies: { [URL(fileURLWithPath: "/Applications/Lunavect.app"), URL(fileURLWithPath: "/Users/fixture/Applications/Lunavect.app")] },
+            // Injected answers only: the other copy's widget is the one macOS uses.
+            widgetHost: { .extensions(["/Users/fixture/Applications/Lunavect.app/Contents/PlugIns/LunavectWidget.appex"]) },
+            fileExists: { _ in true }, status: WidgetRegistrationStatus())
         duplicate.start(); await duplicate.waitUntilFinished()
-        XCTAssertEqual(checks.value, 0, "Another registered copy makes a reassertion a trigger, not a repair")
+        XCTAssertEqual(checks.value, 0, "While the other registered copy hosts the widget, a reassertion is a trigger, not a repair")
         XCTAssertEqual(reloads.value, 0)
         var delays: [Duration] = []
         let single = WidgetRegistration(defaults: defaults, target: target,
             repair: { _ in XCTFail("Current build"); return false },
             reassert: { _ in checks.increment(); return true }, reload: { reloads.increment() }, pause: {}, settle: { delays.append($0) },
-            registeredCopies: { [URL(fileURLWithPath: "/Applications/./Lunavect.app")] })
+            registeredCopies: { [URL(fileURLWithPath: "/Applications/./Lunavect.app")] },
+            widgetHost: { XCTFail("No lookup without a duplicate"); return .unknown }, status: WidgetRegistrationStatus())
         single.start(); await single.waitUntilFinished()
         XCTAssertEqual(delays, [.seconds(5), .seconds(115)], "Checks at 5 s and 2 min after launch")
         XCTAssertEqual(checks.value, 2)

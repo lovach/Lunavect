@@ -461,6 +461,82 @@ final class IDEBridgeTests: XCTestCase {
         XCTAssertTrue(IDEBridge.valid(try descriptor(), now: now), "Companions from 0.1.2 use the private temporary directory")
     }
 
+    /// R2-01: companion 0.1.2 puts its socket in `$TMPDIR/lunavect` of the editor's
+    /// environment. A TMPDIR from `.zshrc`, `nix develop`, devbox or an unset one
+    /// (`/tmp`) must not make a working companion look missing. Pure identity check.
+    func testCompanionSocketFollowsTheEditorsTemporaryFolder() throws {
+        let now = Date(), id = UUID().uuidString
+        func descriptor(_ socket: String) throws -> IDEBridge.Descriptor {
+            try JSONDecoder().decode(IDEBridge.Descriptor.self, from: JSONSerialization.data(withJSONObject: [
+                "version": 1, "id": id, "editor": "vscode", "pid": 42, "appPath": "/Applications/Visual Studio Code.app",
+                "bundleIdentifier": "com.microsoft.VSCode", "socketPath": socket, "updatedAt": now.timeIntervalSince1970, "companion": "0.1.2"]))
+        }
+        let known = ["/tmp/lunavect-ide-\(getuid())", "/var/folders/ab/cdef/T/lunavect"]
+        for folder in ["/Users/fixture/.cache/tmp", "/nix/store/x-devbox/tmp", "/tmp", "/private/tmp", "/private/var/folders/ab/cdef/T", "/Volumes/Work/tmp dir"] {
+            XCTAssertTrue(IDEBridge.valid(try descriptor(folder + "/lunavect/\(id).sock"), now: now, socketDirectories: known), folder)
+        }
+        for socket in ["relative/lunavect/\(id).sock", "/tmp/other/\(id).sock", "/tmp/lunavect/\(UUID().uuidString).sock",
+                       "/tmp/../tmp/lunavect/\(id).sock", "/tmp/./lunavect/\(id).sock", "//tmp/lunavect/\(id).sock",
+                       "/lunavect/\(id).sock", "/tmp/x\n/lunavect/\(id).sock", "/tmp/lunavect/nested/\(id).sock",
+                       "/" + String(repeating: "a", count: 80) + "/lunavect/\(id).sock"] {
+            XCTAssertFalse(IDEBridge.valid(try descriptor(socket), now: now, socketDirectories: known), socket)
+        }
+        XCTAssertTrue(IDEBridge.valid(try descriptor("/tmp/lunavect-ide-\(getuid())/\(id).sock"), now: now, socketDirectories: known),
+                      "Companions 0.1.0 and 0.1.1 keep working")
+    }
+
+    /// R2-01: the folder a descriptor names is used only when it is a real directory
+    /// of this user with no group or other access; peer credentials are still checked
+    /// at connect. Every file lives in this test's own /tmp/lunavect-test-* folder.
+    func testSocketFolderOutsideTheKnownDirectoriesMustBePrivate() throws {
+        let base = "/tmp/lunavect-test-" + UUID().uuidString.prefix(8)
+        try FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        let root = URL(fileURLWithPath: base).resolvingSymlinksInPath()
+        let records = root.appendingPathComponent("IDEBridge"), app = root.appendingPathComponent("Fixture.app")
+        try FileManager.default.createDirectory(at: records, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        func folder(_ path: String, mode: Int16 = 0o700) throws -> String {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: mode])
+            try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+            return url.path
+        }
+        let custom = try folder("c/lunavect"), open = try folder("o/lunavect", mode: 0o755), plain = try folder("p/other")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("l"), withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("l/lunavect").path, withDestinationPath: custom)
+        let linked = root.appendingPathComponent("l/lunavect").path
+        let now = Date()
+        func endpoint(in directory: String) throws -> String {
+            let id = UUID().uuidString, path = directory + "/" + id + ".sock"
+            let listener = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+            defer { Darwin.close(listener) }
+            var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX); address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            // The linked folder reaches the same inode: bind through the real one.
+            let real = directory == linked ? custom + "/" + id + ".sock" : path
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: Array(real.utf8) + [0]) }
+            let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+            guard bound == 0, chmod(real, 0o600) == 0 else { throw POSIXError(.EIO) }
+            let object: [String: Any] = ["version": 1, "id": id, "editor": "vscode", "pid": 4242, "appPath": app.path,
+                                         "bundleIdentifier": "com.microsoft.VSCode", "socketPath": path, "companion": "0.1.2",
+                                         "updatedAt": now.timeIntervalSince1970]
+            let file = records.appendingPathComponent(id + ".json")
+            try JSONSerialization.data(withJSONObject: object).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            return id
+        }
+        let custom1 = try endpoint(in: custom), public1 = try endpoint(in: open), other1 = try endpoint(in: plain), link1 = try endpoint(in: linked)
+        let endpoints = IDEBridge.scan(at: records, now: now, process: { pid in
+            pid == 4242 ? .init(identity: .init(pid: 4242, startedAtMicroseconds: 1), parentPID: 1,
+                                executable: app.path + "/Contents/MacOS/Electron", hasTerminal: false) : nil
+        }, bundle: { $0 == app.path ? "com.microsoft.VSCode" : nil }, socketDirectories: ["/tmp/lunavect-ide-\(getuid())"])
+        func state(_ id: String) -> IDEBridge.Endpoint.State? { endpoints.first { $0.descriptor?.id == id }?.state }
+        XCTAssertEqual(state(custom1), .live, "A private socket folder in a non-standard TMPDIR is used")
+        XCTAssertEqual(state(public1), .unreachable, "A folder other users can enter is never connected to")
+        XCTAssertEqual(state(link1), .unreachable, "A linked socket folder is never followed")
+        XCTAssertNil(state(other1), "Only the companions' folder name is accepted")
+    }
+
     func testCallbackCannotOpenFilesCommandsOrAnotherExtension() {
         let id = UUID().uuidString
         XCTAssertTrue(IDEBridge.validCallback(URL(string: "vscode://lovach.lunavect/focus/\(id)?windowId=3")!))

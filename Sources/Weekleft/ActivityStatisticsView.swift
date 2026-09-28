@@ -131,8 +131,8 @@ struct ActivityStatisticsView: View {
                         ProgressView().controlSize(.small)
                         Text(L("Восстанавливаем историю…"))
                     } else if store.activityUnavailable {
-                        // The same service action keeps a copy of the unreadable file first.
-                        Button(L("Сохранить копию и начать заново")) { store.importActivityHistory() }
+                        // The only action that keeps a copy of the unreadable file and starts over.
+                        Button(L("Сохранить копию и начать заново")) { store.startOverActivityHistory() }
                     } else {
                         Button(L("Обновить историю")) { store.importActivityHistory() }
                         if store.activityHistory.importedAt != nil, store.activityHistory.importReport == nil {
@@ -158,8 +158,7 @@ struct ActivityStatisticsView: View {
     @ViewBuilder private var legacyDataControls: some View {
         HStack(alignment: .firstTextBaseline) {
             if let legacyData, !legacyData.isEmpty {
-                Text(L("Прежняя установка оставила копии, которые Lunavect не читает: {0}.", String(legacyData.count)))
-                    .fixedSize(horizontal: false, vertical: true)
+                LegacyCopiesList(urls: legacyData)
                 Spacer(minLength: 8)
                 Button(L("Переместить в Корзину")) {
                     let remaining = LegacySharedData.moveToTrash(legacyData)
@@ -177,6 +176,23 @@ struct ActivityStatisticsView: View {
             Text(L(title)).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary).accessibilityAddTraits(.isHeader)
             Text(L(text)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Copies of an earlier installation: what would move to the Trash, with its last
+/// change, before anything is moved (R3-07).
+struct LegacyCopiesList: View {
+    let urls: [URL]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L("Прежняя установка оставила копии, которые Lunavect не читает: {0}.", String(urls.count)))
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(LegacySharedData.details(of: urls), id: \.url) { item in
+                Text((item.url.path as NSString).abbreviatingWithTildeInPath + (item.modified.map { " · " + $0.formatted(.dateTime.day().month().year().locale(L10n.locale)) } ?? ""))
+                    .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    .lineLimit(2).truncationMode(.middle)
+            }
+        }
     }
 }
 

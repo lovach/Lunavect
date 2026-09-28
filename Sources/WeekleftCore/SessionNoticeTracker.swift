@@ -52,8 +52,11 @@ public struct SessionNoticeTracker {
             let kind: SessionNoticeKind?
             switch phase {
             // Only a reply announces completion. SessionEnd after active work
-            // means the client closed, often right after Esc (no Stop): silent.
+            // without a Stop means the client closed, often right after Esc: silent.
             case .ready: kind = [.running, .permission, .input].contains(prior.phase) ? .completed : nil
+            // `claude -p` and SDK scripts send Stop and SessionEnd within milliseconds;
+            // one read can see only the end of a reply Stop already answered (R2-05).
+            case .finished: kind = [.running, .permission, .input].contains(prior.phase) && row.replyFinished == true ? .completed : nil
             case .permission: kind = .permission
             case .input: kind = .input
             case .failed: kind = [.running, .permission, .input].contains(prior.phase) ? .failed : nil

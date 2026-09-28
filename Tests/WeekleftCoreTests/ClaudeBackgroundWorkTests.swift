@@ -193,6 +193,24 @@ final class ClaudeBackgroundWorkTests: XCTestCase {
         XCTAssertEqual(record.session.effectivePhase(now: start.addingTimeInterval(5 + 601)), .unknown, "an active turn keeps the normal freshness")
     }
 
+    /// R2-09: a command Claude moves to the background by itself (a long foreground
+    /// command, Ctrl+B) reports its background task id instead of `run_in_background`.
+    func testCommandsMovedToTheBackgroundAreCounted() throws {
+        var record = try hook("UserPromptSubmit", after: nil, at: 0)
+        record = try hook("PostToolUse", ["tool_name": "Bash", "tool_use_id": "b1", "tool_input": ["command": "swift test"],
+                                          "tool_response": ["backgroundTaskId": "bash_1", "stdout": ""]], after: record, at: 1)
+        XCTAssertEqual(record.session.backgroundWork, BackgroundWork(commands: 1))
+        record = try hook("PostToolUse", ["tool_name": "Bash", "tool_use_id": "b2", "tool_input": ["command": "npm run dev"],
+                                          "tool_response": ["backgroundTaskId": "bash_2"]], after: record, at: 2)
+        XCTAssertEqual(record.session.backgroundWork, BackgroundWork(commands: 1), "A service moved to the background is still not counted")
+        record = try hook("PostToolUse", ["tool_name": "Bash", "tool_use_id": "b3", "tool_input": ["command": "ls"],
+                                          "tool_response": ["backgroundTaskId": "", "stdout": "a"]], after: record, at: 3)
+        XCTAssertEqual(record.session.backgroundWork, BackgroundWork(commands: 1), "An empty identifier is no background task")
+        record = try hook("PostToolUse", ["tool_name": "Task", "tool_use_id": "a1", "tool_input": ["description": "audit"],
+                                          "tool_response": ["backgroundTaskId": "agent_1"]], after: record, at: 4)
+        XCTAssertEqual(record.session.backgroundWork, BackgroundWork(commands: 1, agents: 1))
+    }
+
     /// SubagentStop lowers the count to the reported in-flight set without
     /// touching the turn (it can no longer raise it; see SubagentStopAuthorityTests).
     func testSubagentStopUpdatesTheCountWithoutChangingTheTurn() throws {
@@ -204,7 +222,10 @@ final class ClaudeBackgroundWorkTests: XCTestCase {
         XCTAssertEqual(finished.session.backgroundWork, BackgroundWork(monitors: 1))
         XCTAssertEqual(finished.session.tool, "Bash")
         XCTAssertEqual(finished.session.observedAt, working.session.observedAt)
-        XCTAssertEqual(try hook("SubagentStop", ["background_tasks": []], after: working, at: 31).session.backgroundWork, nil)
+        // R2-09: an empty list does not show whose tasks it describes (the parent's or
+        // the finished subagent's own); it no longer clears what the session started.
+        XCTAssertEqual(try hook("SubagentStop", ["background_tasks": []], after: working, at: 31).session.backgroundWork,
+                       BackgroundWork(agents: 1, monitors: 1))
         XCTAssertThrowsError(try hook("SubagentStop", ["background_tasks": []], after: nil, at: 0), "no record is created for an unknown session")
         XCTAssertTrue(SessionHooks.events(.claude).contains("SubagentStop"))
     }

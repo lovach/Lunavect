@@ -17,9 +17,11 @@ public enum ActivityHistoryImporter {
     /// Claude turns are rebuilt from message timestamps, like Codex tasks: they
     /// include tool runs and model latency. A silence longer than this inside a
     /// turn (typically an unanswered permission request) is not counted as work.
+    /// Like live observation and Codex tasks, a turn has no upper bound (R3-05).
     public static let claudeTurnIdleGap: TimeInterval = 30 * 60
-    /// Upper bound for one recovered Claude turn segment; longer ones keep their final part.
-    public static let claudeMaximumTurn: TimeInterval = 2 * 3600
+    /// Tools that wait for the user inside a turn. Live observation shows them as
+    /// Input needed and does not count them; the recovered turn pauses until the answer.
+    static let claudeUserWaits: Set<String> = ["AskUserQuestion", "ExitPlanMode"]
     public struct Source: Sendable {
         public let directory: URL
         public let provider: ProviderID
@@ -39,6 +41,9 @@ public enum ActivityHistoryImporter {
                             monotonicNow: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) -> ActivityImportResult {
         var result = ActivityImportResult(), bytesRead = 0
         let cutoff = now.addingTimeInterval(-35 * 86400), deadline = monotonicNow() + maximumSeconds
+        // A boundary at or before the 35-day window leaves nothing to recover: no
+        // journal is read (R3-04, for example a re-import for an old installation).
+        let reachable = boundary > cutoff
         var hitDeadline = false
         let fractional = ISO8601DateFormatter(), whole = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -80,7 +85,7 @@ public enum ActivityHistoryImporter {
             else { reports[provider]!.toolRecords += 1 }
             return true
         }
-        for source in sources {
+        for source in sources where reachable {
             if Task.isCancelled { return cancelledResult() }
             let provider = source.provider
             if exhausted() { issue(.budget, provider); continue }
@@ -98,7 +103,7 @@ public enum ActivityHistoryImporter {
             }
             guard root.isSymbolicLink != true else { issue(.symlink, provider); continue }
             guard root.isDirectory == true else { issue(.unreadable, provider); continue }
-            let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+            let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .creationDateKey]
             guard
                 let enumerator = FileManager.default.enumerator(
                     at: source.directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles],
@@ -116,6 +121,10 @@ public enum ActivityHistoryImporter {
                 if values.isSymbolicLink == true { enumerator.skipDescendants(); issue(.symlink, provider); continue }
                 guard values.isRegularFile == true, file.pathExtension == "jsonl" else { continue }
                 guard (values.contentModificationDate ?? now) >= cutoff else { continue }
+                // Records are not older than the journal that holds them: one created at
+                // or after the boundary cannot contribute (R3-04). A forked session's copy
+                // repeats rows of its original, which is read on its own.
+                if let created = values.creationDate, created >= boundary { continue }
                 files.append((file, values.contentModificationDate ?? .distantPast))
                 if files.count >= 20_000 { issue(.budget, provider); break }
             }
@@ -141,10 +150,12 @@ public enum ActivityHistoryImporter {
                 // Current Claude turn segment: prompt (or first row after a long
                 // silence), latest main-chain row and latest answer/Stop hook row.
                 var turnStart: Date?, turnLastRow: Date?, turnEnd: Date?
+                // Question and plan-approval tool calls still waiting for the user's answer.
+                var userWaits = Set<String>()
                 func closeTurn() {
                     if let start = turnStart, let end = turnEnd, end > start {
                         hadTiming = true
-                        append(start: max(start, end.addingTimeInterval(-claudeMaximumTurn)), end: end, provider: provider, kind: 0)
+                        append(start: start, end: end, provider: provider, kind: 0)
                     }
                     turnStart = nil; turnLastRow = nil; turnEnd = nil
                 }
@@ -160,16 +171,27 @@ public enum ActivityHistoryImporter {
                     // Subagent (sidechain) rows run inside the parent's Agent tool call.
                     guard let stamp, let type, ["user", "assistant", "system"].contains(type), record["isSidechain"] as? Bool != true else { return }
                     if type == "user", isPrompt(record) {
-                        closeTurn(); turnStart = stamp; turnLastRow = stamp
+                        closeTurn(); turnStart = stamp; turnLastRow = stamp; userWaits.removeAll()
                         return
                     }
                     guard let start = turnStart, let last = turnLastRow, stamp >= start else { return }
-                    if stamp.timeIntervalSince(last) > claudeTurnIdleGap {
+                    let blocks = (record["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+                    let answered = type == "user" && !userWaits.isEmpty && blocks.contains {
+                        $0["type"] as? String == "tool_result" && ($0["tool_use_id"] as? String).map(userWaits.contains) == true
+                    }
+                    if stamp.timeIntervalSince(last) > claudeTurnIdleGap || answered {
+                        // The wait for the user's answer is not work: the turn resumes with it.
                         closeTurn(); turnStart = stamp; turnLastRow = stamp
+                        if answered { userWaits.removeAll() }
                     } else if stamp > last { turnLastRow = stamp }
                     let subtype = record["subtype"] as? String ?? ""
                     if type == "assistant" || (type == "system" && ["stop_hook_summary", "turn_duration"].contains(subtype)) {
                         turnEnd = max(turnEnd ?? stamp, stamp)
+                    }
+                    if type == "assistant" {
+                        for block in blocks where block["type"] as? String == "tool_use" && claudeUserWaits.contains(block["name"] as? String ?? "") {
+                            if let id = block["id"] as? String, !id.isEmpty, userWaits.count < 64 { userWaits.insert(id) }
+                        }
                     }
                 }
                 // Read a fixed snapshot: a running client's later appends are picked up on retry.

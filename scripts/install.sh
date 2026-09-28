@@ -13,6 +13,8 @@ CREATED_LEGACY_LINK=false
 INSTALL_COMPLETE=false
 # Tests inject a recording tool; the default is the system registration tool.
 LSREGISTER="${LUNAVECT_LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Support/lsregister}"
+# A test fixture's shim left in a shell must not go unnoticed; pluginkit comes from PATH.
+if [ -n "${LUNAVECT_LSREGISTER+set}" ]; then echo "Override active (test fixture): LUNAVECT_LSREGISTER=$LUNAVECT_LSREGISTER" >&2; fi
 # Validate every destination before staging, migration, or registration changes.
 for existing in "$APP_DEST" "$LEGACY_APP"; do
   if [ -L "$existing" ]; then

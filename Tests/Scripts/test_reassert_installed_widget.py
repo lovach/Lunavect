@@ -51,16 +51,20 @@ class ReassertInstalledWidgetTests(unittest.TestCase):
         self.assertEqual(restored, app)
         self.assertEqual(calls, [[reassert.LSREGISTER, '-f', str(app)], ['pluginkit', '-a', str(app / 'Contents/PlugIns/LunavectWidget.appex')]])
 
-    def test_two_installed_copies_register_only_the_canonical_one(self):
-        """Matrix W8: with ~/Applications and /Applications both valid, only the
-        canonical user copy is registered; the other copy is never switched in."""
+    def test_two_installed_copies_without_a_running_one_register_only_the_first(self):
+        """Matrix W8 under the current rule (WP-6b): the running copy wins. With
+        ~/Applications and /Applications both valid and neither running, only the
+        first copy in the documented order (~/Applications) is registered; the
+        other is never switched in. The process list is injected, never the host's."""
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
             copies = reassert.installed_copies(home=home, system=home / 'global')
             for app in copies:
                 self.bundle(app)
             calls = []
-            restored = reassert.reassert(copies, run=lambda argv, check: calls.append(argv))
+            with contextlib.redirect_stderr(io.StringIO()) as warning:
+                restored = reassert.reassert(copies, run=lambda argv, check: calls.append(argv), list_processes=lambda: [])
+            self.assertIn('neither is running', warning.getvalue())
             self.assertEqual(restored, home / 'Applications/Lunavect.app')
             registered = [argv[-1] for argv in calls]
             self.assertEqual(registered, [str(copies[0]), str(copies[0] / 'Contents/PlugIns/LunavectWidget.appex')])
@@ -204,6 +208,17 @@ class ReassertInstalledWidgetTests(unittest.TestCase):
                 'ps -axo pid=,comm=', 'lsregister -f ' + str(system),
                 'pluginkit -a ' + str(system / 'Contents/PlugIns/LunavectWidget.appex')])
             self.assertIn('Two Lunavect copies', result.stderr)
+            # R3-08: every active override is announced.
+            for name in ('LUNAVECT_LSREGISTER', 'LUNAVECT_PLUGINKIT', 'LUNAVECT_INSTALLED_APPS'):
+                self.assertIn('Override active (test fixture): ' + name + '=', result.stderr)
+
+    def test_overrides_are_listed_and_absent_ones_are_silent(self):
+        self.assertEqual(reassert.active_overrides({'PATH': '/bin'}), [])
+        self.assertEqual(reassert.active_overrides({'LUNAVECT_INSTALLED_APPS': '', 'LUNAVECT_OTHER': 'x'}),
+                         [('LUNAVECT_INSTALLED_APPS', '')], 'An empty value is an override too')
+        stream = io.StringIO()
+        reassert.warn_overrides({'LUNAVECT_PLUGINKIT': '/tmp/shim'}, stream=stream)
+        self.assertEqual(stream.getvalue(), 'Override active (test fixture): LUNAVECT_PLUGINKIT=/tmp/shim\n')
 
     def test_failed_retirement_still_reasserts_installed_host(self):
         with tempfile.TemporaryDirectory() as temporary:

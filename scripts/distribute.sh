@@ -2,12 +2,31 @@
 # Xcode signs with the selected Apple account; no passwords or private keys here.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# LUNAVECT_INSTALLED_APPS, LUNAVECT_LSREGISTER and LUNAVECT_PLUGINKIT replace the
+# installed copies and registration tools for script tests. One left in a shell would
+# turn off the installed-build check or the registration cleanup of a real release,
+# so they are refused unless --test-fixture comes first, and always announced.
+FIXTURE=0
+if [ "${1:-}" = "--test-fixture" ]; then FIXTURE=1; shift; fi
+OVERRIDES=()
+for name in LUNAVECT_INSTALLED_APPS LUNAVECT_LSREGISTER LUNAVECT_PLUGINKIT; do
+  if [ -n "${!name+set}" ]; then OVERRIDES+=("$name"); fi
+done
+if [ "${#OVERRIDES[@]}" -gt 0 ]; then
+  if [ "$FIXTURE" != 1 ]; then
+    echo "Release refused: ${OVERRIDES[*]} set. These overrides are for test fixtures; unset them for a release." >&2
+    exit 2
+  fi
+  for name in "${OVERRIDES[@]}"; do echo "Override active (test fixture): $name=${!name}" >&2; done
+fi
+PREFLIGHT_FIXTURE=()
+if [ "$FIXTURE" = 1 ]; then PREFLIGHT_FIXTURE=(--test-fixture); fi
 ACTION="${1:-}"
 VERSION="${2:-}"
 BUILD="${3:-}"
 PREVIOUS_APPCAST="${4:-}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$BUILD" =~ ^[0-9]+$ ]]; then
-  echo 'Usage: scripts/distribute.sh archive|submit|export VERSION BUILD [PREVIOUS_APPCAST (required for archive)]' >&2
+  echo 'Usage: scripts/distribute.sh [--test-fixture] archive|submit|export VERSION BUILD [PREVIOUS_APPCAST (required for archive)]' >&2
   exit 2
 fi
 OUTPUT="${LUNAVECT_RELEASE_ROOT:-$HOME/Library/Developer/Xcode/Archives/Lunavect}"
@@ -24,7 +43,7 @@ cd "$ROOT"
 case "$ACTION" in
   archive)
     if [ -z "$PREVIOUS_APPCAST" ]; then echo 'Archive requires a fresh published PREVIOUS_APPCAST file.' >&2; exit 2; fi
-    python3 "$ROOT/scripts/release-preflight.py" --source-root "$ROOT" --version "$VERSION" --build "$BUILD" --previous-appcast "$PREVIOUS_APPCAST"
+    python3 "$ROOT/scripts/release-preflight.py" ${PREFLIGHT_FIXTURE[@]+"${PREFLIGHT_FIXTURE[@]}"} --source-root "$ROOT" --version "$VERSION" --build "$BUILD" --previous-appcast "$PREVIOUS_APPCAST"
     if [ -e "$ARCHIVE" ]; then echo 'Archive already exists; use a new build number.' >&2; exit 1; fi
     python3 "$ROOT/scripts/build-manifest.py" begin --source-root "$ROOT" --kind distribution --require-clean --output "$MANIFEST"
     xcodebuild -project Lunavect.xcodeproj -scheme Weekleft -configuration Release \
@@ -64,7 +83,8 @@ esac
 # archive registration is disabled. Keep them out of Spotlight/widget discovery.
 # Registration tools and installed copies come from reassert-installed-widget.py:
 # LUNAVECT_LSREGISTER, LUNAVECT_PLUGINKIT and LUNAVECT_INSTALLED_APPS let fixtures
-# replace them, so tests never reach the host's Launch Services database.
+# replace them (only with --test-fixture, checked above), so tests never reach the
+# host's Launch Services database.
 python3 - "$ARCHIVE" "$OUTPUT" "$BUILD" "$ROOT" <<'PY'
 from pathlib import Path
 import importlib.util, plistlib, shutil, subprocess, sys, time

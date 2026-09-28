@@ -36,7 +36,7 @@ final class TerminalFocusPolicyTests: XCTestCase {
                              script: @escaping @Sendable (String, String, TimeInterval) async throws -> Bool = { _, _, _ in true }) -> TerminalFocusEnvironment {
         TerminalFocusEnvironment(
             isRunning: { bundle in recorder.runningCheck(bundle); return running.contains(bundle) },
-            occupancy: { _, _ in occupancy },
+            occupancy: { _, _, _ in occupancy },
             permission: { bundle, ask in recorder.permission(bundle, ask); return try await permission(bundle, ask) },
             runScript: { tty, app, timeout in recorder.script(tty, app, timeout); return try await script(tty, app, timeout) },
             runningTarget: { _, _ in XCTFail("A recorded device must not search processes"); return nil },
@@ -176,6 +176,41 @@ final class TerminalFocusPolicyTests: XCTestCase {
         XCTAssertEqual(TerminalLocation.occupancy(of: "/dev/ttys9999", provider: .claude), .vacant,
                        "A device that does not exist runs nothing")
         XCTAssertEqual(TerminalLocation.occupancy(of: "/dev/console\n", provider: .claude), .unknown, "Only validated devices are inspected")
+    }
+
+    /// R2-06: a live session whose CLI binary was replaced by an update (path no
+    /// longer readable) or runs under a name the rule does not know must not be
+    /// reported as gone. The hook's recorded runtime PID identifies it directly.
+    func testUnreadableOrRenamedRuntimesAreNotCalledGone() {
+        let uid = getuid()
+        let shell = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/bin/zsh", pid: 30)
+        let hidden = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: nil, pid: 40)
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, hidden]), .unknown,
+                       "A process of this user whose path cannot be read may be the session")
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell]), .vacant)
+        let renamed = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/opt/tools/claude-code-wrapper", pid: 41)
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, renamed], runtimePID: 41), .provider,
+                       "The recorded runtime runs there, whatever its name")
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, renamed], runtimePID: 99), .vacant)
+        let foreign = TerminalLocation.DeviceProcess(uid: uid + 1, device: 7, executable: nil, pid: 42)
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .claude, processes: [shell, foreign], runtimePID: 42), .vacant,
+                       "Another user's process never counts")
+        let release = TerminalLocation.DeviceProcess(uid: uid, device: 7, executable: "/Users/u/bin/codex-aarch64-apple-darwin", pid: 43)
+        XCTAssertEqual(TerminalLocation.occupancy(device: 7, provider: .codex, processes: [shell, release]), .provider,
+                       "The Codex release binary keeps its download name")
+    }
+
+    func testFocusPassesTheRecordedRuntimeToTheOccupancyCheck() async throws {
+        let recorder = Recorder(), seen = OSAllocatedUnfairLock<Int32?>(initialState: nil)
+        var row = session(); row.runtimePID = 4242
+        let environment = TerminalFocusEnvironment(
+            isRunning: { _ in true },
+            occupancy: { _, _, pid in seen.withLock { $0 = pid }; return .provider },
+            permission: { _, _ in 0 },
+            runScript: { tty, app, timeout in recorder.script(tty, app, timeout); return true },
+            runningTarget: { _, _ in nil }, uptime: { recorder.clock })
+        _ = try await TerminalLocation.focusSession(row, environment: environment)
+        XCTAssertEqual(seen.withLock { $0 }, 4242)
     }
 
     /// The live libproc path with a real pseudo-terminal that runs no provider,

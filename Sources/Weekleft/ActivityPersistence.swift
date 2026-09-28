@@ -31,7 +31,7 @@ final class ActivityPersistence: @unchecked Sendable {
     private let readHistory: (URL) throws -> ActivityHistory
     private let readDetails: (URL) throws -> ActivityDetails
     private let writeHistory: (ActivityHistory, URL) throws -> Void
-    private let writeDetails: (ActivityDetails, URL) throws -> Void
+    private let writeDetails: (ActivityDetails, URL, Bool) throws -> Void
     private let reload: () -> Void
     private let clock: () -> Date
     private let reloadInterval: TimeInterval
@@ -43,6 +43,8 @@ final class ActivityPersistence: @unchecked Sendable {
     private var readOnly = false
     private var historyWritable = true, detailsWritable = true
     private var savedHistory: ActivityHistory?, savedDetails: ActivityDetails?
+    /// Whether the saved details reached the disk with fsync.
+    private var detailsSynchronized = false
     private var historyRecoveryIssue: String?, detailsRecoveryIssue: String?
     private var counts = PersistenceCounters()
     var counters: PersistenceCounters { queue.sync { counts } }
@@ -51,9 +53,9 @@ final class ActivityPersistence: @unchecked Sendable {
          readHistory: @escaping (URL) throws -> ActivityHistory = { try ActivityHistory.load(from: $0) },
          readDetails: @escaping (URL) throws -> ActivityDetails = { try ActivityDetails.load(from: $0) },
          writeHistory: @escaping (ActivityHistory, URL) throws -> Void = { try $0.save(to: $1) },
-         // Private details are rewritten every few minutes and on quit (decision 23):
-         // no fsync; the shared history keeps it.
-         writeDetails: @escaping (ActivityDetails, URL) throws -> Void = { try $0.save(to: $1, synchronize: false) },
+         // Private details are rewritten every five minutes without fsync (decision 23);
+         // quit and sleep ask for a durable write (R3-03). The Bool is `synchronize`.
+         writeDetails: @escaping (ActivityDetails, URL, Bool) throws -> Void = { try $0.save(to: $1, synchronize: $2) },
          reload: @escaping () -> Void = {}, clock: @escaping () -> Date = Date.init,
          reloadInterval: TimeInterval = 900, completionQueue: DispatchQueue = .main, flushTimeout: TimeInterval = 3) {
         self.historyURL = historyURL; self.detailsURL = detailsURL
@@ -111,16 +113,18 @@ final class ActivityPersistence: @unchecked Sendable {
                               historyIssue: self.historyRecoveryIssue, detailsIssue: self.detailsRecoveryIssue)
         }
     }
-    func submit(_ state: State, completion: @escaping @Sendable (WriteResult) -> Void) {
+    /// `durable` writes the private details with fsync (before sleep); the periodic
+    /// cadence leaves it off.
+    func submit(_ state: State, durable: Bool = false, completion: @escaping @Sendable (WriteResult) -> Void) {
         queue.async {
-            let result = self.write(state)
+            let result = self.write(state, durable: durable)
             self.completionQueue.async { completion(result) }
         }
     }
     /// Termination waits at most `flushTimeout` for the disk; an unresponsive
     /// volume must not block quitting. A late write still completes in order.
     func flush(_ state: State) -> WriteResult {
-        if let result = blocking(timeout: flushTimeout, { self.write(state) }) { return result }
+        if let result = blocking(timeout: flushTimeout, { self.write(state, durable: true) }) { return result }
         logger.error("Activity flush exceeded \(self.flushTimeout, privacy: .public) s; quitting without waiting")
         return WriteResult(sequence: 0, historyIssue: "Не удалось сохранить статистику активности.", detailsIssue: nil,
                            historySaved: false, counters: PersistenceCounters())
@@ -155,7 +159,7 @@ final class ActivityPersistence: @unchecked Sendable {
         }
     }
 
-    private func write(_ state: State) -> WriteResult {
+    private func write(_ state: State, durable: Bool = false) -> WriteResult {
         counts.submitted += 1
         if readOnly {
             counts.skipped += 1
@@ -178,9 +182,14 @@ final class ActivityPersistence: @unchecked Sendable {
                 historySaved = true
             } catch { savedHistory = nil; historyIssue = "Не удалось сохранить статистику активности."; failed = true }
         }
-        if detailsWritable, savedDetails != state.details {
-            do { try writeDetails(state.details, detailsURL); savedDetails = state.details; wrote = true }
-            catch { savedDetails = nil; detailsIssue = "Не удалось сохранить разбивку по сессиям."; failed = true }
+        // A power loss or kernel panic after an unsynchronized rename can leave an empty
+        // file, and recovery would then set the whole breakdown aside: quit and sleep
+        // write it durably, repeating an unsynchronized write of the same content.
+        if detailsWritable, savedDetails != state.details || (durable && !detailsSynchronized) {
+            do {
+                try writeDetails(state.details, detailsURL, durable)
+                savedDetails = state.details; detailsSynchronized = durable; wrote = true
+            } catch { savedDetails = nil; detailsSynchronized = false; detailsIssue = "Не удалось сохранить разбивку по сессиям."; failed = true }
         }
         if wrote { counts.written += 1 }
         if failed { counts.failed += 1 }

@@ -247,7 +247,7 @@ import os
         var clock = instant, alive = true
         var permission = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
             "session_id": "killed", "hook_event_name": "PermissionRequest", "tool_use_id": "t1", "cwd": "/Users/fixture/Projects/lunavect"]),
-            provider: .claude, previous: nil, now: clock).session
+            provider: .claude, previous: nil, now: clock, client: .terminal).session
         permission.runtimePID = 4242
         var observed: [SessionPhase] = []
         let sessions = try store(.init(catalog: { _, _, _, _ in ([], false) }, events: { _, _, _ in [permission] },
@@ -262,6 +262,41 @@ import os
         XCTAssertEqual(sessions.activeCount, 0, "Not ten minutes later")
         XCTAssertEqual(observed.last, .interrupted)
         XCTAssertEqual(sessions.sessions.first?.phase, .interrupted)
+    }
+
+    // R2-02: the "Stopped" decision survives one failed `claude agents` read
+    // (timeout, CLI update, changed format): counters, activity and Keep Awake
+    // do not see the killed client working again for up to ten minutes.
+    func testStoppedClientIsNotRevivedByAFailedCatalogRead() async throws {
+        var clock = instant, failing = false
+        var working = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": "killed", "hook_event_name": "UserPromptSubmit", "cwd": "/Users/fixture/Projects/lunavect"]),
+            provider: .claude, previous: nil, now: clock, client: .terminal).session
+        working.runtimePID = 4242
+        var observed: [SessionPhase] = []
+        let sessions = try store(.init(catalog: { _, _, _, _ in
+            if failing { throw SessionError.timeout }
+            return ([], false)
+        }, events: { _, _, _ in [working] }, isProcessAlive: { _ in false }), now: { clock })
+        defer { sessions.stop() }
+        sessions.useProviders([.claude])
+        sessions.onObservation = { rows, _ in observed.append(rows.first?.effectivePhase(now: clock) ?? .unknown) }
+        await sessions.refresh()
+        XCTAssertEqual(sessions.sessions.first?.phase, .interrupted)
+        XCTAssertEqual(sessions.activeCount, 0)
+        clock += 15; failing = true
+        await sessions.refresh()
+        XCTAssertNotNil(sessions.typedIssues[.claude], "The failed read is reported")
+        XCTAssertEqual(sessions.sessions.first?.phase, .interrupted, "One failed read does not resurrect the killed client")
+        XCTAssertEqual(sessions.activeCount, 0)
+        XCTAssertFalse(observed.contains(.running), "Activity and Keep Awake never saw it working again")
+        // A new event of that session is new evidence, even while the catalog still fails.
+        clock += 15
+        working = try SessionRecord.event(JSONSerialization.data(withJSONObject: [
+            "session_id": "killed", "hook_event_name": "UserPromptSubmit", "cwd": "/Users/fixture/Projects/lunavect"]),
+            provider: .claude, previous: nil, now: clock, client: .terminal).session
+        await sessions.readEvents()
+        XCTAssertEqual(sessions.sessions.first?.phase, .running)
     }
 
     // Matrix S6: without a catalog PID (Codex CLI hooks) the freshness limits
@@ -372,7 +407,12 @@ import os
         let began = ProcessInfo.processInfo.systemUptime
         for _ in 0..<10 { clock += 1; await sessions.readEvents() }
         let perTick = (ProcessInfo.processInfo.systemUptime - began) / 10
-        XCTAssertLessThan(perTick, 0.5, "One tick of merge, sort and publish with 600 rows (typically a few ms)")
+        // Decision 30: a wall-clock bound only separates "cheap" from "stuck" on a
+        // loaded runner (for example the TSan job). The tight budget stays opt-in.
+        XCTAssertLessThan(perTick, 5, "One tick of merge, sort and publish with 600 rows (typically a few ms)")
+        if ProcessInfo.processInfo.environment["LUNAVECT_STRICT_TIMING"] == "1" {
+            XCTAssertLessThan(perTick, 0.5, "Strict timing: one tick with 600 rows")
+        }
         XCTAssertEqual(sessions.hiddenCount, 0)
     }
 

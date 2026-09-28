@@ -109,6 +109,13 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// SessionEnd's documented `reason` code (for example `prompt_input_exit`),
     /// kept for diagnosis only. Cleared by any later event.
     public var endReason: String?
+    /// Stop answered the current turn (R2-05). Kept through SessionEnd, cleared by
+    /// any other event: `claude -p` sends Stop and SessionEnd within milliseconds,
+    /// and one read may see only the end of an answered reply.
+    public var replyFinished: Bool?
+    /// Latest `SessionStart` with source resume or fork (decision 13, R2-08): the
+    /// user reopened this task, which also shows it again if it was hidden.
+    public var reopenedAt: Date?
     public var isUnstartedClaudeLifecycle: Bool {
         provider == .claude && (evidence == .hook || hasTaskActivity == false) && turnStartedAt == nil &&
         hasTaskActivity != true && (phase == .idle || phase == .finished)
@@ -357,6 +364,7 @@ public enum SessionList {
                     row.backgroundWork = event.backgroundWork
                     row.awaitingBackground = event.awaitingBackground
                     row.failure = event.failure
+                    row.replyFinished = event.replyFinished
                     row.updatedAt = max(row.updatedAt, event.updatedAt)
                 } else if newerClaudeCatalog && row.effectivePhase(now: now) != .unknown {
                     // A fresh idle interactive process ends the unfinished hook
@@ -382,6 +390,7 @@ public enum SessionList {
                 // Claude's catalog knows only when a session started. Whichever
                 // source decides the phase, the last task event is its activity.
                 if !event.isUnstartedClaudeLifecycle { row.updatedAt = max(row.updatedAt, event.updatedAt) }
+                if let reopened = event.reopenedAt, reopened > (row.reopenedAt ?? .distantPast) { row.reopenedAt = reopened }
                 result[event.id] = row
             } else { result[event.id] = event }
         }
@@ -398,16 +407,35 @@ public enum SessionList {
     /// the session and the recorded runtime process is gone.
     public static func endingDeadClaudeRuntimes(_ rows: [AgentSession], completeCatalog: Set<String>?,
                                                 isAlive: (Int32) -> Bool) -> [AgentSession] {
-        guard let completeCatalog else { return rows }
-        return rows.map { row in
-            guard row.provider == .claude, row.evidence == .hook, row.phase.isActive, let pid = row.runtimePID,
-                  !completeCatalog.contains(row.id), !isAlive(pid) else { return row }
+        var stopped: [String: Date] = [:]
+        return endingDeadClaudeRuntimes(rows, completeCatalog: completeCatalog, stopped: &stopped, isAlive: isAlive)
+    }
+    /// Clients whose runtime lives for the whole session. A Claude Desktop or Agent
+    /// SDK runtime may exit between turns (not verified live, R2-04), so a gone
+    /// process there is not evidence that a waiting session stopped.
+    static let persistentRuntimeClients: Set<SessionClient> = [.terminal, .vscode, .jetbrains]
+    /// `stopped` remembers each decision by session and the observation time of the
+    /// hook record it was made for (R2-02). A later failed or partial catalog read
+    /// cannot revive that record, and neither can a recycled PID. A new event of the
+    /// session, or a complete listing that names it again, lifts the decision.
+    public static func endingDeadClaudeRuntimes(_ rows: [AgentSession], completeCatalog: Set<String>?, stopped: inout [String: Date],
+                                                isAlive: (Int32) -> Bool) -> [AgentSession] {
+        var decided: [String: Date] = [:]
+        let result = rows.map { row -> AgentSession in
+            guard row.provider == .claude, row.evidence == .hook, row.phase.isActive, row.runtimePID != nil,
+                  persistentRuntimeClients.contains(row.client) else { return row }
+            let listed = completeCatalog?.contains(row.id)
+            let remembered = stopped[row.id] == row.observedAt && listed != true
+            guard remembered || (listed == false && !isAlive(row.runtimePID!)) else { return row }
+            decided[row.id] = row.observedAt
             // Not a completion (no Stop): the turn stopped with its client.
             var row = row
             row.phase = .interrupted; row.tool = nil
             row.awaitingBackground = nil; row.backgroundWork = nil
             return row
         }
+        stopped = decided
+        return result
     }
     public static func filter(_ sessions: [AgentSession], query: String, provider: ProviderID?, activeOnly: Bool, now: Date = Date(), includeHistory: Bool = false) -> [AgentSession] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -431,6 +459,22 @@ public struct SessionRecord: Codable, Sendable {
     /// (a large Read, Edit or Bash output) and long final messages must not drop
     /// the transition; the bound only keeps the short-lived helper's memory finite.
     public static let maximumPayloadBytes = 16_000_000
+    /// R2-03: a hook from a new Claude process while the recorded one is gone (kill,
+    /// closed window, then `claude --resume`). The turn that process was running
+    /// ended with it: it must not come back as working with its old timer. A live
+    /// recorded process (two clients on one session) keeps its turn.
+    public static func endingReplacedRuntime(_ record: SessionRecord, runtimePID: Int32?, isAlive: (Int32) -> Bool) -> SessionRecord {
+        guard record.session.provider == .claude, record.session.phase.isActive, let recorded = record.session.runtimePID,
+              let runtimePID, recorded != runtimePID, !isAlive(recorded) else { return record }
+        var record = record
+        record.pendingApprovals = []; record.unidentifiedApproval = nil
+        record.session.phase = .interrupted; record.session.tool = nil
+        record.session.turnStartedAt = nil
+        record.session.backgroundWork = nil; record.session.awaitingBackground = nil
+        record.session.responseRequestsInput = nil; record.session.replyFinished = nil
+        return record
+    }
+
     public static func event(_ data: Data, provider: ProviderID, previous: SessionRecord?, now: Date = Date(), client: SessionClient = .unknown) throws -> SessionRecord {
         guard data.count <= maximumPayloadBytes, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let id = payload["session_id"] as? String, SessionParser.validID(id),
@@ -520,6 +564,9 @@ public struct SessionRecord: Codable, Sendable {
             // Its list is not authoritative (decision 10): it can lower or confirm
             // what this session launched, never raise it. Stop sets the exact set.
             guard provider == .claude, previous != nil, payload["background_tasks"] != nil else { throw SessionError.invalidResponse }
+            // An empty list does not show whose tasks it describes: the parent's, or
+            // the finished subagent's own. It leaves the count to Stop (R2-09).
+            guard (payload["background_tasks"] as? [Any])?.isEmpty == false else { return record }
             let reported = ClaudeBackgroundWork.awaited(payload["background_tasks"]) ?? BackgroundWork()
             let known = record.session.backgroundWork ?? BackgroundWork()
             let lowered = known.lowered(to: reported)
@@ -539,6 +586,8 @@ public struct SessionRecord: Codable, Sendable {
             record.session.backgroundWork = work
             record.session.awaitingBackground = waiting ? true : nil
             record.session.phase = asksForReply ? .input : waiting ? .running : .ready
+            // A pause for background work has not answered the turn yet.
+            record.session.replyFinished = waiting ? nil : true
         case "SessionEnd":
             record.pendingApprovals = []; record.unidentifiedApproval = nil; record.session.phase = .finished
             record.session.endReason = (payload["reason"] as? String).flatMap {
@@ -555,6 +604,7 @@ public struct SessionRecord: Codable, Sendable {
         }
         if name != "Stop" { record.session.responseRequestsInput = nil }
         if name != "SessionEnd" { record.session.endReason = nil }
+        if name != "Stop" && name != "SessionEnd" { record.session.replyFinished = nil }
         if name != "StopFailure" { record.session.failure = nil }
         // Background tasks outlive prompts and tool calls; only a new or ended
         // session starts without them (compaction keeps them running).
@@ -566,6 +616,7 @@ public struct SessionRecord: Codable, Sendable {
         // Resuming or forking opens an existing task (decision 13): ready for work
         // before its first prompt. Only startup and /clear wait for real work.
         let reopened = name == "SessionStart" && ["resume", "fork"].contains(payload["source"] as? String)
+        if reopened { record.session.reopenedAt = now }
         if (name != "SessionStart" && name != "SessionEnd") || reopened {
             record.session.hasTaskActivity = true
         } else if provider == .claude && record.session.hasTaskActivity == nil && record.session.turnStartedAt == nil {
@@ -712,7 +763,10 @@ enum ClaudeBackgroundWork {
     static func launched(tool: String, payload: [String: Any]) -> BackgroundWork? {
         let input = payload["tool_input"] as? [String: Any] ?? [:]
         let response = payload["tool_response"] as? [String: Any] ?? [:]
-        let background = input["run_in_background"] as? Bool == true
+        // A long command Claude moves to the background by itself, or one the user
+        // sends there with Ctrl+B, reports its task id instead of the flag (R2-09).
+        let movedID = (response["backgroundTaskId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let background = input["run_in_background"] as? Bool == true || !movedID.isEmpty
         switch tool {
         case "Bash":
             guard background else { return nil }

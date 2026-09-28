@@ -11,8 +11,9 @@ final class DeadClaudeRuntimeTests: XCTestCase {
                       provider: ProviderID = .claude, pid: Int32? = 4242) throws -> AgentSession {
         var payload: [String: Any] = ["session_id": id, "cwd": "/Users/fixture/Projects/lunavect", "hook_event_name": name]
         payload.merge(extra) { $1 }
+        // A terminal client: the rule is limited to clients whose runtime lives for the session (R2-04).
         var record = try SessionRecord.event(JSONSerialization.data(withJSONObject: payload), provider: provider, previous: previous,
-                                             now: start.addingTimeInterval(seconds))
+                                             now: start.addingTimeInterval(seconds), client: .terminal)
         record.session.runtimePID = pid
         return record.session
     }

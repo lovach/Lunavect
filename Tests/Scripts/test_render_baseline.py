@@ -58,12 +58,14 @@ class RenderBaselineTests(unittest.TestCase):
         self.fixture['runs'].append({'id': run_id, 'event': event, 'created_at': created, 'head_branch': 'main'})
         self.fixture['artifacts'][str(run_id)] = [dict(name=name, expired=expired) for name, expired in artifacts]
 
-    def artifact(self, run_id, name, render='passed', suite='smoke'):
+    def artifact(self, run_id, name, render='passed', suite='smoke', comparison='passed', recorded=False):
         directory = self.artifacts / str(run_id) / name
         (directory / 'images').mkdir(parents=True)
         (directory / 'images/limits-current-ru-light.png').write_bytes(b'png')
-        (directory / 'render-report.json').write_text(json.dumps(
-            {'render': {'status': render}, 'environment': {'suite': suite}}))
+        report = {'render': {'status': render}, 'environment': {'suite': suite}, 'comparison': {'status': comparison}}
+        if recorded:
+            report['baseline_record'] = {'status': 'recorded'}
+        (directory / 'render-report.json').write_text(json.dumps(report))
 
     def find(self, suite='smoke', current=900):
         (self.root / 'fixture.json').write_text(json.dumps(self.fixture))
@@ -113,6 +115,39 @@ class RenderBaselineTests(unittest.TestCase):
         self.assertEqual([call[2] for call in trace if call[:2] == ['run', 'download']], ['650', '600', '550'])
         self.assertIn('run 550', summary)
 
+    def test_only_a_compared_or_explicitly_recorded_render_becomes_the_baseline(self):
+        """R3-06: a green run without a comparison (lookup failure, expired or skipped
+        baseline, the very first run) is never promoted automatically."""
+        name = f'synthetic-native-render-smoke-{SHA}-ARM64-1'
+        for run_id, comparison in ((700, 'not-run'), (690, 'skipped'), (680, 'failed')):
+            self.run_entry(run_id, 'schedule', f'2026-09-2{run_id % 10 + 1}T04:17:00Z', [(name, False)])
+            self.artifact(run_id, name, comparison=comparison)
+        self.run_entry(600, 'workflow_dispatch', '2026-09-14T10:00:00Z', [(name, False)])
+        self.artifact(600, name, comparison='not-run', recorded=True)
+        result, output, summary, trace = self.find()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(output))
+        self.assertEqual([call[2] for call in trace if call[:2] == ['run', 'download']], ['700', '690', '680', '600'])
+        self.assertIn('run 600', summary)
+        self.assertIn('not compared with a reviewed baseline', result.stderr)
+
+    def test_runs_without_a_render_do_not_use_up_the_search(self):
+        name = f'synthetic-native-render-smoke-{SHA}-ARM64-1'
+        for index in range(12):
+            self.run_entry(800 + index, 'workflow_dispatch', f'2026-09-27T{10 + index}:00:00Z', [(f'unsigned-check-{SHA}-ARM64-1', False)])
+        self.run_entry(700, 'schedule', '2026-09-21T04:17:00Z', [(name, False)])
+        self.artifact(700, name)
+        result, output, summary, _ = self.find()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(output), 'Dispatch runs of other jobs are not render candidates')
+        self.assertIn('run 700', summary)
+
+    def test_workflow_fails_a_comparison_run_without_a_reviewed_baseline(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        self.assertIn('--record-baseline', workflow, 'Clearing render_baseline on a manual dispatch records the reference explicitly')
+        self.assertIn("steps.baseline.outputs.path == ''", workflow)
+        self.assertIn('No reviewed native render baseline', workflow)
+
     def test_latest_attempt_of_a_rerun_is_preferred(self):
         first, second = (f'synthetic-native-render-smoke-{SHA}-ARM64-{attempt}' for attempt in (1, 2))
         self.run_entry(700, 'schedule', '2026-09-28T04:17:00Z', [(first, False), (second, False)])
@@ -121,15 +156,15 @@ class RenderBaselineTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([call[6] for call in trace if call[:2] == ['run', 'download']], [second])
 
-    def test_missing_baseline_lets_the_render_run_without_comparison(self):
+    def test_missing_baseline_is_reported_and_leaves_the_decision_to_the_workflow(self):
         self.run_entry(900, 'schedule', '2026-10-05T04:17:00Z', [(f'synthetic-native-render-smoke-{SHA}-ARM64-1', False)])
         result, output, summary, _ = self.find()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, '')
         self.assertFalse(output.exists())
-        self.assertIn('No passed baseline', summary)
+        self.assertIn('No reviewed baseline', summary)
 
-    def test_lookup_failure_is_reported_without_failing_the_render(self):
+    def test_lookup_failure_is_reported_and_leaves_the_decision_to_the_workflow(self):
         self.fixture['fail'] = True
         result, output, summary, _ = self.find()
         self.assertEqual(result.returncode, 0, result.stderr)

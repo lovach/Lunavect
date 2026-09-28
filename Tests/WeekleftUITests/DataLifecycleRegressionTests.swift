@@ -156,7 +156,7 @@ final class DataLifecycleRegressionTests: XCTestCase {
         let date = DataClock(now), reloads = DataCount()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let persistence = ActivityPersistence(historyURL: root.appendingPathComponent("history.json"), detailsURL: root.appendingPathComponent("details.json"),
-            writeHistory: { _, _ in }, writeDetails: { _, _ in }, reload: { reloads.increment() }, clock: { date.now })
+            writeHistory: { _, _ in }, writeDetails: { _, _, _ in }, reload: { reloads.increment() }, clock: { date.now })
         var history = ActivityHistory()
         for minute in 0..<60 {
             date.now = now.addingTimeInterval(Double(minute) * 60)

@@ -12,6 +12,9 @@ when neither runs, the documented order (~/Applications first) applies. Both
 cases print a warning. LUNAVECT_LSREGISTER, LUNAVECT_PLUGINKIT and
 LUNAVECT_INSTALLED_APPS (os.pathsep-separated, empty for none) replace the
 system tools and standard copies so fixtures never reach the host registry.
+They are for test fixtures only: every active one is printed to stderr, and a
+release (`distribute.sh`, `release-preflight.py`) refuses them unless it is run
+with --test-fixture.
 """
 from pathlib import Path
 import argparse
@@ -30,6 +33,20 @@ def tool_paths(environment=None):
 
 
 LSREGISTER, PLUGINKIT = tool_paths()
+
+OVERRIDES = ('LUNAVECT_LSREGISTER', 'LUNAVECT_PLUGINKIT', 'LUNAVECT_INSTALLED_APPS')
+
+
+def active_overrides(environment=None):
+    """(name, value) of every set override, an empty value included."""
+    environment = os.environ if environment is None else environment
+    return [(name, environment[name]) for name in OVERRIDES if name in environment]
+
+
+def warn_overrides(environment=None, stream=None):
+    """An override left in a shell silently weakens registration steps; say so."""
+    for name, value in active_overrides(environment):
+        print(f'Override active (test fixture): {name}={value}', file=stream or sys.stderr)
 
 
 def installed_copies(home=None, system=Path('/Applications')):
@@ -177,6 +194,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--retire-app', action='append', type=Path, default=[])
     args = parser.parse_args()
+    warn_overrides()
     if args.retire_app:
         retired = retire_temporary(args.retire_app, default_installed_copies())
         print(f'Temporary Lunavect registrations retired: {len(retired)}; installed host reasserted when present.')

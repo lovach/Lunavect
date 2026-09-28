@@ -172,7 +172,7 @@ final class ActivityServiceTests: XCTestCase {
         let work = CallCounter()
         let storage = ActivityPersistence(historyURL: URL(fileURLWithPath: "/unused/history"), detailsURL: URL(fileURLWithPath: "/unused/details"),
             readHistory: { _ in work.next(); return .init() }, readDetails: { _ in work.next(); return .init() },
-            writeHistory: { _, _ in work.next() }, writeDetails: { _, _ in work.next() }, reload: { work.next() })
+            writeHistory: { _, _ in work.next() }, writeDetails: { _, _, _ in work.next() }, reload: { work.next() })
         let service = ActivityService(storage: storage, isolated: true, clock: { self.now }, importer: { _, _, _ in
             work.next(); return ActivityImportResult()
         })

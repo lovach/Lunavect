@@ -127,8 +127,10 @@ public enum IDEBridge {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Lunavect/IDEBridge")
     }
 
-    /// Sockets live in the user's private temporary directory (companions from 0.1.2)
-    /// or, for installed 0.1.x companions, in /tmp/lunavect-ide-<uid>. Both stay accepted.
+    /// The known socket directories: this app's own private temporary directory
+    /// (companions from 0.1.2 started with the standard TMPDIR) and, for installed
+    /// 0.1.x companions, /tmp/lunavect-ide-<uid>. A companion started with another
+    /// TMPDIR is accepted too (`conventionalSocket`).
     public static var socketDirectories: [String] {
         var directories = ["/tmp/lunavect-ide-\(getuid())"]
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
@@ -147,8 +149,26 @@ public enum IDEBridge {
         descriptor.version == 1 && UUID(uuidString: descriptor.id) != nil && descriptor.pid > 1 &&
             descriptor.appPath.hasPrefix("/") && descriptor.appPath.hasSuffix(".app") &&
             SessionIDE.identify(bundleIdentifier: descriptor.bundleIdentifier) == descriptor.editor &&
-            socketDirectories.contains { descriptor.socketPath == $0 + "/" + descriptor.id + ".sock" } &&
+            conventionalSocket(descriptor.socketPath, id: descriptor.id, socketDirectories: socketDirectories) &&
             descriptor.companion.map { $0.range(of: #"^[0-9]{1,4}(\.[0-9]{1,4}){1,3}\z"#, options: .regularExpression) != nil } != false
+    }
+    /// The folder companions from 0.1.2 create inside the editor's temporary directory.
+    static let companionSocketFolder = "lunavect"
+    /// A socket path in a companion's own layout: a known directory, or
+    /// `<absolute folder>/lunavect/<id>.sock` for whatever TMPDIR the editor was
+    /// started with (a shell profile, `nix develop`, devbox, or `/tmp` when unset).
+    /// Only the name is checked here; the folder is used only if it is a real
+    /// directory of this user without group or other access (`scan`), and the
+    /// peer's credentials are checked at connect.
+    static func conventionalSocket(_ path: String, id: String, socketDirectories: [String]) -> Bool {
+        if socketDirectories.contains(where: { path == $0 + "/" + id + ".sock" }) { return true }
+        let suffix = "/" + companionSocketFolder + "/" + id + ".sock"
+        // sockaddr_un holds 104 bytes including the terminator.
+        guard path.hasSuffix(suffix), path.utf8.count <= 103,
+              !path.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return false }
+        let parts = path.dropLast(suffix.count).split(separator: "/", omittingEmptySubsequences: false)
+        // An absolute, already normalized folder: no empty, "." or ".." component.
+        return parts.count >= 2 && parts[0].isEmpty && parts.dropFirst().allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
     /// Companions rewrite their descriptor every 30 s.
     static func fresh(_ updatedAt: Double, now: Date) -> Bool {
@@ -228,6 +248,8 @@ public enum IDEBridge {
             }
             guard let record = try? JSONDecoder().decode(Descriptor.self, from: data), record.editor == editor,
                   identified(record, socketDirectories: socketDirectories) else { return nil }
+            // The folder itself must be a real directory of this user that nobody else can
+            // enter (lstat: a linked folder is refused), wherever the editor's TMPDIR points.
             let socketDirectory = URL(fileURLWithPath: record.socketPath).deletingLastPathComponent().path
             let reachable = owned(socketDirectory, type: S_IFDIR) && owned(record.socketPath, type: S_IFSOCK)
             let state: Endpoint.State = !reachable ? .unreachable : fresh(record.updatedAt, now: now) ? .live : .stale

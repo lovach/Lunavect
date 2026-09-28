@@ -531,6 +531,8 @@ enum SessionProcess {
         if path.contains("/claude/versions/"),
            name.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"#, options: .regularExpression) != nil { return .claude }
         if name == "codex" { return .codex }
+        // The standalone Codex release binary keeps its download name.
+        if ["codex-aarch64-apple-darwin", "codex-x86_64-apple-darwin"].contains(name) { return .codex }
         return nil
     }
     /// The client runtime that ran a hook: the nearest ancestor that is not a
@@ -594,13 +596,21 @@ enum SessionProcess {
         if hasInfo, info.e_tdev != UInt32.max, let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) {
             tty = "/dev/" + String(cString: name)
         }
+        var parent = hasInfo ? Int32(info.pbi_ppid) : nil
+        if !hasInfo {
+            // Another user's process (Terminal's root-owned login): the short record
+            // needs no same-user access and still names the parent (R2-10).
+            var short = proc_bsdshortinfo()
+            let shortSize = Int32(MemoryLayout.size(ofValue: short))
+            if proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, &short, shortSize) == shortSize { parent = Int32(short.pbsi_ppid) }
+        }
         // libproc defines PROC_PIDPATHINFO_MAXSIZE as 4 * MAXPATHLEN;
         // that expression macro is not imported into Swift.
         var buffer = [UInt8](repeating: 0, count: 4 * Int(MAXPATHLEN))
         let executable = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0
             ? String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self) : nil
-        guard hasInfo || executable != nil else { return nil }
-        return TerminalProcess(parentPID: hasInfo ? Int32(info.pbi_ppid) : nil, tty: tty, executable: executable)
+        guard parent != nil || executable != nil else { return nil }
+        return TerminalProcess(parentPID: parent, tty: tty, executable: executable)
     }
 
     static func client(parentPID: Int32, entrypoint: String, terminal: String,
@@ -671,6 +681,12 @@ enum SessionProcess {
         for _ in 0..<16 {
             // launchd, a cycle or an unreadable process ends the walk; the device is kept.
             guard pid > 1, seen.insert(pid).inserted, let process = read(pid), let parent = process.parentPID else { break }
+            // Terminal's login runs as root: macOS may hide its device and path, but
+            // not its parent. Look through it to the application hosting the tab (R2-10).
+            if tty != nil, process.executable.map({ URL(fileURLWithPath: $0).lastPathComponent == "login" })
+                ?? (process.tty == nil || process.tty == tty) {
+                pid = parent; continue
+            }
             if let tty, process.tty != tty {
                 // The first ancestor outside the session's device hosts it: the terminal
                 // application, a multiplexer or another emulator. Anything else (a
@@ -693,9 +709,9 @@ enum SessionProcess {
             if isEditorOrDesktop(path) { return nil }
             pid = parent
         }
-        // A root-owned login process can hide the terminal app's ancestry while
-        // the client's TTY remains known. The navigation layer can match that
-        // exact device against running supported terminals without guessing a tab.
+        // An unreadable ancestor can still hide the terminal app while the client's
+        // TTY remains known. The navigation layer can match that exact device
+        // against running supported terminals without guessing a tab.
         return tty.map { ($0, markedApp ?? termProgram) }
     }
 }

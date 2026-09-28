@@ -61,7 +61,9 @@ class ReleasePreflightTests(unittest.TestCase):
         return app
 
     def archive(self, build='104', version='0.1.1'):
-        result = subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), 'archive', version, build, str(self.feed)],
+        # These fixtures replace the installed copies and registration tools, which a
+        # release refuses unless it is told it runs as a test fixture (R3-08).
+        result = subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), '--test-fixture', 'archive', version, build, str(self.feed)],
                                 env=self.env, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.root / 'trace').exists(), 'Compiler reached before rejection')
@@ -74,6 +76,40 @@ class ReleasePreflightTests(unittest.TestCase):
         joined = os.pathsep.join(['/tmp/a b/Lunavect.app', '', '/tmp/c/Lunavect.app'])
         self.assertEqual(GATE.default_installed_apps({'LUNAVECT_INSTALLED_APPS': joined}),
                          (Path('/tmp/a b/Lunavect.app'), Path('/tmp/c/Lunavect.app')))
+
+    def test_release_refuses_registration_overrides_without_the_fixture_flag(self):
+        """R3-08: an override left in a shell (an empty LUNAVECT_INSTALLED_APPS turns off
+        the installed-build check; tool overrides skip the real registration cleanup)
+        must not weaken a real release. The tools here are still blocking shims."""
+        overrides = ('LUNAVECT_INSTALLED_APPS', 'LUNAVECT_LSREGISTER', 'LUNAVECT_PLUGINKIT')
+        for name, value in (('LUNAVECT_INSTALLED_APPS', ''), ('LUNAVECT_LSREGISTER', str(self.root / 'bin/blocked-lsregister')),
+                            ('LUNAVECT_PLUGINKIT', str(self.root / 'bin/blocked-pluginkit'))):
+            with self.subTest(name=name):
+                # One override at a time. Build 103 equals the feed's last build, so even a
+                # script that ignored the override would stop at the appcast check, before
+                # it could look at an installed copy or reach Xcode.
+                env = {key: item for key, item in self.env.items() if key not in overrides}
+                env[name] = value
+                result = subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), 'archive', '0.1.1', '103', str(self.feed)],
+                                        env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn('Release refused', result.stderr)
+                self.assertIn(name, result.stderr)
+                self.assertFalse((self.root / 'trace').exists(), 'Compiler reached with an override active')
+        fixture = self.distribute('archive')
+        self.assertIn('Override active (test fixture): LUNAVECT_INSTALLED_APPS=', fixture.stderr)
+        self.assertNotIn('Release refused', fixture.stderr)
+
+    def test_preflight_uses_the_installed_copies_override_only_for_fixtures(self):
+        tool = [sys.executable, '-B', str(self.root / 'scripts/release-preflight.py'), '--version', '0.1.1', '--build', '104',
+                '--previous-appcast', str(self.feed)]
+        env = dict(os.environ, LUNAVECT_INSTALLED_APPS='')
+        refused = subprocess.run(tool, env=env, text=True, capture_output=True)
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn('LUNAVECT_INSTALLED_APPS', refused.stderr)
+        accepted = subprocess.run(tool + ['--test-fixture'], env=env, text=True, capture_output=True)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertIn('Override active (test fixture): LUNAVECT_INSTALLED_APPS=', accepted.stderr)
 
     def test_dirty_source_fails_before_build(self):
         (self.root / 'new-source').write_text('dirty')
@@ -125,7 +161,7 @@ app.mkdir(parents=True)
 ''')
 
     def distribute(self, action, **env):
-        return subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), action, '0.1.1', '104']
+        return subprocess.run(['bash', str(self.root / 'scripts/distribute.sh'), '--test-fixture', action, '0.1.1', '104']
                               + ([str(self.feed)] if action == 'archive' else []),
                               env=dict(self.env, **env), text=True, capture_output=True)
 

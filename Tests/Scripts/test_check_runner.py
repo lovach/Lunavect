@@ -157,12 +157,17 @@ class CheckRunnerTests(unittest.TestCase):
         # The real boundary has its own injected-runner tests. This fixture must
         # never change the developer's registered apps, even on a failed check.
         (repo / 'scripts/reassert-installed-widget.py').write_text(textwrap.dedent('''\
-            import os, sys
+            import json, os, sys
             from pathlib import Path
             assert sys.argv[1] == '--retire-app'
             app = Path(sys.argv[2])
             assert '/Lunavect-Check.noindex/run.' in str(app) or '/shared-derived-parent/run.' in str(app)
             assert app.name == 'Lunavect.app'
+            # R3-08: the cleanup reaches the installed copy with the real tools only.
+            if os.environ.get('CHECK_FIXTURE_TRACE'):
+                with open(os.environ['CHECK_FIXTURE_TRACE'] + '.reassert', 'a') as trace:
+                    trace.write(json.dumps(sorted(key for key in os.environ if key in (
+                        'LUNAVECT_LSREGISTER', 'LUNAVECT_PLUGINKIT', 'LUNAVECT_INSTALLED_APPS'))) + '\\n')
         '''))
         for script in ('verify-hook-helper.py', 'verify-product-resources.py'):
             (repo / 'scripts' / script).write_text(textwrap.dedent('''\
@@ -309,6 +314,14 @@ class CheckRunnerTests(unittest.TestCase):
                 pending = json.loads(results[1][2].with_name('build-manifest.json').read_text())
                 self.assertEqual(pending['status'], 'started')
                 self.assertNotIn('artifacts', pending)
+
+    def test_installed_widget_cleanup_never_inherits_registration_overrides(self):
+        repo = self.fixture('overrides')
+        process, report, _, trace = self.run_check(repo, LUNAVECT_LSREGISTER='/tmp/lv-shim/lsregister',
+                                                   LUNAVECT_PLUGINKIT='/tmp/lv-shim/pluginkit', LUNAVECT_INSTALLED_APPS='')
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertEqual(Path(str(trace) + '.reassert').read_text().splitlines(), ['[]'])
+        self.assertIn('ignored for the installed widget cleanup', process.stderr)
 
     def test_swift_assertion_failure_keeps_later_checks_not_run_and_cleans_early_run(self):
         repo = self.fixture('swift-failure')

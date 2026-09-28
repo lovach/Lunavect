@@ -359,15 +359,38 @@ public extension ClaudeUsageProbe {
 extension ClaudeUsageProbe {
     /// `canonicalDirectory` must already be canonical. The probe is started by
     /// `Process` without a shell, so the catalog PID is a direct child of this app.
+    /// Every catalog row is checked on every poll, so the file system is touched
+    /// (`resolve`, realpath) only for a path that names the probe folder: a project
+    /// on an unmounted network volume or a dataless iCloud folder can block
+    /// realpath for a network timeout and stall the shared refresh (R2-07).
+    /// Claude reports its physical working directory, so a folder reached only
+    /// through a differently named link is not expected here.
     static func isProbeSession(cwd: String, pid: Int32?, canonicalDirectory: String,
                                parentPID: (Int32) -> Int32? = { SessionProcess.runtimeProcess($0)?.parentPID },
-                               ownPID: Int32 = getpid()) -> Bool {
+                               ownPID: Int32 = getpid(), resolve: (String) -> String = canonicalPath) -> Bool {
         if !canonicalDirectory.isEmpty {
-            let path = canonicalPath(cwd)
-            if !path.isEmpty, path == canonicalDirectory || path.hasPrefix(canonicalDirectory + "/") { return true }
+            func inside(_ path: String) -> Bool { !path.isEmpty && (path == canonicalDirectory || path.hasPrefix(canonicalDirectory + "/")) }
+            let lexical = lexicalPath(cwd)
+            if inside(lexical) { return true }
+            let folder = URL(fileURLWithPath: canonicalDirectory).lastPathComponent
+            if !lexical.isEmpty, !folder.isEmpty, lexical.split(separator: "/").contains(where: { $0 == folder }), inside(resolve(cwd)) { return true }
         }
         guard let pid, pid > 1 else { return false }
         return parentPID(pid) == ownPID
+    }
+    /// The `.`/`..`/slash cleanup alone, without touching the file system.
+    static func lexicalPath(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return "" }
+        return "/" + lexicalParts(path).joined(separator: "/")
+    }
+    private static func lexicalParts(_ path: String) -> [String] {
+        var parts: [String] = []
+        for part in path.split(separator: "/", omittingEmptySubsequences: true) {
+            if part == "." { continue }
+            if part == ".." { if !parts.isEmpty { parts.removeLast() }; continue }
+            parts.append(String(part))
+        }
+        return parts
     }
     /// A lexical `.`/`..`/slash cleanup, then realpath(3) of the deepest existing
     /// ancestor. realpath keeps `/private`, so both spellings of a temporary or
@@ -375,12 +398,7 @@ extension ClaudeUsageProbe {
     /// the name it will have once created.
     static func canonicalPath(_ path: String) -> String {
         guard path.hasPrefix("/") else { return "" }
-        var parts: [String] = []
-        for part in path.split(separator: "/", omittingEmptySubsequences: true) {
-            if part == "." { continue }
-            if part == ".." { if !parts.isEmpty { parts.removeLast() }; continue }
-            parts.append(String(part))
-        }
+        var parts = lexicalParts(path)
         var suffix: [String] = []
         while true {
             let candidate = "/" + parts.joined(separator: "/")

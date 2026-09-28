@@ -101,7 +101,7 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         row.terminalTTY = location.tty; row.terminalApp = location.app
         let environment = TerminalFocusEnvironment(isRunning: { bundle in
             await MainActor.run { !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty }
-        }, occupancy: { _, _ in .unknown }) // the fixture process need not be a provider runtime
+        }, occupancy: { _, _, _ in .unknown }) // the fixture process need not be a provider runtime
         let focused = try await TerminalLocation.focusSession(row, environment: environment)
         XCTAssertTrue(focused)
         try await Task.sleep(for: .seconds(1))

@@ -416,6 +416,8 @@ import WeekleftCore
     func observeActivity(_ rows: [AgentSession], now: Date? = nil) { activityService.observe(rows, now: now) }
     func flushActivity(now: Date? = nil) { activityService.flush(now: now) }
     func importActivityHistory() { activityService.requestImport() }
+    /// Only the statistics page's explicit button keeps an unreadable history aside.
+    func startOverActivityHistory() { activityService.startOverPreservingHistory() }
     private func schedulePersistence() {
         guard savesChanges else { return }
         preferenceWrites.schedule { [weak self] in self?.persist() }

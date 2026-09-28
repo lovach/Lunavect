@@ -17,7 +17,7 @@ final class ActivityPersistenceTests: XCTestCase {
                 XCTAssertEqual(release.wait(timeout: .now() + 2), .success)
             }
             writes.history(value)
-        }, writeDetails: { value, url in
+        }, writeDetails: { value, url, _ in
             XCTAssertFalse(Thread.isMainThread)
             XCTAssertEqual(url, paths.details)
             writes.details(value)
@@ -49,7 +49,7 @@ final class ActivityPersistenceTests: XCTestCase {
     func testHistoryAndDetailsDeduplicateIndependentlyAndOnlyHistoryReloadsWidgets() throws {
         let paths = try paths(), initial = state(1), changed = state(2), writes = ActivityWrites()
         let service = ActivityPersistence(historyURL: paths.history, detailsURL: paths.details,
-            writeHistory: { value, _ in writes.history(value) }, writeDetails: { value, _ in writes.details(value) },
+            writeHistory: { value, _ in writes.history(value) }, writeDetails: { value, _, _ in writes.details(value) },
             reload: { writes.reload() })
         XCTAssertTrue(service.flush(initial).historySaved)
         _ = service.flush(initial)
@@ -74,7 +74,7 @@ final class ActivityPersistenceTests: XCTestCase {
                     throw CocoaError(.fileWriteOutOfSpace)
                 }
                 try value.save(to: url)
-            }, writeDetails: { value, url in
+            }, writeDetails: { value, url, _ in
                 if !failHistory, value == changed.details {
                     try Data("partial details".utf8).write(to: url)
                     throw CocoaError(.fileWriteOutOfSpace)
@@ -108,7 +108,7 @@ final class ActivityPersistenceTests: XCTestCase {
         let writes = ActivityWrites()
         let service = ActivityPersistence(historyURL: paths.history, detailsURL: paths.details,
             readDetails: { _ in throw CocoaError(.fileReadNoPermission) },
-            writeDetails: { _, _ in XCTFail("Unreadable details must stay protected") }, reload: { writes.reload() })
+            writeDetails: { _, _, _ in XCTFail("Unreadable details must stay protected") }, reload: { writes.reload() })
         let loaded = service.load()
         XCTAssertTrue(loaded.historyLoaded)
         XCTAssertFalse(loaded.detailsLoaded)
@@ -177,7 +177,7 @@ final class ActivityPersistenceTests: XCTestCase {
             XCTAssertFalse(Thread.isMainThread)
             return try ActivityDetails.load(from: $0)
         }, writeHistory: { _, _ in XCTFail("Read-only history cannot write") },
-            writeDetails: { _, _ in XCTFail("Read-only details cannot write") }, reload: { XCTFail("Read-only mode cannot reload") })
+            writeDetails: { _, _, _ in XCTFail("Read-only details cannot write") }, reload: { XCTFail("Read-only mode cannot reload") })
         let loaded = service.load(readOnly: true)
         XCTAssertTrue(loaded.historyLoaded)
         XCTAssertTrue(loaded.detailsLoaded)
