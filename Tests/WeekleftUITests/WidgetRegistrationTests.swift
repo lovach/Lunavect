@@ -243,9 +243,10 @@ import WeekleftCore
         XCTAssertEqual(reloads, 1)
     }
 
-    func testFindsAndStopsAnExtensionWhoseBundleAnUpdateMoved() async throws {
-        // Foundation's /var path, as the test guard expects for a file that no longer exists;
-        // the kernel reports /private/var for the running process.
+    /// The launch path of a real process survives in its argument block; which
+    /// processes count as stale is decided from it and the current path. Moving a
+    /// running fixture is not used: macOS may end a moved linker-signed binary first.
+    func testFindsAnExtensionWhoseBundleAnUpdateMoved() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -257,28 +258,25 @@ import WeekleftCore
         try process.run()
         addTeardownBlock { if process.isRunning { process.terminate() }; process.waitUntilExit() }
         let pid = process.processIdentifier
-        let deadline = ContinuousClock.now + .seconds(5)
         let expected = WidgetRegistrationSystem.canonical(installed.executable)
         func launched() -> String? { ProcessInspection.launchPath(pid).map(WidgetRegistrationSystem.canonical) }
+        let deadline = ContinuousClock.now + .seconds(5)
         while launched() != expected, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertEqual(launched(), expected)
+        XCTAssertEqual(launched(), expected, "the launch path is read from the running process")
         XCTAssertFalse(WidgetRegistrationSystem.staleExtensionProcesses(installed).contains(pid), "the current extension is not stale")
-        // Sparkle moves the replaced bundle away and later deletes it.
-        let moved = root.appendingPathComponent("Sparkle/Installation/Lunavect.app")
-        try FileManager.default.createDirectory(at: moved.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.moveItem(at: installed.app, to: moved)
-        XCTAssertEqual(launched(), expected, "the launch path survives the move")
-        XCTAssertTrue(WidgetRegistrationSystem.staleExtensionProcesses(installed).contains(pid))
+        // After Sparkle moved the bundle: the kernel names the moved file, or none once it is deleted.
+        for current in ["/Users/u/Library/Caches/com.weekleft.app.sparkle/Installation/x/Lunavect.app/Contents/PlugIns/LunavectWidget.appex/Contents/MacOS/LunavectWidget", nil] {
+            XCTAssertEqual(WidgetRegistrationSystem.staleExtensionProcesses(installed, among: [pid, 7], name: { $0 == pid ? "LunavectWidget" : "Other" },
+                current: { _ in current }, launchedAs: { _ in installed.executable }), [pid], current ?? "deleted")
+        }
+        XCTAssertEqual(WidgetRegistrationSystem.staleExtensionProcesses(installed, among: [pid], name: { _ in "LunavectWidget" },
+            current: { _ in installed.executable }, launchedAs: { _ in installed.executable }), [])
         let stopped = await Task.detached { WidgetRegistrationSystem.stopExtension(installed) }.value
-        XCTAssertTrue(stopped, "the stale process is signalled and has exited")
+        XCTAssertTrue(stopped)
         process.waitUntilExit()
-        // macOS may end a linker-signed fixture itself once its file moved (SIGKILL);
-        // either way no process of the old file remains.
-        XCTAssertEqual(process.terminationReason, .uncaughtSignal)
-        XCTAssertTrue([SIGTERM, SIGKILL].contains(process.terminationStatus), "\(process.terminationStatus)")
-        XCTAssertFalse(WidgetRegistrationSystem.staleExtensionProcesses(installed).contains(pid))
+        XCTAssertEqual(process.terminationStatus, SIGTERM, "the installed extension itself is stopped by its path")
     }
 
     func testStaleMeansStartedFromTheInstalledPathButRunningAnotherFile() {

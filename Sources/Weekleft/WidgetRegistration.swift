@@ -428,10 +428,13 @@ enum WidgetRegistrationSystem {
 
     /// Extension processes of an earlier build still running after an update.
     static func staleExtensionProcesses(_ target: WidgetRegistrationTarget) -> [pid_t] {
-        guard let pids = allProcesses() else { return [] }
-        return pids.filter { pid in
-            processName(pid) == extensionName
-                && isStale(current: executablePath(pid), launchedAs: ProcessInspection.launchPath(pid), target: target.executable)
+        staleExtensionProcesses(target, among: allProcesses() ?? [], name: processName, current: executablePath,
+                                launchedAs: ProcessInspection.launchPath)
+    }
+    static func staleExtensionProcesses(_ target: WidgetRegistrationTarget, among pids: [pid_t], name: (pid_t) -> String?,
+                                        current: (pid_t) -> String?, launchedAs: (pid_t) -> String?) -> [pid_t] {
+        pids.filter { pid in
+            name(pid) == extensionName && isStale(current: current(pid), launchedAs: launchedAs(pid), target: target.executable)
         }
     }
 
@@ -463,9 +466,12 @@ enum WidgetRegistrationSystem {
     }
 
     private static func runsExtension(_ pid: pid_t, _ target: WidgetRegistrationTarget) -> Bool {
-        if executablePath(pid) == target.executable { return true }
-        return processName(pid) == extensionName
-            && isStale(current: executablePath(pid), launchedAs: ProcessInspection.launchPath(pid), target: target.executable)
+        let current = executablePath(pid)
+        if current == target.executable { return true }
+        guard processName(pid) == extensionName else { return false }
+        // The same file reached through a link (/var and /private/var), or a stale process.
+        if let current, same(current, target.executable) { return true }
+        return isStale(current: current, launchedAs: ProcessInspection.launchPath(pid), target: target.executable)
     }
 
     private static func allProcesses() -> [pid_t]? {
