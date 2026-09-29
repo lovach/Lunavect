@@ -72,6 +72,8 @@ public struct WidgetPreferences: Codable, Equatable, Sendable {
     public var showFiveHour = false
     /// Claude's weekly model limits (Fable) beside the five-hour value in widgets.
     public var showModelLimits = false
+    /// The subscription end date from Settings → Subscriptions in widgets.
+    public var showPlanEnd = true
     public var transparency = 0.5
     public var transparentBackground = false
     public var subscriptionDates: [String: String] = [:]
@@ -87,14 +89,15 @@ public struct WidgetPreferences: Codable, Equatable, Sendable {
     public init() {}
     public mutating func restoreAppearanceDefaults() {
         let base = WidgetPreferences()
-        showFiveHour = base.showFiveHour; showModelLimits = base.showModelLimits; transparency = base.transparency
+        showFiveHour = base.showFiveHour; showModelLimits = base.showModelLimits; showPlanEnd = base.showPlanEnd; transparency = base.transparency
         transparentBackground = base.transparentBackground
     }
-    private enum CodingKeys: String, CodingKey { case showFiveHour, showModelLimits, transparency, transparentBackground, subscriptionDates, enabledProviders }
+    private enum CodingKeys: String, CodingKey { case showFiveHour, showModelLimits, showPlanEnd, transparency, transparentBackground, subscriptionDates, enabledProviders }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         showFiveHour = try values.decodeIfPresent(Bool.self, forKey: .showFiveHour) ?? false
         showModelLimits = try values.decodeIfPresent(Bool.self, forKey: .showModelLimits) ?? false
+        showPlanEnd = try values.decodeIfPresent(Bool.self, forKey: .showPlanEnd) ?? true
         let alpha = try values.decodeIfPresent(Double.self, forKey: .transparency) ?? 0.5
         transparency = alpha.isFinite ? min(1, max(0, alpha)) : 0.5
         transparentBackground = try values.decodeIfPresent(Bool.self, forKey: .transparentBackground) ?? false
@@ -102,6 +105,69 @@ public struct WidgetPreferences: Codable, Equatable, Sendable {
         enabledProviders = try values.decodeIfPresent([ProviderID].self, forKey: .enabledProviders)
     }
 }
+public extension WidgetPreferences {
+    /// The last day of the provider's plan as entered in Settings, if any.
+    func planEnd(_ provider: ProviderID, calendar: Calendar = .current) -> Date? {
+        guard let text = subscriptionDates[provider.rawValue] else { return nil }
+        let parts = text.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+}
+
+/// How a widget shows the plan end date: until a day, a few days left, or expired
+/// (owner request 29.09: compact icon and short date; the full sentence on hover).
+public enum PlanEndState: Equatable, Sendable {
+    case until(Date)
+    case soon(days: Int, end: Date)
+    case expired(Date)
+    public static let soonDays = 7
+    public static func of(_ preferences: WidgetPreferences, provider: ProviderID, now: Date, calendar: Calendar = .current) -> PlanEndState? {
+        guard let end = preferences.planEnd(provider, calendar: calendar) else { return nil }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: end)).day ?? 0
+        if days < 0 { return .expired(end) }
+        return days <= soonDays ? .soon(days: days, end: end) : .until(end)
+    }
+    public var short: String {
+        switch self {
+        case .until(let date), .expired(let date): return date.formatted(.dateTime.day().month(.abbreviated).locale(L10n.locale))
+        case .soon(let days, _): return days == 0 ? L("сегодня") : L("{0} дн.", String(days))
+        }
+    }
+    public var full: String {
+        switch self {
+        case .until(let date): return L("Подписка до {0}", date.formatted(.dateTime.day().month(.wide).locale(L10n.locale)))
+        case .soon(let days, _): return days == 0 ? L("Подписка заканчивается сегодня") : L("Дней до конца подписки: {0}", String(days))
+        case .expired(let date): return L("Подписка закончилась {0}", date.formatted(.dateTime.day().month(.wide).locale(L10n.locale)))
+        }
+    }
+    public var symbol: String { if case .expired = self { return "calendar.badge.exclamationmark" } else { return "calendar" } }
+}
+
+/// A plan whose end date has passed while its provider still reports subscription
+/// limits was most likely renewed, sometimes a day late: Lunavect asks for the new date.
+public enum PlanRenewal {
+    public static func renewed(_ preferences: WidgetPreferences, snapshots: [UsageSnapshot], providers: [ProviderID],
+                               now: Date, calendar: Calendar = .current) -> [ProviderID] {
+        providers.filter { provider in
+            guard case .expired(let end)? = PlanEndState.of(preferences, provider: provider, now: now, calendar: calendar),
+                  let lastDay = calendar.date(byAdding: .day, value: 1, to: end),
+                  let snapshot = snapshots.first(where: { $0.provider == provider }), let fetched = snapshot.fetchedAt,
+                  fetched >= lastDay, snapshot.hasQuota, !snapshot.isStale(now: now) else { return false }
+            return true
+        }
+    }
+    /// The old end date moved by whole months until it is today or later.
+    public static func suggestedEnd(after end: Date, now: Date, calendar: Calendar = .current) -> Date {
+        var date = end
+        for _ in 0..<120 where calendar.startOfDay(for: date) < calendar.startOfDay(for: now) {
+            guard let next = calendar.date(byAdding: .month, value: 1, to: date) else { break }
+            date = next
+        }
+        return date
+    }
+}
+
 public struct SharedState: Codable, Sendable {
     public var snapshots: [UsageSnapshot]
     public var preferences: WidgetPreferences

@@ -255,6 +255,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                         Toggle(L("Показывать 5-часовой лимит"), isOn: $store.preferences.showFiveHour)
                             .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("widget-shared-five-hour")
                     }
+                    Divider()
+                    SettingsRow(L("Показывать дату окончания подписки")) {
+                        Toggle(L("Показывать дату окончания подписки"), isOn: $store.preferences.showPlanEnd)
+                            .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("widget-shared-plan-end")
+                    }
                     if let models = claudeModelLimitNames(store.snapshots) {
                         Divider()
                         SettingsRow(L("Показывать лимит {0}", models)) {
@@ -682,8 +687,13 @@ struct SubscriptionSettingsRow: View {
                 ProviderLogo(id: provider).foregroundStyle(activityAccent(provider, adaptive: true, scheme: scheme)).frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(provider.title).font(.headline)
-                    Text(L(store.preferences.subscriptionDates[provider.rawValue] == nil ? "Дата не указана" : "Указано вручную"))
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    if case .expired(let end)? = PlanEndState.of(store.preferences, provider: provider, now: Date()) {
+                        Text(L("Подписка закончилась {0}", end.formatted(.dateTime.day().month(.wide).locale(L10n.locale))))
+                            .font(.system(size: 12)).foregroundStyle(.red)
+                    } else {
+                        Text(L(store.preferences.subscriptionDates[provider.rawValue] == nil ? "Дата не указана" : "Указано вручную"))
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 Button {
@@ -705,6 +715,19 @@ struct SubscriptionSettingsRow: View {
                         .buttonStyle(.plain).help(L("Убрать дату")).accessibilityLabel(L("Убрать дату"))
                 }
             }.padding(12)
+            if let end = store.preferences.planEnd(provider), !PlanRenewal.renewed(store.preferences, snapshots: store.snapshots, providers: [provider], now: Date()).isEmpty {
+                let suggested = PlanRenewal.suggestedEnd(after: end, now: Date())
+                VStack(alignment: .leading, spacing: 8) {
+                    InterfaceLabel(L("Подписка {0}, похоже, продлилась: Lunavect снова получает её лимиты. Обновите дату окончания.", provider.title), .info)
+                        .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button(suggested.formatted(.dateTime.day().month(.wide).year().locale(L10n.locale))) {
+                            store.subscriptionBinding(provider).wrappedValue = suggested
+                        }.accessibilityIdentifier("subscription-renewal-suggested")
+                        Button(L("Другая дата")) { draft = suggested; editing = true }
+                    }
+                }.padding([.horizontal, .bottom], 12).accessibilityIdentifier("subscription-renewal")
+            }
         }
     }
 }

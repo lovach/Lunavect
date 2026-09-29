@@ -3121,12 +3121,12 @@
     "fr": "Un anneau discontinu indique des données enregistrées ou indisponibles. Cliquez pour les détails.",
     "zh-Hans": "虚线圆环表示已保存或不可用的数据，点击查看详情。"
   },
-  "При первом запуске автоматически восстанавливаются доступные записи длительности Claude и Codex за последние 30 дней. Знак ≈ означает, что итог включает время из журналов: оно может включать ожидание внутри задачи. Удалённую или не записанную историю восстановить нельзя.": {
-    "de": "Beim ersten Start werden verfügbare Zeitaufzeichnungen von Claude und Codex der letzten 30 Tage automatisch importiert. ≈ bedeutet, dass die Summe Protokollzeiten enthält, einschließlich möglicher Wartezeiten innerhalb einer Aufgabe. Gelöschte oder nicht aufgezeichnete Daten lassen sich nicht wiederherstellen.",
-    "en": "On first launch, available Claude and Codex duration records from the last 30 days are restored automatically. ≈ means the total includes log durations, which may include waiting within a task. Deleted or unrecorded history cannot be restored.",
-    "es": "Al iniciar por primera vez, se recuperan los registros de duración disponibles de Claude y Codex de los últimos 30 días. ≈ indica que el total incluye tiempos de registros, que pueden incluir esperas dentro de una tarea. No se puede recuperar el historial eliminado o no registrado.",
-    "fr": "Au premier lancement, les durées disponibles de Claude et Codex des 30 derniers jours sont restaurées automatiquement. ≈ indique que le total inclut des durées de journaux pouvant comprendre de l’attente dans une tâche. L’historique supprimé ou non enregistré ne peut pas être restauré.",
-    "zh-Hans": "首次启动时会自动恢复 Claude 和 Codex 最近30天可用的时长记录。≈ 表示总时长包含日志时长，可能包括任务内的等待时间。已删除或未记录的历史无法恢复。"
+  "При первом запуске автоматически восстанавливаются доступные записи длительности Claude и Codex за последние 30 дней, а для «Года» и «Всего времени» — итоги по дням из всех журналов, которые ещё есть на этом Mac. Знак ≈ означает, что итог включает время из журналов: оно может включать ожидание внутри задачи. Удалённую или не записанную историю восстановить нельзя.": {
+    "en": "On first launch, available Claude and Codex duration records from the last 30 days are restored automatically, and for Year and All time the daily totals of every log still on this Mac. ≈ means the total includes log durations, which may include waiting within a task. Deleted or unrecorded history cannot be restored.",
+    "de": "Beim ersten Start werden verfügbare Zeitaufzeichnungen von Claude und Codex der letzten 30 Tage automatisch importiert, für Jahr und Gesamt die Tagessummen aller Protokolle, die noch auf diesem Mac vorhanden sind. ≈ bedeutet, dass die Summe Protokollzeiten enthält, einschließlich möglicher Wartezeiten innerhalb einer Aufgabe. Gelöschte oder nicht aufgezeichnete Daten lassen sich nicht wiederherstellen.",
+    "es": "Al iniciar por primera vez, se recuperan los registros de duración disponibles de Claude y Codex de los últimos 30 días y, para Año y Todo, los totales diarios de todos los registros que siguen en este Mac. ≈ indica que el total incluye tiempos de registros, que pueden incluir esperas dentro de una tarea. No se puede recuperar el historial eliminado o no registrado.",
+    "fr": "Au premier lancement, les durées disponibles de Claude et Codex des 30 derniers jours sont restaurées automatiquement, et pour Année et Tout, les totaux quotidiens de tous les journaux encore présents sur ce Mac. ≈ indique que le total inclut des durées de journaux pouvant comprendre de l’attente dans une tâche. L’historique supprimé ou non enregistré ne peut pas être restauré.",
+    "zh-Hans": "首次启动时会自动恢复 Claude 和 Codex 最近30天可用的时长记录，并为“年”和“全部”恢复此 Mac 上仍保留的所有日志的每日总计。≈ 表示总时长包含日志时长，可能包括任务内的等待时间。已删除或未记录的历史无法恢复。"
   },
   "Приложение": {
     "de": "App",
@@ -5144,12 +5144,12 @@
     "fr": "Consultez les conditions d’arrêt ci-dessous. Vous pourrez réactiver le mode lorsque les conditions auront changé.",
     "zh-Hans": "请检查下方的停止条件。条件改变后可重新开启此模式。"
   },
-  "День — по часам, неделя — последние 7 дней, месяц — последние 30 дней. Пик считается в текущем часовом поясе. Линия соединяет известные точки; между ними значения без записей остаются неизвестными.": {
-    "en": "Day shows hours, week the last 7 days, and month the last 30 days. Peak time uses the current time zone. The line connects recorded points; values without records between them remain unknown.",
-    "de": "Tag zeigt Stunden, Woche die letzten 7 Tage und Monat die letzten 30 Tage. Die Spitzenzeit gilt in der aktuellen Zeitzone. Die Linie verbindet bekannte Punkte; Werte ohne Aufzeichnungen dazwischen bleiben unbekannt.",
-    "es": "Día muestra horas, semana los últimos 7 días y mes los últimos 30. El pico usa la zona horaria actual. La línea conecta puntos registrados; los valores sin registros entre ellos siguen siendo desconocidos.",
-    "fr": "Jour affiche les heures, semaine les 7 derniers jours et mois les 30 derniers jours. Le pic suit le fuseau horaire actuel. La ligne relie les points connus ; les valeurs sans données entre eux restent inconnues.",
-    "zh-Hans": "日视图按小时显示，周视图显示最近 7 天，月视图显示最近 30 天。峰值按当前时区计算。曲线连接已知数据点；点之间没有记录的数值仍为未知。"
+  "День — по часам, неделя — последние 7 дней, месяц — последние 30 дней, год — по неделям, всё время — с первой записи. Итоги каждого дня хранятся без ограничения срока. Пик считается в текущем часовом поясе. Линия соединяет известные точки; между ними значения без записей остаются неизвестными.": {
+    "en": "Day shows hours, week the last 7 days, month the last 30 days, year weeks, and all time everything since the first record. Daily totals are kept without a time limit. Peak time uses the current time zone. The line connects recorded points; values without records between them remain unknown.",
+    "de": "Tag zeigt Stunden, Woche die letzten 7 Tage, Monat die letzten 30 Tage, Jahr Wochen und Gesamt alles seit der ersten Aufzeichnung. Tagessummen werden unbegrenzt aufbewahrt. Die Spitzenzeit gilt in der aktuellen Zeitzone. Die Linie verbindet bekannte Punkte; Werte ohne Aufzeichnungen dazwischen bleiben unbekannt.",
+    "es": "Día muestra horas, semana los últimos 7 días, mes los últimos 30, año por semanas y todo desde el primer registro. Los totales diarios se guardan sin límite de tiempo. El pico usa la zona horaria actual. La línea conecta puntos registrados; los valores sin registros entre ellos siguen siendo desconocidos.",
+    "fr": "Jour affiche les heures, semaine les 7 derniers jours, mois les 30 derniers jours, année par semaine et tout depuis le premier enregistrement. Les totaux quotidiens sont conservés sans limite de durée. Le pic suit le fuseau horaire actuel. La ligne relie les points connus ; les valeurs sans données entre eux restent inconnues.",
+    "zh-Hans": "日视图按小时显示，周视图显示最近 7 天，月视图显示最近 30 天，年视图按周显示，全部显示自第一条记录以来的数据。每日总计无期限保存。峰值按当前时区计算。曲线连接已知数据点；点之间没有记录的数值仍为未知。"
   },
   "Язык и тема станут системными. Сбросятся оформление строки меню и виджетов, уведомления и звук, сочетание клавиш, автозапуск, автоскрытие сессий и настройки обновлений. Keep Awake выключится, его параметры и ожидание разрешения сбросятся. Подключения, история, скрытые сессии, их порядок и даты подписок сохранятся.": {
     "en": "Language and theme will follow the system. Menu bar and widget appearance, notifications and sound, the shortcut, launch at login, session auto-hide and update preferences will reset. Keep Awake will stop, and its settings and pending permission request will reset. Connections, history, hidden sessions, their order and subscription dates will be kept.",
@@ -5808,5 +5808,243 @@
     "es": "Es una ejecución de Claude en segundo plano sin ventana (claude -p), como hacen los complementos y los scripts. No se puede abrir: no tiene ventana ni pestaña. Terminará sola.",
     "fr": "Il s’agit d’une exécution de Claude en arrière-plan sans fenêtre (claude -p), comme le font les plug-ins et les scripts. Elle ne peut pas être ouverte : elle n’a ni fenêtre ni onglet. Elle se termine d’elle-même.",
     "zh-Hans": "这是无窗口的 Claude 后台运行（claude -p），插件和脚本就是这样工作的。它没有窗口或标签页，无法打开，会自行结束。"
+  },
+  "{0} от времени работы": {
+    "en": "{0} of work time",
+    "de": "{0} der Arbeitszeit",
+    "es": "{0} del tiempo de trabajo",
+    "fr": "{0} du temps de travail",
+    "zh-Hans": "占工作时间的 {0}"
+  },
+  "Агенты ждали вас": {
+    "en": "Agents waited for you",
+    "de": "Agenten haben auf Sie gewartet",
+    "es": "Los agentes te esperaron",
+    "fr": "Les agents vous ont attendu",
+    "zh-Hans": "代理等待您的时间"
+  },
+  "Время ожидания ответа или разрешения считается с этой версии, пока открыт Lunavect.": {
+    "en": "Time waiting for your answer or permission is counted from this version while Lunavect is open.",
+    "de": "Die Wartezeit auf Ihre Antwort oder Erlaubnis wird ab dieser Version gezählt, solange Lunavect geöffnet ist.",
+    "es": "El tiempo de espera de tu respuesta o permiso se cuenta desde esta versión mientras Lunavect está abierto.",
+    "fr": "Le temps d’attente de votre réponse ou autorisation est compté depuis cette version tant que Lunavect est ouvert.",
+    "zh-Hans": "从此版本起，在 Lunavect 打开期间统计等待您回复或授权的时间。"
+  },
+  "Всё время": {
+    "en": "All time",
+    "de": "Gesamt",
+    "es": "Todo",
+    "fr": "Tout",
+    "zh-Hans": "全部"
+  },
+  "Дней с работой: {0}": {
+    "en": "Days with work: {0}",
+    "de": "Tage mit Arbeit: {0}",
+    "es": "Días con trabajo: {0}",
+    "fr": "Jours avec activité : {0}",
+    "zh-Hans": "有工作的天数：{0}"
+  },
+  "Записи начинаются {0}: более ранние журналы на этом Mac не сохранились.": {
+    "en": "Records start on {0}: earlier logs are no longer on this Mac.",
+    "de": "Die Aufzeichnungen beginnen am {0}: ältere Protokolle sind auf diesem Mac nicht mehr vorhanden.",
+    "es": "Los registros empiezan el {0}: los registros anteriores ya no están en este Mac.",
+    "fr": "Les enregistrements commencent le {0} : les journaux plus anciens ne sont plus sur ce Mac.",
+    "zh-Hans": "记录从 {0} 开始：此 Mac 上已没有更早的日志。"
+  },
+  "Календарь": {
+    "en": "Calendar",
+    "de": "Kalender",
+    "es": "Calendario",
+    "fr": "Calendrier",
+    "zh-Hans": "日历"
+  },
+  "Когда вы работаете": {
+    "en": "When you work",
+    "de": "Wann Sie arbeiten",
+    "es": "Cuándo trabajas",
+    "fr": "Quand vous travaillez",
+    "zh-Hans": "您的工作时间"
+  },
+  "Обычное ожидание": {
+    "en": "Typical wait",
+    "de": "Übliche Wartezeit",
+    "es": "Espera habitual",
+    "fr": "Attente habituelle",
+    "zh-Hans": "通常等待"
+  },
+  "Ответы": {
+    "en": "Answers",
+    "de": "Antworten",
+    "es": "Respuestas",
+    "fr": "Réponses",
+    "zh-Hans": "回复"
+  },
+  "По дням недели и часам": {
+    "en": "By weekday and hour",
+    "de": "Nach Wochentag und Stunde",
+    "es": "Por día de la semana y hora",
+    "fr": "Par jour de la semaine et heure",
+    "zh-Hans": "按星期和小时"
+  },
+  "Проекты": {
+    "en": "Projects",
+    "de": "Projekte",
+    "es": "Proyectos",
+    "fr": "Projets",
+    "zh-Hans": "项目"
+  },
+  "Разрешения": {
+    "en": "Permissions",
+    "de": "Berechtigungen",
+    "es": "Permisos",
+    "fr": "Autorisations",
+    "zh-Hans": "授权"
+  },
+  "С {0}": {
+    "en": "Since {0}",
+    "de": "Seit {0}",
+    "es": "Desde {0}",
+    "fr": "Depuis le {0}",
+    "zh-Hans": "自 {0} 起"
+  },
+  "Самая длинная": {
+    "en": "Longest",
+    "de": "Längste",
+    "es": "La más larga",
+    "fr": "La plus longue",
+    "zh-Hans": "最长"
+  },
+  "Сессий с работой": {
+    "en": "Sessions with work",
+    "de": "Sitzungen mit Arbeit",
+    "es": "Sesiones con trabajo",
+    "fr": "Sessions avec activité",
+    "zh-Hans": "有工作的会话"
+  },
+  "Средняя длина": {
+    "en": "Average length",
+    "de": "Durchschnittliche Dauer",
+    "es": "Duración media",
+    "fr": "Durée moyenne",
+    "zh-Hans": "平均时长"
+  },
+  "Чаще всего: {0}, {1}": {
+    "en": "Most often: {0}, {1}",
+    "de": "Am häufigsten: {0}, {1}",
+    "es": "Con más frecuencia: {0}, {1}",
+    "fr": "Le plus souvent : {0}, {1}",
+    "zh-Hans": "最常见：{0}，{1}"
+  },
+  "По неделям": {
+    "en": "By week",
+    "de": "Nach Wochen",
+    "es": "Por semanas",
+    "fr": "Par semaine",
+    "zh-Hans": "按周"
+  },
+  "По месяцам": {
+    "en": "By month",
+    "de": "Nach Monaten",
+    "es": "Por meses",
+    "fr": "Par mois",
+    "zh-Hans": "按月"
+  },
+  "Самая загруженная неделя": {
+    "en": "Busiest week",
+    "de": "Arbeitsreichste Woche",
+    "es": "Semana con más trabajo",
+    "fr": "Semaine la plus chargée",
+    "zh-Hans": "最忙的一周"
+  },
+  "Самый загруженный месяц": {
+    "en": "Busiest month",
+    "de": "Arbeitsreichster Monat",
+    "es": "Mes con más trabajo",
+    "fr": "Mois le plus chargé",
+    "zh-Hans": "最忙的一个月"
+  },
+  "Самый загруженный день": {
+    "en": "Busiest day",
+    "de": "Arbeitsreichster Tag",
+    "es": "Día con más trabajo",
+    "fr": "Jour le plus chargé",
+    "zh-Hans": "最忙的一天"
+  },
+  "{0} дн.": {
+    "en": "{0} d",
+    "de": "{0} T.",
+    "es": "{0} d",
+    "fr": "{0} j",
+    "zh-Hans": "{0} 天"
+  },
+  "Дней до конца подписки: {0}": {
+    "en": "Days left in the plan: {0}",
+    "de": "Verbleibende Tage des Abonnements: {0}",
+    "es": "Días que quedan de la suscripción: {0}",
+    "fr": "Jours restants de l’abonnement : {0}",
+    "zh-Hans": "订阅剩余天数：{0}"
+  },
+  "Другая дата": {
+    "en": "Another date",
+    "de": "Anderes Datum",
+    "es": "Otra fecha",
+    "fr": "Autre date",
+    "zh-Hans": "其他日期"
+  },
+  "Обновите дату окончания: Настройки Lunavect → Подписки.": {
+    "en": "Update the end date in Lunavect Settings → Subscriptions.",
+    "de": "Aktualisieren Sie das Enddatum unter Lunavect-Einstellungen → Abonnements.",
+    "es": "Actualiza la fecha de fin en Ajustes de Lunavect → Suscripciones.",
+    "fr": "Mettez à jour la date de fin dans Réglages de Lunavect → Abonnements.",
+    "zh-Hans": "请在 Lunavect 设置 → 订阅中更新结束日期。"
+  },
+  "Подписка {0}, похоже, продлилась": {
+    "en": "{0} plan seems renewed",
+    "de": "Das {0}-Abonnement wurde anscheinend verlängert",
+    "es": "La suscripción de {0} parece renovada",
+    "fr": "L’abonnement {0} semble renouvelé",
+    "zh-Hans": "{0} 订阅似乎已续订"
+  },
+  "Подписка {0}, похоже, продлилась: Lunavect снова получает её лимиты. Обновите дату окончания.": {
+    "en": "The {0} plan seems renewed: Lunavect receives its limits again. Update the end date.",
+    "de": "Das {0}-Abonnement wurde anscheinend verlängert: Lunavect erhält wieder seine Limits. Aktualisieren Sie das Enddatum.",
+    "es": "La suscripción de {0} parece renovada: Lunavect vuelve a recibir sus límites. Actualiza la fecha de fin.",
+    "fr": "L’abonnement {0} semble renouvelé : Lunavect reçoit de nouveau ses limites. Mettez à jour la date de fin.",
+    "zh-Hans": "{0} 订阅似乎已续订：Lunavect 又能获取它的额度了。请更新结束日期。"
+  },
+  "Подписка до {0}": {
+    "en": "Plan until {0}",
+    "de": "Abonnement bis {0}",
+    "es": "Suscripción hasta el {0}",
+    "fr": "Abonnement jusqu’au {0}",
+    "zh-Hans": "订阅至 {0}"
+  },
+  "Подписка заканчивается сегодня": {
+    "en": "The plan ends today",
+    "de": "Das Abonnement endet heute",
+    "es": "La suscripción termina hoy",
+    "fr": "L’abonnement se termine aujourd’hui",
+    "zh-Hans": "订阅今天结束"
+  },
+  "Подписка закончилась {0}": {
+    "en": "Plan ended {0}",
+    "de": "Abonnement endete am {0}",
+    "es": "La suscripción terminó el {0}",
+    "fr": "Abonnement terminé le {0}",
+    "zh-Hans": "订阅已于 {0} 结束"
+  },
+  "Показывать дату окончания подписки": {
+    "en": "Show plan end date",
+    "de": "Enddatum des Abonnements anzeigen",
+    "es": "Mostrar fecha de fin de la suscripción",
+    "fr": "Afficher la date de fin d’abonnement",
+    "zh-Hans": "显示订阅结束日期"
+  },
+  "сегодня": {
+    "en": "today",
+    "de": "heute",
+    "es": "hoy",
+    "fr": "aujourd’hui",
+    "zh-Hans": "今天"
   }
 }

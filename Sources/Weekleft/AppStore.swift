@@ -65,6 +65,7 @@ import WeekleftCore
     @Published var storageIssue: String?
     var activityHistory: ActivityHistory { activityService.history }
     var activityDetails: ActivityDetails { activityService.details }
+    var activityArchive: ActivityArchive { activityService.archive }
     var activityIssue: String? { activityService.issue }
     var activityDetailsIssue: String? { activityService.detailsIssue }
     var importingActivity: Bool { activityService.importing }

@@ -120,6 +120,13 @@ struct WeekleftCard: View {
                             .font(.system(size: 9)).monospacedDigit().foregroundStyle(WidgetInk(0.78)).fixedSize()
                     }
                     Spacer(minLength: 0)
+                    if preferences.showPlanEnd, let plan = PlanEndState.of(preferences, provider: id, now: now) {
+                        HStack(spacing: 2) {
+                            Image(systemName: plan.symbol).font(.system(size: 8))
+                            Text(plan.short).font(.system(size: 9)).monospacedDigit()
+                        }.foregroundStyle(plan.widgetColor).fixedSize().help(plan.full)
+                            .accessibilityElement(children: .ignore).accessibilityLabel(plan.full)
+                    }
                     if !demo, display.dimmed, let fetched = snapshot.fetchedAt {
                         Text(widgetQuotaDate(fetched, now: now)).font(.system(size: 9)).foregroundStyle(WidgetInk(0.65)).fixedSize()
                     }
@@ -190,6 +197,14 @@ struct SingleProviderLimitsCard: View {
                     Spacer()
                     Text(five.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—").monospacedDigit()
                 }.font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            if preferences.showPlanEnd, let plan = PlanEndState.of(preferences, provider: snapshot.provider, now: now) {
+                HStack {
+                    Image(systemName: plan.symbol)
+                    Spacer()
+                    Text(plan.short).monospacedDigit()
+                }.font(.system(size: 10)).foregroundStyle(plan.isNormal ? AnyShapeStyle(.secondary) : plan.widgetColor)
+                    .help(plan.full).accessibilityElement(children: .ignore).accessibilityLabel(plan.full)
             }
             ForEach(WidgetModelLimit.lines(snapshot, preferences: preferences, now: now).prefix(1), id: \.name) { limit in
                 HStack {
@@ -267,6 +282,17 @@ struct WidgetModelLimit: Equatable {
             let status = quota.status(now: now)
             let value = status.remaining(of: quota.window).map { PercentText.format(Int($0.rounded())) + (status.isStale ? "*" : "") } ?? "—"
             return WidgetModelLimit(name: quota.name, value: value)
+        }
+    }
+}
+
+extension PlanEndState {
+    var isNormal: Bool { if case .until = self { return true } else { return false } }
+    var widgetColor: AnyShapeStyle {
+        switch self {
+        case .until: return AnyShapeStyle(WidgetInk(0.78))
+        case .soon: return AnyShapeStyle(Color.orange)
+        case .expired: return AnyShapeStyle(Color(red: 1, green: 0.42, blue: 0.42))
         }
     }
 }

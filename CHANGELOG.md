@@ -2,6 +2,17 @@
 
 ## 0.2.8 — Unreleased
 
+### Statistics
+
+- **Year** and **All time** join Day, Week and Month. Year is drawn by week; All time adapts to the amount of history (by day under two months, by week under a year, by month beyond). Each source's line starts at its first record, and earlier time is shown as unknown, not zero.
+- Daily totals are now kept without a time limit (about 1 KB a day). Once, Lunavect reads every Claude and Codex log still on the Mac and adds those days, marked ≈ as recovered.
+- New cards: a year **Calendar** of days with work, **When you work** (weekday × hour), **Projects** by time, **Agents waited for you** (answers, permissions and the typical wait, counted live from this version) and **Sessions** (count, average and longest).
+
+### Widgets and subscriptions
+
+- The limits widgets show the plan end date from Settings → Subscriptions as a compact icon and date: orange with the days left in the last week, red once it has passed. **Show plan end date** in Settings → Widgets turns it off.
+- When the end date has passed but the provider still reports subscription limits, the plan was probably renewed, sometimes a day late: Settings → Subscriptions offers the old date plus a month or another date, and one notification says so.
+
 ### Sessions
 
 - A Claude run in print mode (`claude -p`), which plugins and scripts start without a window, is shown as **Background run** with the app that started it (for example "Background run · Python"). It no longer counts as working, sends no notifications, is not activity and does not keep the Mac awake. Clicking it explains what it is and that it cannot be opened, instead of asking you to open a window that does not exist.

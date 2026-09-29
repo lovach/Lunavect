@@ -354,6 +354,23 @@ struct PanelShortcut: Codable, Equatable {
         let connected = providers ?? Set(ProviderID.allCases)
         announceSignIn(SignInAttention.all(snapshots, providers: connected), left: SignInAttention.left(snapshots, providers: connected))
     }
+    /// One notice per passed end date when the provider still reports subscription
+    /// limits: the plan was probably renewed, maybe a day late (owner request 29.09).
+    func observePlans(_ preferences: WidgetPreferences, snapshots: [UsageSnapshot], at date: Date? = nil) {
+        guard !isolated, !stopped else { return }
+        var announced = defaults.dictionary(forKey: "noticePlanRenewal") as? [String: String] ?? [:]
+        let before = announced
+        for provider in PlanRenewal.renewed(preferences, snapshots: snapshots, providers: preferences.providers, now: date ?? now()) {
+            let end = preferences.subscriptionDates[provider.rawValue] ?? ""
+            guard announced[provider.rawValue] != end else { continue }
+            announced[provider.rawValue] = end
+            if limits && (banners || sounds) {
+                deliver(title: L("Подписка {0}, похоже, продлилась", provider.title),
+                        body: L("Обновите дату окончания: Настройки Lunavect → Подписки."), sessionID: nil, kind: .limit)
+            }
+        }
+        if announced != before { defaults.set(announced, forKey: "noticePlanRenewal") }
+    }
     /// One notice when a provider's client becomes signed out; the Limits switch and
     /// the delivery channels decide, as for limit notices (owner report 28.09).
     private func announceSignIn(_ current: [SignInAttention], left: Set<ProviderID>) {

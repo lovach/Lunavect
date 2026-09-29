@@ -35,12 +35,14 @@ public enum ActivityHistoryImporter {
                 Source(directory: codex.appendingPathComponent("archived_sessions"), provider: .codex),
                 Source(directory: claude.appendingPathComponent("projects"), provider: .claude)]
     }
-    public static func read(sources: [Source] = localSources(), before boundary: Date, now: Date = Date(),
+    /// - Parameter since: the oldest time to recover; the 35-day history window by
+    ///   default. The daily archive reads every log still on disk once (`.distantPast`).
+    public static func read(sources: [Source] = localSources(), before boundary: Date, now: Date = Date(), since: Date? = nil,
                             maximumBytes: Int = 8 * 1024 * 1024 * 1024, maximumLineBytes: Int = 4 * 1024 * 1024,
                             maximumSeconds: TimeInterval = 90, maximumIntervals: Int = 100_000,
                             monotonicNow: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) -> ActivityImportResult {
         var result = ActivityImportResult(), bytesRead = 0
-        let cutoff = now.addingTimeInterval(-35 * 86400), deadline = monotonicNow() + maximumSeconds
+        let cutoff = since ?? now.addingTimeInterval(-35 * 86400), deadline = monotonicNow() + maximumSeconds
         // A boundary at or before the 35-day window leaves nothing to recover: no
         // journal is read (R3-04, for example a re-import for an old installation).
         let reachable = boundary > cutoff

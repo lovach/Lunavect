@@ -181,9 +181,11 @@ enum StatusItemClick {
                 features.observe(observation.rows, at: observation.date)
             }
             // Only connected providers are warned about.
-            limitObserver = store.$snapshots.combineLatest(store.$preferences.map(\.providers).removeDuplicates())
-                .receive(on: RunLoop.main).sink { snapshots, providers in
+            limitObserver = store.$snapshots.combineLatest(store.$preferences.removeDuplicates())
+                .receive(on: RunLoop.main).sink { snapshots, preferences in
+                    let providers = preferences.providers
                     features.observeLimits(snapshots.filter { providers.contains($0.provider) }, providers: Set(providers))
+                    features.observePlans(preferences, snapshots: snapshots)
                 }
         }
         if !environment.isPreview {
