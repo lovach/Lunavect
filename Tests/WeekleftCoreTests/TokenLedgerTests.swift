@@ -23,7 +23,7 @@ final class TokenLedgerTests: XCTestCase {
     private func claude(_ id: String, input: Int, output: Int, cache: Int = 0, model: String = "claude-opus-5-5", time: String = "2026-09-29T19:00:00Z",
                         sidechain: Bool = false) -> [String: Any] {
         ["type": "assistant", "sessionId": "s1", "cwd": "/Users/u/Lunavect", "timestamp": time, "isSidechain": sidechain,
-         "message": ["id": id, "model": model, "usage": ["input_tokens": input, "output_tokens": output, "cache_read_input_tokens": cache, "cache_creation_input_tokens": 0]]]
+         "message": ["id": id, "role": "assistant", "model": model, "usage": ["input_tokens": input, "output_tokens": output, "cache_read_input_tokens": cache, "cache_creation_input_tokens": 0]]]
     }
     private func tokenCount(input: Int, cached: Int, output: Int, reasoning: Int, time: String) -> [String: Any] {
         ["type": "event_msg", "timestamp": time, "payload": ["type": "token_count", "info": ["total_token_usage":
@@ -129,5 +129,23 @@ final class TokenLedgerTests: XCTestCase {
         // 200 Claude output tokens weigh 1000, 100 Codex output tokens 800: Codex output is priced higher per token.
         XCTAssertEqual(both.tokenProjects.map(\.name), ["Lunavect", "capsule"])
         XCTAssertEqual(both.tokenProjects.last?.weight ?? 0, 800, accuracy: 0.001)
+    }
+
+    /// Owner's Mac 30.09: lines of tens of megabytes (a written file, a long tool output) made one pass peak at 3 GB.
+    func testHugeClaudeLinesAreReadWithoutParsingTheWholeLine() throws {
+        let big = String(repeating: "x\\\"{}", count: 120_000)
+        var line = claude("m-big", input: 3, output: 7, cache: 11, sidechain: false)
+        var message = line["message"] as! [String: Any]
+        message["content"] = [["type": "text", "text": big + " \"usage\":{\"output_tokens\":999999}"]]
+        line["message"] = message
+        try write("claude/p/33333333-3333-3333-3333-333333333333.jsonl", [line])
+        let data = try Data(contentsOf: root.appendingPathComponent("claude/p/33333333-3333-3333-3333-333333333333.jsonl"))
+        XCTAssertGreaterThan(data.count, TokenLedger.wholeLineLimit)
+        var ledger = TokenLedger()
+        _ = ledger.scan(sources: sources, now: now)
+        XCTAssertEqual(ledger.sessions["claude:s1"]?.total, TokenCounts(input: 3, cacheRead: 11, output: 7),
+                       "the real usage object is the last one, not text that looks like it")
+        XCTAssertEqual(ledger.sessions["claude:s1"]?.models["claude-opus-5-5"]?.output, 7)
+        XCTAssertEqual(ledger.sessions["claude:s1"]?.project, "Lunavect")
     }
 }

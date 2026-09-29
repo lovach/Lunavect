@@ -97,7 +97,12 @@ struct SessionsView: View {
     private var hasFilters: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !provider.isEmpty || activeOnly || attentionOnly }
     private func panelHeight(at now: Date) -> CGFloat {
         if panelState.showsHiddenSessions { return min(480, max(300, CGFloat(store.hiddenCount) * 62 + 180)) }
-        return listLayout(rowCount: visible(at: now).count).panelHeight
+        return listLayout(rowCount: layoutRows(at: now)).panelHeight
+    }
+    /// A task card is about three session rows tall; the tab keeps room for the explanation when empty.
+    private func layoutRows(at now: Date) -> Int {
+        guard showingTasks, let tasks else { return visible(at: now).count }
+        return max(4, tasks.tasks.count * 3 + 1)
     }
     private func listLayout(rowCount: Int) -> SessionPanelLayout {
         SessionPanelLayout(rowCount: rowCount, topHeight: sectionHeights["top"] ?? 142,
@@ -120,7 +125,7 @@ struct SessionsView: View {
     }
     private func sessionList(at now: Date) -> some View {
         let rows = visible(at: now)
-        let layout = listLayout(rowCount: rows.count)
+        let layout = listLayout(rowCount: layoutRows(at: now))
         return VStack(spacing: 0) {
             VStack(spacing: 0) {
             header(at: now).padding(.horizontal, 12).padding(.vertical, 8).fixedSize(horizontal: false, vertical: true)
@@ -296,7 +301,7 @@ struct SessionsView: View {
             }
             VStack(spacing: 0) {
             Divider().opacity(contrast == .increased ? 1 : 0.45)
-            footer.padding(.horizontal, 12).padding(.vertical, 7).fixedSize(horizontal: false, vertical: true)
+            if !showingTasks { footer.padding(.horizontal, 12).padding(.vertical, 7).fixedSize(horizontal: false, vertical: true) }
             }.fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: SessionPanelSectionHeights.self, value: ["bottom": geometry.size.height])

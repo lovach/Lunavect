@@ -197,12 +197,14 @@ public struct TokenLedger: Codable, Sendable, Equatable {
         defer { try? handle.close() }
         do { try handle.seek(toOffset: UInt64(cursor.offset)) } catch { return 0 }
         let markers = provider == .claude ? [Data("\"usage\"".utf8)] : [Data("\"token_count\"".utf8), Data("\"session_meta\"".utf8), Data("\"turn_context\"".utf8)]
-        let chunkSize = 8 * 1024 * 1024, longestLine = 64 * 1024 * 1024
+        let chunkSize = 2 * 1024 * 1024, longestLine = 16 * 1024 * 1024
         var pending = Data(), bytes: Int64 = 0, skippingLongLine = false
         let fileSession = UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil ? url.deletingPathExtension().lastPathComponent : nil
         let isSubagentFile = url.path.contains("/subagents/")
         while bytes < budget, monotonicNow() < deadline {
-            guard let chunk = try? handle.read(upToCount: chunkSize), !chunk.isEmpty else { break }
+            // Each chunk's Foundation objects are released with it: one pass reads gigabytes.
+            let more: Bool = autoreleasepool {
+            guard let chunk = try? handle.read(upToCount: chunkSize), !chunk.isEmpty else { return false }
             bytes += Int64(chunk.count)
             pending.append(chunk)
             var consumed = 0
@@ -215,8 +217,15 @@ public struct TokenLedger: Codable, Sendable, Equatable {
                     else if end > start {
                         let line = UnsafeRawBufferPointer(start: base + start, count: end - start)
                         if markers.contains(where: { marker in marker.withUnsafeBytes { memmem(line.baseAddress, line.count, $0.baseAddress, $0.count) != nil } }) {
-                            consume(Data(line), provider: provider, cursor: &cursor, fileSession: fileSession,
-                                    subagentFile: isSubagentFile, now: now, calendar: calendar)
+                            // A line of tens of megabytes (a large tool output or written file) is never parsed whole:
+                            // Claude's usage and a few short fields are cut out of it; Codex records are small.
+                            if line.count <= Self.wholeLineLimit {
+                                consume(Data(line), provider: provider, cursor: &cursor, fileSession: fileSession,
+                                        subagentFile: isSubagentFile, now: now, calendar: calendar)
+                            } else if provider == .claude, let object = Self.claudeEssentials(line) {
+                                consume(object, provider: provider, cursor: &cursor, fileSession: fileSession,
+                                        subagentFile: isSubagentFile, now: now, calendar: calendar)
+                            }
                         }
                     }
                     start = end + 1
@@ -224,16 +233,98 @@ public struct TokenLedger: Codable, Sendable, Equatable {
                 consumed = start
             }
             cursor.offset += Int64(consumed)
-            pending.removeFirst(consumed)
+            // A fresh buffer for the partial line: removing from the front keeps Data's storage growing with the file.
+            pending = consumed < pending.count ? Data(pending[(pending.startIndex + consumed)...]) : Data()
             // A line longer than any usage record carries no tokens: skip to its end.
             if pending.count > longestLine { cursor.offset += Int64(pending.count); pending.removeAll(); skippingLongLine = true }
+            return true
+            }
+            if !more { break }
         }
         return bytes
     }
 
+    /// Lines up to this size are parsed as a whole.
+    static let wholeLineLimit = 256 * 1024
     private mutating func consume(_ line: Data, provider: ProviderID, cursor: inout TokenFileCursor, fileSession: String?,
                                   subagentFile: Bool, now: Date, calendar: Calendar) {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
+        consume(object, provider: provider, cursor: &cursor, fileSession: fileSession, subagentFile: subagentFile, now: now, calendar: calendar)
+    }
+
+    /// The parts of a large Claude assistant line the ledger needs, as the same shape a full parse gives:
+    /// the top-level keys come before `message`, `usage` is the last object in it, `timestamp` is near the end.
+    static func claudeEssentials(_ line: UnsafeRawBufferPointer) -> [String: Any]? {
+        guard let base = line.baseAddress else { return nil }
+        func positions(_ needle: String) -> [Int] {
+            var found: [Int] = [], start = 0
+            let bytes = Array(needle.utf8)
+            while start < line.count, let hit = memmem(base + start, line.count - start, bytes, bytes.count) {
+                let index = base.distance(to: UnsafeRawPointer(hit)); found.append(index); start = index + bytes.count
+                if found.count > 4096 { break }
+            }
+            return found
+        }
+        func first(_ needle: String) -> Int? {
+            let bytes = Array(needle.utf8)
+            return memmem(base, line.count, bytes, bytes.count).map { base.distance(to: UnsafeRawPointer($0)) }
+        }
+        /// The JSON string that starts right after `index`, decoded.
+        func string(at index: Int) -> String? {
+            var end = index, escaped = false
+            while end < line.count {
+                let byte = line[end]
+                if escaped { escaped = false } else if byte == 92 { escaped = true } else if byte == 34 { break }
+                end += 1
+                if end - index > 64 * 1024 { return nil }
+            }
+            guard end < line.count else { return nil }
+            let quoted = Data([34]) + Data(UnsafeRawBufferPointer(rebasing: line[index..<end])) + Data([34])
+            return (try? JSONSerialization.jsonObject(with: quoted, options: .fragmentsAllowed)) as? String
+        }
+        func value(_ key: String, last: Bool = false) -> String? {
+            let needle = "\"" + key + "\":\""
+            guard let hit = last ? positions(needle).last : first(needle) else { return nil }
+            return string(at: hit + needle.utf8.count)
+        }
+        /// The object whose opening brace is at `index`, parsed on its own.
+        func object(at index: Int) -> [String: Any]? {
+            var depth = 0, inString = false, escaped = false, end = index
+            while end < line.count {
+                let byte = line[end]
+                if inString {
+                    if escaped { escaped = false } else if byte == 92 { escaped = true } else if byte == 34 { inString = false }
+                } else if byte == 34 { inString = true }
+                else if byte == 123 { depth += 1 }
+                else if byte == 125 { depth -= 1; if depth == 0 { break } }
+                end += 1
+                if end - index > 64 * 1024 { return nil }
+            }
+            guard end < line.count else { return nil }
+            return try? JSONSerialization.jsonObject(with: Data(UnsafeRawBufferPointer(rebasing: line[index...end]))) as? [String: Any]
+        }
+        guard first("\"role\":\"assistant\"") != nil, let usageKey = positions("\"usage\":{").last,
+              let usage = object(at: usageKey + 8) else { return nil }
+        var message: [String: Any] = ["usage": usage]
+        if let key = first("\"message\":{") {
+            let rest = UnsafeRawBufferPointer(rebasing: line[key...])
+            let idNeedle = Array("\"id\":\"".utf8), modelNeedle = Array("\"model\":\"".utf8)
+            if let hit = memmem(rest.baseAddress, rest.count, idNeedle, idNeedle.count) {
+                message["id"] = string(at: key + rest.baseAddress!.distance(to: UnsafeRawPointer(hit)) + idNeedle.count)
+            }
+            if let hit = memmem(rest.baseAddress, rest.count, modelNeedle, modelNeedle.count) {
+                message["model"] = string(at: key + rest.baseAddress!.distance(to: UnsafeRawPointer(hit)) + modelNeedle.count)
+            }
+        }
+        var object: [String: Any] = ["type": "assistant", "message": message]
+        object["sessionId"] = value("sessionId"); object["cwd"] = value("cwd")
+        object["timestamp"] = value("timestamp", last: true); object["requestId"] = value("requestId", last: true)
+        if let side = first("\"isSidechain\":true"), side < (first("\"message\":{") ?? side + 1) { object["isSidechain"] = true }
+        return object
+    }
+
+    private mutating func consume(_ object: [String: Any], provider: ProviderID, cursor: inout TokenFileCursor, fileSession: String?,
+                                  subagentFile: Bool, now: Date, calendar: Calendar) {
         let date = (object["timestamp"] as? String).flatMap(Self.date) ?? now
         func int(_ value: Any?) -> Int64 { (value as? NSNumber)?.int64Value ?? 0 }
         if provider == .claude {
