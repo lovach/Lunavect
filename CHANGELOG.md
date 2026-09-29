@@ -4,9 +4,9 @@
 
 ### Statistics
 
-- **Year** and **All time** join Day, Week and Month. Year is drawn by week; All time adapts to the amount of history (by day under two months, by week under a year, by month beyond). Each source's line starts at its first record, and earlier time is shown as unknown, not zero.
+- **Year** and **All time** join Day, Week and Month. Year is drawn by week; All time adapts to the amount of history (by day under two months, by week under a year, by month beyond). Both start at the week of the first record, so a short history is not squeezed into a corner of an empty year, and each source's line starts at its own first record. Hovering the chart shows that week's time per source and together.
 - Daily totals are now kept without a time limit (about 1 KB a day). Once, Lunavect reads every Claude and Codex log still on the Mac and adds those days, marked ≈ as recovered.
-- New cards: a year **Calendar** of days with work, **When you work** (weekday × hour), **Projects** by time, **Agents waited for you** (answers, permissions and the typical wait, counted live from this version) and **Sessions** (count, average and longest).
+- New cards: a **Calendar** of days with work (with the longest day and the average per day with work), **When you work** (weekday × hour), **Projects** by time, **Agents waited for you** (answers, permissions and the typical wait, counted live from this version) and **Sessions** (count, average and longest). Hovering a calendar day or a weekday hour shows its time.
 
 ### Widgets and subscriptions
 
