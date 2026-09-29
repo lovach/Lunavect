@@ -124,6 +124,21 @@ final class ActivityArchiveTests: XCTestCase {
         XCTAssertNil(cells.last?.seconds, "days after today are empty cells, not zero")
     }
 
+    /// Owner review 29.09: an empty year before the first record looked broken; the calendar starts at the record's week.
+    func testCalendarStartsAtTheWeekOfTheFirstRecord() throws {
+        let value = archive(days: [(at(22, 10, month: 7), 3600, 0), (at(29, 10), 1800, 0)])
+        let first = calendar.startOfDay(for: at(22, 10, month: 7))
+        let cells = ActivityArchiveSummary.calendarCells(value, providers: [.claude, .codex], now: now, since: first, calendar: calendar)
+        // Monday 20 July to the week of Tuesday 29 September: 11 weeks.
+        XCTAssertEqual(cells.count, 11 * 7)
+        XCTAssertEqual(cells.first?.date, calendar.startOfDay(for: at(20, 0, month: 7)))
+        XCTAssertEqual(cells.first(where: { calendar.isDate($0.date, inSameDayAs: first) })?.seconds, 3600)
+        XCTAssertNil(cells.last?.seconds, "days after today stay empty cells")
+        let older = calendar.date(byAdding: .year, value: -2, to: first)!
+        XCTAssertEqual(ActivityArchiveSummary.calendarCells(value, providers: [.claude], now: now, since: older, calendar: calendar).count, 53 * 7,
+                       "more than a year of records still shows the last 53 weeks")
+    }
+
     func testArchiveRoundTripsAndOldPartsDecode() throws {
         let value = archive(days: [(at(29, 10), 3600, 60)])
         XCTAssertEqual(try JSONDecoder().decode(ActivityArchive.self, from: JSONEncoder().encode(value)), value)

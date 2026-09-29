@@ -389,9 +389,15 @@ struct ActivityLongRangeChart: View {
     let providers: [ProviderID]
     var unavailable = false
     var chartHeight: CGFloat = 200
+    @State var hovered: Int?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var scheme
     private var sectionBackground: Color { reduceTransparency ? Color(nsColor: .controlBackgroundColor) : .primary.opacity(0.035) }
+    /// Starts at the first record: a year of unknown weeks would squeeze the known ones.
+    private var points: [ActivityArchiveSummary.Point] { Array(summary.points.drop { !$0.known }) }
+    private var hoveredPoint: ActivityArchiveSummary.Point? {
+        hovered.flatMap { points.indices.contains($0) ? points[$0] : nil }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -420,6 +426,7 @@ struct ActivityLongRangeChart: View {
                 plot.frame(height: chartHeight)
                     .accessibilityElement(children: .ignore).accessibilityLabel(L("Статистика активности"))
                     .accessibilityValue(accessibilityValue).accessibilityIdentifier("statistics-long-chart")
+                readout
                 if let first = summary.firstDay, summary.points.contains(where: { !$0.known }) {
                     Text(L("Записи начинаются {0}: более ранние журналы на этом Mac не сохранились.", first.formatted(.dateTime.day().month().year().locale(L10n.locale))))
                         .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -440,7 +447,8 @@ struct ActivityLongRangeChart: View {
             return L("С {0}", first.formatted(.dateTime.day().month().year().locale(L10n.locale)))
         }
         let formatter = DateIntervalFormatter(); formatter.locale = L10n.locale; formatter.dateTemplate = "dMMMy"
-        return formatter.string(from: summary.range.start, to: summary.range.end.addingTimeInterval(-1))
+        let start = max(summary.range.start, summary.firstDay ?? summary.range.start)
+        return formatter.string(from: start, to: summary.range.end.addingTimeInterval(-1))
     }
     private func value(_ seconds: TimeInterval) -> String {
         seconds > 0 ? (summary.recovered ? "≈ " : "") + ActivitySummary.duration(seconds) : "—"
@@ -458,40 +466,87 @@ struct ActivityLongRangeChart: View {
     private var accessibilityValue: String {
         providers.map { $0.title + ": " + value($0 == .claude ? summary.claude : summary.codex) }.joined(separator: "; ")
     }
+    /// The index where a provider's line starts: earlier points are unknown for it.
+    private func lineStart(_ provider: ProviderID) -> Int {
+        summary.firstDays[provider].map { day in points.lastIndex { $0.start <= day } ?? 0 } ?? points.count
+    }
+    private func seconds(_ point: ActivityArchiveSummary.Point, _ provider: ProviderID) -> TimeInterval {
+        provider == .claude ? point.claude : point.codex
+    }
+    private var readout: some View {
+        let point = hoveredPoint
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(point.map { label($0.start) } ?? L("За период")).font(.system(size: 12, weight: .medium))
+            HStack(spacing: 20) {
+                ForEach(providers) { provider in
+                    HStack(spacing: 6) {
+                        Circle().fill(activityAccent(provider, adaptive: true, scheme: scheme)).frame(width: 5, height: 5).accessibilityHidden(true)
+                        Text(provider.title)
+                        Text(readoutValue(provider, point)).monospacedDigit()
+                    }.font(.system(size: 13)).frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+                }
+                if providers.count > 1 {
+                    HStack(spacing: 6) {
+                        Text(L("Вместе")).foregroundStyle(.secondary)
+                        Text(point.map { $0.known ? ActivitySummary.duration($0.together) : "—" } ?? value(summary.together)).monospacedDigit()
+                    }.font(.system(size: 13)).frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+                }
+            }
+        }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(reduceTransparency ? Color(nsColor: .windowBackgroundColor) : .primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+            .accessibilityElement(children: .contain).accessibilityIdentifier("statistics-long-selection")
+    }
+    private func readoutValue(_ provider: ProviderID, _ point: ActivityArchiveSummary.Point?) -> String {
+        guard let point, let index = hovered else { return value(provider == .claude ? summary.claude : summary.codex) }
+        guard point.known, index >= lineStart(provider) else { return L("Записей нет") }
+        return (point.recovered ? "≈ " : "") + ActivitySummary.duration(seconds(point, provider))
+    }
     private var plot: some View {
-        let points = summary.points
+        let points = points
         let maximum = max(1, points.map { max($0.claude, $0.codex, providers.count == 1 ? $0.together : 0) }.max() ?? 1)
         return GeometryReader { geometry in
             let width = geometry.size.width, height = geometry.size.height - 16
             let step = points.count > 1 ? width / CGFloat(points.count - 1) : width
-            let firstKnown = points.firstIndex { $0.known } ?? 0
+            let y = { (seconds: TimeInterval) in height - CGFloat(seconds / maximum) * (height - 6) - 3 }
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 6).stroke(.primary.opacity(0.08), lineWidth: 0.6).frame(height: height)
-                if firstKnown > 0 {
-                    Rectangle().fill(.primary.opacity(0.05)).frame(width: step * CGFloat(firstKnown), height: height)
-                }
                 ForEach(providers) { provider in
                     Path { path in
                         var started = false
-                        let first = summary.firstDays[provider].map { day in
-                            points.lastIndex { $0.start <= day } ?? 0
-                        } ?? points.count
-                        for (index, point) in points.enumerated() where point.known && index >= first {
-                            let seconds = provider == .claude ? point.claude : point.codex
-                            let location = CGPoint(x: step * CGFloat(index), y: height - CGFloat(seconds / maximum) * (height - 6) - 3)
+                        for (index, point) in points.enumerated() where point.known && index >= lineStart(provider) {
+                            let location = CGPoint(x: step * CGFloat(index), y: y(seconds(point, provider)))
                             if started { path.addLine(to: location) } else { path.move(to: location); started = true }
                         }
                     }.stroke(activityAccent(provider, adaptive: true, scheme: scheme), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                }
+                if let hovered, points.indices.contains(hovered) {
+                    let x = step * CGFloat(hovered)
+                    Rectangle().fill(.primary.opacity(0.25)).frame(width: 1, height: height).offset(x: x - 0.5)
+                    ForEach(providers) { provider in
+                        if points[hovered].known && hovered >= lineStart(provider) {
+                            Circle().fill(activityAccent(provider, adaptive: true, scheme: scheme))
+                                .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                                .frame(width: 8, height: 8).position(x: x, y: y(seconds(points[hovered], provider)))
+                        }
+                    }
                 }
                 ForEach(axisLabels(width: width), id: \.offset) { item in
                     Text(item.text).font(.system(size: 10)).foregroundStyle(.secondary).fixedSize()
                         .position(x: min(max(item.offset, 14), width - 14), y: height + 9)
                 }
+                Color.clear.contentShape(Rectangle()).frame(width: width, height: height)
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location):
+                            hovered = points.isEmpty ? nil : min(points.count - 1, max(0, Int((location.x / step).rounded())))
+                        case .ended: hovered = nil
+                        }
+                    }
             }
         }
     }
     private func axisLabels(width: CGFloat) -> [(offset: CGFloat, text: String)] {
-        let points = summary.points
+        let points = points
         guard points.count > 1 else { return [] }
         let step = width / CGFloat(points.count - 1), stride = max(1, points.count / 5)
         let indices = Array(Swift.stride(from: 0, to: points.count, by: stride))
@@ -520,9 +575,12 @@ struct ActivityStatisticsCards: View {
     let range: StatisticsRange
     let providers: [ProviderID]
     let now: Date
+    @State var hoveredDay: Int?
+    @State var hoveredHour: (day: Int, hour: Int)?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private var sectionBackground: Color { reduceTransparency ? Color(nsColor: .controlBackgroundColor) : .primary.opacity(0.035) }
     static let heat = Color(red: 0.54, green: 0.50, blue: 0.94)
+    private static let gap: CGFloat = 2, weeks = 53
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if range == .year || range == .all { calendarCard }
@@ -539,7 +597,7 @@ struct ActivityStatisticsCards: View {
             HStack {
                 Text(title).font(.system(size: 14, weight: .semibold)).accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
-                if let trailing { Text(trailing).font(.system(size: 11)).foregroundStyle(.secondary) }
+                if let trailing { Text(trailing).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit().lineLimit(1) }
             }
             content()
         }.padding(16).frame(maxWidth: .infinity, alignment: .topLeading)
@@ -551,25 +609,89 @@ struct ActivityStatisticsCards: View {
         let ratio = seconds / maximum
         return Self.heat.opacity(ratio < 0.25 ? 0.3 : ratio < 0.5 ? 0.5 : ratio < 0.75 ? 0.75 : 1)
     }
+    private func dayText(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).day().month().year().locale(L10n.locale))
+    }
     private var calendarCard: some View {
-        let cells = ActivityArchiveSummary.calendarCells(archive, providers: providers, now: now)
+        let first = summary.firstDay.map { Calendar.current.startOfDay(for: $0) }
+        let cells = ActivityArchiveSummary.calendarCells(archive, providers: providers, now: now, since: first)
+        let columns = cells.count / 7
         let maximum = cells.compactMap(\.seconds).max() ?? 0
-        let active = cells.filter { ($0.seconds ?? 0) > 0 }.count
-        return card(L("Календарь"), trailing: L("Дней с работой: {0}", String(active))) {
-            HStack(alignment: .top, spacing: 2) {
-                ForEach(0..<(cells.count / 7), id: \.self) { week in
-                    VStack(spacing: 2) {
+        let worked = cells.compactMap(\.seconds).filter { $0 > 0 }
+        let longest = cells.filter { ($0.seconds ?? 0) > 0 }.max { ($0.seconds ?? 0) < ($1.seconds ?? 0) }
+        let trailing: String = {
+            guard let hoveredDay, cells.indices.contains(hoveredDay), let seconds = cells[hoveredDay].seconds else { return L("Дней с работой: {0}", String(worked.count)) }
+            if let first, cells[hoveredDay].date < first { return dayText(cells[hoveredDay].date) + " · " + L("Записей нет") }
+            return dayText(cells[hoveredDay].date) + " · " + (seconds > 0 ? ActivitySummary.duration(seconds) : L("Без работы"))
+        }()
+        return card(L("Календарь"), trailing: trailing) {
+            GeometryReader { geometry in
+                let cell = (geometry.size.width - Self.gap * CGFloat(Self.weeks - 1)) / CGFloat(Self.weeks)
+                let pitch = cell + Self.gap, top: CGFloat = 16
+                let gridWidth = pitch * CGFloat(columns) - Self.gap
+                ZStack(alignment: .topLeading) {
+                    ForEach(monthLabels(cells), id: \.column) { item in
+                        Text(item.text).font(.system(size: 9)).foregroundStyle(.secondary).fixedSize()
+                            .offset(x: pitch * CGFloat(item.column))
+                    }
+                    ForEach(0..<columns, id: \.self) { week in
                         ForEach(0..<7, id: \.self) { day in
-                            let cell = cells[week * 7 + day]
-                            RoundedRectangle(cornerRadius: 2).fill(level(cell.seconds, maximum: maximum))
-                                .aspectRatio(1, contentMode: .fit)
-                                .help(cell.date.formatted(.dateTime.day().month().year().locale(L10n.locale)) + (cell.seconds.map { " · " + ActivitySummary.duration($0) } ?? ""))
+                            let index = week * 7 + day, item = cells[index]
+                            let before = first.map { item.date < $0 } ?? false
+                            Group {
+                                if before && item.seconds != nil {
+                                    RoundedRectangle(cornerRadius: 2).strokeBorder(.primary.opacity(0.08), style: StrokeStyle(lineWidth: 0.6, dash: [2, 1.5]))
+                                } else {
+                                    RoundedRectangle(cornerRadius: 2).fill(level(item.seconds, maximum: maximum))
+                                }
+                            }
+                            .overlay { if hoveredDay == index { RoundedRectangle(cornerRadius: 2).stroke(.primary.opacity(0.8), lineWidth: 1) } }
+                            .frame(width: cell, height: cell)
+                            .offset(x: pitch * CGFloat(week), y: top + pitch * CGFloat(day))
                         }
                     }
+                    if geometry.size.width - gridWidth > 190, !worked.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            metric(L("Самый долгий день"), longest.map { dayText($0.date) + " · " + ActivitySummary.duration($0.seconds ?? 0) } ?? "—")
+                            metric(L("В среднем за день с работой"), ActivitySummary.duration(worked.reduce(0, +) / Double(worked.count)))
+                        }.frame(width: min(260, geometry.size.width - gridWidth - 28), alignment: .leading)
+                            .offset(x: gridWidth + 28, y: top)
+                    }
+                    Color.clear.contentShape(Rectangle()).frame(width: max(0, gridWidth), height: top + pitch * 7)
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                let week = Int(location.x / pitch), day = Int((location.y - top) / pitch)
+                                let index = week * 7 + day
+                                hoveredDay = location.y >= top && week < columns && day < 7 && cells.indices.contains(index) && cells[index].seconds != nil ? index : nil
+                            case .ended: hoveredDay = nil
+                            }
+                        }
                 }
-            }.accessibilityElement(children: .ignore).accessibilityLabel(L("Календарь"))
-                .accessibilityValue(L("Дней с работой: {0}", String(active)))
+            }.frame(height: calendarHeight)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { calendarWidth = $0 }
+                .accessibilityElement(children: .ignore).accessibilityLabel(L("Календарь"))
+                .accessibilityValue(L("Дней с работой: {0}", String(worked.count)))
         }
+    }
+    /// The grid keeps the cell size of a full year so the card does not jump as history grows.
+    @State var calendarWidth: CGFloat = 640
+    private var calendarHeight: CGFloat {
+        let cell = (calendarWidth - Self.gap * CGFloat(Self.weeks - 1)) / CGFloat(Self.weeks)
+        return 16 + (cell + Self.gap) * 7
+    }
+    private func monthLabels(_ cells: [(date: Date, seconds: TimeInterval?)]) -> [(column: Int, text: String)] {
+        var result: [(Int, String)] = [], last = -1
+        for week in 0..<(cells.count / 7) {
+            let month = Calendar.current.component(.month, from: cells[week * 7].date)
+            if month != last {
+                // Skip a label squeezed against the previous one.
+                if let previous = result.last, week - previous.0 < 3 { result.removeLast() }
+                result.append((week, cells[week * 7].date.formatted(.dateTime.month(.abbreviated).locale(L10n.locale))))
+                last = month
+            }
+        }
+        return result.map { (column: $0.0, text: $0.1) }
     }
     private var weekdayCard: some View {
         let grid = summary.weekdayHours
@@ -578,16 +700,32 @@ struct ActivityStatisticsCards: View {
         let symbols = calendar.shortWeekdaySymbols
         let names = (0..<7).map { symbols[(calendar.firstWeekday - 1 + $0) % 7] }
         let peak = grid.enumerated().flatMap { day, hours in hours.enumerated().map { (day, $0.offset, $0.element) } }.max { $0.2 < $1.2 }
-        return card(L("Когда вы работаете"), trailing: L("По дням недели и часам")) {
+        let trailing = hoveredHour.map { names[$0.day] + ", " + String(format: "%02d:00–%02d:00", $0.hour, ($0.hour + 1) % 24) + " · "
+            + (grid[$0.day][$0.hour] > 0 ? ActivitySummary.duration(grid[$0.day][$0.hour]) : L("Без работы")) } ?? L("По дням недели и часам")
+        return card(L("Когда вы работаете"), trailing: trailing) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .trailing, spacing: 2) {
                     ForEach(0..<7, id: \.self) { Text(names[$0]).font(.system(size: 9)).foregroundStyle(.secondary).frame(height: 11) }
                 }
                 VStack(spacing: 2) {
-                    ForEach(0..<7, id: \.self) { day in
-                        HStack(spacing: 2) {
-                            ForEach(0..<24, id: \.self) { hour in
-                                RoundedRectangle(cornerRadius: 2).fill(level(grid[day][hour], maximum: maximum)).frame(height: 11)
+                    VStack(spacing: 2) {
+                        ForEach(0..<7, id: \.self) { day in
+                            HStack(spacing: 2) {
+                                ForEach(0..<24, id: \.self) { hour in
+                                    RoundedRectangle(cornerRadius: 2).fill(level(grid[day][hour], maximum: maximum)).frame(height: 11)
+                                        .overlay { if hoveredHour?.day == day && hoveredHour?.hour == hour { RoundedRectangle(cornerRadius: 2).stroke(.primary.opacity(0.8), lineWidth: 1) } }
+                                }
+                            }
+                        }
+                    }.overlay {
+                        GeometryReader { geometry in
+                            Color.clear.contentShape(Rectangle()).onContinuousHover { phase in
+                                switch phase {
+                                case .active(let location):
+                                    let hour = Int(location.x / ((geometry.size.width + 2) / 24)), day = Int(location.y / 13)
+                                    hoveredHour = hour >= 0 && hour < 24 && day >= 0 && day < 7 ? (day, hour) : nil
+                                case .ended: hoveredHour = nil
+                                }
                             }
                         }
                     }

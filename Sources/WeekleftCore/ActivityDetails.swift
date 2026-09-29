@@ -496,15 +496,20 @@ public struct ActivityArchiveSummary: Sendable {
         return result
     }
 
-    /// The last 53 weeks as calendar cells, oldest first, aligned to the calendar's week.
-    public static func calendarCells(_ archive: ActivityArchive, providers: [ProviderID], now: Date,
+    /// Up to the last 53 weeks as calendar cells, oldest first, aligned to the calendar's week.
+    /// With `since`, weeks that end before that day are left out: they hold no records.
+    public static func calendarCells(_ archive: ActivityArchive, providers: [ProviderID], now: Date, since: Date? = nil,
                                      calendar: Calendar = .current) -> [(date: Date, seconds: TimeInterval?)] {
         let today = calendar.startOfDay(for: now)
         let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
-        guard let first = calendar.date(byAdding: .weekOfYear, value: -52, to: weekStart) else { return [] }
+        guard var first = calendar.date(byAdding: .weekOfYear, value: -52, to: weekStart) else { return [] }
+        if let since, let recorded = calendar.dateInterval(of: .weekOfYear, for: since)?.start, recorded > first {
+            first = min(recorded, weekStart)
+        }
+        let weeks = (calendar.dateComponents([.weekOfYear], from: first, to: weekStart).weekOfYear ?? 52) + 1
         var cells: [(Date, TimeInterval?)] = []
         var day = first
-        while cells.count < 53 * 7 {
+        while cells.count < weeks * 7 {
             let seconds = day > today ? nil : archive.days[ActivityArchive.key(day, calendar: calendar)]?.part(providers)?.active ?? 0
             cells.append((day, seconds))
             guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }

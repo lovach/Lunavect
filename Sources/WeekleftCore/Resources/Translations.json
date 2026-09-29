@@ -6046,5 +6046,40 @@
     "es": "hoy",
     "fr": "aujourd’hui",
     "zh-Hans": "今天"
+  },
+  "Вместе": {
+    "de": "Zusammen",
+    "en": "Together",
+    "es": "Juntos",
+    "fr": "Ensemble",
+    "zh-Hans": "合计"
+  },
+  "Самый долгий день": {
+    "de": "Längster Tag",
+    "en": "Longest day",
+    "es": "Día más largo",
+    "fr": "Journée la plus longue",
+    "zh-Hans": "最长的一天"
+  },
+  "В среднем за день с работой": {
+    "de": "Durchschnitt pro Arbeitstag",
+    "en": "Average per day with work",
+    "es": "Media por día con trabajo",
+    "fr": "Moyenne par jour d’activité",
+    "zh-Hans": "有工作日的平均时长"
+  },
+  "Записей нет": {
+    "de": "Keine Aufzeichnungen",
+    "en": "No records",
+    "es": "Sin registros",
+    "fr": "Aucun enregistrement",
+    "zh-Hans": "无记录"
+  },
+  "Без работы": {
+    "de": "Keine Arbeit",
+    "en": "No work",
+    "es": "Sin trabajo",
+    "fr": "Aucune activité",
+    "zh-Hans": "无工作"
   }
 }
