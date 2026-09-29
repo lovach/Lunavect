@@ -494,10 +494,14 @@ struct ActivityLongRangeChart: View {
         let points = summary.points
         guard points.count > 1 else { return [] }
         let step = width / CGFloat(points.count - 1), stride = max(1, points.count / 5)
-        return Swift.stride(from: 0, to: points.count, by: stride).map { index in
+        let indices = Array(Swift.stride(from: 0, to: points.count, by: stride))
+        // Month names only when each label falls in another month; otherwise day and month.
+        let months = indices.map { Calendar.current.dateComponents([.year, .month], from: points[$0].start) }
+        let byMonth = summary.bucket != .day && Set(months.map { "\($0.year ?? 0)-\($0.month ?? 0)" }).count == months.count
+        return indices.map { index in
             let date = points[index].start
-            let text = summary.bucket == .day ? date.formatted(.dateTime.day().month(.twoDigits).locale(L10n.locale))
-                : date.formatted(.dateTime.month(.abbreviated).locale(L10n.locale))
+            let text = byMonth ? date.formatted(.dateTime.month(.abbreviated).locale(L10n.locale))
+                : date.formatted(.dateTime.day().month(.abbreviated).locale(L10n.locale))
             return (step * CGFloat(index), text)
         }
     }
@@ -611,7 +615,7 @@ struct ActivityStatisticsCards: View {
                             }
                         }.frame(height: 6)
                         Text(ActivitySummary.duration(project.seconds)).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
-                            .fixedSize()
+                            .lineLimit(1).minimumScaleFactor(0.8).frame(width: 88, alignment: .trailing)
                     }.accessibilityElement(children: .combine)
                 }
             }
