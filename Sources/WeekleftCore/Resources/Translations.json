@@ -6319,5 +6319,502 @@
     "es": "≈ es una estimación: el porcentaje usado del límite semanal se reparte entre las sesiones según sus tokens ponderados por precio. Los chats de las apps de Claude y ChatGPT no están en los registros, así que las proporciones pueden salir altas.",
     "fr": "≈ est une estimation : le pourcentage utilisé de la limite hebdomadaire est réparti entre les sessions selon leurs jetons pondérés par le prix. Les discussions dans les apps Claude et ChatGPT ne figurent pas dans les journaux, les parts peuvent donc être surestimées.",
     "zh-Hans": "≈ 为估算：周额度的已用百分比按各会话按价格加权的 token 分摊。Claude 和 ChatGPT 应用中的聊天不在日志里，因此会话占比可能偏高。"
+  },
+  "Claude: решения проверяет автоматический классификатор Anthropic. Codex: работа в папке задачи с доступом к сети.": {
+    "en": "Claude: an automatic Anthropic classifier reviews its actions. Codex: works in the task folder with network access.",
+    "de": "Claude: Ein automatischer Klassifikator von Anthropic prüft die Aktionen. Codex: arbeitet im Aufgabenordner mit Netzwerkzugriff.",
+    "es": "Claude: un clasificador automático de Anthropic revisa sus acciones. Codex: trabaja en la carpeta de la tarea con acceso a la red.",
+    "fr": "Claude : un classificateur automatique d’Anthropic vérifie ses actions. Codex : travaille dans le dossier de la tâche avec accès au réseau.",
+    "zh-Hans": "Claude：由 Anthropic 的自动分类器审核其操作。Codex：在任务文件夹中工作，可访问网络。"
+  },
+  "Codex не начал задачу.": {
+    "en": "Codex did not start the task.",
+    "de": "Codex hat die Aufgabe nicht begonnen.",
+    "es": "Codex no empezó la tarea.",
+    "fr": "Codex n’a pas commencé la tâche.",
+    "zh-Hans": "Codex 未开始该任务。"
+  },
+  "Codex остановил задачу с ошибкой.": {
+    "en": "Codex stopped the task with an error.",
+    "de": "Codex hat die Aufgabe mit einem Fehler beendet.",
+    "es": "Codex detuvo la tarea con un error.",
+    "fr": "Codex a arrêté la tâche sur une erreur.",
+    "zh-Hans": "Codex 因错误停止了任务。"
+  },
+  "Lunavect был закрыт, пока задача работала. Работа сохранена; продолжите её кнопкой.": {
+    "en": "Lunavect quit while the task was running. The work is saved; continue it with the button.",
+    "de": "Lunavect wurde beendet, während die Aufgabe lief. Die Arbeit ist gespeichert; setzen Sie sie mit der Taste fort.",
+    "es": "Lunavect se cerró mientras la tarea trabajaba. El trabajo está guardado; continúala con el botón.",
+    "fr": "Lunavect a été fermé pendant que la tâche travaillait. Le travail est enregistré ; reprenez-le avec le bouton.",
+    "zh-Hans": "任务运行时 Lunavect 已退出。工作已保存，可用按钮继续。"
+  },
+  "Lunavect ещё не знает недельный лимит {0}: без него бюджет не посчитать. Проверьте подключение в настройках.": {
+    "en": "Lunavect does not know the {0} weekly limit yet, so it cannot count the budget. Check the connection in Settings.",
+    "de": "Lunavect kennt das Wochenlimit von {0} noch nicht und kann das Budget nicht berechnen. Prüfen Sie die Verbindung in den Einstellungen.",
+    "es": "Lunavect aún no conoce el límite semanal de {0}, así que no puede calcular el presupuesto. Revisa la conexión en Ajustes.",
+    "fr": "Lunavect ne connaît pas encore la limite hebdomadaire de {0} et ne peut pas calculer le budget. Vérifiez la connexion dans les réglages.",
+    "zh-Hans": "Lunavect 尚不知道 {0} 的每周额度，无法计算预算。请在设置中检查连接。"
+  },
+  "{0} из {1} недели": {
+    "en": "{0} of {1} of the week",
+    "de": "{0} von {1} der Woche",
+    "es": "{0} de {1} de la semana",
+    "fr": "{0} sur {1} de la semaine",
+    "zh-Hans": "已用 {0}，预算为周额度的 {1}"
+  },
+  "Авто": {
+    "en": "Auto",
+    "de": "Auto",
+    "es": "Auto",
+    "fr": "Auto",
+    "zh-Hans": "自动"
+  },
+  "Агент": {
+    "en": "Agent",
+    "de": "Agent",
+    "es": "Agente",
+    "fr": "Agent",
+    "zh-Hans": "智能体"
+  },
+  "Беречь окно 5 часов: пауза при {0}": {
+    "en": "Protect the 5-hour window: pause at {0}",
+    "de": "5-Stunden-Fenster schonen: Pause bei {0}",
+    "es": "Cuidar la ventana de 5 horas: pausa al {0}",
+    "fr": "Préserver la fenêtre de 5 heures : pause à {0}",
+    "zh-Hans": "保护 5 小时窗口：达到 {0} 时暂停"
+  },
+  "Бюджет": {
+    "en": "Budget",
+    "de": "Budget",
+    "es": "Presupuesto",
+    "fr": "Budget",
+    "zh-Hans": "预算"
+  },
+  "В Терминале": {
+    "en": "In Terminal",
+    "de": "Im Terminal",
+    "es": "En Terminal",
+    "fr": "Dans Terminal",
+    "zh-Hans": "在终端中"
+  },
+  "В очереди": {
+    "en": "Queued",
+    "de": "In der Warteschlange",
+    "es": "En cola",
+    "fr": "En attente",
+    "zh-Hans": "排队中"
+  },
+  "В папке проекта есть несохранённые изменения. Сохраните их, затем примите результат.": {
+    "en": "The project folder has unsaved changes. Save them, then accept the result.",
+    "de": "Der Projektordner enthält ungesicherte Änderungen. Sichern Sie sie und übernehmen Sie dann das Ergebnis.",
+    "es": "La carpeta del proyecto tiene cambios sin guardar. Guárdalos y luego acepta el resultado.",
+    "fr": "Le dossier du projet contient des modifications non enregistrées. Enregistrez-les, puis acceptez le résultat.",
+    "zh-Hans": "项目文件夹有未保存的更改。请先保存，再接受结果。"
+  },
+  "Для папок с git: ваша папка не меняется, пока вы не примете результат. Перед паузой работа сохраняется коммитом в ветке задачи.": {
+    "en": "For git folders: your folder does not change until you accept the result. Before a pause, the work is saved as a commit on the task's branch.",
+    "de": "Für Ordner mit git: Ihr Ordner ändert sich nicht, bis Sie das Ergebnis übernehmen. Vor einer Pause wird die Arbeit als Commit im Branch der Aufgabe gesichert.",
+    "es": "Para carpetas con git: tu carpeta no cambia hasta que aceptes el resultado. Antes de una pausa, el trabajo se guarda como commit en la rama de la tarea.",
+    "fr": "Pour les dossiers git : votre dossier ne change pas tant que vous n’acceptez pas le résultat. Avant une pause, le travail est enregistré par un commit sur la branche de la tâche.",
+    "zh-Hans": "适用于 git 文件夹：在你接受结果前，你的文件夹不会改变。暂停前，工作会以提交的形式保存在任务分支上。"
+  },
+  "Задача": {
+    "en": "Task",
+    "de": "Aufgabe",
+    "es": "Tarea",
+    "fr": "Tâche",
+    "zh-Hans": "任务"
+  },
+  "Задача Lunavect": {
+    "en": "Lunavect task",
+    "de": "Lunavect-Aufgabe",
+    "es": "Tarea de Lunavect",
+    "fr": "Tâche Lunavect",
+    "zh-Hans": "Lunavect 任务"
+  },
+  "Задача Lunavect · {0}": {
+    "en": "Lunavect task · {0}",
+    "de": "Lunavect-Aufgabe · {0}",
+    "es": "Tarea de Lunavect · {0}",
+    "fr": "Tâche Lunavect · {0}",
+    "zh-Hans": "Lunavect 任务 · {0}"
+  },
+  "Задача готова": {
+    "en": "Task done",
+    "de": "Aufgabe erledigt",
+    "es": "Tarea terminada",
+    "fr": "Tâche terminée",
+    "zh-Hans": "任务完成"
+  },
+  "Задача на паузе, работа сохранена": {
+    "en": "Task paused, work saved",
+    "de": "Aufgabe pausiert, Arbeit gesichert",
+    "es": "Tarea en pausa, trabajo guardado",
+    "fr": "Tâche en pause, travail enregistré",
+    "zh-Hans": "任务已暂停，工作已保存"
+  },
+  "Задача начала с последнего коммита: несохранённые изменения в папке проекта в её копию не попали.": {
+    "en": "The task started from the last commit: unsaved changes in the project folder are not in its copy.",
+    "de": "Die Aufgabe beginnt beim letzten Commit: Ungesicherte Änderungen im Projektordner sind nicht in ihrer Kopie.",
+    "es": "La tarea empezó desde el último commit: los cambios sin guardar de la carpeta del proyecto no están en su copia.",
+    "fr": "La tâche part du dernier commit : les modifications non enregistrées du dossier du projet ne sont pas dans sa copie.",
+    "zh-Hans": "任务从最近一次提交开始：项目文件夹中未保存的更改不在其副本中。"
+  },
+  "Задача остановилась с ошибкой": {
+    "en": "Task stopped with an error",
+    "de": "Aufgabe mit Fehler beendet",
+    "es": "La tarea se detuvo con un error",
+    "fr": "La tâche s’est arrêtée sur une erreur",
+    "zh-Hans": "任务因错误停止"
+  },
+  "Задача продолжается": {
+    "en": "Task continues",
+    "de": "Aufgabe wird fortgesetzt",
+    "es": "La tarea continúa",
+    "fr": "La tâche reprend",
+    "zh-Hans": "任务继续"
+  },
+  "Задача работает без окна в пределах доли недельного лимита. Когда бюджет заканчивается, агент сворачивает работу, всё сохраняется, а после сброса лимита задача продолжается.": {
+    "en": "A task runs without a window within a share of the weekly limit. When its budget runs out, the agent wraps up, everything is saved, and the task continues after the limit resets.",
+    "de": "Eine Aufgabe läuft ohne Fenster innerhalb eines Anteils am Wochenlimit. Ist das Budget aufgebraucht, schließt der Agent ab, alles wird gesichert, und nach dem Zurücksetzen des Limits geht die Aufgabe weiter.",
+    "es": "Una tarea trabaja sin ventana dentro de una parte del límite semanal. Cuando se acaba el presupuesto, el agente cierra su trabajo, todo se guarda y la tarea continúa tras el reinicio del límite.",
+    "fr": "Une tâche travaille sans fenêtre dans une part de la limite hebdomadaire. Quand son budget est épuisé, l’agent conclut, tout est enregistré et la tâche reprend après la réinitialisation de la limite.",
+    "zh-Hans": "任务在周额度的一部分内无窗口运行。预算用完时，智能体会收尾，所有内容都会保存，额度重置后任务继续。"
+  },
+  "Задачи": {
+    "en": "Tasks",
+    "de": "Aufgaben",
+    "es": "Tareas",
+    "fr": "Tâches",
+    "zh-Hans": "任务"
+  },
+  "Задачи · {0}": {
+    "en": "Tasks · {0}",
+    "de": "Aufgaben · {0}",
+    "es": "Tareas · {0}",
+    "fr": "Tâches · {0}",
+    "zh-Hans": "任务 · {0}"
+  },
+  "Задачи с бюджетом": {
+    "en": "Tasks with a budget",
+    "de": "Aufgaben mit Budget",
+    "es": "Tareas con presupuesto",
+    "fr": "Tâches avec budget",
+    "zh-Hans": "有预算的任务"
+  },
+  "Запустить": {
+    "en": "Start",
+    "de": "Starten",
+    "es": "Iniciar",
+    "fr": "Démarrer",
+    "zh-Hans": "开始"
+  },
+  "Запустить сейчас": {
+    "en": "Start now",
+    "de": "Jetzt starten",
+    "es": "Iniciar ahora",
+    "fr": "Démarrer maintenant",
+    "zh-Hans": "立即开始"
+  },
+  "Изменения задачи не удалось соединить с проектом автоматически. Ветка {0} сохранена.": {
+    "en": "The task's changes could not be merged into the project automatically. Branch {0} is kept.",
+    "de": "Die Änderungen der Aufgabe ließen sich nicht automatisch ins Projekt übernehmen. Der Branch {0} bleibt erhalten.",
+    "es": "Los cambios de la tarea no se pudieron fusionar con el proyecto automáticamente. La rama {0} se conserva.",
+    "fr": "Les modifications de la tâche n’ont pas pu être fusionnées automatiquement dans le projet. La branche {0} est conservée.",
+    "zh-Hans": "无法自动将任务的更改合并到项目中。已保留分支 {0}。"
+  },
+  "Когда начать": {
+    "en": "When to start",
+    "de": "Wann beginnen",
+    "es": "Cuándo empezar",
+    "fr": "Quand commencer",
+    "zh-Hans": "何时开始"
+  },
+  "Лимит {0} исчерпан. Задача продолжит после сброса.": {
+    "en": "The {0} limit is used up. The task continues after the reset.",
+    "de": "Das Limit von {0} ist aufgebraucht. Die Aufgabe geht nach dem Zurücksetzen weiter.",
+    "es": "El límite de {0} se agotó. La tarea continuará tras el reinicio.",
+    "fr": "La limite de {0} est épuisée. La tâche reprendra après la réinitialisation.",
+    "zh-Hans": "{0} 的额度已用完。重置后任务将继续。"
+  },
+  "Не больше {0} недельного лимита {1}.": {
+    "en": "No more than {0} of the {1} weekly limit.",
+    "de": "Höchstens {0} des Wochenlimits von {1}.",
+    "es": "No más del {0} del límite semanal de {1}.",
+    "fr": "Pas plus de {0} de la limite hebdomadaire de {1}.",
+    "zh-Hans": "不超过 {1} 周额度的 {0}。"
+  },
+  "Не выбрана": {
+    "en": "Not chosen",
+    "de": "Nicht gewählt",
+    "es": "Sin elegir",
+    "fr": "Non choisi",
+    "zh-Hans": "未选择"
+  },
+  "Не найден {0}. Установите его или укажите путь в настройках подключений.": {
+    "en": "{0} was not found. Install it or set its path in the connection settings.",
+    "de": "{0} wurde nicht gefunden. Installieren Sie es oder geben Sie den Pfad in den Verbindungseinstellungen an.",
+    "es": "No se encontró {0}. Instálalo o indica su ruta en los ajustes de conexiones.",
+    "fr": "{0} est introuvable. Installez-le ou indiquez son chemin dans les réglages des connexions.",
+    "zh-Hans": "未找到 {0}。请安装，或在连接设置中指定其路径。"
+  },
+  "Не удалось запустить задачу.": {
+    "en": "The task could not start.",
+    "de": "Die Aufgabe konnte nicht starten.",
+    "es": "No se pudo iniciar la tarea.",
+    "fr": "Impossible de démarrer la tâche.",
+    "zh-Hans": "无法启动任务。"
+  },
+  "Не удалось открыть задачу в Терминале.": {
+    "en": "Could not open the task in Terminal.",
+    "de": "Die Aufgabe konnte nicht im Terminal geöffnet werden.",
+    "es": "No se pudo abrir la tarea en Terminal.",
+    "fr": "Impossible d’ouvrir la tâche dans Terminal.",
+    "zh-Hans": "无法在终端中打开任务。"
+  },
+  "Не удалось создать отдельную копию проекта: {0}": {
+    "en": "Could not create a separate copy of the project: {0}",
+    "de": "Eine separate Kopie des Projekts konnte nicht erstellt werden: {0}",
+    "es": "No se pudo crear una copia aparte del proyecto: {0}",
+    "fr": "Impossible de créer une copie séparée du projet : {0}",
+    "zh-Hans": "无法创建项目的独立副本：{0}"
+  },
+  "Недельный лимит {0} пока неизвестен: без него задача не начнётся.": {
+    "en": "The {0} weekly limit is not known yet; without it the task will not start.",
+    "de": "Das Wochenlimit von {0} ist noch unbekannt; ohne es beginnt die Aufgabe nicht.",
+    "es": "El límite semanal de {0} aún no se conoce; sin él la tarea no empezará.",
+    "fr": "La limite hebdomadaire de {0} est encore inconnue ; sans elle la tâche ne démarrera pas.",
+    "zh-Hans": "尚不知道 {0} 的每周额度；没有它任务不会开始。"
+  },
+  "Никаких проверок: агент может выполнить любую команду на этом Mac. Выбирайте только для задач, которым полностью доверяете.": {
+    "en": "No checks at all: the agent can run any command on this Mac. Choose it only for tasks you fully trust.",
+    "de": "Keinerlei Prüfungen: Der Agent kann jeden Befehl auf diesem Mac ausführen. Wählen Sie das nur für Aufgaben, denen Sie voll vertrauen.",
+    "es": "Sin ninguna comprobación: el agente puede ejecutar cualquier comando en este Mac. Elígelo solo para tareas de total confianza.",
+    "fr": "Aucune vérification : l’agent peut exécuter n’importe quelle commande sur ce Mac. Ne choisissez cela que pour des tâches de confiance totale.",
+    "zh-Hans": "没有任何检查：智能体可在这台 Mac 上执行任何命令。仅用于你完全信任的任务。"
+  },
+  "Новая задача": {
+    "en": "New task",
+    "de": "Neue Aufgabe",
+    "es": "Nueva tarea",
+    "fr": "Nouvelle tâche",
+    "zh-Hans": "新任务"
+  },
+  "Новая задача — Lunavect": {
+    "en": "New Task — Lunavect",
+    "de": "Neue Aufgabe — Lunavect",
+    "es": "Nueva tarea — Lunavect",
+    "fr": "Nouvelle tâche — Lunavect",
+    "zh-Hans": "新任务 — Lunavect"
+  },
+  "Новая задача…": {
+    "en": "New Task…",
+    "de": "Neue Aufgabe…",
+    "es": "Nueva tarea…",
+    "fr": "Nouvelle tâche…",
+    "zh-Hans": "新任务…"
+  },
+  "Нужно ваше участие": {
+    "en": "Needs you",
+    "de": "Braucht Sie",
+    "es": "Te necesita",
+    "fr": "Requiert votre attention",
+    "zh-Hans": "需要你处理"
+  },
+  "Остановить": {
+    "en": "Stop",
+    "de": "Anhalten",
+    "es": "Detener",
+    "fr": "Arrêter",
+    "zh-Hans": "停止"
+  },
+  "Осторожно": {
+    "en": "Careful",
+    "de": "Vorsichtig",
+    "es": "Con cuidado",
+    "fr": "Prudent",
+    "zh-Hans": "谨慎"
+  },
+  "Отменена": {
+    "en": "Cancelled",
+    "de": "Abgebrochen",
+    "es": "Cancelada",
+    "fr": "Annulée",
+    "zh-Hans": "已取消"
+  },
+  "Папка не под git: задача меняет файлы прямо в ней, отдельной копии нет.": {
+    "en": "The folder is not under git: the task changes files right in it, with no separate copy.",
+    "de": "Der Ordner steht nicht unter git: Die Aufgabe ändert Dateien direkt darin, ohne separate Kopie.",
+    "es": "La carpeta no está en git: la tarea cambia los archivos directamente en ella, sin copia aparte.",
+    "fr": "Le dossier n’est pas sous git : la tâche modifie les fichiers directement, sans copie séparée.",
+    "zh-Hans": "该文件夹不受 git 管理：任务直接修改其中的文件，没有独立副本。"
+  },
+  "Папка проекта": {
+    "en": "Project folder",
+    "de": "Projektordner",
+    "es": "Carpeta del proyecto",
+    "fr": "Dossier du projet",
+    "zh-Hans": "项目文件夹"
+  },
+  "Пауза": {
+    "en": "Pause",
+    "de": "Pause",
+    "es": "Pausa",
+    "fr": "Pause",
+    "zh-Hans": "暂停"
+  },
+  "Пауза: бюджет недели": {
+    "en": "Paused: weekly budget",
+    "de": "Pausiert: Wochenbudget",
+    "es": "En pausa: presupuesto semanal",
+    "fr": "En pause : budget de la semaine",
+    "zh-Hans": "已暂停：本周预算"
+  },
+  "Пауза: лимит исчерпан": {
+    "en": "Paused: limit used up",
+    "de": "Pausiert: Limit aufgebraucht",
+    "es": "En pausa: límite agotado",
+    "fr": "En pause : limite épuisée",
+    "zh-Hans": "已暂停：额度用完"
+  },
+  "Пауза: окно 5 часов": {
+    "en": "Paused: 5-hour window",
+    "de": "Pausiert: 5-Stunden-Fenster",
+    "es": "En pausa: ventana de 5 horas",
+    "fr": "En pause : fenêtre de 5 heures",
+    "zh-Hans": "已暂停：5 小时窗口"
+  },
+  "Показать копию проекта": {
+    "en": "Show the project copy",
+    "de": "Kopie des Projekts zeigen",
+    "es": "Mostrar la copia del proyecto",
+    "fr": "Afficher la copie du projet",
+    "zh-Hans": "显示项目副本"
+  },
+  "Полный доступ": {
+    "en": "Full access",
+    "de": "Voller Zugriff",
+    "es": "Acceso total",
+    "fr": "Accès complet",
+    "zh-Hans": "完全访问"
+  },
+  "После сброса недели": {
+    "en": "After the weekly reset",
+    "de": "Nach dem Wochen-Reset",
+    "es": "Tras el reinicio semanal",
+    "fr": "Après la réinitialisation hebdomadaire",
+    "zh-Hans": "每周重置后"
+  },
+  "После сброса окна 5 часов": {
+    "en": "After the 5-hour reset",
+    "de": "Nach dem 5-Stunden-Reset",
+    "es": "Tras el reinicio de 5 horas",
+    "fr": "Après la réinitialisation de 5 heures",
+    "zh-Hans": "5 小时窗口重置后"
+  },
+  "Поставить в очередь": {
+    "en": "Queue",
+    "de": "Einreihen",
+    "es": "Poner en cola",
+    "fr": "Mettre en attente",
+    "zh-Hans": "加入队列"
+  },
+  "Правит файлы в папке задачи и выполняет безопасные команды. Остальное без спроса не делает: ему откажут, и Lunavect покажет это.": {
+    "en": "Edits files in the task folder and runs safe commands. Anything else it is refused, and Lunavect shows it.",
+    "de": "Bearbeitet Dateien im Aufgabenordner und führt sichere Befehle aus. Alles andere wird abgelehnt, und Lunavect zeigt das an.",
+    "es": "Edita archivos en la carpeta de la tarea y ejecuta comandos seguros. Todo lo demás se le deniega y Lunavect lo muestra.",
+    "fr": "Modifie les fichiers du dossier de la tâche et exécute des commandes sûres. Tout le reste lui est refusé, et Lunavect l’indique.",
+    "zh-Hans": "编辑任务文件夹中的文件并执行安全命令。其他操作会被拒绝，Lunavect 会显示出来。"
+  },
+  "Принять изменения": {
+    "en": "Accept changes",
+    "de": "Änderungen übernehmen",
+    "es": "Aceptar cambios",
+    "fr": "Accepter les modifications",
+    "zh-Hans": "接受更改"
+  },
+  "Продолжать автоматически после сброса лимита": {
+    "en": "Continue automatically after the limit resets",
+    "de": "Nach dem Zurücksetzen des Limits automatisch fortsetzen",
+    "es": "Continuar automáticamente tras el reinicio del límite",
+    "fr": "Reprendre automatiquement après la réinitialisation de la limite",
+    "zh-Hans": "额度重置后自动继续"
+  },
+  "Продолжит {0}.": {
+    "en": "Continues {0}.",
+    "de": "Geht {0} weiter.",
+    "es": "Continuará {0}.",
+    "fr": "Reprendra {0}.",
+    "zh-Hans": "将于 {0} 继续。"
+  },
+  "Процесс агента завершился раньше времени.": {
+    "en": "The agent's process ended early.",
+    "de": "Der Prozess des Agenten wurde vorzeitig beendet.",
+    "es": "El proceso del agente terminó antes de tiempo.",
+    "fr": "Le processus de l’agent s’est arrêté trop tôt.",
+    "zh-Hans": "智能体进程提前结束。"
+  },
+  "Работать в отдельной копии проекта": {
+    "en": "Work in a separate copy of the project",
+    "de": "In einer separaten Kopie des Projekts arbeiten",
+    "es": "Trabajar en una copia aparte del proyecto",
+    "fr": "Travailler dans une copie séparée du projet",
+    "zh-Hans": "在项目的独立副本中工作"
+  },
+  "Раздел": {
+    "en": "Section",
+    "de": "Bereich",
+    "es": "Sección",
+    "fr": "Section",
+    "zh-Hans": "分区"
+  },
+  "Результат принят в проект.": {
+    "en": "The result is merged into the project.",
+    "de": "Das Ergebnis wurde ins Projekt übernommen.",
+    "es": "El resultado se fusionó con el proyecto.",
+    "fr": "Le résultat est fusionné dans le projet.",
+    "zh-Hans": "结果已合并到项目中。"
+  },
+  "Сворачивает работу": {
+    "en": "Wrapping up",
+    "de": "Schließt ab",
+    "es": "Cerrando el trabajo",
+    "fr": "Termine son travail",
+    "zh-Hans": "正在收尾"
+  },
+  "Сейчас использовано {0}, свободно {1}.": {
+    "en": "{0} used now, {1} free.",
+    "de": "Jetzt {0} verbraucht, {1} frei.",
+    "es": "Ahora usado {0}, libre {1}.",
+    "fr": "{0} utilisé, {1} disponible.",
+    "zh-Hans": "当前已用 {0}，剩余 {1}。"
+  },
+  "Это задача Lunavect. Она работает без окна; следить за ней, ставить на паузу и открыть её в Терминале можно во вкладке «Задачи».": {
+    "en": "This is a Lunavect task. It runs without a window; follow it, pause it or open it in Terminal from the Tasks tab.",
+    "de": "Das ist eine Lunavect-Aufgabe. Sie läuft ohne Fenster; verfolgen, pausieren oder im Terminal öffnen können Sie sie im Tab „Aufgaben“.",
+    "es": "Es una tarea de Lunavect. Trabaja sin ventana; síguela, ponla en pausa o ábrela en Terminal desde la pestaña Tareas.",
+    "fr": "C’est une tâche Lunavect. Elle travaille sans fenêtre ; suivez-la, mettez-la en pause ou ouvrez-la dans Terminal depuis l’onglet Tâches.",
+    "zh-Hans": "这是一个 Lunavect 任务。它在无窗口状态下运行；可在“任务”标签页中查看、暂停或在终端中打开。"
+  },
+  "продолжит {0}": {
+    "en": "continues {0}",
+    "de": "geht {0} weiter",
+    "es": "continuará {0}",
+    "fr": "reprendra {0}",
+    "zh-Hans": "将于 {0} 继续"
+  },
+  "В момент сброса Mac должен не спать, а Lunavect работать; иначе задача продолжится, когда Mac проснётся.": {
+    "en": "At the reset the Mac must be awake and Lunavect running; otherwise the task continues when the Mac wakes.",
+    "de": "Zum Zurücksetzen muss der Mac wach sein und Lunavect laufen; sonst geht die Aufgabe weiter, wenn der Mac aufwacht.",
+    "es": "En el reinicio el Mac debe estar despierto y Lunavect abierto; si no, la tarea continuará cuando el Mac despierte.",
+    "fr": "Au moment de la réinitialisation, le Mac doit être éveillé et Lunavect ouvert ; sinon la tâche reprendra au réveil du Mac.",
+    "zh-Hans": "重置时 Mac 需要保持唤醒且 Lunavect 在运行；否则任务会在 Mac 唤醒后继续。"
+  },
+  "Добавить {0} и продолжить": {
+    "en": "Add {0} and continue",
+    "de": "{0} hinzufügen und fortsetzen",
+    "es": "Añadir {0} y continuar",
+    "fr": "Ajouter {0} et reprendre",
+    "zh-Hans": "增加 {0} 并继续"
   }
 }

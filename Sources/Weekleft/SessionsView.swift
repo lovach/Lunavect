@@ -24,6 +24,11 @@ struct SessionsView: View {
     var onReorderingChange: ((Bool) -> Void)? = nil
     /// Tokens and the estimated share of the week, from the token ledger.
     var tokenUsage: ((AgentSession, Date) -> SessionTokenUsage?)? = nil
+    /// Tasks with a budget; the panel shows them in its second tab.
+    var tasks: TaskService? = nil
+    var onNewTask: (() -> Void)? = nil
+    @AppStorage("sessionPanelTab") private var panelTab = "sessions"
+    private var showingTasks: Bool { tasks != nil && panelTab == "tasks" }
     @StateObject private var reorder = SessionReorderState()
     @State private var geometry = SessionPanelGeometry()
     @State private var sectionHeights: [String: CGFloat] = [:]
@@ -145,6 +150,8 @@ struct SessionsView: View {
                     .accessibilityIdentifier("session-setup-notice")
             }
             if updates.notice != nil { UpdateNoticeView(updates: updates).padding(.horizontal, 12).padding(.bottom, 8) }
+            if let tasks { SessionPanelTabs(tasks: tasks, selection: $panelTab).padding(.horizontal, 12).padding(.bottom, 7) }
+            if !showingTasks {
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     InterfaceIcon(.search).foregroundStyle(.secondary)
@@ -186,12 +193,16 @@ struct SessionsView: View {
                     }.font(.system(size: 12)).padding(.top, 3)
                 }
             }.padding(.horizontal, 12).padding(.bottom, 7).disabled(reorder.rows != nil)
+            }
             Divider().opacity(contrast == .increased ? 1 : 0.45)
             }.fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: SessionPanelSectionHeights.self, value: ["top": geometry.size.height])
                 })
-            if rows.isEmpty {
+            if showingTasks, let tasks {
+                ScrollView { TaskListView(tasks: tasks, onNew: { onNewTask?() }) }
+                    .frame(height: layout.viewportHeight).padding(.vertical, SessionPanelLayout.verticalInset)
+            } else if rows.isEmpty {
                 // Only the centre may scroll when translated copy or diagnostics
                 // needs more room. Never push the panel controls outside its bounds.
                 ScrollView { emptyState.frame(maxWidth: .infinity) }
@@ -620,6 +631,9 @@ struct SessionRow: View {
     var accessibilityStatus: String { isPinned ? statusTitle + ", " + L("Закреплена") : statusTitle }
     var statusTitle: String {
         if session.isLimitsCheck == true { return L("Служебная проверка лимитов") }
+        if session.lunavectTask != nil {
+            return phase == .running ? L("Задача Lunavect · {0}", L(session.tool?.isEmpty == false ? "Работает" : "Думает")) : L("Задача Lunavect")
+        }
         if session.isBackgroundRun == true {
             guard session.phase.isActive else { return L("Фоновый запуск завершён") }
             return session.launchHost.map { L("Фоновый запуск · {0}", $0.name) } ?? L("Фоновый запуск")
@@ -839,5 +853,18 @@ struct SessionTokenUsage: Equatable {
         }
         return SessionTokenUsage(badge: share.flatMap { $0.percent >= 0.5 ? "≈" + TokenMonitorView.percent($0.percent) : nil },
                                  detail: parts.joined(separator: " · "))
+    }
+}
+
+/// Sessions and Tasks: the two tabs of the panel. The task count follows the task list.
+struct SessionPanelTabs: View {
+    @ObservedObject var tasks: TaskService
+    @Binding var selection: String
+    var body: some View {
+        let active = tasks.tasks.filter { !$0.state.isFinished }.count
+        Picker(L("Раздел"), selection: $selection) {
+            Text(L("Сессии")).tag("sessions")
+            Text(active > 0 ? L("Задачи · {0}", String(active)) : L("Задачи")).tag("tasks")
+        }.pickerStyle(.segmented).labelsHidden().accessibilityIdentifier("session-panel-tabs")
     }
 }

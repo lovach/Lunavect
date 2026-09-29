@@ -26,7 +26,8 @@ import WeekleftCore
     /// - Parameter scan: reads the logs; under tests the default reads nothing, so no test sees the real logs.
     init(url: URL? = TokenService.defaultURL, clock: @escaping () -> Date = Date.init, scan: Scan? = nil) {
         self.url = url; self.clock = clock
-        self.scan = scan ?? (LiveWriteGuard.underTestsForStores ? { _, _ in .init() } : { ledger, now in ledger.scan(now: now) })
+        let idle: Scan = { _, _ in .init() }, logs: Scan = { ledger, now in ledger.scan(now: now) }
+        self.scan = scan ?? (LiveWriteGuard.underTestsForStores ? idle : logs)
         ledger = url.flatMap { try? TokenLedger.load(from: $0) } ?? TokenLedger()
         catchingUp = ledger.caughtUp != true
     }
@@ -75,7 +76,7 @@ import WeekleftCore
         guard unsaved, let url, force || clock().timeIntervalSince(savedAt) >= 60 else { return }
         let value = ledger
         unsaved = false; savedAt = clock()
-        let write = { [logger] in
+        let write: @Sendable () -> Void = { [logger] in
             do { try value.save(to: url) }
             catch { logger.error("Token ledger not saved: \((error as NSError).domain, privacy: .public) \((error as NSError).code)") }
         }

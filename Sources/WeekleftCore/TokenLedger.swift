@@ -283,7 +283,7 @@ public struct TokenLedger: Codable, Sendable, Equatable {
         }
     }
 
-    mutating func record(_ counts: TokenCounts, provider: ProviderID, session: String, cwd: String, model: String,
+    public mutating func record(_ counts: TokenCounts, provider: ProviderID, session: String, cwd: String, model: String,
                          subagent: Bool, at date: Date, now: Date, calendar: Calendar) {
         guard !counts.isEmpty else { return }
         let project = cwd.isEmpty ? L("Без проекта") : URL(fileURLWithPath: cwd).lastPathComponent
