@@ -1,0 +1,353 @@
+import Foundation
+
+/// Tokens of one piece of work, split the way Claude and Codex report them.
+public struct TokenCounts: Codable, Sendable, Equatable {
+    /// Fresh input, not read from the prompt cache.
+    public var input: Int64 = 0
+    public var cacheRead: Int64 = 0
+    public var cacheWrite: Int64 = 0
+    /// Visible output; Claude's thinking is part of it.
+    public var output: Int64 = 0
+    /// Codex reasoning output, reported apart from visible output.
+    public var reasoning: Int64 = 0
+
+    public init(input: Int64 = 0, cacheRead: Int64 = 0, cacheWrite: Int64 = 0, output: Int64 = 0, reasoning: Int64 = 0) {
+        self.input = input; self.cacheRead = cacheRead; self.cacheWrite = cacheWrite; self.output = output; self.reasoning = reasoning
+    }
+    private enum CodingKeys: String, CodingKey { case input = "i", cacheRead = "cr", cacheWrite = "cw", output = "o", reasoning = "r" }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        input = try values.decodeIfPresent(Int64.self, forKey: .input) ?? 0
+        cacheRead = try values.decodeIfPresent(Int64.self, forKey: .cacheRead) ?? 0
+        cacheWrite = try values.decodeIfPresent(Int64.self, forKey: .cacheWrite) ?? 0
+        output = try values.decodeIfPresent(Int64.self, forKey: .output) ?? 0
+        reasoning = try values.decodeIfPresent(Int64.self, forKey: .reasoning) ?? 0
+    }
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        if input != 0 { try values.encode(input, forKey: .input) }
+        if cacheRead != 0 { try values.encode(cacheRead, forKey: .cacheRead) }
+        if cacheWrite != 0 { try values.encode(cacheWrite, forKey: .cacheWrite) }
+        if output != 0 { try values.encode(output, forKey: .output) }
+        if reasoning != 0 { try values.encode(reasoning, forKey: .reasoning) }
+    }
+
+    public var total: Int64 { input + cacheRead + cacheWrite + output + reasoning }
+    public var isEmpty: Bool { total == 0 }
+    public static func += (lhs: inout TokenCounts, rhs: TokenCounts) {
+        lhs.input += rhs.input; lhs.cacheRead += rhs.cacheRead; lhs.cacheWrite += rhs.cacheWrite
+        lhs.output += rhs.output; lhs.reasoning += rhs.reasoning
+    }
+    public static func + (lhs: TokenCounts, rhs: TokenCounts) -> TokenCounts { var value = lhs; value += rhs; return value }
+    /// Field by field, never below zero: what `self` adds to an earlier reading.
+    public func adding(over earlier: TokenCounts) -> TokenCounts {
+        TokenCounts(input: max(0, input - earlier.input), cacheRead: max(0, cacheRead - earlier.cacheRead),
+                    cacheWrite: max(0, cacheWrite - earlier.cacheWrite), output: max(0, output - earlier.output),
+                    reasoning: max(0, reasoning - earlier.reasoning))
+    }
+    public func maximum(_ other: TokenCounts) -> TokenCounts {
+        TokenCounts(input: max(input, other.input), cacheRead: max(cacheRead, other.cacheRead), cacheWrite: max(cacheWrite, other.cacheWrite),
+                    output: max(output, other.output), reasoning: max(reasoning, other.reasoning))
+    }
+    /// Weighted like list prices: a cache read costs a tenth of fresh input and output several
+    /// times more. A share of a subscription limit follows this weight, not the raw count.
+    public func weight(_ provider: ProviderID) -> Double {
+        let out: Double = provider == .claude ? 5 : 8
+        return Double(input) + Double(cacheWrite) * 1.25 + Double(cacheRead) * 0.1 + Double(output + reasoning) * out
+    }
+}
+
+/// One session's tokens, subagents included.
+public struct SessionTokens: Codable, Sendable, Equatable {
+    public var provider: ProviderID
+    public var sessionID: String
+    public var cwd: String
+    public var total = TokenCounts()
+    /// The part spent by subagents (Claude sidechains, Codex spawned threads).
+    public var subagents = TokenCounts()
+    public var models: [String: TokenCounts] = [:]
+    /// Weighted tokens per hour since 1970, for limit windows and the current rate.
+    public var hours: [Int: Double] = [:]
+    public var first: Date?
+    public var last: Date?
+    public init(provider: ProviderID, sessionID: String, cwd: String) { self.provider = provider; self.sessionID = sessionID; self.cwd = cwd }
+    public var key: String { TokenLedger.sessionKey(provider, sessionID) }
+    public var project: String { cwd.isEmpty ? L("Без проекта") : URL(fileURLWithPath: cwd).lastPathComponent }
+    public func weight(from start: Date, to end: Date) -> Double {
+        let first = Int(floor(start.timeIntervalSince1970 / 3600)), last = Int(floor(end.timeIntervalSince1970 / 3600))
+        return hours.reduce(0) { $1.key >= first && $1.key <= last ? $0 + $1.value : $0 }
+    }
+    /// Weighted tokens in the last hour, by whole hours: the current one and the part of the previous one.
+    public func rate(now: Date) -> Double {
+        let position = now.timeIntervalSince1970 / 3600, hour = Int(floor(position))
+        return (hours[hour] ?? 0) + (hours[hour - 1] ?? 0) * (1 - (position - Double(hour)))
+    }
+}
+
+/// Where a file stopped being read, so the next scan reads only what was appended.
+struct TokenFileCursor: Codable, Sendable, Equatable {
+    var inode: UInt64
+    var offset: Int64
+    /// Codex: the thread from `session_meta`, its parent for a subagent, its folder and current model.
+    var session: String?
+    var parent: String?
+    var cwd: String?
+    var model: String?
+    /// Codex: the last cumulative total; the next one adds only the difference.
+    var total: TokenCounts?
+    /// Claude repeats one response's usage on each of its lines: the last ids seen and their readings.
+    var seen: [String: TokenCounts]?
+    var order: [String]?
+}
+
+/// Tokens of every Claude and Codex session on this Mac, read from their local logs.
+public struct TokenLedger: Codable, Sendable, Equatable {
+    /// Sessions and daily entries are kept this long; older days live on in the archive.
+    public static let keepDays = 35
+    public static let currentVersion = 1
+    public var version: Int? = TokenLedger.currentVersion
+    public var sessions: [String: SessionTokens] = [:]
+    /// Day key → entry key (provider, project, model, subagent) → tokens. The archive keeps them after pruning.
+    public var daily: [String: [String: TokenCounts]] = [:]
+    /// True once every log has been read to its end at least once.
+    public var caughtUp: Bool? = false
+    var cursors: [String: TokenFileCursor] = [:]
+    public init() {}
+
+    public static func sessionKey(_ provider: ProviderID, _ sessionID: String) -> String { provider.rawValue + ":" + sessionID }
+    /// "provider|project|model|0 or 1": what the archive and statistics group by.
+    public static func entryKey(_ provider: ProviderID, project: String, model: String, subagent: Bool) -> String {
+        [provider.rawValue, project, model, subagent ? "1" : "0"].joined(separator: "|")
+    }
+    public struct Entry: Sendable, Equatable {
+        public var provider: ProviderID, project: String, model: String, subagent: Bool
+    }
+    public static func entry(_ key: String) -> Entry? {
+        let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 4, let provider = ProviderID(rawValue: parts[0]) else { return nil }
+        return Entry(provider: provider, project: parts[1], model: parts[2], subagent: parts[3] == "1")
+    }
+
+    /// "claude-opus-5-5" → "Opus 5.5"; other names as the client wrote them.
+    public static func modelTitle(_ model: String) -> String {
+        guard !model.isEmpty, model != "?" else { return L("Модель не указана") }
+        let parts = model.split(separator: "-").map(String.init)
+        guard parts.count >= 3, parts[0] == "claude", parts[1].allSatisfy(\.isLetter), let major = Int(parts[2]) else { return model }
+        let family = parts[1].prefix(1).uppercased() + parts[1].dropFirst()
+        // "claude-haiku-4-5-20251001": the date is not a minor version.
+        if parts.count >= 4, let minor = Int(parts[3]), minor < 100 { return family + " \(major).\(minor)" }
+        return family + " \(major)"
+    }
+
+    public struct ScanReport: Sendable, Equatable {
+        public var filesRead = 0, bytesRead: Int64 = 0
+        /// False when the time or byte budget ended the scan; the next scan continues from the cursors.
+        public var complete = true
+        public init() {}
+    }
+
+    /// Reads what the logs gained since the last scan, most recently changed files first.
+    public mutating func scan(sources: [ActivityHistoryImporter.Source] = ActivityHistoryImporter.localSources(), now: Date = Date(),
+                              maximumSeconds: TimeInterval = 20, maximumBytes: Int64 = 2_000_000_000, calendar: Calendar = .current,
+                              monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) -> ScanReport {
+        var report = ScanReport()
+        let deadline = monotonicNow() + maximumSeconds
+        var files: [(url: URL, modified: Date, size: Int64, inode: UInt64, provider: ProviderID)] = []
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
+        var present = Set<String>()
+        for source in sources {
+            guard let enumerator = FileManager.default.enumerator(at: source.directory, includingPropertiesForKeys: keys,
+                                                                  options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { continue }
+            while let entry = enumerator.nextObject() as? URL {
+                guard let values = try? entry.resourceValues(forKeys: Set(keys)) else { continue }
+                if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
+                guard values.isRegularFile == true, entry.pathExtension == "jsonl" else { continue }
+                var info = stat()
+                guard lstat(entry.path, &info) == 0 else { continue }
+                present.insert(entry.path)
+                let size = Int64(info.st_size), inode = UInt64(info.st_ino)
+                if let cursor = cursors[entry.path], cursor.inode == inode, cursor.offset >= size { continue }
+                files.append((entry, values.contentModificationDate ?? .distantPast, size, inode, source.provider))
+            }
+        }
+        // A file that disappeared needs no cursor.
+        for path in cursors.keys where !present.contains(path) { cursors.removeValue(forKey: path) }
+        files.sort { $0.modified > $1.modified }
+        for file in files {
+            if monotonicNow() >= deadline || report.bytesRead >= maximumBytes { report.complete = false; break }
+            var cursor = cursors[file.url.path].flatMap { $0.inode == file.inode && $0.offset <= file.size ? $0 : nil }
+                ?? TokenFileCursor(inode: file.inode, offset: 0)
+            let read = read(file.url, provider: file.provider, cursor: &cursor, now: now, calendar: calendar,
+                            budget: maximumBytes - report.bytesRead, deadline: deadline, monotonicNow: monotonicNow)
+            cursors[file.url.path] = cursor
+            report.filesRead += 1; report.bytesRead += read
+            if cursor.offset < file.size { report.complete = false }
+        }
+        if report.complete { caughtUp = true }
+        pruneSessions(now: now)
+        return report
+    }
+
+    /// Reads complete lines from the cursor on; a partial last line waits for the next scan.
+    private mutating func read(_ url: URL, provider: ProviderID, cursor: inout TokenFileCursor, now: Date, calendar: Calendar,
+                               budget: Int64, deadline: TimeInterval, monotonicNow: () -> TimeInterval) -> Int64 {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        guard descriptor >= 0 else { return 0 }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        do { try handle.seek(toOffset: UInt64(cursor.offset)) } catch { return 0 }
+        let markers = provider == .claude ? [Data("\"usage\"".utf8)] : [Data("\"token_count\"".utf8), Data("\"session_meta\"".utf8), Data("\"turn_context\"".utf8)]
+        let chunkSize = 8 * 1024 * 1024, longestLine = 64 * 1024 * 1024
+        var pending = Data(), bytes: Int64 = 0, skippingLongLine = false
+        let fileSession = UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil ? url.deletingPathExtension().lastPathComponent : nil
+        let isSubagentFile = url.path.contains("/subagents/")
+        while bytes < budget, monotonicNow() < deadline {
+            guard let chunk = try? handle.read(upToCount: chunkSize), !chunk.isEmpty else { break }
+            bytes += Int64(chunk.count)
+            pending.append(chunk)
+            var consumed = 0
+            pending.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                guard let base = raw.baseAddress else { return }
+                var start = 0
+                while start < raw.count, let newline = memchr(base + start, 10, raw.count - start) {
+                    let end = base.distance(to: UnsafeRawPointer(newline))
+                    if skippingLongLine { skippingLongLine = false }
+                    else if end > start {
+                        let line = UnsafeRawBufferPointer(start: base + start, count: end - start)
+                        if markers.contains(where: { marker in marker.withUnsafeBytes { memmem(line.baseAddress, line.count, $0.baseAddress, $0.count) != nil } }) {
+                            consume(Data(line), provider: provider, cursor: &cursor, fileSession: fileSession,
+                                    subagentFile: isSubagentFile, now: now, calendar: calendar)
+                        }
+                    }
+                    start = end + 1
+                }
+                consumed = start
+            }
+            cursor.offset += Int64(consumed)
+            pending.removeFirst(consumed)
+            // A line longer than any usage record carries no tokens: skip to its end.
+            if pending.count > longestLine { cursor.offset += Int64(pending.count); pending.removeAll(); skippingLongLine = true }
+        }
+        return bytes
+    }
+
+    private mutating func consume(_ line: Data, provider: ProviderID, cursor: inout TokenFileCursor, fileSession: String?,
+                                  subagentFile: Bool, now: Date, calendar: Calendar) {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
+        let date = (object["timestamp"] as? String).flatMap(Self.date) ?? now
+        func int(_ value: Any?) -> Int64 { (value as? NSNumber)?.int64Value ?? 0 }
+        if provider == .claude {
+            guard object["type"] as? String == "assistant", let message = object["message"] as? [String: Any],
+                  let usage = message["usage"] as? [String: Any] else { return }
+            let model = message["model"] as? String ?? ""
+            guard model != "<synthetic>" else { return }
+            let reading = TokenCounts(input: int(usage["input_tokens"]), cacheRead: int(usage["cache_read_input_tokens"]),
+                                      cacheWrite: int(usage["cache_creation_input_tokens"]), output: int(usage["output_tokens"]))
+            let id = message["id"] as? String ?? object["requestId"] as? String ?? object["uuid"] as? String ?? UUID().uuidString
+            var seen = cursor.seen ?? [:], order = cursor.order ?? []
+            let added: TokenCounts
+            if let earlier = seen[id] { let merged = reading.maximum(earlier); added = merged.adding(over: earlier); seen[id] = merged }
+            else {
+                added = reading; seen[id] = reading; order.append(id)
+                if order.count > 64 { seen.removeValue(forKey: order.removeFirst()) }
+            }
+            cursor.seen = seen; cursor.order = order
+            guard let session = object["sessionId"] as? String ?? fileSession else { return }
+            let subagent = subagentFile || object["isSidechain"] as? Bool == true
+            record(added, provider: .claude, session: session, cwd: object["cwd"] as? String ?? "", model: model,
+                   subagent: subagent, at: date, now: now, calendar: calendar)
+            return
+        }
+        guard let payload = object["payload"] as? [String: Any] else { return }
+        switch object["type"] as? String {
+        case "session_meta":
+            cursor.session = payload["id"] as? String ?? cursor.session
+            if let cwd = payload["cwd"] as? String { cursor.cwd = cwd }
+            if let source = payload["source"] as? [String: Any], let subagent = source["subagent"] as? [String: Any],
+               let spawn = subagent["thread_spawn"] as? [String: Any], let parent = spawn["parent_thread_id"] as? String { cursor.parent = parent }
+        case "turn_context":
+            if let model = payload["model"] as? String { cursor.model = model }
+            if let cwd = payload["cwd"] as? String, cursor.cwd == nil { cursor.cwd = cwd }
+        case "event_msg":
+            guard payload["type"] as? String == "token_count", let info = payload["info"] as? [String: Any],
+                  let usage = info["total_token_usage"] as? [String: Any], let session = cursor.parent ?? cursor.session else { return }
+            let cached = int(usage["cached_input_tokens"]), reasoning = int(usage["reasoning_output_tokens"])
+            let reading = TokenCounts(input: max(0, int(usage["input_tokens"]) - cached), cacheRead: cached,
+                                      cacheWrite: int(usage["cache_write_input_tokens"]),
+                                      output: max(0, int(usage["output_tokens"]) - reasoning), reasoning: reasoning)
+            let added = reading.adding(over: cursor.total ?? TokenCounts())
+            cursor.total = reading
+            record(added, provider: .codex, session: session, cwd: cursor.cwd ?? "", model: cursor.model ?? "",
+                   subagent: cursor.parent != nil, at: date, now: now, calendar: calendar)
+        default: break
+        }
+    }
+
+    mutating func record(_ counts: TokenCounts, provider: ProviderID, session: String, cwd: String, model: String,
+                         subagent: Bool, at date: Date, now: Date, calendar: Calendar) {
+        guard !counts.isEmpty else { return }
+        let project = cwd.isEmpty ? L("Без проекта") : URL(fileURLWithPath: cwd).lastPathComponent
+        let day = ActivityArchive.key(date, calendar: calendar)
+        daily[day, default: [:]][Self.entryKey(provider, project: project, model: model, subagent: subagent), default: TokenCounts()] += counts
+        // Sessions older than the kept window only feed the archive's days.
+        guard date >= now.addingTimeInterval(-Double(Self.keepDays) * 86400) else { return }
+        let key = Self.sessionKey(provider, session)
+        var value = sessions[key] ?? SessionTokens(provider: provider, sessionID: session, cwd: subagent ? "" : cwd)
+        if value.cwd.isEmpty, !subagent { value.cwd = cwd }
+        value.total += counts
+        if subagent { value.subagents += counts }
+        value.models[model.isEmpty ? "?" : model, default: TokenCounts()] += counts
+        value.hours[Int(floor(date.timeIntervalSince1970 / 3600)), default: 0] += counts.weight(provider)
+        value.first = min(value.first ?? date, date); value.last = max(value.last ?? date, date)
+        sessions[key] = value
+    }
+
+    /// Drops sessions older than the kept window and hours older than eight days.
+    public mutating func pruneSessions(now: Date) {
+        let cutoff = now.addingTimeInterval(-Double(Self.keepDays) * 86400)
+        let hourCutoff = Int(floor(now.addingTimeInterval(-8 * 86400).timeIntervalSince1970 / 3600))
+        sessions = sessions.filter { ($0.value.last ?? .distantPast) >= cutoff }
+        for key in sessions.keys { sessions[key]!.hours = sessions[key]!.hours.filter { $0.key >= hourCutoff } }
+    }
+    /// Drops days older than the kept window. Call after the archive has taken them.
+    public mutating func pruneDays(now: Date, calendar: Calendar = .current) {
+        let firstDay = ActivityArchive.key(now.addingTimeInterval(-Double(Self.keepDays) * 86400), calendar: calendar)
+        daily = daily.filter { $0.key >= firstDay }
+    }
+
+    /// Weighted tokens of one provider's sessions in a period, by whole hours.
+    public func weight(_ provider: ProviderID, from start: Date, to end: Date) -> Double {
+        sessions.values.reduce(0) { $1.provider == provider ? $0 + $1.weight(from: start, to: end) : $0 }
+    }
+
+    /// A session's estimated share of a limit window: the window's used percent split by weighted tokens.
+    /// Use outside the command line (a chat in the Claude app) is not in the logs, so this can run high.
+    public func limitPercent(of session: SessionTokens, window: QuotaWindow?, now: Date) -> Double? {
+        guard let window, let resets = window.resetsAt, window.usedPercent > 0 else { return nil }
+        let start = resets.addingTimeInterval(-Double(window.durationMinutes) * 60)
+        let total = weight(session.provider, from: start, to: now)
+        guard total > 0 else { return nil }
+        return window.usedPercent * session.weight(from: start, to: now) / total
+    }
+
+    private static let fractional: ISO8601DateFormatter = {
+        let value = ISO8601DateFormatter(); value.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return value
+    }()
+    private static let whole = ISO8601DateFormatter()
+    static func date(_ text: String) -> Date? { fractional.date(from: text) ?? whole.date(from: text) }
+
+    public static var fileURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Weekleft/token-ledger.json")
+    }
+    public static func load(from url: URL = fileURL) throws -> TokenLedger {
+        guard FileManager.default.fileExists(atPath: url.path) else { return TokenLedger() }
+        let value = try JSONDecoder().decode(Self.self, from: LocalStateRecovery.read(from: url, maximumBytes: 64_000_000))
+        // A newer or unknown layout is read again from the logs rather than trusted.
+        return value.version == currentVersion ? value : TokenLedger()
+    }
+    public func save(to url: URL = fileURL) throws {
+        try LiveWriteGuard.check(url)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try LocalStateRecovery.write(JSONEncoder().encode(self), to: url, synchronize: false)
+    }
+}

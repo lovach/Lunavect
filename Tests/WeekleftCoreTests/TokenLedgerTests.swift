@@ -1,0 +1,133 @@
+import XCTest
+@testable import WeekleftCore
+
+/// Owner request 29.09: "на что ушли токены" per session, project, model and subagents, read from local logs.
+final class TokenLedgerTests: XCTestCase {
+    private var root: URL!
+    private let now = ISO8601DateFormatter().date(from: "2026-09-29T20:00:00Z")!
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+    private var sources: [ActivityHistoryImporter.Source] {
+        [.init(directory: root.appendingPathComponent("codex"), provider: .codex), .init(directory: root.appendingPathComponent("claude"), provider: .claude)]
+    }
+    private func write(_ path: String, _ lines: [[String: Any]], append: Bool = false) throws {
+        let url = root.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let text = try lines.map { String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self) + "\n" }.joined()
+        if append, let handle = try? FileHandle(forWritingTo: url) { try handle.seekToEnd(); try handle.write(contentsOf: Data(text.utf8)); try handle.close() }
+        else { try Data(text.utf8).write(to: url) }
+    }
+    private func claude(_ id: String, input: Int, output: Int, cache: Int = 0, model: String = "claude-opus-5-5", time: String = "2026-09-29T19:00:00Z",
+                        sidechain: Bool = false) -> [String: Any] {
+        ["type": "assistant", "sessionId": "s1", "cwd": "/Users/u/Lunavect", "timestamp": time, "isSidechain": sidechain,
+         "message": ["id": id, "model": model, "usage": ["input_tokens": input, "output_tokens": output, "cache_read_input_tokens": cache, "cache_creation_input_tokens": 0]]]
+    }
+    private func tokenCount(input: Int, cached: Int, output: Int, reasoning: Int, time: String) -> [String: Any] {
+        ["type": "event_msg", "timestamp": time, "payload": ["type": "token_count", "info": ["total_token_usage":
+            ["input_tokens": input, "cached_input_tokens": cached, "output_tokens": output, "reasoning_output_tokens": reasoning, "total_tokens": input + output]]]]
+    }
+
+    func testClaudeRepeatsOfOneResponseCountOnceAndSubagentsJoinTheirSession() throws {
+        let file = "claude/-Users-u-Lunavect/11111111-1111-1111-1111-111111111111.jsonl"
+        // One response written on three lines (text, tool use), usage repeated; the last reading is higher.
+        try write(file, [claude("m1", input: 10, output: 4, cache: 1000), claude("m1", input: 10, output: 4, cache: 1000), claude("m1", input: 10, output: 9, cache: 1000),
+                         ["type": "user", "sessionId": "s1", "message": ["role": "user", "content": "usage is fine"]]])
+        try write("claude/-Users-u-Lunavect/11111111-1111-1111-1111-111111111111/subagents/agent-a1.jsonl",
+                  [claude("m2", input: 5, output: 20, model: "claude-haiku-4-5", sidechain: true)])
+        var ledger = TokenLedger()
+        let report = ledger.scan(sources: sources, now: now)
+        XCTAssertTrue(report.complete)
+        let session = try XCTUnwrap(ledger.sessions["claude:s1"])
+        XCTAssertEqual(session.total, TokenCounts(input: 15, cacheRead: 1000, output: 29))
+        XCTAssertEqual(session.subagents, TokenCounts(input: 5, output: 20))
+        XCTAssertEqual(session.models["claude-haiku-4-5"]?.output, 20)
+        XCTAssertEqual(session.project, "Lunavect")
+        XCTAssertEqual(ledger.daily["2026-09-29"]?[TokenLedger.entryKey(.claude, project: "Lunavect", model: "claude-opus-5-5", subagent: false)]?.output, 9)
+
+        // Appended lines are read without counting the old ones again.
+        try write(file, [claude("m3", input: 1, output: 1, time: "2026-09-29T19:30:00Z")], append: true)
+        _ = ledger.scan(sources: sources, now: now)
+        XCTAssertEqual(ledger.sessions["claude:s1"]?.total.output, 30)
+    }
+
+    func testCodexCumulativeTotalsAddDifferencesAndSubagentsJoinTheParent() throws {
+        try write("codex/2026/09/29/rollout-a.jsonl", [
+            ["type": "session_meta", "payload": ["id": "t1", "cwd": "/Users/u/capsule", "source": "vscode"]],
+            ["type": "turn_context", "payload": ["model": "gpt-6-astra", "cwd": "/Users/u/capsule"]],
+            tokenCount(input: 1000, cached: 800, output: 50, reasoning: 20, time: "2026-09-29T18:00:00Z"),
+            tokenCount(input: 1000, cached: 800, output: 50, reasoning: 20, time: "2026-09-29T18:00:01Z"),
+            tokenCount(input: 3000, cached: 2600, output: 90, reasoning: 30, time: "2026-09-29T18:10:00Z")])
+        try write("codex/2026/09/29/rollout-b.jsonl", [
+            ["type": "session_meta", "payload": ["id": "t2", "cwd": "/Users/u/capsule",
+                                                 "source": ["subagent": ["thread_spawn": ["parent_thread_id": "t1", "depth": 1]]]]],
+            tokenCount(input: 100, cached: 0, output: 10, reasoning: 0, time: "2026-09-29T18:05:00Z")])
+        var ledger = TokenLedger()
+        _ = ledger.scan(sources: sources, now: now)
+        let session = try XCTUnwrap(ledger.sessions["codex:t1"])
+        XCTAssertEqual(session.total, TokenCounts(input: 500, cacheRead: 2600, output: 70, reasoning: 30))
+        XCTAssertEqual(session.subagents, TokenCounts(input: 100, output: 10))
+        XCTAssertNil(ledger.sessions["codex:t2"], "a spawned thread is part of its parent session")
+        XCTAssertEqual(session.models["gpt-6-astra"]?.reasoning, 30)
+    }
+
+    func testLimitShareSplitsTheUsedPercentByWeight() throws {
+        var ledger = TokenLedger()
+        let calendar = Calendar(identifier: .gregorian)
+        ledger.record(TokenCounts(output: 300), provider: .claude, session: "a", cwd: "/p/A", model: "m", subagent: false, at: now.addingTimeInterval(-3600), now: now, calendar: calendar)
+        ledger.record(TokenCounts(output: 100), provider: .claude, session: "b", cwd: "/p/B", model: "m", subagent: false, at: now.addingTimeInterval(-7200), now: now, calendar: calendar)
+        ledger.record(TokenCounts(output: 999), provider: .codex, session: "c", cwd: "/p/C", model: "m", subagent: false, at: now.addingTimeInterval(-3600), now: now, calendar: calendar)
+        let week = try QuotaWindow(usedPercent: 40, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3 * 86400))
+        XCTAssertEqual(try XCTUnwrap(ledger.limitPercent(of: ledger.sessions["claude:a"]!, window: week, now: now)), 30, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(ledger.limitPercent(of: ledger.sessions["claude:b"]!, window: week, now: now)), 10, accuracy: 0.001)
+        XCTAssertNil(ledger.limitPercent(of: ledger.sessions["claude:a"]!, window: nil, now: now))
+        XCTAssertEqual(ledger.sessions["claude:a"]!.rate(now: now), 1500, accuracy: 1, "300 output tokens at weight 5 in the last hour")
+    }
+
+    func testOldDaysFeedTheArchiveButNotTheSessions() throws {
+        var ledger = TokenLedger()
+        let calendar = Calendar(identifier: .gregorian)
+        let old = now.addingTimeInterval(-60 * 86400)
+        ledger.record(TokenCounts(input: 7), provider: .claude, session: "old", cwd: "/p/X", model: "m", subagent: false, at: old, now: now, calendar: calendar)
+        XCTAssertNil(ledger.sessions["claude:old"])
+        XCTAssertEqual(ledger.daily[ActivityArchive.key(old, calendar: calendar)]?.values.first?.input, 7)
+        ledger.pruneDays(now: now, calendar: calendar)
+        XCTAssertTrue(ledger.daily.isEmpty, "the archive keeps old days; the ledger drops them")
+    }
+
+    func testRoundTripKeepsCursorsSoNothingIsCountedTwice() throws {
+        try write("claude/p/22222222-2222-2222-2222-222222222222.jsonl", [claude("m1", input: 1, output: 2)])
+        var ledger = TokenLedger()
+        _ = ledger.scan(sources: sources, now: now)
+        let url = root.appendingPathComponent("ledger.json")
+        try ledger.save(to: url)
+        var loaded = try TokenLedger.load(from: url)
+        XCTAssertEqual(loaded, ledger)
+        _ = loaded.scan(sources: sources, now: now)
+        XCTAssertEqual(loaded.sessions["claude:s1"]?.total.output, 2)
+    }
+
+    func testModelTitlesAndArchiveSummaryGroupTokensByProjectAndModel() throws {
+        XCTAssertEqual(TokenLedger.modelTitle("claude-opus-5-5"), "Opus 5.5")
+        XCTAssertEqual(TokenLedger.modelTitle("claude-opus-5"), "Opus 5")
+        XCTAssertEqual(TokenLedger.modelTitle("claude-haiku-4-5-20251001"), "Haiku 4.5")
+        XCTAssertEqual(TokenLedger.modelTitle("gpt-6-astra"), "gpt-6-astra")
+        let calendar = Calendar(identifier: .gregorian)
+        var ledger = TokenLedger()
+        ledger.record(TokenCounts(output: 100), provider: .claude, session: "a", cwd: "/p/Lunavect", model: "claude-opus-5-5", subagent: false, at: now, now: now, calendar: calendar)
+        ledger.record(TokenCounts(output: 100), provider: .claude, session: "a", cwd: "/p/Lunavect", model: "claude-haiku-4-5", subagent: true, at: now, now: now, calendar: calendar)
+        ledger.record(TokenCounts(output: 100), provider: .codex, session: "c", cwd: "/p/capsule", model: "gpt-6-astra", subagent: false, at: now, now: now, calendar: calendar)
+        var archive = ActivityArchive()
+        archive.setTokens(ledger.daily)
+        let claudeOnly = ActivityArchiveSummary.make(archive, range: .week, providers: [.claude], now: now, calendar: calendar)
+        XCTAssertEqual(claudeOnly.tokens.output, 200, "Codex tokens stay out of a Claude view")
+        XCTAssertEqual(claudeOnly.tokenSubagentWeight, 500, accuracy: 0.001)
+        XCTAssertEqual(claudeOnly.tokenProjects.map(\.name), ["Lunavect"])
+        let both = ActivityArchiveSummary.make(archive, range: .week, providers: [.claude, .codex], now: now, calendar: calendar)
+        // 200 Claude output tokens weigh 1000, 100 Codex output tokens 800: Codex output is priced higher per token.
+        XCTAssertEqual(both.tokenProjects.map(\.name), ["Lunavect", "capsule"])
+        XCTAssertEqual(both.tokenProjects.last?.weight ?? 0, 800, accuracy: 0.001)
+    }
+}

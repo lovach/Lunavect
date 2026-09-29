@@ -22,6 +22,8 @@ struct SessionsView: View {
     var onRepair: ((ConnectionRepairRequest) -> Void)? = nil
     var onHeightChange: ((CGFloat) -> Void)? = nil
     var onReorderingChange: ((Bool) -> Void)? = nil
+    /// Tokens and the estimated share of the week, from the token ledger.
+    var tokenUsage: ((AgentSession, Date) -> SessionTokenUsage?)? = nil
     @StateObject private var reorder = SessionReorderState()
     @State private var geometry = SessionPanelGeometry()
     @State private var sectionHeights: [String: CGFloat] = [:]
@@ -200,7 +202,7 @@ struct SessionsView: View {
                     LazyVStack(spacing: SessionPanelLayout.rowSpacing) {
                         ForEach(rows) { row in
                                 SessionRow(
-                                    session: row, now: now, phase: row.effectivePhase(now: now),
+                                    session: row, now: now, phase: row.effectivePhase(now: now), usage: tokenUsage?(row, now),
                                     offlineSince: network.offlineSince, swipePresentation: swipePresentation, onHide: { perform { try store.hide(row) } },
                                     onError: { actionIssue = $0 }, onOpen: { open(row) },
                                     isOpening: panelState.openingIDs.contains(row.id),
@@ -511,6 +513,7 @@ struct SessionRow: View {
     var session: AgentSession
     var now: Date
     var phase: SessionPhase
+    var usage: SessionTokenUsage? = nil
     /// Brief path changes (Wi-Fi roaming) are not reported as a lost network.
     var offlineSince: Date? = nil
     var offline: Bool { phase == .running && offlineSince.map { now.timeIntervalSince($0) >= 10 } == true }
@@ -610,6 +613,7 @@ struct SessionRow: View {
         if let background { lines.append(background.summary) }
         lines.append(session.cwd.isEmpty ? session.project : session.cwd)
         lines.append(session.provider.title + " · " + hostTitle)
+        if let usage { lines.append(usage.detail) }
         return lines.joined(separator: "\n")
     }
     /// The pin glyph is decorative; VoiceOver hears the pinned state with the status.
@@ -651,6 +655,7 @@ struct SessionRow: View {
                     }
                     if let background { BackgroundWorkBadge(work: background).padding(.leading, 2) }
                     Spacer(minLength: 0)
+                    if let badge = usage?.badge { Text(badge).monospacedDigit().lineLimit(1).fixedSize() }
                     Text(session.shortProjectPath).lineLimit(1).truncationMode(.head)
                         .frame(maxWidth: 128, alignment: .trailing)
                         .help(session.cwd)
@@ -817,4 +822,22 @@ private struct SessionOverflowControl: View {
 extension Notification.Name {
     /// A session was brought to its window; the panel steps aside.
     static let lunavectSessionOpened = Notification.Name("LunavectSessionOpened")
+}
+
+/// A session's tokens for its row: a short share of the week and a tooltip line.
+struct SessionTokenUsage: Equatable {
+    /// "≈2.4%" once a session has used at least half a percent of the week.
+    var badge: String?
+    var detail: String
+    @MainActor static func make(tokens: TokenService, snapshots: [UsageSnapshot], session: AgentSession, now: Date) -> SessionTokenUsage? {
+        guard let value = tokens.tokens(session.provider, sessionID: session.sessionID), value.total.total > 0 else { return nil }
+        let share = tokens.share(of: value, window: snapshots.first { $0.provider == session.provider }?.weekly, now: now)
+        var parts = [L("Токены: {0}", TokenText.compact(value.total.total))]
+        if let share {
+            parts.append(L("≈ {0} недели", TokenMonitorView.percent(share.percent)))
+            if share.perHour >= 0.05 { parts.append(L("сейчас {0} в час", TokenMonitorView.percent(share.perHour))) }
+        }
+        return SessionTokenUsage(badge: share.flatMap { $0.percent >= 0.5 ? "≈" + TokenMonitorView.percent($0.percent) : nil },
+                                 detail: parts.joined(separator: " · "))
+    }
 }

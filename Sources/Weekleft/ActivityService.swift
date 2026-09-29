@@ -237,6 +237,11 @@ import WeekleftCore
         importTask?.cancel(); importTask = nil; pendingImport = false
         if importing { importing = false }
     }
+    /// The token ledger's days; the next archive save writes them.
+    func setTokens(_ daily: [String: [String: TokenCounts]]) {
+        workingArchive.setTokens(daily)
+        if archive != workingArchive { archive = workingArchive }
+    }
     private func publish(now: Date) -> ActivityPersistence.State {
         tracker.pruneDetails(now: now)
         if history != tracker.history { history = tracker.history }

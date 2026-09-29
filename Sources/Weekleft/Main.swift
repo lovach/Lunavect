@@ -79,6 +79,7 @@ enum StatusItemClick {
     var menuBarLimits: MenuBarLimitsController?
     var window: NSWindow?
     var welcomeWindow: NSWindow?
+    var monitorWindow: NSWindow?
     var statusItem: NSStatusItem!
     let popover = NSPopover()
     let popoverDismissal = SessionPopoverDismissal()
@@ -119,6 +120,9 @@ enum StatusItemClick {
             self?.showSettings()
         }, onRepair: { [weak self] in self?.showRepair($0) }, onHeightChange: { [weak self] height in self?.popover.contentSize = NSSize(width: 360, height: height) }, onReorderingChange: { [weak self] dragging in
             self?.popover.behavior = dragging ? .applicationDefined : .transient
+        }, tokenUsage: { [weak self] session, now in
+            guard let store = self?.store else { return nil }
+            return SessionTokenUsage.make(tokens: store.tokenService, snapshots: store.snapshots, session: session, now: now)
         }) }.defaultAppStorage(environment.defaults))
         menuBarAnimator = MenuBarAnimator(statusItem: statusItem, updates: environment.updates)
         sessionOpenedObserver = NotificationCenter.default.addObserver(forName: .lunavectSessionOpened, object: nil, queue: .main) { [weak self] _ in
@@ -245,6 +249,7 @@ enum StatusItemClick {
         menu.addItem(withTitle: L("Статус в строке меню…"), action: #selector(showMenuBarSettings), keyEquivalent: "")
         menu.addItem(withTitle: L("Открыть сессии"), action: #selector(showSessions), keyEquivalent: "")
         menu.addItem(withTitle: L("Лимиты"), action: #selector(showLimits), keyEquivalent: "")
+        menu.addItem(withTitle: L("Мониторинг агентов…"), action: #selector(showMonitor), keyEquivalent: "")
         menu.addItem(withTitle: L("Настройки Lunavect…"), action: #selector(showSettings), keyEquivalent: "")
         menu.addItem(withTitle: L("Обновить лимиты"), action: #selector(refresh), keyEquivalent: "r")
         menu.addItem(withTitle: L("Проверить обновления"), action: #selector(showUpdates), keyEquivalent: "")
@@ -381,6 +386,26 @@ enum StatusItemClick {
             showSessions: { [weak self] in self?.showSessions() },
             showFallback: { [weak self] in self?.showMenuBarSettings() })
     }
+    /// Which session is spending the limit and how fast: tokens from the client logs.
+    @objc func showMonitor() {
+        menuBarLimits?.close()
+        popover.performClose(nil)
+        if monitorWindow == nil {
+            let monitor = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                   backing: .buffered, defer: false)
+            monitor.title = L("Мониторинг агентов — Lunavect"); monitor.isReleasedWhenClosed = false; monitor.delegate = self
+            monitor.contentView = NSHostingView(rootView: LocalizedRoot(language: environment.language) { [store, sessions] in
+                TokenMonitorView(tokens: store.tokenService, store: store, sessions: sessions)
+            }.defaultAppStorage(environment.defaults))
+            let frameName = "LunavectTokenMonitor"
+            if environment.isPreview || !monitor.setFrameUsingName(frameName) { monitor.center() }
+            if !environment.isPreview { monitor.setFrameAutosaveName(frameName) }
+            monitorWindow = monitor
+        }
+        updateActivationPolicy()
+        monitorWindow?.deminiaturize(nil)
+        monitorWindow?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
     @objc func showWelcome() {
         settingsReturnTransition.cancel()
         popover.performClose(nil)
@@ -418,6 +443,8 @@ enum StatusItemClick {
             // recomputing statistics. Release it; showSettings builds a new one.
             window = nil
         }
+        // Like Settings, the monitor stops reading the ledger once it is closed.
+        if let closed = notification.object as? NSWindow, closed === monitorWindow { monitorWindow = nil }
         if let closed = notification.object as? NSWindow, closed === welcomeWindow {
             WelcomeProgress.complete(defaults: environment.defaults); welcomeWindow = nil
         }

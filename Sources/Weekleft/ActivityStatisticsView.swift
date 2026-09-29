@@ -68,7 +68,8 @@ struct ActivityStatisticsView: View {
                     let breakdown = ActivityBreakdownData(history: store.activityHistory, details: store.activityDetails,
                                                           providers: providers, period: period, selectedDate: detailDate, now: context.date)
                     if range.period != nil { ActivityBreakdownSummaryView(data: breakdown) }
-                    ActivityStatisticsCards(archive: store.activityArchive, summary: archived, range: range, providers: providers, now: context.date)
+                    ActivityStatisticsCards(archive: store.activityArchive, summary: archived, range: range, providers: providers, now: context.date,
+                                            catchingUp: store.tokenService.catchingUp)
                     if let issue = store.activityDetailsIssue { Text(L(issue)).font(.system(size: 12)).foregroundStyle(.orange) }
                     historySection
                     if range.period != nil {
@@ -597,6 +598,8 @@ struct ActivityStatisticsCards: View {
     let range: StatisticsRange
     let providers: [ProviderID]
     let now: Date
+    /// The first pass over the logs is still running: no tokens yet is not zero tokens.
+    var catchingUp = false
     static let heat = Color(red: 0.54, green: 0.50, blue: 0.94)
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -608,11 +611,56 @@ struct ActivityStatisticsCards: View {
                 projectsCard
                 waitingCard
             }
+            tokensCard
             sessionsCard
         }.accessibilityIdentifier("statistics-cards")
     }
     private func card<Content: View>(_ title: String, trailing: String? = nil, @ViewBuilder content: () -> Content) -> some View {
         StatisticsCard(title: title, trailing: trailing, content: content)
+    }
+    /// Where the tokens went: projects and models by weight, which tracks the limit they used.
+    private var tokensCard: some View {
+        let total = summary.tokens.total
+        let share = { (weight: Double) in PercentText.format(Int((weight / max(summary.tokenWeight, 1) * 100).rounded())) }
+        return card(L("На что ушли токены"), trailing: total > 0 ? L("{0} токенов", TokenText.compact(total)) : nil) {
+            if total <= 0 {
+                Text(L(catchingUp ? "Считаем токены по журналам Claude и Codex…" : "Нет записей за выбранный период"))
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            } else {
+                HStack(alignment: .top, spacing: 24) {
+                    metric(L("Из кэша"), PercentText.format(Int((Double(summary.tokens.cacheRead) / Double(total) * 100).rounded())))
+                    metric(L("Субагенты"), share(summary.tokenSubagentWeight))
+                    metric(L("Ответы"), TokenText.compact(summary.tokens.output + summary.tokens.reasoning))
+                }
+                HStack(alignment: .top, spacing: 24) {
+                    tokenGroups(L("По проектам"), Array(summary.tokenProjects.prefix(5)), title: { $0 }, share: share)
+                    tokenGroups(L("По моделям"), Array(summary.tokenModels.prefix(5)), title: TokenLedger.modelTitle, share: share)
+                }
+                Text(L("Доли учитывают цену токенов: чтение из кэша в 10 раз дешевле обычного ввода, ответ в 5–8 раз дороже. Примерно так расходуется лимит."))
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button(L("Мониторинг агентов…")) { NSApp.sendAction(Selector(("showMonitor")), to: nil, from: nil) }
+                    .accessibilityIdentifier("statistics-open-monitor")
+            }
+        }
+    }
+    private func tokenGroups(_ heading: String, _ groups: [ActivityArchiveSummary.TokenGroup], title: @escaping (String) -> String,
+                             share: @escaping (Double) -> String) -> some View {
+        let maximum = groups.first?.weight ?? 0
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(heading).font(.system(size: 11)).foregroundStyle(.secondary)
+            ForEach(groups, id: \.name) { group in
+                HStack(spacing: 8) {
+                    Text(title(group.name)).font(.system(size: 12)).lineLimit(1).truncationMode(.middle).frame(width: 96, alignment: .leading)
+                    GeometryReader { geometry in
+                        Capsule().fill(.primary.opacity(0.08)).overlay(alignment: .leading) {
+                            Capsule().fill(Self.heat).frame(width: geometry.size.width * CGFloat(maximum > 0 ? group.weight / maximum : 0))
+                        }
+                    }.frame(height: 6)
+                    Text(share(group.weight)).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit().frame(width: 40, alignment: .trailing)
+                }.help(title(group.name) + " · " + L("{0} токенов", TokenText.compact(group.counts.total)))
+                    .accessibilityElement(children: .combine)
+            }
+        }.frame(maxWidth: .infinity, alignment: .topLeading)
     }
     /// Night, morning, afternoon and evening as shares of the time, then the weekdays.
     private var timeOfDayCard: some View {
@@ -822,5 +870,12 @@ struct ActivityCalendarCard: View {
             Text(label).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text(value).font(.system(size: 14, weight: .medium)).monospacedDigit().lineLimit(2)
         }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+    }
+}
+
+/// Token counts in the interface: "1.2B" in English, "1,2 млрд" in Russian.
+enum TokenText {
+    static func compact(_ value: Int64) -> String {
+        value.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)).locale(L10n.locale))
     }
 }

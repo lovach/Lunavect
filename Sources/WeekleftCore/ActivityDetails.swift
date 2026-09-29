@@ -184,12 +184,14 @@ public struct ActivityDayRecord: Codable, Equatable, Sendable {
     public var parts: [String: ActivityDayPart] = [:]
     /// Keyed by provider and session identifier.
     public var sessions: [String: ActivityDaySession] = [:]
+    /// Tokens by `TokenLedger.entryKey` (provider, project, model, subagent), from the token ledger.
+    public var tokens: [String: TokenCounts]?
     public init() {}
     public static let allKey = "all"
     public func part(_ providers: [ProviderID]) -> ActivityDayPart? {
         providers.count == 1 ? parts[providers[0].rawValue] : parts[Self.allKey]
     }
-    var isEmpty: Bool { (parts[Self.allKey]?.active ?? 0) <= 0 && sessions.isEmpty && !hasWaiting }
+    var isEmpty: Bool { (parts[Self.allKey]?.active ?? 0) <= 0 && sessions.isEmpty && !hasWaiting && (tokens?.isEmpty ?? true) }
     var hasWaiting: Bool { parts.values.contains { $0.waitingInput > 0 || $0.waitingPermission > 0 || !$0.waits.isEmpty } }
 }
 
@@ -344,11 +346,22 @@ public struct ActivityArchive: Codable, Equatable, Sendable {
 }
 
 private extension ActivityDayRecord {
+    /// Keeps what the history cannot recompute: live waiting and the ledger's tokens.
     mutating func keepWaiting(from previous: ActivityDayRecord) {
         for (name, old) in previous.parts where old.waitingInput > 0 || old.waitingPermission > 0 || !old.waits.isEmpty {
             var part = parts[name] ?? ActivityDayPart()
             part.waitingInput = old.waitingInput; part.waitingPermission = old.waitingPermission; part.waits = old.waits
             parts[name] = part
+        }
+        if tokens == nil { tokens = previous.tokens }
+    }
+}
+
+extension ActivityArchive {
+    /// The ledger is the source for every day it still holds; days it has dropped keep their tokens.
+    public mutating func setTokens(_ daily: [String: [String: TokenCounts]]) {
+        for (day, entries) in daily where days[day]?.tokens != entries {
+            days[day, default: ActivityDayRecord()].tokens = entries.isEmpty ? nil : entries
         }
     }
 }
@@ -402,6 +415,14 @@ public struct ActivityArchiveSummary: Sendable {
     public var sessions = 0
     public var averageSession: TimeInterval?
     public var longestSession: (seconds: TimeInterval, project: String)?
+    /// Tokens of the range: a group's weight follows list prices, so its share tracks the limit it used.
+    public struct TokenGroup: Sendable, Equatable { public var name: String; public var counts: TokenCounts; public var weight: Double }
+    public var tokens = TokenCounts()
+    public var tokenWeight: Double = 0
+    public var tokenSubagents = TokenCounts()
+    public var tokenSubagentWeight: Double = 0
+    public var tokenProjects: [TokenGroup] = []
+    public var tokenModels: [TokenGroup] = []
     public var hasWork: Bool { together > 0 }
     public var waiting: TimeInterval { waitingInput + waitingPermission }
 
@@ -458,8 +479,17 @@ public struct ActivityArchiveSummary: Sendable {
         var sessions: [String: (seconds: TimeInterval, project: String)] = [:]
         var waits: [TimeInterval] = []
         var projects: [String: TimeInterval] = [:]
+        var tokenProjects: [String: (TokenCounts, Double)] = [:], tokenModels: [String: (TokenCounts, Double)] = [:]
         for (day, record) in archive.days.compactMap({ key, value in ActivityArchive.date(key, calendar: calendar).map { ($0, value) } })
             where day >= start && day < tomorrow {
+            for (key, counts) in record.tokens ?? [:] {
+                guard let entry = TokenLedger.entry(key), providers.contains(entry.provider) else { continue }
+                let weight = counts.weight(entry.provider)
+                result.tokens += counts; result.tokenWeight += weight
+                if entry.subagent { result.tokenSubagents += counts; result.tokenSubagentWeight += weight }
+                tokenProjects[entry.project, default: (TokenCounts(), 0)].0 += counts; tokenProjects[entry.project]!.1 += weight
+                tokenModels[entry.model, default: (TokenCounts(), 0)].0 += counts; tokenModels[entry.model]!.1 += weight
+            }
             guard let part = record.part(providers) else { continue }
             let claude = record.parts[ProviderID.claude.rawValue]?.active ?? 0, codex = record.parts[ProviderID.codex.rawValue]?.active ?? 0
             let selectedClaude = providers.contains(.claude) ? claude : 0, selectedCodex = providers.contains(.codex) ? codex : 0
@@ -481,6 +511,11 @@ public struct ActivityArchiveSummary: Sendable {
         }
         if let maximum = hours.max(), maximum > 0 { result.peakHour = hours.firstIndex(of: maximum) }
         result.busiest = result.points.filter { $0.together > 0 }.max { $0.together < $1.together }
+        func groups(_ values: [String: (TokenCounts, Double)]) -> [TokenGroup] {
+            values.map { TokenGroup(name: $0.key, counts: $0.value.0, weight: $0.value.1) }
+                .sorted { $0.weight == $1.weight ? $0.name < $1.name : $0.weight > $1.weight }
+        }
+        result.tokenProjects = groups(tokenProjects); result.tokenModels = groups(tokenModels)
         result.projects = projects.map { Project(name: $0.key, seconds: $0.value) }
             .sorted { $0.seconds == $1.seconds ? $0.name < $1.name : $0.seconds > $1.seconds }
         let lengths = sessions.values.filter { $0.seconds >= 60 }

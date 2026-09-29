@@ -20,6 +20,7 @@ import WeekleftCore
     var statusLineObservedAt: @Sendable () -> Date? = { ClaudeProvider.statusLineObservedAt() }
     var scheduling = AppRefreshScheduling()
     var discoverCodex: @Sendable () -> String? = AppStore.discoverCodex
+    var tokens: TokenService? = nil
 }
 
 /// Cancel handles keep timers and system notifications replaceable in lifecycle
@@ -82,6 +83,8 @@ import WeekleftCore
     }
     private let snapshotPersistence: SnapshotPersistence?
     private let activityService: ActivityService
+    /// Tokens per session, read from the client logs; views observe it directly.
+    let tokenService: TokenService
     private let clock: () -> Date
     private var appliedWrite = 0
     private var providerGenerations: [ProviderID: Int] = [:]
@@ -155,6 +158,7 @@ import WeekleftCore
                     WidgetCenter.shared.reloadTimelines(ofKind: "LunavectOverviewWidget")
                 }), writesEnabled: self.savesChanges, clock: clock)
         }
+        tokenService = isolated ? TokenService(url: nil, scan: { _, _ in .init() }) : dataServices?.tokens ?? TokenService()
         let saved = isolated ? "" : defaults.string(forKey: "codexPath") ?? ""
         codexPath = isolated ? "" : saved
         var loadedState = state ?? SharedState()
@@ -203,6 +207,8 @@ import WeekleftCore
         guard !isolated, !started else { return }
         started = true
         network.start(); activityService.start(providers: providers)
+        tokenService.onDaily = { [weak activityService] in activityService?.setTokens($0) }
+        tokenService.start()
         requestBackgroundRefresh(trigger: .launch)
         let generation = lifecycleGeneration
         cancelTriggers = [
@@ -358,6 +364,7 @@ import WeekleftCore
             apply(persistence.flush(SharedState(snapshots: snapshots, preferences: preferences)))
         }
         activityService.stop()
+        tokenService.stop()
     }
     /// What an explicit refresh did, so a control can say why nothing happened (R2-U-03).
     enum RefreshOutcome: Equatable {

@@ -6102,5 +6102,222 @@
     "es": "Por la noche",
     "fr": "Le soir",
     "zh-Hans": "晚上"
+  },
+  "{0} в час": {
+    "en": "{0} an hour",
+    "de": "{0} pro Stunde",
+    "es": "{0} por hora",
+    "fr": "{0} par heure",
+    "zh-Hans": "每小时 {0}"
+  },
+  "{0} токенов": {
+    "en": "{0} tokens",
+    "de": "{0} Tokens",
+    "es": "{0} tokens",
+    "fr": "{0} jetons",
+    "zh-Hans": "{0} 个 token"
+  },
+  "Доли учитывают цену токенов: чтение из кэша в 10 раз дешевле обычного ввода, ответ в 5–8 раз дороже. Примерно так расходуется лимит.": {
+    "en": "Shares weigh tokens by price: a cache read costs a tenth of fresh input, a response five to eight times more. That is roughly how a limit is spent.",
+    "de": "Die Anteile gewichten Tokens nach Preis: Ein Cache-Lesezugriff kostet ein Zehntel normaler Eingabe, eine Antwort das Fünf- bis Achtfache. So etwa wird ein Limit verbraucht.",
+    "es": "Las proporciones ponderan los tokens por precio: leer de la caché cuesta una décima parte de la entrada normal y una respuesta, de cinco a ocho veces más. Así se gasta aproximadamente un límite.",
+    "fr": "Les parts pondèrent les jetons par leur prix : une lecture du cache coûte un dixième d’une entrée normale, une réponse cinq à huit fois plus. C’est à peu près ainsi qu’une limite se consomme.",
+    "zh-Hans": "占比按 token 价格加权：读取缓存的成本是普通输入的十分之一，回复是其五到八倍。额度大致就是这样消耗的。"
+  },
+  "За неделю": {
+    "en": "This week",
+    "de": "Diese Woche",
+    "es": "Esta semana",
+    "fr": "Cette semaine",
+    "zh-Hans": "本周"
+  },
+  "Из кэша": {
+    "en": "From cache",
+    "de": "Aus dem Cache",
+    "es": "De la caché",
+    "fr": "Depuis le cache",
+    "zh-Hans": "来自缓存"
+  },
+  "Лимит неизвестен": {
+    "en": "Limit unknown",
+    "de": "Limit unbekannt",
+    "es": "Límite desconocido",
+    "fr": "Limite inconnue",
+    "zh-Hans": "额度未知"
+  },
+  "Модель": {
+    "en": "Model",
+    "de": "Modell",
+    "es": "Modelo",
+    "fr": "Modèle",
+    "zh-Hans": "模型"
+  },
+  "Модель не указана": {
+    "en": "Model not reported",
+    "de": "Modell nicht angegeben",
+    "es": "Modelo no indicado",
+    "fr": "Modèle non indiqué",
+    "zh-Hans": "未注明模型"
+  },
+  "Мониторинг агентов — Lunavect": {
+    "en": "Agent Monitor — Lunavect",
+    "de": "Agentenmonitor — Lunavect",
+    "es": "Monitor de agentes — Lunavect",
+    "fr": "Moniteur des agents — Lunavect",
+    "zh-Hans": "智能体监视器 — Lunavect"
+  },
+  "Мониторинг агентов…": {
+    "en": "Agent Monitor…",
+    "de": "Agentenmonitor…",
+    "es": "Monitor de agentes…",
+    "fr": "Moniteur des agents…",
+    "zh-Hans": "智能体监视器…"
+  },
+  "На что ушли токены": {
+    "en": "Where tokens went",
+    "de": "Wofür die Tokens verbraucht wurden",
+    "es": "En qué se fueron los tokens",
+    "fr": "Où sont passés les jetons",
+    "zh-Hans": "token 用在了哪里"
+  },
+  "Неделя: {0}": {
+    "en": "Week: {0}",
+    "de": "Woche: {0}",
+    "es": "Semana: {0}",
+    "fr": "Semaine : {0}",
+    "zh-Hans": "本周：{0}"
+  },
+  "По моделям": {
+    "en": "By model",
+    "de": "Nach Modell",
+    "es": "Por modelo",
+    "fr": "Par modèle",
+    "zh-Hans": "按模型"
+  },
+  "По проектам": {
+    "en": "By project",
+    "de": "Nach Projekt",
+    "es": "Por proyecto",
+    "fr": "Par projet",
+    "zh-Hans": "按项目"
+  },
+  "Показать": {
+    "en": "Show",
+    "de": "Anzeigen",
+    "es": "Mostrar",
+    "fr": "Afficher",
+    "zh-Hans": "显示"
+  },
+  "Последний час": {
+    "en": "Last hour",
+    "de": "Letzte Stunde",
+    "es": "Última hora",
+    "fr": "Dernière heure",
+    "zh-Hans": "最近一小时"
+  },
+  "Проект": {
+    "en": "Project",
+    "de": "Projekt",
+    "es": "Proyecto",
+    "fr": "Projet",
+    "zh-Hans": "项目"
+  },
+  "Сброс {0}": {
+    "en": "Resets {0}",
+    "de": "Zurückgesetzt {0}",
+    "es": "Se restablece {0}",
+    "fr": "Réinitialisation {0}",
+    "zh-Hans": "{0} 重置"
+  },
+  "Сейчас": {
+    "en": "Now",
+    "de": "Jetzt",
+    "es": "Ahora",
+    "fr": "Maintenant",
+    "zh-Hans": "当前"
+  },
+  "Сейчас не расходуется": {
+    "en": "Not being spent now",
+    "de": "Wird gerade nicht verbraucht",
+    "es": "Ahora no se está gastando",
+    "fr": "Pas consommée en ce moment",
+    "zh-Hans": "当前未在消耗"
+  },
+  "Сейчас ≈ {0} в час": {
+    "en": "Now ≈ {0} an hour",
+    "de": "Jetzt ≈ {0} pro Stunde",
+    "es": "Ahora ≈ {0} por hora",
+    "fr": "En ce moment ≈ {0} par heure",
+    "zh-Hans": "当前约每小时 {0}"
+  },
+  "Сессия": {
+    "en": "Session",
+    "de": "Sitzung",
+    "es": "Sesión",
+    "fr": "Session",
+    "zh-Hans": "会话"
+  },
+  "Субагенты": {
+    "en": "Subagents",
+    "de": "Subagenten",
+    "es": "Subagentes",
+    "fr": "Sous-agents",
+    "zh-Hans": "子智能体"
+  },
+  "Считаем токены по журналам…": {
+    "en": "Counting tokens in the logs…",
+    "de": "Tokens in den Protokollen werden gezählt…",
+    "es": "Contando tokens en los registros…",
+    "fr": "Comptage des jetons dans les journaux…",
+    "zh-Hans": "正在统计日志中的 token…"
+  },
+  "Считаем токены по журналам Claude и Codex…": {
+    "en": "Counting tokens in the Claude and Codex logs…",
+    "de": "Tokens in den Protokollen von Claude und Codex werden gezählt…",
+    "es": "Contando tokens en los registros de Claude y Codex…",
+    "fr": "Comptage des jetons dans les journaux de Claude et Codex…",
+    "zh-Hans": "正在统计 Claude 和 Codex 日志中的 token…"
+  },
+  "Токены": {
+    "en": "Tokens",
+    "de": "Tokens",
+    "es": "Tokens",
+    "fr": "Jetons",
+    "zh-Hans": "token"
+  },
+  "Токены: {0}": {
+    "en": "Tokens: {0}",
+    "de": "Tokens: {0}",
+    "es": "Tokens: {0}",
+    "fr": "Jetons : {0}",
+    "zh-Hans": "token：{0}"
+  },
+  "сейчас {0} в час": {
+    "en": "now {0} an hour",
+    "de": "jetzt {0} pro Stunde",
+    "es": "ahora {0} por hora",
+    "fr": "en ce moment {0} par heure",
+    "zh-Hans": "当前每小时 {0}"
+  },
+  "≈ % недели": {
+    "en": "≈ % of week",
+    "de": "≈ % der Woche",
+    "es": "≈ % de la semana",
+    "fr": "≈ % de la semaine",
+    "zh-Hans": "≈ 周额度 %"
+  },
+  "≈ {0} недели": {
+    "en": "≈ {0} of the week",
+    "de": "≈ {0} der Woche",
+    "es": "≈ {0} de la semana",
+    "fr": "≈ {0} de la semaine",
+    "zh-Hans": "≈ 周额度的 {0}"
+  },
+  "≈ — оценка: процент недельного лимита делится между сессиями по их токенам с учётом цены. Чаты в приложениях Claude и ChatGPT в журналы не попадают, поэтому доли сессий могут быть завышены.": {
+    "en": "≈ is an estimate: the weekly limit's used percent is split between sessions by their price-weighted tokens. Chats in the Claude and ChatGPT apps are not in the logs, so session shares can run high.",
+    "de": "≈ ist eine Schätzung: Der verbrauchte Anteil des Wochenlimits wird nach den preisgewichteten Tokens auf die Sitzungen verteilt. Chats in den Apps Claude und ChatGPT stehen nicht in den Protokollen, daher können die Anteile zu hoch ausfallen.",
+    "es": "≈ es una estimación: el porcentaje usado del límite semanal se reparte entre las sesiones según sus tokens ponderados por precio. Los chats de las apps de Claude y ChatGPT no están en los registros, así que las proporciones pueden salir altas.",
+    "fr": "≈ est une estimation : le pourcentage utilisé de la limite hebdomadaire est réparti entre les sessions selon leurs jetons pondérés par le prix. Les discussions dans les apps Claude et ChatGPT ne figurent pas dans les journaux, les parts peuvent donc être surestimées.",
+    "zh-Hans": "≈ 为估算：周额度的已用百分比按各会话按价格加权的 token 分摊。Claude 和 ChatGPT 应用中的聊天不在日志里，因此会话占比可能偏高。"
   }
 }
