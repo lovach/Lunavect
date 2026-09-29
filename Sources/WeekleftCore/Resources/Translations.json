@@ -6816,5 +6816,19 @@
     "es": "Añadir {0} y continuar",
     "fr": "Ajouter {0} et reprendre",
     "zh-Hans": "增加 {0} 并继续"
+  },
+  "Можно добрать остаток недели": {
+    "en": "Use what is left of the week",
+    "de": "Den Rest der Woche nutzen",
+    "es": "Aprovecha lo que queda de la semana",
+    "fr": "Profitez du reste de la semaine",
+    "zh-Hans": "用掉本周剩余额度"
+  },
+  "До сброса {0}: {1} ч, свободно {2}. Задачи, ждущие сброса, можно запустить сейчас во вкладке «Задачи».": {
+    "en": "{0} resets in {1} h with {2} free. Tasks waiting for the reset can start now from the Tasks tab.",
+    "de": "{0} wird in {1} Std. zurückgesetzt, {2} sind frei. Aufgaben, die auf das Zurücksetzen warten, können Sie jetzt im Tab „Aufgaben“ starten.",
+    "es": "{0} se reinicia en {1} h con {2} libre. Las tareas que esperan el reinicio pueden empezar ya desde la pestaña Tareas.",
+    "fr": "{0} se réinitialise dans {1} h avec {2} disponible. Les tâches qui attendent la réinitialisation peuvent démarrer maintenant depuis l’onglet Tâches.",
+    "zh-Hans": "{0} 将在 {1} 小时后重置，剩余 {2}。等待重置的任务现在就可以在“任务”标签页中启动。"
   }
 }

@@ -2,6 +2,19 @@
 
 ## 0.2.8 — Unreleased
 
+### Tasks with a budget
+
+- A new **Tasks** tab in the sessions panel runs a Claude or Codex task without a window within a share of the weekly limit you choose, with an optional guard for the five-hour window. Start it now or after the next five-hour or weekly reset.
+- At 80 % of its budget the agent is asked to finish its step and summarise what is done and what is left; at the budget it is stopped softly. Nothing is lost: the conversation is kept by Claude and Codex, and in a git project the task works in its own copy on a `lunavect/` branch, committed before every pause. The task continues by itself after the limit resets, or with **Add 5 % and continue**.
+- **Accept changes** merges the task's branch into your project; your folder does not change before that. **In Terminal** continues the same conversation by hand.
+- Permissions per task: **Careful** (edits in the task folder and safe commands), **Auto**, or **Full access** only when you choose it.
+- Near the end of a week with at least 20 % left, one notification suggests starting tasks that wait for the reset.
+
+### Agent Monitor
+
+- **Agent Monitor** (status menu and Statistics) lists sessions with tokens, model, the share used by subagents, the estimated share of the weekly limit and the current pace, and shows each provider's week and hourly pace. Session rows show the share of the week too.
+- Statistics gain **Where tokens went**: cache share, subagents, and projects and models weighted by price, which is roughly how a limit is spent. Tokens are read from the local Claude and Codex logs; the first pass reads them all once in the background.
+
 ### Statistics
 
 - **Year** and **All time** join Day, Week and Month. Year is drawn by week; All time adapts to the amount of history (by day under two months, by week under a year, by month beyond). Both start at the week of the first record, so a short history is not squeezed into a corner of an empty year, and each source's line starts at its own first record. Hovering the chart shows that week's time per source and together.

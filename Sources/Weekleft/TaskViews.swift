@@ -84,7 +84,8 @@ struct TaskCard: View {
                             .frame(width: geometry.size.width * CGFloat(task.budgetUsed))
                     }
                 }.frame(height: 5)
-                Text(L("{0} из {1} недели", TokenMonitorView.percent(task.spent), TokenMonitorView.percent(task.weekBudget)))
+                Text(L("{0} из {1} недели", TokenMonitorView.percent(task.spent),
+                       task.weekBudget == task.weekBudget.rounded() ? PercentText.format(Int(task.weekBudget)) : TokenMonitorView.percent(task.weekBudget)))
                     .font(.system(size: 10)).foregroundStyle(.secondary).monospacedDigit()
             }.accessibilityElement(children: .combine)
             if let handoff = task.handoff, !task.state.isActive {

@@ -153,8 +153,25 @@ import WeekleftCore
 
     // MARK: Scheduling
 
+    /// Weeks already suggested for using what is left before the reset, by provider.
+    private var suggestedLeftover: [ProviderID: Date] = [:]
+    /// Near the end of a week with much left, tasks waiting for the reset could run now: one notice per week.
+    private func suggestLeftover(snapshots: [UsageSnapshot], now: Date) {
+        for provider in ProviderID.allCases {
+            guard let week = snapshots.first(where: { $0.provider == provider })?.weekly, let resets = week.resetsAt,
+                  resets > now, resets.timeIntervalSince(now) <= 6 * 3600, week.remaining >= 20, suggestedLeftover[provider] != resets,
+                  tasks.contains(where: { $0.provider == provider && $0.state == .queued && $0.start == .afterWeeklyReset }) else { continue }
+            suggestedLeftover[provider] = resets
+            let hours = max(1, Int((resets.timeIntervalSince(now) / 3600).rounded()))
+            dependencies.notify(L("Можно добрать остаток недели"),
+                                L("До сброса {0}: {1} ч, свободно {2}. Задачи, ждущие сброса, можно запустить сейчас во вкладке «Задачи».",
+                                  provider.title, String(hours), PercentText.format(Int(week.remaining.rounded()))))
+        }
+    }
+
     func tick() async {
         let now = dependencies.clock(), ledger = dependencies.ledger(), snapshots = dependencies.snapshots()
+        suggestLeftover(snapshots: snapshots, now: now)
         for provider in ProviderID.allCases {
             let week = snapshots.first { $0.provider == provider }?.weekly
             if let ratio = TaskBudget.percentPerWeight(ledger: ledger, provider: provider, week: week, now: now) { ratios[provider] = ratio }

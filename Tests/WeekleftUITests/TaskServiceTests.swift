@@ -122,4 +122,12 @@ import WeekleftCore
         await tasks.tick()
         XCTAssertEqual(tasks.tasks.first?.state, .needsYou)
     }
+
+    func testLeftoverAtTheEndOfTheWeekIsSuggestedOnce() async throws {
+        let tasks = try service(week: 60, weekReset: 3 * 3600)
+        tasks.add(AgentTask(provider: .claude, prompt: "Later", folder: FileManager.default.temporaryDirectory.path, start: .afterWeeklyReset, isolate: false, now: now))
+        await tasks.tick(); await tasks.tick()
+        XCTAssertEqual(notices.filter { $0 == L("Можно добрать остаток недели") }.count, 1)
+        XCTAssertEqual(tasks.tasks.first?.state, .queued, "only suggested; the user starts it")
+    }
 }

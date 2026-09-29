@@ -117,7 +117,7 @@ struct TokenMonitorView: View {
             }.width(min: 60, ideal: 70)
             TableColumn(L("≈ % недели"), value: \.weekPercent) { row in
                 Text(row.weekPercent >= 0 ? Self.percent(row.weekPercent) : "—").monospacedDigit()
-            }.width(min: 76, ideal: 84)
+            }.width(min: 96, ideal: 104)
             TableColumn(L("Сейчас"), value: \.perHour) { row in
                 Text(row.perHour >= 0.05 ? L("{0} в час", Self.percent(row.perHour)) : "—").monospacedDigit()
             }.width(min: 70, ideal: 90)

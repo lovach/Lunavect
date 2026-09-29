@@ -37,6 +37,9 @@ Some paths still use **Weekleft**, the original internal name, to preserve compa
 | `~/Library/Application Support/Weekleft/QuotaProbe/` | Isolated working directory for Claude's `/usage` command |
 | `~/Library/Application Support/Weekleft/activity-details.json` | Project and session activity breakdowns |
 | `~/Library/Application Support/Weekleft/activity-archive.json` | Daily totals kept for Year and All time: per project folder name and session identifier, no titles or full paths |
+| `~/Library/Application Support/Weekleft/token-ledger.json` | Tokens per session, model and day read from the local Claude and Codex logs, with the read position in each log; no prompts or replies |
+| `~/Library/Application Support/Weekleft/tasks.json` | Tasks you created: their text, project folder, budget, state and the agent's last summary |
+| `~/Library/Application Support/Weekleft/Worktrees/` | Copies of git projects that tasks work in, on their own `lunavect/` branches; removed when you accept a task's changes |
 | `~/Library/Group Containers/<TEAM_ID>.com.lunavect.shared/Weekleft/` | The signed app's shared quota snapshot, aggregate activity and widget selection data |
 | `~/Library/Application Support/Lunavect/IDEBridge/` | Descriptors of connected VS Code or JetBrains companions: process IDs, session ID and working directory |
 | The IDE bridge socket directory (see [IDE sessions](ide-sessions.md)) | User-only Unix sockets of running companions, removed when the editor shuts down normally |
