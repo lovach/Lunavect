@@ -708,7 +708,7 @@ import WeekleftCore
         // Keep history available to the panel without reporting retained state
         // as a current observation to activity tracking or Keep Awake. A limits
         // check run by hand is listed, but is not work, a notice or activity.
-        onObservation?(taskRows.filter { $0.catalogHistory != true && $0.isLimitsCheck != true }, now)
+        onObservation?(taskRows.filter { $0.catalogHistory != true && $0.isLimitsCheck != true && $0.isBackgroundRun != true }, now)
         do {
             try removeHiddenInternalSessions()
             // The local event timer usually delivers the first rows before the
@@ -733,7 +733,7 @@ import WeekleftCore
             try hideInactiveSessions(taskRows, now: now)
         } catch { connectionMessage = error.localizedDescription }
         allSessions = taskRows; publishVisible(now: now)
-        observations.send((sessions.filter { $0.isLimitsCheck != true }, now))
+        observations.send((sessions.filter { $0.isLimitsCheck != true && $0.isBackgroundRun != true }, now))
     }
     private func removeHiddenInternalSessions() throws {
         let hidden = internalSessionIDs.intersection(visibility?.hidden ?? [])
@@ -904,7 +904,7 @@ enum SessionNavigation {
                                 openIDE: @MainActor (AgentSession) async throws -> Void = { try await focusIDE($0) }) async throws {
         try Task.checkCancellation()
         // A limits check run by hand is explained, never opened (decision 28.09).
-        if let refusal = session.limitsCheckRefusal { throw refusal }
+        if let refusal = session.limitsCheckRefusal ?? session.backgroundRunRefusal { throw refusal }
         if session.ideLocation != nil || session.client == .vscode || session.client == .jetbrains {
             try await openIDE(session)
             return

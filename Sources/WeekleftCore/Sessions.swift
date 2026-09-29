@@ -120,6 +120,12 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// `/usage` probe, for example by hand in another folder. It stays listed with a
     /// neutral state, but is not work, waiting, a notice or activity (decision 28.09).
     public var isLimitsCheck: Bool?
+    /// A Claude run in print mode (`claude -p`): a plugin or script asks one
+    /// question without a window or tab, and the run ends by itself. It stays
+    /// listed and says so, but is not the user's work, waiting, a notice or
+    /// activity, and there is nothing to open (owner report 29.09: the
+    /// autoharness plugin's reflector after every reply).
+    public var isBackgroundRun: Bool?
     /// The application a catalog runtime runs in when Lunavect has no route to it
     /// (the embedded terminal of Claude or Codex, a VS Code fork…): opening it then
     /// names that place instead of a generic failure.
@@ -178,7 +184,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
             : phase == .running && awaitingBackground == true ? 3600 : 600
         guard age >= -60, age < lifetime else { return .unknown }
         // The check waits at its /usage screen; that is not a session waiting for the user.
-        if isLimitsCheck == true, phase.isActive { return .idle }
+        if isLimitsCheck == true || isBackgroundRun == true, phase.isActive { return .idle }
         return phase
     }
     public func isCurrent(now: Date = Date()) -> Bool {
@@ -264,6 +270,7 @@ public enum SessionParser {
                               terminal: (Int32) -> TerminalLocation.Target? = { _ in nil },
                               ide: (Int32) -> IDESessionLocation? = { _ in nil },
                               limitsCheck: (Int32) -> Bool = { _ in false },
+                              backgroundRun: (Int32) -> Bool = { _ in false },
                               host: (Int32) -> SessionLaunchHost? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
         // The JSON listing is not a documented contract. When no row carries a
@@ -312,6 +319,7 @@ public enum SessionParser {
             } else if let safePID = rowPID {
                 session.isNestedClaudeSession = nestedRuntime(safePID)
                 if limitsCheck(safePID) { session.isLimitsCheck = true }
+                else if backgroundRun(safePID) { session.isBackgroundRun = true }
                 if let location = ide(safePID) {
                     session.ideLocation = location; session.client = location.editor.client
                 } else if let location = terminal(safePID), TerminalLocation.valid(location.tty) {
@@ -342,6 +350,7 @@ public enum SessionList {
             if event.evidence == .legacy, let hooked = hookedAt[event.id], event.observedAt.timeIntervalSince(hooked) < 10 { continue }
             if var row = result[event.id] {
                 if event.isCodexSubagent == true { row.isCodexSubagent = true }
+                if event.isBackgroundRun == true { row.isBackgroundRun = true }
                 // A live catalog PID identifies the current tab. Old hook records
                 // can still name a device from before this session was resumed.
                 if row.ideLocation == nil, row.terminalTTY == nil, row.client != .background, let ide = event.ideLocation {

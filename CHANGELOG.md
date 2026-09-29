@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.8 — Unreleased
+
+### Sessions
+
+- A Claude run in print mode (`claude -p`), which plugins and scripts start without a window, is shown as **Background run** with the app that started it (for example "Background run · Python"). It no longer counts as working, sends no notifications, is not activity and does not keep the Mac awake. Clicking it explains what it is and that it cannot be opened, instead of asking you to open a window that does not exist.
+
 ## 0.2.7 — 2026-09-28
 
 ### Limits

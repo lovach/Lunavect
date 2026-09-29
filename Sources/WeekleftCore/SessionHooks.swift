@@ -432,7 +432,7 @@ public enum SessionHooks {
     /// currently disables hooks there; this keeps a future client from recording it.
     /// `now` is the event's time: the hook helper passes the moment it started.
     public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, now: Date = Date(), client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil,
-                               runtimePID: Int32? = nil,
+                               runtimePID: Int32? = nil, backgroundRun: Bool = false,
                                isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) },
                                isAlive: (Int32) -> Bool = SessionSources.isProcessAlive) throws {
         try LiveWriteGuard.check(directory)
@@ -461,6 +461,7 @@ public enum SessionHooks {
         if provider == .claude, let nestedClaudeRuntime { record.session.isNestedClaudeSession = nestedClaudeRuntime }
         // Replaced on every event: a resumed session runs in a new process.
         if provider == .claude { record.session.runtimePID = runtimePID }
+        if provider == .claude, backgroundRun { record.session.isBackgroundRun = true }
         if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
         if let ide {
             record.session.ideLocation = ide; record.session.client = ide.editor.client

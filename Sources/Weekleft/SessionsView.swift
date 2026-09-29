@@ -616,6 +616,10 @@ struct SessionRow: View {
     var accessibilityStatus: String { isPinned ? statusTitle + ", " + L("Закреплена") : statusTitle }
     var statusTitle: String {
         if session.isLimitsCheck == true { return L("Служебная проверка лимитов") }
+        if session.isBackgroundRun == true {
+            guard session.phase.isActive else { return L("Фоновый запуск завершён") }
+            return session.launchHost.map { L("Фоновый запуск · {0}", $0.name) } ?? L("Фоновый запуск")
+        }
         guard phase == .running else { return phase == .failed ? session.failure?.title ?? phase.title : phase.title }
         if offline { return L("Нет сети") }
         if session.compactionTrigger != nil { return session.activityTitle }

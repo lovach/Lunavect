@@ -5773,5 +5773,40 @@
     "es": "El límite semanal de {0} se ha restablecido",
     "fr": "La limite hebdomadaire de {0} a été réinitialisée",
     "zh-Hans": "{0} 每周额度已重置"
+  },
+  "Фоновый запуск": {
+    "en": "Background run",
+    "de": "Hintergrundlauf",
+    "es": "Ejecución en segundo plano",
+    "fr": "Exécution en arrière-plan",
+    "zh-Hans": "后台运行"
+  },
+  "Фоновый запуск · {0}": {
+    "en": "Background run · {0}",
+    "de": "Hintergrundlauf · {0}",
+    "es": "Ejecución en segundo plano · {0}",
+    "fr": "Exécution en arrière-plan · {0}",
+    "zh-Hans": "后台运行 · {0}"
+  },
+  "Фоновый запуск завершён": {
+    "en": "Background run finished",
+    "de": "Hintergrundlauf beendet",
+    "es": "Ejecución en segundo plano terminada",
+    "fr": "Exécution en arrière-plan terminée",
+    "zh-Hans": "后台运行已结束"
+  },
+  "Это фоновый запуск Claude без окна (claude -p). Его запустила программа {0}: так работают плагины и скрипты. Открыть его нельзя, у него нет окна или вкладки. Он завершится сам.": {
+    "en": "This is a background Claude run without a window (claude -p), started by {0}, the way plugins and scripts work. It cannot be opened: it has no window or tab. It ends by itself.",
+    "de": "Dies ist ein Claude-Hintergrundlauf ohne Fenster (claude -p), gestartet von {0}, wie es Plug-ins und Skripte tun. Er lässt sich nicht öffnen, da er kein Fenster und keinen Tab hat. Er endet von selbst.",
+    "es": "Es una ejecución de Claude en segundo plano sin ventana (claude -p), iniciada por {0}, como hacen los complementos y los scripts. No se puede abrir: no tiene ventana ni pestaña. Terminará sola.",
+    "fr": "Il s’agit d’une exécution de Claude en arrière-plan sans fenêtre (claude -p), lancée par {0}, comme le font les plug-ins et les scripts. Elle ne peut pas être ouverte : elle n’a ni fenêtre ni onglet. Elle se termine d’elle-même.",
+    "zh-Hans": "这是由 {0} 启动的无窗口 Claude 后台运行（claude -p），插件和脚本就是这样工作的。它没有窗口或标签页，无法打开，会自行结束。"
+  },
+  "Это фоновый запуск Claude без окна (claude -p): так работают плагины и скрипты. Открыть его нельзя, у него нет окна или вкладки. Он завершится сам.": {
+    "en": "This is a background Claude run without a window (claude -p), the way plugins and scripts work. It cannot be opened: it has no window or tab. It ends by itself.",
+    "de": "Dies ist ein Claude-Hintergrundlauf ohne Fenster (claude -p), wie ihn Plug-ins und Skripte starten. Er lässt sich nicht öffnen, da er kein Fenster und keinen Tab hat. Er endet von selbst.",
+    "es": "Es una ejecución de Claude en segundo plano sin ventana (claude -p), como hacen los complementos y los scripts. No se puede abrir: no tiene ventana ni pestaña. Terminará sola.",
+    "fr": "Il s’agit d’une exécution de Claude en arrière-plan sans fenêtre (claude -p), comme le font les plug-ins et les scripts. Elle ne peut pas être ouverte : elle n’a ni fenêtre ni onglet. Elle se termine d’elle-même.",
+    "zh-Hans": "这是无窗口的 Claude 后台运行（claude -p），插件和脚本就是这样工作的。它没有窗口或标签页，无法打开，会自行结束。"
   }
 }
