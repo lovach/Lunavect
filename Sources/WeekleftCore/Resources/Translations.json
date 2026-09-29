@@ -5879,13 +5879,6 @@
     "fr": "Réponses",
     "zh-Hans": "回复"
   },
-  "По дням недели и часам": {
-    "en": "By weekday and hour",
-    "de": "Nach Wochentag und Stunde",
-    "es": "Por día de la semana y hora",
-    "fr": "Par jour de la semaine et heure",
-    "zh-Hans": "按星期和小时"
-  },
   "Проекты": {
     "en": "Projects",
     "de": "Projekte",
@@ -6081,5 +6074,33 @@
     "es": "Sin trabajo",
     "fr": "Aucune activité",
     "zh-Hans": "无工作"
+  },
+  "Ночью": {
+    "de": "Nachts",
+    "en": "At night",
+    "es": "De madrugada",
+    "fr": "La nuit",
+    "zh-Hans": "夜间"
+  },
+  "Утром": {
+    "de": "Morgens",
+    "en": "In the morning",
+    "es": "Por la mañana",
+    "fr": "Le matin",
+    "zh-Hans": "上午"
+  },
+  "Днём": {
+    "de": "Nachmittags",
+    "en": "In the afternoon",
+    "es": "Por la tarde",
+    "fr": "L’après-midi",
+    "zh-Hans": "下午"
+  },
+  "Вечером": {
+    "de": "Abends",
+    "en": "In the evening",
+    "es": "Por la noche",
+    "fr": "Le soir",
+    "zh-Hans": "晚上"
   }
 }

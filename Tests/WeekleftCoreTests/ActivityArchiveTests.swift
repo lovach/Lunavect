@@ -139,6 +139,26 @@ final class ActivityArchiveTests: XCTestCase {
                        "more than a year of records still shows the last 53 weeks")
     }
 
+    /// Owner report 29.09: scrolling stuttered while agents worked; a live checkpoint recomputed
+    /// the whole month (about 40 ms). A live refresh recomputes only the last days.
+    func testLiveRefreshRecomputesOnlyTheLastDays() throws {
+        func history(_ spans: [(Date, Date)]) -> ActivityHistory {
+            var value = ActivityHistory()
+            for span in spans { value.append(start: span.0, end: span.1, providers: 1, observedProviders: 1) }
+            return value
+        }
+        var value = ActivityArchive()
+        value.refresh(history: history([(at(20, 10), at(20, 11)), (at(29, 10), at(29, 11))]), details: ActivityDetails(), now: now, calendar: calendar)
+        XCTAssertEqual(value.days["2026-09-20"]?.parts["all"]?.active, 3600)
+        // An import later adds an hour on the 20th; the live day gains half an hour.
+        let stale = history([(at(20, 10), at(20, 11)), (at(20, 12), at(20, 13)), (at(29, 10), at(29, 11)), (at(29, 12), at(29, 12).addingTimeInterval(1800))])
+        value.refresh(history: stale, details: ActivityDetails(), now: now, recentDays: 2, calendar: calendar)
+        XCTAssertEqual(value.days["2026-09-29"]?.parts["all"]?.active, 5400, "today follows the history")
+        XCTAssertEqual(value.days["2026-09-20"]?.parts["all"]?.active, 3600, "an older day waits for the next full refresh")
+        value.refresh(history: stale, details: ActivityDetails(), now: now, calendar: calendar)
+        XCTAssertEqual(value.days["2026-09-20"]?.parts["all"]?.active, 7200)
+    }
+
     func testArchiveRoundTripsAndOldPartsDecode() throws {
         let value = archive(days: [(at(29, 10), 3600, 60)])
         XCTAssertEqual(try JSONDecoder().decode(ActivityArchive.self, from: JSONEncoder().encode(value)), value)

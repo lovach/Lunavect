@@ -46,6 +46,8 @@ import WeekleftCore
     /// Changed on every observation; published and written with the details.
     private var workingArchive: ActivityArchive
     private var backfilling = false
+    /// When the whole history window was last recomputed into the archive; nil after an import.
+    private var archiveRefreshedAt: Date?
     /// Sessions waiting for the user: since when, and when last seen waiting.
     private var waitingSessions: [String: (provider: ProviderID, permission: Bool, start: Date, last: Date)] = [:]
     private var importGeneration = 0
@@ -168,7 +170,7 @@ import WeekleftCore
                     return
                 }
                 self.tracker = ActivityTracker(history: ActivityHistory(), details: self.tracker.details)
-                self.history = self.tracker.history
+                self.history = self.tracker.history; self.archiveRefreshedAt = nil
                 self.issue = "Прежний файл статистики сохранён отдельно. Сбор начат заново."
                 self.unavailable = false
                 self.scheduleImport()
@@ -213,6 +215,7 @@ import WeekleftCore
                 guard !Task.isCancelled, let self,
                       self.acceptsWork, self.importGeneration == generation, self.providers == providers else { return }
                 for (selected, result) in results { self.tracker.mergeImport(result, now: self.clock(), providers: selected) }
+                self.archiveRefreshedAt = nil
                 // A merged import is written at once, private details included.
                 self.save(now: self.clock(), synchronously: false, forceDetails: true)
                 self.finishImport(generation: generation)
@@ -238,7 +241,11 @@ import WeekleftCore
         tracker.pruneDetails(now: now)
         if history != tracker.history { history = tracker.history }
         if details != tracker.details { details = tracker.details }
-        workingArchive.refresh(history: tracker.history, details: tracker.details, now: now)
+        // Live checkpoints only change the last days; the whole window (about 40 ms on a busy
+        // month) is recomputed after an import, on a new day and every half hour.
+        let full = archiveRefreshedAt.map { now < $0 || now.timeIntervalSince($0) >= 1800 || !Calendar.current.isDate($0, inSameDayAs: now) } ?? true
+        workingArchive.refresh(history: tracker.history, details: tracker.details, now: now, recentDays: full ? ActivityArchive.historyDays : 2)
+        if full { archiveRefreshedAt = now }
         if archive != workingArchive { archive = workingArchive }
         savedAt = now; transitionSince = nil
         return .init(history: tracker.history, details: tracker.details)

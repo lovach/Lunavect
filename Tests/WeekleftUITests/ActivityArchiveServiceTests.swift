@@ -10,7 +10,8 @@ import WeekleftCore
         let storage = ActivityPersistence(historyURL: root.appendingPathComponent("history.json"), detailsURL: root.appendingPathComponent("details.json"),
                                           writeHistory: { _, _ in }, writeDetails: { _, _, _ in })
         var date = Date()
-        let old = Calendar.current.date(byAdding: .day, value: -60, to: date)!
+        // 10:00 sixty days ago: an hour that does not cross midnight whenever the test runs.
+        let old = Calendar.current.date(byAdding: .hour, value: 10, to: Calendar.current.startOfDay(for: Calendar.current.date(byAdding: .day, value: -60, to: date)!))!
         let backfills = BackfillCounter()
         let service = ActivityService(history: .init(), details: .init(), storage: storage, powerNotifications: nil, clock: { date },
                                       importer: { _, _, _ in .init() }, archive: .init(), archiveURL: root.appendingPathComponent("archive.json"),

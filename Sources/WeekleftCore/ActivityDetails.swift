@@ -158,6 +158,10 @@ public struct ActivityDayPart: Codable, Equatable, Sendable {
         waits = try values.decodeIfPresent([TimeInterval].self, forKey: .waits) ?? []
     }
     /// Whole seconds keep the file small; nothing shown is finer than a minute.
+    mutating func add(_ seconds: TimeInterval, hour: Int, recovered: Bool) {
+        active += seconds; hours[hour] += seconds
+        if recovered { self.recovered += seconds }
+    }
     mutating func round() {
         active = active.rounded(); recovered = min(active, recovered.rounded())
         hours = hours.map { $0.rounded() }; projects = projects.mapValues { $0.rounded() }.filter { $0.value > 0 }
@@ -213,10 +217,12 @@ public struct ActivityArchive: Codable, Equatable, Sendable {
         return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
 
-    /// Recomputes every day the history still covers in full; waiting observed live is kept.
-    public mutating func refresh(history: ActivityHistory, details: ActivityDetails, now: Date, calendar: Calendar = .current) {
+    /// Recomputes the last `recentDays` days from the history (by default every day it still covers);
+    /// waiting observed live is kept. Live updates pass 2: only today and a span across midnight change.
+    public mutating func refresh(history: ActivityHistory, details: ActivityDetails, now: Date, recentDays: Int = historyDays,
+                                 calendar: Calendar = .current) {
         let today = calendar.startOfDay(for: now)
-        guard let first = calendar.date(byAdding: .day, value: -Self.historyDays, to: today) else { return }
+        guard let first = calendar.date(byAdding: .day, value: -min(recentDays, Self.historyDays), to: today) else { return }
         let computed = Self.records(intervals: history.intervals, details: Array(details.records.values), from: first, to: now, calendar: calendar)
         var day = first
         while day <= today {
@@ -277,34 +283,29 @@ public struct ActivityArchive: Codable, Equatable, Sendable {
                 cursor = boundary
             }
         }
-        for span in intervals where span.providers != 0 {
+        // Only spans that reach the window; days are updated in place, not copied per hour.
+        let inWindow = { (span: ActivityInterval) in span.providers != 0 && span.end > start && span.start < end }
+        for span in intervals where inWindow(span) {
             let recovered = span.providers & ~span.recoveredProviderMask == 0
             split(span) { day, hour, seconds in
-                var record = result[day] ?? ActivityDayRecord()
                 for (name, bit) in [(ActivityDayRecord.allKey, 3), (ProviderID.claude.rawValue, 1), (ProviderID.codex.rawValue, 2)] where span.providers & bit != 0 {
-                    var part = record.parts[name] ?? ActivityDayPart()
-                    part.active += seconds; part.hours[hour] += seconds
                     let partRecovered = name == ActivityDayRecord.allKey ? recovered : span.recoveredProviderMask & bit != 0
-                    if partRecovered { part.recovered += seconds }
-                    record.parts[name] = part
+                    result[day, default: ActivityDayRecord()].parts[name, default: ActivityDayPart()].add(seconds, hour: hour, recovered: partRecovered)
                 }
-                result[day] = record
             }
         }
         // Projects: parallel sessions of one project count once, per source and together.
         var projectSpans: [String: [String: [ActivityInterval]]] = [:]
         for record in details {
+            let spans = record.intervals.filter(inWindow)
+            guard !spans.isEmpty else { continue }
             let project = record.projectName
-            projectSpans[record.provider.rawValue, default: [:]][project, default: []] += record.intervals
-            projectSpans[ActivityDayRecord.allKey, default: [:]][project, default: []] += record.intervals
+            projectSpans[record.provider.rawValue, default: [:]][project, default: []] += spans
+            projectSpans[ActivityDayRecord.allKey, default: [:]][project, default: []] += spans
             let sessionKey = record.provider.rawValue + ":" + record.sessionID
-            for span in record.intervals where span.providers != 0 {
+            for span in spans {
                 split(span) { day, _, seconds in
-                    var value = result[day] ?? ActivityDayRecord()
-                    var session = value.sessions[sessionKey] ?? ActivityDaySession(provider: record.provider, seconds: 0, project: project)
-                    session.seconds += seconds
-                    value.sessions[sessionKey] = session
-                    result[day] = value
+                    result[day, default: ActivityDayRecord()].sessions[sessionKey, default: ActivityDaySession(provider: record.provider, seconds: 0, project: project)].seconds += seconds
                 }
             }
         }
@@ -312,11 +313,7 @@ public struct ActivityArchive: Codable, Equatable, Sendable {
             for (project, spans) in projects {
                 for span in ActivityHistory.union(spans) where span.providers != 0 {
                     split(span) { day, _, seconds in
-                        var value = result[day] ?? ActivityDayRecord()
-                        var part = value.parts[name] ?? ActivityDayPart()
-                        part.projects[project, default: 0] += seconds
-                        value.parts[name] = part
-                        result[day] = value
+                        result[day, default: ActivityDayRecord()].parts[name, default: ActivityDayPart()].projects[project, default: 0] += seconds
                     }
                 }
             }
