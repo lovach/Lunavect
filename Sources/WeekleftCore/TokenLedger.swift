@@ -98,13 +98,16 @@ struct TokenFileCursor: Codable, Sendable, Equatable {
     /// Claude repeats one response's usage on each of its lines: the last ids seen and their readings.
     var seen: [String: TokenCounts]?
     var order: [String]?
+    /// Claude: the newest response time read in this file, to skip the copies Claude Code writes back later.
+    var newest: Date?
 }
 
 /// Tokens of every Claude and Codex session on this Mac, read from their local logs.
 public struct TokenLedger: Codable, Sendable, Equatable {
     /// Sessions and daily entries are kept this long; older days live on in the archive.
     public static let keepDays = 35
-    public static let currentVersion = 1
+    /// 2: Claude transcripts' written-back copies of earlier responses are no longer counted twice.
+    public static let currentVersion = 2
     public var version: Int? = TokenLedger.currentVersion
     public var sessions: [String: SessionTokens] = [:]
     /// Day key → entry key (provider, project, model, subagent) → tokens. The archive keeps them after pruning.
@@ -344,6 +347,12 @@ public struct TokenLedger: Codable, Sendable, Equatable {
                   let usage = message["usage"] as? [String: Any] else { return }
             let model = message["model"] as? String ?? ""
             guard model != "<synthetic>" else { return }
+            // Claude Code writes copies of earlier responses back into the transcript (same uuid and
+            // timestamp, hours later in the file); a response over a minute older than one already read is such a copy.
+            if let stamp = object["timestamp"] as? String, let written = Self.date(stamp) {
+                if let newest = cursor.newest, written < newest.addingTimeInterval(-60) { return }
+                cursor.newest = max(cursor.newest ?? written, written)
+            }
             let reading = TokenCounts(input: int(usage["input_tokens"]), cacheRead: int(usage["cache_read_input_tokens"]),
                                       cacheWrite: int(usage["cache_creation_input_tokens"]), output: int(usage["output_tokens"]))
             let id = message["id"] as? String ?? object["requestId"] as? String ?? object["uuid"] as? String ?? UUID().uuidString

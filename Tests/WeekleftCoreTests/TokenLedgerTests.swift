@@ -93,6 +93,20 @@ final class TokenLedgerTests: XCTestCase {
         XCTAssertNil(ledger.transcript(.codex, sessionID: "t2"))
     }
 
+    /// Live check 30.09: Claude Code wrote 623 earlier responses back into one transcript hours later
+    /// (same uuid and timestamp); a 64-id window counted them twice, 5.8 % too much over 35 days.
+    func testCopiesOfEarlierResponsesWrittenBackLaterCountOnce() throws {
+        var lines = [claude("m0", input: 10, output: 100, time: "2026-09-29T10:00:00Z")]
+        for index in 1...80 { lines.append(claude("m\(index)", input: 1, output: 1, time: String(format: "2026-09-29T11:%02d:%02dZ", index / 60, index % 60))) }
+        lines.append(claude("m0", input: 10, output: 100, time: "2026-09-29T10:00:00Z"))
+        lines.append(claude("m81", input: 1, output: 1, time: "2026-09-29T12:30:00Z"))
+        try write("claude/p/s1.jsonl", lines)
+        var ledger = TokenLedger()
+        _ = ledger.scan(sources: sources, now: now)
+        XCTAssertEqual(ledger.sessions["claude:s1"]?.total.output, 100 + 81)
+        XCTAssertEqual(ledger.sessions["claude:s1"]?.total.input, 10 + 81)
+    }
+
     func testLimitShareSplitsTheUsedPercentByWeight() throws {
         var ledger = TokenLedger()
         let calendar = Calendar(identifier: .gregorian)
