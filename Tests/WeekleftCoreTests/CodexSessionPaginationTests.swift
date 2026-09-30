@@ -310,6 +310,7 @@ final class CodexSessionPaginationTests: XCTestCase {
         esac
         printf '%s\\n' '{"method":"thread/status/changed","params":{}}' '{"id":2,"error":{"message":"old reply"}}' '\(second)'
         """)
+        warmUpFreshExecutable(script)
         let result = try SessionProcess.codexCatalog(path: script.path, proxy: false, timeout: 2)
         XCTAssertEqual(result.pagesRead, 2)
         XCTAssertTrue(result.isComplete)
