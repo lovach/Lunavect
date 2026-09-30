@@ -103,6 +103,23 @@ final class SessionControlTests: XCTestCase {
         XCTAssertTrue(ClaudeAutoContinue.enabled(home: home, managed: managed), "managed settings come first")
     }
 
+    /// Live check 30.09: hourly buckets counted the tokens spent before a reading in the same hour
+    /// as spent after it. Within six hours the ledger keeps minutes.
+    func testOnlyTokensAfterTheReadingRaiseTheFiveHourLevel() throws {
+        let now = Date(timeIntervalSince1970: 1_800_001_800)   // half past an hour
+        var ledger = TokenLedger(); ledger.recentFrom = now.addingTimeInterval(-TokenLedger.recentSpan)
+        let calendar = Calendar(identifier: .gregorian)
+        ledger.record(TokenCounts(output: 1000), provider: .claude, session: "a", cwd: "/p", model: "m", subagent: false, at: now.addingTimeInterval(-1500), now: now, calendar: calendar)
+        ledger.record(TokenCounts(output: 3000), provider: .claude, session: "a", cwd: "/p", model: "m", subagent: false, at: now.addingTimeInterval(-300), now: now, calendar: calendar)
+        let window = try QuotaWindow(usedPercent: 10, durationMinutes: 300, resetsAt: now.addingTimeInterval(3600))
+        let snapshot = UsageSnapshot(provider: .claude, fiveHour: window, fetchedAt: now.addingTimeInterval(-1200))
+        // 10 % over the 5,000 units spent before the reading; 15,000 after it add 30 points
+        // (whole hours gave 20: the ratio over 20,000 units times 20,000 "since").
+        XCTAssertEqual(try XCTUnwrap(WeekLevel.estimate(snapshot: snapshot, window: window, ledger: ledger, now: now)), 40, accuracy: 0.01)
+        ledger.pruneSessions(now: now.addingTimeInterval(7 * 3600))
+        XCTAssertEqual(ledger.recent?["claude"]?.isEmpty, true, "minutes older than six hours are dropped")
+    }
+
     func testTypedTextIsOneQuotedLine() {
         XCTAssertEqual(TerminalLocation.typedText("say \"hi\"\nnow \\ ok"), "say \\\"hi\\\" now \\\\ ok")
         XCTAssertNil(TerminalLocation.typeScript(tty: "/dev/ttys001; rm", app: "Terminal", text: "x"))

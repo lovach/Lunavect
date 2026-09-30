@@ -136,12 +136,12 @@ public enum WeekLevel {
         // The window has reset since the reading: the new one starts near zero until the next reading.
         if let resets = window.resetsAt, resets <= now { return 0 }
         guard let fetched = snapshot.fetchedAt, fetched < now,
-              let ratio = percentPerWeight(ledger: ledger, provider: snapshot.provider, week: window, now: now) else { return window.usedPercent }
+              let ratio = percentPerWeight(ledger: ledger, provider: snapshot.provider, week: window, now: fetched) else { return window.usedPercent }
         let since = ledger.weight(snapshot.provider, from: fetched, to: now)
         return min(100, window.usedPercent + since * ratio)
     }
-    /// Percent of a limit window per price-weighted token, from its used percent
-    /// and the tokens the ledger saw in the same window. nil until both are known.
+    /// Percent of a limit window per price-weighted token, from its used percent and the tokens
+    /// the ledger saw in the same window up to `now` (the reading's time). nil until both are known.
     public static func percentPerWeight(ledger: TokenLedger, provider: ProviderID, week: QuotaWindow?, now: Date) -> Double? {
         guard let week, let resets = week.resetsAt, week.usedPercent > 0 else { return nil }
         let weight = ledger.weight(provider, from: resets.addingTimeInterval(-Double(week.durationMinutes) * 60), to: now)

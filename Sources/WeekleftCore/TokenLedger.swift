@@ -117,6 +117,13 @@ public struct TokenLedger: Codable, Sendable, Equatable {
     var cursors: [String: TokenFileCursor] = [:]
     /// Codex threads whose turn the usage limit ended, and when (a `task_complete` with `usage_limit_exceeded`).
     public var limitHits: [String: Date]?
+    /// Weighted tokens per provider and minute over the last six hours: a limit's level between two
+    /// readings needs what was spent after the reading, not the whole hour it fell in.
+    public var recent: [String: [Int: Double]]?
+    /// From when `recent` holds every token read: six hours before a fresh ledger's first scan,
+    /// or the first scan after an update that added it.
+    public var recentFrom: Date?
+    public static let recentSpan: TimeInterval = 6 * 3600
     public init() {}
 
     public static func sessionKey(_ provider: ProviderID, _ sessionID: String) -> String { provider.rawValue + ":" + sessionID }
@@ -167,6 +174,7 @@ public struct TokenLedger: Codable, Sendable, Equatable {
                               monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) -> ScanReport {
         var report = ScanReport()
         let deadline = monotonicNow() + maximumSeconds
+        if recentFrom == nil { recentFrom = cursors.isEmpty ? now.addingTimeInterval(-Self.recentSpan) : now }
         var files: [(url: URL, modified: Date, size: Int64, inode: UInt64, provider: ProviderID)] = []
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
         var present = Set<String>()
@@ -406,6 +414,10 @@ public struct TokenLedger: Codable, Sendable, Equatable {
     public mutating func record(_ counts: TokenCounts, provider: ProviderID, session: String, cwd: String, model: String,
                          subagent: Bool, at date: Date, now: Date, calendar: Calendar) {
         guard !counts.isEmpty else { return }
+        if date >= now.addingTimeInterval(-Self.recentSpan), date <= now.addingTimeInterval(60) {
+            if recent == nil { recent = [:] }
+            recent![provider.rawValue, default: [:]][Int(floor(date.timeIntervalSince1970 / 60)), default: 0] += counts.weight(provider)
+        }
         let project = cwd.isEmpty ? L("Без проекта") : URL(fileURLWithPath: cwd).lastPathComponent
         let day = ActivityArchive.key(date, calendar: calendar)
         daily[day, default: [:]][Self.entryKey(provider, project: project, model: model, subagent: subagent), default: TokenCounts()] += counts
@@ -428,6 +440,9 @@ public struct TokenLedger: Codable, Sendable, Equatable {
         let hourCutoff = Int(floor(now.addingTimeInterval(-8 * 86400).timeIntervalSince1970 / 3600))
         sessions = sessions.filter { ($0.value.last ?? .distantPast) >= cutoff }
         limitHits = limitHits?.filter { now.timeIntervalSince($0.value) < 2 * 86400 }
+        let oldest = now.addingTimeInterval(-Self.recentSpan), firstMinute = Int(floor(oldest.timeIntervalSince1970 / 60))
+        recent = recent?.mapValues { $0.filter { $0.key >= firstMinute } }
+        if let from = recentFrom, from < oldest { recentFrom = oldest }
         for key in sessions.keys { sessions[key]!.hours = sessions[key]!.hours.filter { $0.key >= hourCutoff } }
     }
     /// Drops days older than the kept window. Call after the archive has taken them.
@@ -437,8 +452,13 @@ public struct TokenLedger: Codable, Sendable, Equatable {
     }
 
     /// Weighted tokens of one provider's sessions in a period, by whole hours.
+    /// By minute when the period lies within the last six hours the ledger saw, by whole hours before.
     public func weight(_ provider: ProviderID, from start: Date, to end: Date) -> Double {
-        sessions.values.reduce(0) { $1.provider == provider ? $0 + $1.weight(from: start, to: end) : $0 }
+        if let recentFrom, start >= recentFrom {
+            let first = Int(floor(start.timeIntervalSince1970 / 60)), last = Int(floor(end.timeIntervalSince1970 / 60))
+            return (recent?[provider.rawValue] ?? [:]).reduce(0) { $1.key >= first && $1.key <= last ? $0 + $1.value : $0 }
+        }
+        return sessions.values.reduce(0) { $1.provider == provider ? $0 + $1.weight(from: start, to: end) : $0 }
     }
 
     /// A session's estimated share of a limit window: the window's used percent split by weighted tokens.
