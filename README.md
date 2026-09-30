@@ -24,6 +24,8 @@ next to both tools' weekly and five-hour limits with reset times.
 
 [Features](#features) · [Install](#install) · [FAQ](#faq) · [Website](https://lovach.github.io/Lunavect/) · [Release notes](CHANGELOG.md)
 
+<a href="https://macnative.io/apps/lunavect?utm_source=macnative-badge&utm_medium=referral" target="_blank" rel="noopener"><img src="https://macnative.io/badge?kind=listed&theme=default&slug=lunavect" alt="Listed on MacNative" width="212" height="58" /></a>
+
 <sub>If Lunavect helps you catch a waiting agent, a ⭐ helps other Mac developers find it.</sub>
 
 </div>
