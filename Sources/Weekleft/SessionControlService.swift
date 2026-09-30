@@ -42,8 +42,9 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         var snapshots: @MainActor () -> [UsageSnapshot]
         var sessions: @MainActor () -> [AgentSession]
         /// Types into the session's tab: the message while the agent runs there, the resume command at a shell prompt.
-        var type: @Sendable (String, String, String, String?) async throws -> Bool = { text, tty, app, command in
-            try await TerminalLocation.type(text, tty: tty, app: app, command: command)
+        /// Types into the session's tab (text, tty, app, resume command, agent pid, provider).
+        var type: @Sendable (String, String, String, String?, Int32?, ProviderID) async throws -> Bool = { text, tty, app, command, pid, provider in
+            try await TerminalLocation.type(text, tty: tty, app: app, command: command, agentPID: pid, submitAgain: provider == .codex)
         }
         /// A new window running the resume command.
         var open: @Sendable (String, String) async throws -> Bool = { command, app in try await TerminalLocation.open(command, app: app) }
@@ -377,7 +378,7 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         let fresh = enter ? nil : TerminalLocation.resumeCommand(provider: control.provider, sessionID: control.sessionID, text: text, cwd: control.cwd)
         var typed = false, opened = false
         if client == .terminal, let app, ["Terminal", "iTerm2"].contains(app) {
-            if let tty = row?.terminalTTY { typed = (try? await dependencies.type(text, tty, app, inTab)) == true }
+            if let tty = row?.terminalTTY { typed = (try? await dependencies.type(text, tty, app, inTab, row?.runtimePID, control.provider)) == true }
             if !typed, let fresh { opened = (try? await dependencies.open(fresh, app)) == true }
         }
         control.resumeAt = nil; control.resume = nil; control.pressEnter = nil; control.updatedAt = now

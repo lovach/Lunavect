@@ -28,7 +28,7 @@ import WeekleftCore
                 UsageSnapshot(provider: .codex, fiveHour: try! QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: self.now.addingTimeInterval(self.fiveReset)),
                               fetchedAt: self.now)] },
             sessions: rows,
-            type: { text, tty, app, command in typed.calls.append((text, tty, app, command)); return typed.result },
+            type: { text, tty, app, command, _, _ in typed.calls.append((text, tty, app, command)); return typed.result },
             open: { command, app in typed.opened.append((command, app)); return true },
             notify: { [unowned self] notice in self.notices.append(notice) },
             cutOff: { [unowned self] in self.cutOff },

@@ -300,16 +300,20 @@ public extension TerminalLocation {
         guard let cwd, cwd.hasPrefix("/"), !cwd.contains("\n"), !cwd.contains("\r") else { return command }
         return "cd " + shellQuoted(cwd) + " && " + command
     }
-    /// Programs that mean the agent still runs in the tab, and shells that mean it exited.
-    static let agentProcesses = ["claude", "codex", "node"]
+    /// Programs that mean the agent still runs in the tab, and shells that mean it exited. The native
+    /// Claude installer runs a binary named by its version ("2.1.283"): a name starting with a digit counts too.
+    static let agentProcesses = ["claude", "claude.exe", "codex", "codex-aarch64-apple-darwin", "codex-x86_64-apple-darwin", "node", "bun"]
     static let shellProcesses = ["zsh", "-zsh", "bash", "-bash", "fish", "-fish", "sh", "-sh", "login"]
 
     /// Finds the tab by its tty: types `text` while the agent runs there, `command` at a shell prompt.
     /// `false` when the tab is gone or runs something else.
-    static func typeScript(tty: String, app: String, text: String, command: String? = nil) -> String? {
+    /// Codex reads fast input as a paste, where Return is a new line (live check 30.09): `submitAgain`
+    /// presses Return once more after a pause so the message is sent.
+    static func typeScript(tty: String, app: String, text: String, command: String? = nil, agent: String? = nil, submitAgain: Bool = false) -> String? {
         guard valid(tty) else { return nil }
         let typed = typedText(text), resume = command.map(typedText)
-        let agents = agentProcesses.map { "\"\($0)\"" }.joined(separator: ", "), shells = shellProcesses.map { "\"\($0)\"" }.joined(separator: ", ")
+        let names = agentProcesses + (agent.map { [typedText($0)] } ?? [])
+        let agents = names.map { "\"\($0)\"" }.joined(separator: ", "), shells = shellProcesses.map { "\"\($0)\"" }.joined(separator: ", ")
         let terminalShell = resume.map { "if {\(shells)} contains ((last item of names) as text) then\ndo script \"\($0)\" in t\nreturn true\nend if" } ?? ""
         let itermShell = resume.map { "if {\(shells)} contains job then\ntell s to write text \"\($0)\"\nreturn true\nend if" } ?? ""
         switch app {
@@ -323,10 +327,13 @@ public extension TerminalLocation {
                             set names to processes of t
                             set agentRuns to false
                             repeat with p in names
-                                if {\(agents)} contains (p as text) then set agentRuns to true
+                                set pn to p as text
+                                if {\(agents)} contains pn then set agentRuns to true
+                                if (count of pn) > 0 and "0123456789" contains (character 1 of pn) then set agentRuns to true
                             end repeat
                             if agentRuns then
                                 do script "\(typed)" in t
+                                \(submitAgain ? "delay 0.6\ndo script \"\" in t" : "")
                                 return true
                             end if
                             \(terminalShell)
@@ -350,8 +357,9 @@ public extension TerminalLocation {
                                 try
                                     tell s to set job to (variable named "jobName")
                                 end try
-                                if {\(agents)} contains job then
+                                if {\(agents)} contains job or ((count of job) > 0 and "0123456789" contains (character 1 of job)) then
                                     tell s to write text "\(typed)"
+                                    \(submitAgain ? "delay 0.6\ntell s to write text \"\"" : "")
                                     return true
                                 end if
                                 \(itermShell)
@@ -389,8 +397,13 @@ public extension TerminalLocation {
         """
     }
     /// Types `text` and Return into the tab; false when the tab is gone.
-    static func type(_ text: String, tty: String, app: String, command: String? = nil, timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
-        guard let source = typeScript(tty: tty, app: app, text: text, command: command) else { throw SessionOpeningError.terminalFocusFailed(app) }
+    static func type(_ text: String, tty: String, app: String, command: String? = nil, agentPID: Int32? = nil, submitAgain: Bool = false,
+                     timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
+        // The session's own runtime names its process exactly, whatever the installer called the binary.
+        let agent = agentPID.flatMap(SessionProcess.runtimeProcess).map { URL(fileURLWithPath: $0.executable).lastPathComponent }
+        guard let source = typeScript(tty: tty, app: app, text: text, command: command, agent: agent, submitAgain: submitAgain) else {
+            throw SessionOpeningError.terminalFocusFailed(app)
+        }
         return try await executeFocusScript(source, app: app, timeout: timeout)
     }
     static func open(_ command: String, app: String, timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
