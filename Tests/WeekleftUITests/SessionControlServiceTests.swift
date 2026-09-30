@@ -23,6 +23,7 @@ import WeekleftCore
     private var cutOff = SessionCutOffAction.ask
     private var claudeContinues = true
     private var fiveHourKnown = true
+    private var located: (tty: String, app: String)?
     private var titles: [String] { notices.map(\.title) }
 
     private func service(_ typed: Typed, rows: @escaping () -> [AgentSession], limits: URL, overrides: URL? = nil) -> SessionControlService {
@@ -42,6 +43,7 @@ import WeekleftCore
                 if let during = typed.during { await during() }
                 return typed.result
             },
+            locate: { [unowned self] _ in self.located },
             open: { command, app in typed.opened.append((command, app)); return true },
             notify: { [unowned self] notice in self.notices.append(notice) },
             cutOff: { [unowned self] in self.cutOff },
@@ -265,6 +267,19 @@ import WeekleftCore
         XCTAssertTrue(typed.calls.isEmpty)
         level = 90; await controls.tick()
         XCTAssertEqual(controls.controls.first?.state, .continued, "not stopped again")
+    }
+
+    /// Codex 0.159 runs hooks from a daemon without a terminal: the tab is found by the session's folder.
+    func testACodexSessionWithoutARecordedDeviceIsTypedIntoTheTabOfItsFolder() async throws {
+        let limits = limits(), typed = Typed(), id = "019a0c0a-96ca-7cf2-9f85-caba5f66eed7"
+        var session = row(.codex, id: id); session.terminalTTY = nil; session.terminalApp = nil
+        located = ("/dev/ttys008", "Terminal")
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.continueLater(session, when: .at, at: now.addingTimeInterval(-1), message: "дальше")
+        await controls.tick()
+        XCTAssertEqual(typed.calls.first?.tty, "/dev/ttys008")
+        XCTAssertEqual(typed.calls.first?.app, "Terminal")
+        XCTAssertEqual(controls.controls.first?.state, .continued)
     }
 
     /// The user removes the control while its text is typed: it does not come back.

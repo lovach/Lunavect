@@ -46,6 +46,8 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         var type: @Sendable (String, String, String, String?, Int32?, ProviderID) async throws -> Bool = { text, tty, app, command, pid, provider in
             try await TerminalLocation.type(text, tty: tty, app: app, command: command, agentPID: pid, provider: provider)
         }
+        /// The tab of a session whose hooks recorded no device: the one running process of its provider in its folder.
+        var locate: @MainActor (AgentSession) -> (tty: String, app: String)? = { TerminalLocation.focusTarget(for: $0).map { ($0.tty, $0.app) } }
         /// A new window running the resume command.
         var open: @Sendable (String, String) async throws -> Bool = { command, app in try await TerminalLocation.open(command, app: app) }
         var notify: @MainActor (Notice) -> Void = SessionControlService.postNotice
@@ -423,14 +425,18 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     private func deliver(_ id: String, row: AgentSession?) async {
         guard let due = controls.first(where: { $0.id == id }) else { return }
         let text = due.text
-        let app = row?.terminalApp ?? due.terminalApp, client = row?.client ?? due.client
+        // Codex 0.159 runs its hooks from a shared daemon without a terminal (live check 30.09), so its
+        // sessions carry no device: the tab is found by the session's folder when that is unambiguous.
+        let located = row.flatMap { $0.terminalTTY == nil ? dependencies.locate($0) : nil }
+        let tty = row?.terminalTTY ?? located?.tty
+        let app = row?.terminalApp ?? located.flatMap { $0.app.isEmpty ? nil : $0.app } ?? due.terminalApp, client = row?.client ?? due.client
         // Enter alone belongs to the waiting Claude Code; a shell or a new window gets nothing.
         let enter = due.pressEnter == true
         // From the session's folder also in its tab: macOS may have given the tab's device to another project.
         let command = enter ? nil : TerminalLocation.resumeCommand(provider: due.provider, sessionID: due.sessionID, text: text, cwd: due.cwd)
         var typed = false, opened = false
         if client == .terminal, let app, ["Terminal", "iTerm2"].contains(app) {
-            if let tty = row?.terminalTTY { typed = (try? await dependencies.type(text, tty, app, command, row?.runtimePID, due.provider)) == true }
+            if let tty { typed = (try? await dependencies.type(text, tty, app, command, row?.runtimePID, due.provider)) == true }
             if !typed, let command { opened = (try? await dependencies.open(command, app)) == true }
         }
         // The user may have removed or changed the control while the script ran.
