@@ -2,13 +2,12 @@
 
 ## 0.2.8 — Unreleased
 
-### Tasks with a budget
+### Limits for running sessions
 
-- A new **Tasks** tab in the sessions panel runs a Claude or Codex task without a window within a share of the weekly limit you choose, with an optional guard for the five-hour window. Start it now or after the next five-hour or weekly reset.
-- At 80 % of its budget the agent is asked to finish its step and summarise what is done and what is left; at the budget it is stopped softly. Nothing is lost: the conversation is kept by Claude and Codex, and in a git project the task works in its own copy on a `lunavect/` branch, committed before every pause. The task continues by itself after the limit resets, or with **Add 5 % and continue**.
-- **Accept changes** merges the task's branch into your project; your folder does not change before that. **In Terminal** continues the same conversation by hand.
-- Permissions per task: **Careful** (edits in the task folder and safe commands), **Auto**, or **Full access** only when you choose it.
-- Near the end of a week with at least 20 % left, one notification suggests starting tasks that wait for the reset.
+- Two-finger click (or ⋯) on a Claude or Codex session: **Limit Usage…** stops it when the week reaches the level you type, and can continue it after the reset; **Continue Later…** continues it after the five-hour or weekly reset or at a set time.
+- Near the level the agent is asked to finish its step and write what is left; at the level its next action is refused and a new prompt is blocked with the reason, through the hooks Lunavect already installs. Nothing is killed: files and the conversation stay as they are.
+- The continuation ("Continue from where you stopped", or your own words) is typed into the session's own Terminal or iTerm2 tab once it is idle; for other apps a notification says what to write.
+- The **Tasks** tab lists limited and planned sessions; a small symbol marks them in the session list.
 
 ### Agent Monitor
 
