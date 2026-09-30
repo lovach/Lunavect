@@ -530,7 +530,7 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             switch (control.state, control.reason) {
             case (.stopped, _):
                 file.entries[control.id] = .init(state: .stopped,
-                    agent: L("Lunavect: неделя дошла до {0}, эта сессия остановлена до сброса лимита. Не выполняй новых действий.", level) + " " + format,
+                    agent: L("Lunavect: неделя дошла до предела этой сессии ({0}), сессия остановлена до сброса лимита. Не выполняй новых действий.", level) + " " + format,
                     continued: continued, until: until)
             case (.resting, _):
                 file.entries[control.id] = .init(state: .resting,

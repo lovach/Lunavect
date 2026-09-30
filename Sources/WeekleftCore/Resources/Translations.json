@@ -6698,12 +6698,12 @@
     "fr": "Lunavect la reprendra après la réinitialisation de la limite.",
     "zh-Hans": "Lunavect 会在额度重置后继续它。"
   },
-  "Lunavect: неделя дошла до {0}, эта сессия остановлена до сброса лимита. Не выполняй новых действий.": {
-    "de": "Lunavect: Die Woche hat {0} erreicht; diese Sitzung ist bis zum Zurücksetzen des Limits angehalten. Führen Sie keine weiteren Aktionen aus.",
-    "en": "Lunavect: the week reached {0}; this session is stopped until the limit resets. Take no further actions.",
-    "es": "Lunavect: la semana llegó al {0}; esta sesión está detenida hasta que se reinicie el límite. No hagas más acciones.",
-    "fr": "Lunavect : la semaine a atteint {0} ; cette session est arrêtée jusqu’à la réinitialisation de la limite. N’effectue plus d’actions.",
-    "zh-Hans": "Lunavect：本周用量已达 {0}，此会话在额度重置前已停止。不要再执行任何操作。"
+  "Lunavect: неделя дошла до предела этой сессии ({0}), сессия остановлена до сброса лимита. Не выполняй новых действий.": {
+    "de": "Lunavect: Die Woche hat das Limit dieser Sitzung ({0}) erreicht; die Sitzung ist bis zum Zurücksetzen des Limits angehalten. Führen Sie keine weiteren Aktionen aus.",
+    "en": "Lunavect: the week reached this session's limit ({0}); the session is stopped until the limit resets. Take no further actions.",
+    "es": "Lunavect: la semana llegó al límite de esta sesión ({0}); la sesión está detenida hasta que se reinicie el límite. No hagas más acciones.",
+    "fr": "Lunavect : la semaine a atteint la limite de cette session ({0}) ; la session est arrêtée jusqu’à la réinitialisation de la limite. N’effectue plus d’actions.",
+    "zh-Hans": "Lunavect：本周用量已达此会话的上限（{0}），会话在额度重置前已停止。不要再执行任何操作。"
   },
   "Lunavect: окно 5 часов почти исчерпано, эта сессия ждёт его сброса ({0}). Не выполняй новых действий: Lunavect сам попросит продолжить.": {
     "de": "Lunavect: Das 5-Stunden-Fenster ist fast aufgebraucht; diese Sitzung wartet auf sein Zurücksetzen ({0}). Führen Sie keine weiteren Aktionen aus: Lunavect bittet Sie danach, fortzufahren.",
@@ -6866,12 +6866,19 @@
     "fr": "Reste :",
     "zh-Hans": "剩余："
   },
-  "Остановлена на {0} недели": {
-    "de": "Bei {0} der Woche angehalten",
-    "en": "Stopped at {0} of the week",
-    "es": "Detenida al {0} de la semana",
-    "fr": "Arrêtée à {0} de la semaine",
-    "zh-Hans": "已在周额度 {0} 时停止"
+  "Остановлена: предел {0} недели": {
+    "de": "Angehalten: Limit {0} der Woche",
+    "en": "Stopped: limit {0} of the week",
+    "es": "Detenida: límite del {0} de la semana",
+    "fr": "Arrêtée : limite à {0} de la semaine",
+    "zh-Hans": "已停止：上限为周额度 {0}"
+  },
+  "Остановлена: предел {0}, неделя {1}": {
+    "de": "Angehalten: Limit {0}, Woche {1}",
+    "en": "Stopped: limit {0}, week {1}",
+    "es": "Detenida: límite {0}, semana {1}",
+    "fr": "Arrêtée : limite {0}, semaine {1}",
+    "zh-Hans": "已停止：上限 {0}，本周 {1}"
   },
   "Откройте сессию и нажмите Enter.": {
     "de": "Öffnen Sie die Sitzung und drücken Sie die Eingabetaste.",

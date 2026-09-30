@@ -4,14 +4,18 @@ import WeekleftCore
 #endif
 
 extension SessionControl {
-    var stateTitle: String {
+    var stateTitle: String { stateTitle(week: nil) }
+    /// With the week's level a stop names both numbers: the week can be past the limit set below it.
+    func stateTitle(week: Double?) -> String {
         let level = PercentText.format(Int((stopAtWeek ?? 0).rounded()))
         switch state {
         case .watching:
             if stopAtWeek != nil { return L("Остановится на {0} недели", level) }
             return resumeAt.map { L("Продолжит {0}", SessionControlService.date($0)) } ?? L("Ждёт")
         case .wrappingUp: return L("Заканчивает шаг перед пределом")
-        case .stopped: return L("Остановлена на {0} недели", level)
+        case .stopped:
+            guard let week else { return L("Остановлена: предел {0} недели", level) }
+            return L("Остановлена: предел {0}, неделя {1}", level, PercentText.format(Int(week.rounded())))
         case .resting: return L("Ждёт сброса окна 5 часов")
         case .offered: return pressEnter == true ? L("Лимит сбросился, пока Mac спал") : L("Лимит {0} закончился посреди работы", provider.title)
         case .continued: return L("Продолжена")
@@ -266,7 +270,7 @@ struct SessionControlListView: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Image(systemName: control.symbol).foregroundStyle(control.tint)
-                Text(([control.stateTitle, control.resumeLine,
+                Text(([control.stateTitle(week: control.state == .stopped ? controls.weekLevel(control.provider) : nil), control.resumeLine,
                        control.state == .watching && control.stopAtWeek != nil && control.fiveHourGuard == true ? L("не обрывается на окне 5 часов") : nil]
                       as [String?]).compactMap { $0 }.joined(separator: " · "))
                     .fixedSize(horizontal: false, vertical: true)

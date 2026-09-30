@@ -79,6 +79,11 @@ import WeekleftCore
         XCTAssertEqual(controls.controls.first?.state, .stopped)
         XCTAssertEqual(SessionLimitFile.load(from: limits).entries["claude:S1"]?.state, .stopped, "hooks now refuse its actions")
         XCTAssertEqual(notices.last?.category, SessionControlService.Category.stopped, "the notice carries Continue now and +5 %")
+        let stopped = try XCTUnwrap(controls.controls.first)
+        XCTAssertEqual(stopped.stateTitle(week: controls.weekLevel(.claude)),
+                       L("Остановлена: предел {0}, неделя {1}", PercentText.format(85), PercentText.format(86)),
+                       "the card names the limit and the week, which can be past it")
+        XCTAssertTrue(SessionLimitFile.load(from: limits).entries["claude:S1"]?.agent.contains(L("Lunavect: неделя дошла до предела этой сессии ({0}), сессия остановлена до сброса лимита. Не выполняй новых действий.", PercentText.format(85))) == true)
         XCTAssertTrue(typed.calls.isEmpty)
         for _ in 0..<20 where controls.controls.first?.summary == nil { await Task.yield(); try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(controls.controls.first?.summary, "Сделано: экспорт. Осталось: тесты.", "the agent's own summary is kept for the card")
