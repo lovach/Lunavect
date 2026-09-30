@@ -15,8 +15,8 @@ final class SessionControlTests: XCTestCase {
 
     func testHooksRefuseTheNextActionOnlyInALimitedSession() throws {
         var file = SessionLimitFile()
-        file.entries["claude:A"] = .init(state: .stopped, agent: "agent-stop", user: "user-stop")
-        file.entries["codex:B"] = .init(state: .wrappingUp, agent: "agent-wrap", user: "user-wrap")
+        file.entries["claude:A"] = .init(state: .stopped, agent: "agent-stop", continued: "agent-continued")
+        file.entries["codex:B"] = .init(state: .wrappingUp, agent: "agent-wrap")
         func reply(_ event: String, _ session: String) throws -> [String: Any] {
             let payload = try JSONSerialization.data(withJSONObject: ["hook_event_name": event, "session_id": session])
             return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(file.reply(payload: payload).utf8)) as? [String: Any])
@@ -24,8 +24,11 @@ final class SessionControlTests: XCTestCase {
         let deny = try reply("PreToolUse", "A")["hookSpecificOutput"] as? [String: Any]
         XCTAssertEqual(deny?["permissionDecision"] as? String, "deny")
         XCTAssertEqual(deny?["permissionDecisionReason"] as? String, "agent-stop")
-        XCTAssertEqual(try reply("UserPromptSubmit", "A")["decision"] as? String, "block")
-        XCTAssertEqual(try reply("UserPromptSubmit", "A")["reason"] as? String, "user-stop")
+        // Owner 30.09: the user's own message is never blocked; it lifts the stop.
+        XCTAssertNil(try reply("UserPromptSubmit", "A")["decision"])
+        XCTAssertEqual((try reply("UserPromptSubmit", "A")["hookSpecificOutput"] as? [String: Any])?["additionalContext"] as? String, "agent-continued")
+        let payload = try JSONSerialization.data(withJSONObject: ["hook_event_name": "PreToolUse", "session_id": "A"])
+        XCTAssertEqual(file.reply(payload: payload, overridden: ["claude:A"]), "{}", "the agent's next actions follow the user's message")
         XCTAssertEqual((try reply("PreToolUse", "B")["hookSpecificOutput"] as? [String: Any])?["additionalContext"] as? String, "agent-wrap")
         XCTAssertTrue(try reply("PreToolUse", "other").isEmpty, "every other session gets {}")
         XCTAssertTrue(try reply("Stop", "A").isEmpty)
@@ -36,7 +39,7 @@ final class SessionControlTests: XCTestCase {
     func testALimitEntryLapsesAfterItsWindowResets() throws {
         let reset = Date(timeIntervalSince1970: 1_800_000_000)
         var file = SessionLimitFile()
-        file.entries["claude:A"] = .init(state: .stopped, agent: "agent-stop", user: "user-stop", until: reset)
+        file.entries["claude:A"] = .init(state: .stopped, agent: "agent-stop", until: reset)
         let payload = try JSONSerialization.data(withJSONObject: ["hook_event_name": "PreToolUse", "session_id": "A"])
         XCTAssertTrue(file.reply(payload: payload, now: reset.addingTimeInterval(-1)).contains("deny"))
         XCTAssertEqual(file.reply(payload: payload, now: reset), "{}")
@@ -108,6 +111,23 @@ final class SessionControlTests: XCTestCase {
         // Live check 30.09: the native installer's process is named by its version, not "claude".
         XCTAssertTrue(script.contains(#""0123456789" contains (character 1 of pn)"#))
         XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", agent: "my \"agent\"")?.contains(#""my \"agent\"""#) == true)
+    }
+
+    /// The hook notes the user's message to a stopped session and lets the agent act again.
+    func testTheUsersMessageLiftsAStopInTheHook() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let limits = folder.appendingPathComponent("limits.json"), overrides = folder.appendingPathComponent("limit-overrides.json")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        try SessionLimitFile(entries: ["codex:A": .init(state: .stopped, agent: "agent-stop", continued: "agent-continued")]).save(to: limits)
+        func event(_ name: String) throws -> Data { try JSONSerialization.data(withJSONObject: ["hook_event_name": name, "session_id": "A"]) }
+        XCTAssertTrue(SessionLimitFile.answer(payload: try event("PreToolUse"), limits: limits, overrides: overrides, now: now).contains("deny"))
+        XCTAssertTrue(SessionLimitOverrides.load(from: overrides).sessions.isEmpty, "the agent's own action notes nothing")
+        XCTAssertTrue(SessionLimitFile.answer(payload: try event("UserPromptSubmit"), limits: limits, overrides: overrides, now: now).contains("agent-continued"))
+        XCTAssertEqual(SessionLimitOverrides.load(from: overrides).sessions["codex:A"], now)
+        XCTAssertEqual(SessionLimitFile.answer(payload: try event("PreToolUse"), limits: limits, overrides: overrides, now: now), "{}")
+        XCTAssertEqual(SessionLimitFile.answer(payload: try event("PreToolUse"), limits: limits, overrides: overrides, now: now), "{}")
     }
 
     /// A long message is cut before quoting: the command always closes its quotes.

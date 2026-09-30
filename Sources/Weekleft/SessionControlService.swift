@@ -60,6 +60,7 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     private let dependencies: Dependencies
     private let url: URL?
     private let limitURL: URL?
+    private let overrideURL: URL?
     private var loop: Task<Void, Never>?
     private var delivering: Set<String> = []
     private var reading: Set<String> = []
@@ -68,14 +69,16 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     private var writtenLimits: SessionLimitFile?
     private let logger = Logger(subsystem: "com.weekleft.app", category: "session-controls")
 
-    init(url: URL? = SessionControlService.defaultURL, limitURL: URL? = SessionControlService.defaultLimitURL, dependencies: Dependencies) {
-        self.url = url; self.limitURL = limitURL; self.dependencies = dependencies
+    init(url: URL? = SessionControlService.defaultURL, limitURL: URL? = SessionControlService.defaultLimitURL,
+         overrideURL: URL? = SessionControlService.defaultOverrideURL, dependencies: Dependencies) {
+        self.url = url; self.limitURL = limitURL; self.overrideURL = overrideURL; self.dependencies = dependencies
         let list = url.flatMap { try? SessionControlList.load(from: $0) }
         controls = list?.controls ?? []
         declined = list?.declined ?? [:]
     }
     nonisolated static var defaultURL: URL? { LiveWriteGuard.underTestsForStores ? nil : SessionControlList.fileURL }
     nonisolated static var defaultLimitURL: URL? { LiveWriteGuard.underTestsForStores ? nil : SessionLimitFile.fileURL }
+    nonisolated static var defaultOverrideURL: URL? { LiveWriteGuard.underTestsForStores ? nil : SessionLimitOverrides.fileURL }
 
     func start() {
         guard loop == nil else { return }
@@ -246,6 +249,7 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
 
     func tick() async {
         let now = dependencies.clock(), sessions = dependencies.sessions()
+        liftOverriddenStops(now: now)
         noticeCutOffs(sessions, now: now)
         for id in controls.map(\.id) {
             guard var control = controls.first(where: { $0.id == id }) else { continue }
@@ -295,7 +299,7 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     private func enter(_ state: SessionControl.State, reason: SessionControl.Reason?, control: inout SessionControl, snapshot: UsageSnapshot?, now: Date) {
         if state == .stopped, control.state != .stopped {
             if control.continueAfterWeek == true { control.resumeAt = snapshot?.weekly?.resetsAt.map(Self.afterReset) }
-            let when = control.resumeAt.map { L("Продолжит {0}.", Self.date($0)) } ?? L("Снимите ограничение в Lunavect, чтобы продолжить.")
+            let when = control.resumeAt.map { L("Продолжит {0}.", Self.date($0)) } ?? L("Напишите в сессию или снимите ограничение в Lunavect, чтобы продолжить.")
             let level = PercentText.format(Int((control.stopAtWeek ?? 0).rounded()))
             dependencies.notify(Notice(title: L("Сессия остановлена на {0} недели", level), body: control.title + "\n" + when,
                                        category: Self.Category.stopped, controlID: control.id))
@@ -314,6 +318,29 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             if control.nativeContinue == true { control.nativeContinue = nil; control.note = nil }
         }
         control.state = state; control.reason = reason; control.updatedAt = now
+    }
+
+    /// The user wrote to a stopped or resting session: the hook let the message through and
+    /// noted it; the stop is lifted here (the week's limit, or the rest until the window resets),
+    /// the hooks' file is rewritten, and only then the note is removed.
+    private func liftOverriddenStops(now: Date) {
+        guard let overrideURL else { return }
+        let noted = SessionLimitOverrides.load(from: overrideURL).sessions
+        guard !noted.isEmpty else { return }
+        for (id, at) in noted {
+            // A note older than the stop belongs to an earlier one.
+            guard var control = controls.first(where: { $0.id == id }), [.stopped, .resting].contains(control.state), at >= control.updatedAt else { continue }
+            if control.state == .resting { control.guardOffUntil = snapshot(control.provider)?.fiveHour?.resetsAt ?? now.addingTimeInterval(5 * 3600) }
+            else { control.stopAtWeek = nil }
+            control.state = control.stopAtWeek == nil && control.fiveHourGuard != true ? .continued : .watching
+            control.reason = nil; control.resumeAt = nil; control.resume = nil; control.pressEnter = nil
+            control.note = L("Вы продолжили её {0}.", Self.date(at)); control.updatedAt = now
+            upsert(control, write: false)
+        }
+        writeLimits()
+        var left = SessionLimitOverrides.load(from: overrideURL)
+        for (id, at) in noted where left.sessions[id] == at { left.sessions[id] = nil }
+        do { try left.save(to: overrideURL) } catch { logger.error("Limit overrides not cleared: \((error as NSError).code)") }
     }
 
     /// A turn the provider's limit ended. Codex writes it into its log (`usage_limit_exceeded`);
@@ -433,6 +460,7 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     private func writeLimits() {
         var file = SessionLimitFile()
         let format = L("Коротко напиши двумя строками: «{0} …» и «{1} …».", L("Сделано:"), L("Осталось:"))
+        let continued = L("Lunavect: пользователь написал в эту сессию, и её ограничение снято. Продолжай по его сообщению.")
         for control in controls where [.wrappingUp, .stopped, .resting].contains(control.state) {
             let level = PercentText.format(Int((control.stopAtWeek ?? 0).rounded()))
             let reset = control.resumeAt.map(Self.date) ?? L("после сброса")
@@ -444,20 +472,20 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             case (.stopped, _):
                 file.entries[control.id] = .init(state: .stopped,
                     agent: L("Lunavect: неделя дошла до {0}, эта сессия остановлена до сброса лимита. Не выполняй новых действий.", level) + " " + format,
-                    user: L("Lunavect остановил эту сессию: неделя дошла до {0}. Чтобы продолжить сейчас, снимите ограничение в Lunavect (меню сессии или вкладка «Задачи»).", level), until: until)
+                    continued: continued, until: until)
             case (.resting, _):
                 file.entries[control.id] = .init(state: .stopped,
                     agent: L("Lunavect: окно 5 часов почти исчерпано, эта сессия ждёт его сброса ({0}). Не выполняй новых действий: Lunavect сам попросит продолжить.", reset) + " " + format,
-                    user: L("Lunavect поставил эту сессию на паузу до сброса окна 5 часов ({0}) и потом продолжит её сам. Чтобы продолжить сейчас, нажмите «Продолжить сейчас» во вкладке «Задачи».", reset), until: until)
+                    continued: continued, until: until)
             case (.wrappingUp, .fiveHour):
                 file.entries[control.id] = .init(state: .wrappingUp,
                     agent: L("Lunavect: окно 5 часов почти исчерпано. Закончи текущий шаг и не начинай новую работу: после сброса окна Lunavect попросит продолжить.") + " " + format,
-                    user: "", until: until)
+                    until: until)
             default:
                 guard control.stopAtWeek != nil else { continue }
                 file.entries[control.id] = .init(state: .wrappingUp,
                     agent: L("Lunavect: неделя почти дошла до {0}, предела этой сессии. Закончи текущий шаг и не начинай новую работу.", level) + " " + format,
-                    user: "", until: until)
+                    until: until)
             }
         }
         guard file != writtenLimits, let limitURL else { return }

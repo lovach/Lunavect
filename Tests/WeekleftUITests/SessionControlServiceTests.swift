@@ -25,9 +25,9 @@ import WeekleftCore
     private var fiveHourKnown = true
     private var titles: [String] { notices.map(\.title) }
 
-    private func service(_ typed: Typed, rows: @escaping () -> [AgentSession], limits: URL) -> SessionControlService {
+    private func service(_ typed: Typed, rows: @escaping () -> [AgentSession], limits: URL, overrides: URL? = nil) -> SessionControlService {
         typed.limits = limits
-        return SessionControlService(url: nil, limitURL: limits, dependencies: .init(
+        return SessionControlService(url: nil, limitURL: limits, overrideURL: overrides, dependencies: .init(
             ledger: { [unowned self] in self.ledger },
             snapshots: { [unowned self] in [UsageSnapshot(provider: .claude,
                 weekly: try! QuotaWindow(usedPercent: self.level, durationMinutes: 10080, resetsAt: self.now.addingTimeInterval(self.reset)),
@@ -243,6 +243,28 @@ import WeekleftCore
         await offering.tick()
         XCTAssertEqual(offering.controls.first?.state, .offered)
         XCTAssertEqual(offering.limitCutOff(failed).handled, true)
+    }
+
+    /// Owner 30.09: a stopped session stops; the user's own message to it lifts the stop, and
+    /// Lunavect types nothing more.
+    func testTheUsersMessageLiftsTheStop() async throws {
+        let limits = limits(), overrides = limits.deletingPathExtension().appendingPathExtension("overrides.json"), typed = Typed(), session = row()
+        addTeardownBlock { try? FileManager.default.removeItem(at: overrides) }
+        let controls = service(typed, rows: { [session] }, limits: limits, overrides: overrides)
+        controls.setLimit(for: session, stopAtWeek: 80, continueAfterReset: true, message: nil)
+        level = 81; await controls.tick()
+        XCTAssertEqual(controls.controls.first?.state, .stopped)
+        now = now.addingTimeInterval(30)
+        let prompt = try JSONSerialization.data(withJSONObject: ["hook_event_name": "UserPromptSubmit", "session_id": "S1"])
+        XCTAssertFalse(SessionLimitFile.answer(payload: prompt, limits: limits, overrides: overrides, now: now).contains("block"))
+        now = now.addingTimeInterval(10); await controls.tick()
+        XCTAssertEqual(controls.controls.first?.state, .continued, "the week's limit is lifted")
+        XCTAssertNil(controls.controls.first?.resumeAt, "nothing is typed after the reset either")
+        XCTAssertTrue(SessionLimitFile.load(from: limits).entries.isEmpty)
+        XCTAssertTrue(SessionLimitOverrides.load(from: overrides).sessions.isEmpty, "the note is removed once applied")
+        XCTAssertTrue(typed.calls.isEmpty)
+        level = 90; await controls.tick()
+        XCTAssertEqual(controls.controls.first?.state, .continued, "not stopped again")
     }
 
     /// The user removes the control while its text is typed: it does not come back.

@@ -176,12 +176,12 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
         public var state: SessionControl.State
         /// What the agent reads with its refused or reminded action.
         public var agent: String
-        /// What the user reads when a prompt to a stopped session is blocked.
-        public var user: String
+        /// What the agent reads with the user's own message to a stopped session, which lifts the stop.
+        public var continued: String?
         /// The entry lapses then (the window's reset): a stop never outlives its limit when Lunavect is not running.
         public var until: Date?
-        public init(state: SessionControl.State, agent: String, user: String, until: Date? = nil) {
-            self.state = state; self.agent = agent; self.user = user; self.until = until
+        public init(state: SessionControl.State, agent: String, continued: String? = nil, until: Date? = nil) {
+            self.state = state; self.agent = agent; self.continued = continued; self.until = until
         }
     }
     public var entries: [String: Entry] = [:]
@@ -200,29 +200,66 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
 
     /// The hook's reply for one event: `{}` for every session the user did not limit.
     /// Claude Code and Codex read the same shapes: PreToolUse denies with a reason the
-    /// agent sees or adds context; UserPromptSubmit blocks with a reason the user sees.
-    /// A resting session is written as stopped: its hooks answer the same way.
-    public func reply(payload: Data, now: Date = Date()) -> String {
+    /// agent sees or adds context. The user's own message (UserPromptSubmit) is never
+    /// blocked: in a stopped session it lifts the stop (owner 30.09), noted in `overridden`
+    /// until Lunavect removes the entry. A resting session is written as stopped: its
+    /// hooks answer the same way.
+    public func reply(payload: Data, now: Date = Date(), overridden: Set<String> = []) -> String {
         guard !entries.isEmpty, let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let event = object["hook_event_name"] as? String, let session = object["session_id"] as? String else { return "{}" }
         let provider: ProviderID? = entries[TokenLedger.sessionKey(.claude, session)] != nil ? .claude
             : entries[TokenLedger.sessionKey(.codex, session)] != nil ? .codex : nil
         guard let provider, let entry = entries[TokenLedger.sessionKey(provider, session)],
               entry.until.map({ $0 > now }) ?? true else { return "{}" }
+        let lifted = overridden.contains(TokenLedger.sessionKey(provider, session))
         let reply: [String: Any]?
         switch (event, entry.state) {
         case ("PreToolUse", .stopped), ("PreToolUse", .resting):
-            reply = ["hookSpecificOutput": ["hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": entry.agent]]
+            reply = lifted ? nil : ["hookSpecificOutput": ["hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": entry.agent]]
         case ("PreToolUse", .wrappingUp):
             reply = ["hookSpecificOutput": ["hookEventName": "PreToolUse", "additionalContext": entry.agent]]
         case ("UserPromptSubmit", .stopped), ("UserPromptSubmit", .resting):
-            reply = ["decision": "block", "reason": entry.user]
+            reply = entry.continued.map { ["hookSpecificOutput": ["hookEventName": "UserPromptSubmit", "additionalContext": $0]] }
         case ("UserPromptSubmit", .wrappingUp):
             reply = ["hookSpecificOutput": ["hookEventName": "UserPromptSubmit", "additionalContext": entry.agent]]
         default: reply = nil
         }
         guard let reply, let data = try? JSONSerialization.data(withJSONObject: reply) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+public extension SessionLimitFile {
+    /// The hook's side of a limit: the reply, and a note when the user's message lifts a stop.
+    static func answer(payload: Data, limits: URL = fileURL, overrides: URL = SessionLimitOverrides.fileURL, now: Date = Date()) -> String {
+        let file = load(from: limits)
+        guard !file.entries.isEmpty, let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let event = object["hook_event_name"] as? String, let session = object["session_id"] as? String,
+              let key = [TokenLedger.sessionKey(.claude, session), TokenLedger.sessionKey(.codex, session)].first(where: { file.entries[$0] != nil }),
+              let entry = file.entries[key], [.stopped, .resting].contains(entry.state) else { return file.reply(payload: payload, now: now) }
+        var noted = SessionLimitOverrides.load(from: overrides)
+        if event == "UserPromptSubmit", entry.until.map({ $0 > now }) ?? true {
+            noted.sessions[key] = now
+            try? noted.save(to: overrides)
+        }
+        return file.reply(payload: payload, now: now, overridden: Set(noted.sessions.keys))
+    }
+}
+
+/// Stopped sessions the user wrote to: the hook lets the message and the agent's next
+/// actions through, and Lunavect lifts the stop on its next pass and removes the note.
+public struct SessionLimitOverrides: Codable, Equatable, Sendable {
+    public var sessions: [String: Date] = [:]
+    public init(sessions: [String: Date] = [:]) { self.sessions = sessions }
+    public static var fileURL: URL { SessionHooks.directory.appendingPathComponent("limit-overrides.json") }
+    public static func load(from url: URL = fileURL) -> SessionLimitOverrides {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count < 1_000_000 else { return SessionLimitOverrides() }
+        return (try? JSONDecoder().decode(Self.self, from: data)) ?? SessionLimitOverrides()
+    }
+    public func save(to url: URL = fileURL) throws {
+        try LiveWriteGuard.check(url)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try JSONEncoder().encode(self).write(to: url, options: .atomic)
     }
 }
 

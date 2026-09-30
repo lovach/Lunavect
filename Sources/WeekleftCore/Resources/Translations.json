@@ -6376,12 +6376,12 @@
     "fr": "Lunavect n’est pas relié aux événements de {0} et ne peut pas arrêter la session. Activez la connexion dans les réglages.",
     "zh-Hans": "Lunavect 未连接到 {0} 的事件，无法停止会话。请在设置中打开连接。"
   },
-  "Lunavect остановил эту сессию: неделя дошла до {0}. Чтобы продолжить сейчас, снимите ограничение в Lunavect (меню сессии или вкладка «Задачи»).": {
-    "en": "Lunavect stopped this session: the week reached {0}. To continue now, remove the limit in Lunavect (the session menu or the Tasks tab).",
-    "de": "Lunavect hat diese Sitzung angehalten: Die Woche hat {0} erreicht. Um jetzt fortzufahren, heben Sie das Limit in Lunavect auf (Sitzungsmenü oder Tab „Aufgaben“).",
-    "es": "Lunavect detuvo esta sesión: la semana llegó al {0}. Para continuar ahora, quita el límite en Lunavect (menú de la sesión o pestaña Tareas).",
-    "fr": "Lunavect a arrêté cette session : la semaine a atteint {0}. Pour reprendre maintenant, retirez la limite dans Lunavect (menu de la session ou onglet Tâches).",
-    "zh-Hans": "Lunavect 已停止此会话：本周用量已达 {0}。如需现在继续，请在 Lunavect 中取消限制（会话菜单或“任务”标签页）。"
+  "Lunavect: пользователь написал в эту сессию, и её ограничение снято. Продолжай по его сообщению.": {
+    "en": "Lunavect: the user wrote to this session, so its limit is lifted. Continue with their message.",
+    "de": "Lunavect: Der Nutzer hat in diese Sitzung geschrieben, daher ist ihr Limit aufgehoben. Fahren Sie mit seiner Nachricht fort.",
+    "es": "Lunavect: el usuario escribió en esta sesión, así que su límite se ha quitado. Continúa con su mensaje.",
+    "fr": "Lunavect : l’utilisateur a écrit dans cette session, sa limite est donc levée. Continue avec son message.",
+    "zh-Hans": "Lunavect：用户已在此会话中发送消息，因此其限制已解除。请按用户的消息继续。"
   },
   "В точное время": {
     "en": "At a set time",
@@ -6593,12 +6593,12 @@
     "fr": "La session reprend",
     "zh-Hans": "会话继续"
   },
-  "Снимите ограничение в Lunavect, чтобы продолжить.": {
-    "en": "Remove the limit in Lunavect to continue.",
-    "de": "Heben Sie das Limit in Lunavect auf, um fortzufahren.",
-    "es": "Quita el límite en Lunavect para continuar.",
-    "fr": "Retirez la limite dans Lunavect pour reprendre.",
-    "zh-Hans": "在 Lunavect 中取消限制即可继续。"
+  "Напишите в сессию или снимите ограничение в Lunavect, чтобы продолжить.": {
+    "en": "Write to the session or remove the limit in Lunavect to continue.",
+    "de": "Schreiben Sie in die Sitzung oder heben Sie das Limit in Lunavect auf, um fortzufahren.",
+    "es": "Escribe en la sesión o quita el límite en Lunavect para continuar.",
+    "fr": "Écrivez dans la session ou retirez la limite dans Lunavect pour reprendre.",
+    "zh-Hans": "在会话中发送消息，或在 Lunavect 中取消限制即可继续。"
   },
   "Снять": {
     "en": "Remove",
@@ -6677,12 +6677,12 @@
     "fr": "Lunavect appuiera sur Entrée et Claude Code reprendra.",
     "zh-Hans": "Lunavect 会按下 Enter，Claude Code 随即继续。"
   },
-  "Lunavect поставил эту сессию на паузу до сброса окна 5 часов ({0}) и потом продолжит её сам. Чтобы продолжить сейчас, нажмите «Продолжить сейчас» во вкладке «Задачи».": {
-    "de": "Lunavect hat diese Sitzung bis zum Zurücksetzen des 5-Stunden-Fensters ({0}) pausiert und setzt sie danach selbst fort. Um jetzt fortzufahren, klicken Sie im Tab „Aufgaben“ auf „Jetzt fortsetzen“.",
-    "en": "Lunavect paused this session until the 5-hour window resets ({0}) and will then continue it by itself. To continue now, click Continue now in the Tasks tab.",
-    "es": "Lunavect pausó esta sesión hasta que se reinicie la ventana de 5 horas ({0}) y luego la continuará sola. Para continuar ahora, pulsa Continuar ahora en la pestaña Tareas.",
-    "fr": "Lunavect a mis cette session en pause jusqu’à la réinitialisation de la fenêtre de 5 heures ({0}) et la reprendra ensuite tout seul. Pour reprendre maintenant, cliquez sur Reprendre maintenant dans l’onglet Tâches.",
-    "zh-Hans": "Lunavect 已将此会话暂停到 5 小时窗口重置（{0}），之后会自动继续。如需现在继续，请在“任务”标签页中点击“立即继续”。"
+  "Вы продолжили её {0}.": {
+    "en": "You continued it {0}.",
+    "de": "Sie haben sie {0} fortgesetzt.",
+    "es": "La continuaste {0}.",
+    "fr": "Vous l’avez reprise {0}.",
+    "zh-Hans": "你已于 {0} 继续。"
   },
   "Lunavect продолжит её после сброса в {0}.": {
     "de": "Lunavect setzt sie nach dem Zurücksetzen ({0}) fort.",
