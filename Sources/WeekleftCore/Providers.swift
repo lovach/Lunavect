@@ -81,9 +81,12 @@ public enum CodexProvider {
 /// - Failures back off 5, 10, 20, 40, then 60 minutes. Wake and a restored
 ///   network start over only for a transient cause; a cause the user has to
 ///   change (trust, sign-in, billing, format) waits for an explicit refresh or a
-///   changed connection. Claude's "limit reached" pauses until the earliest known
-///   reset. An answer without any known window backs off like a failure. An
-///   explicit refresh asks at most once per 30 seconds.
+///   changed connection. A used-up window is asked about hourly, sooner after
+///   session activity, and right after its reset: a manual reset (Codex's usage
+///   limit resets) or added credits lift it early (owner report 30.09). Claude's
+///   "limit reached" pauses until the earliest known reset, at most an hour. An
+///   answer without any known window backs off like a failure. An explicit
+///   refresh asks at most once per 30 seconds.
 public struct QuotaRefreshPolicy: Sendable {
     public enum Trigger: String, Sendable { case launch, timer, sessionEvent, wake, networkRestored, resetDue, manual }
     public struct Timing: Sendable, Equatable {
@@ -119,10 +122,15 @@ public struct QuotaRefreshPolicy: Sendable {
         if let retry = retryDate(state), let failed = state.lastFailure, now >= failed, now < retry { return false }
         guard let snapshot, snapshot.fetchedAt != nil, snapshot.hasQuota || snapshot.unlimited == true else { return true }
         let windows = [snapshot.weekly, snapshot.fiveHour].compactMap { $0 }
-        // Usage within a window never decreases, and no request is possible while
-        // a window is used up: nothing changes before its reset, including another
-        // window whose reset has passed (both are confirmed together afterwards).
-        if windows.contains(where: { $0.isUsedUp && ($0.resetsAt.map { $0 > now } ?? false) }) { return false }
+        // A used-up window mostly lifts at its reset, but a manual reset or added credits
+        // lift it earlier (owner report 30.09: a Codex reset stayed at 0 % for three days).
+        // Ask hourly, or after session activity, which is what follows a lifted limit.
+        if windows.contains(where: { $0.isUsedUp && ($0.resetsAt.map { $0 > now } ?? false) }) {
+            let observed = (snapshot.freshnessVerified ? snapshot.fetchedAt : state.lastVerified) ?? snapshot.fetchedAt ?? now
+            let age = now.timeIntervalSince(observed)
+            if age < 0 { return true }
+            return trigger == .sessionEvent ? age > timing.eventMinimumAge : age >= timing.idleInterval
+        }
         // A passed reset: the saved values belong to the previous window, also when
         // an answer after the reset still showed it. Confirm the new windows once the
         // grace (minute rounding of the CLI) after the latest passed reset is over;
@@ -186,8 +194,10 @@ public struct QuotaRefreshPolicy: Sendable {
             if reason == .limitReached {
                 // Nothing changes before a reset. The binding window is not named, so the
                 // earliest known reset is the first moment the limit may have lifted.
+                // A manual reset or added credits can lift it sooner: at most an hour.
                 let reset = [snapshot?.weekly, snapshot?.fiveHour].compactMap { $0?.resetsAt }.filter { $0 > now }.min()
-                state.pausedUntil = reset.map { $0.addingTimeInterval(snapshot?.resetGrace ?? 0) }
+                let hour = now.addingTimeInterval(timing.idleInterval)
+                state.pausedUntil = reset.map { min($0.addingTimeInterval(snapshot?.resetGrace ?? 0), hour) }
                     ?? now.addingTimeInterval(timing.backoff.last ?? timing.idleInterval)
             }
         }

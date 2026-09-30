@@ -24,6 +24,10 @@
 - Daily totals are now kept without a time limit (about 1 KB a day). Once, Lunavect reads every Claude and Codex log still on the Mac and adds those days, marked ≈ as recovered.
 - New cards: a **Calendar** of days with work (with the longest day and the average per day with work), **When you work** (the day as a 24-hour clock with each hour's work, shares of night, morning, afternoon and evening, and time per weekday; hovering an hour shows its time), **Projects** by time, **Agents waited for you** (answers, permissions and the typical wait, counted live from this version) and **Sessions** (count, average and longest). Hovering a calendar day shows its time.
 
+### Limits
+
+- A used-up limit that lifts early, after a manual reset (Codex's usage limit resets) or added credits, shows within an hour: while a window is used up Lunavect now asks hourly and after session activity, not only at its scheduled reset. Before, the widget could keep showing 0% for days.
+
 ### Widgets and subscriptions
 
 - The limits widgets show the plan end date from Settings → Subscriptions as a compact icon and date: orange with the days left in the last week, red once it has passed. **Show plan end date** in Settings → Widgets turns it off.
