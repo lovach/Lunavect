@@ -74,6 +74,19 @@ A live session whose tab cannot be focused is reported as possibly open, even wh
 
 Opening an application is not always the same as returning to the exact conversation. If the client is missing, the project was moved or the route is unsupported, use the row's project or resume action when available. Include the client and its version in reports about navigation problems.
 
+## Limit usage and continue later
+
+Two-finger click (or ⋯) on a Claude or Codex session offers **Limit Usage…** and **Continue Later…**; the **Tasks** tab lists every limited, resting and planned session.
+
+- **Limit Usage…** stops the session when the week reaches the level you set. The suggested level spreads the rest of the week evenly over the days to its reset. Between readings the week's level is estimated from the tokens the session logs write, in the provider's own percent per price-weighted token, and corrected by each new reading.
+- **Don't get cut off by the 5-hour window** (on by default) asks the agent to finish its step at 88 % of the five-hour window and holds new actions at 96 % until that window resets.
+- Near a limit the agent's next action carries a request to finish its step and write two lines, what is done and what is left. At the limit its next action is refused with the reason and a new prompt is blocked; the process, its files and the conversation stay as they are. The **Tasks** card shows the agent's last reply.
+- Enforcement uses the `PreToolUse` and `UserPromptSubmit` hooks Lunavect installs, so it needs the hooks connected; Codex runs them only after you trust them (Settings → Connections warns otherwise). A stop lapses five minutes after its window resets, also when Lunavect is not running then; only Lunavect continues the session.
+- The continuation (**Continue from where you stopped** or your own words) is typed into the session's own Terminal or iTerm2 tab once the agent is idle and not asking for a permission, and only while that session's agent still runs on the tab's device: macOS gives a closed tab's device to the next tab. At a shell prompt in that tab Lunavect runs `claude --resume` or `codex resume` from the session's folder; when the tab is closed or runs something else, it opens a new window of the same terminal app. For desktop apps and editors a notification says what to write.
+- When a usage limit cuts a session off mid-answer, **General → If a limit cuts work off** decides: ask whether to continue after the reset (default), continue without asking, or do nothing. Claude Code 2.1.234 and later waits in the session and continues by itself; Lunavect then only presses Enter when the Mac slept through the reset and Claude Code waits for it, or offers to continue when Claude's own automatic continue is off or gave up.
+
+Typing into a tab uses the Automation permission (see [return to a task](#return-to-a-task)). Notices about stopped sessions and the cut-off question are described in [notifications](notifications.md).
+
 ## How state is determined
 
 Lunavect combines local lifecycle hooks, available client runtime information and session metadata. Claude Desktop metadata can supply a title for an existing Claude Code session. Codex can use a local log-based fallback when shared runtime information is unavailable. Compatibility with other local status-bar records is optional and does not modify their event handlers. When Lunavect's own hook reports a session, such a record is ignored for it: the hook sees the same events with exact times and background work.

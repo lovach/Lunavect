@@ -87,12 +87,12 @@ Download counts are requests for files, not a count of users or installations. R
 | Capability | When used |
 | --- | --- |
 | Read local client files and edit client configuration | After connecting a provider; the connection guide explains its handlers and status-line changes |
-| Automation (control Terminal or iTerm2) | When you open a Terminal or iTerm2 session from its row; macOS asks once, and a denial is managed in System Settings → Privacy & Security → Automation. See [sessions](sessions.md) |
+| Automation (control Terminal or iTerm2) | When you open a Terminal or iTerm2 session from its row; when a session you limited or scheduled continues (the continuation is typed into its tab, or `claude --resume` / `codex resume` runs there or in a new window); and when **Open Codex in Terminal** starts Codex for hook trust. macOS asks once, and a denial is managed in System Settings → Privacy & Security → Automation. See [sessions](sessions.md) |
 | Notifications | If you enable alerts for session completion or requests for input |
 | Launch at login | If you enable it in Settings |
 | Privileged keep-awake helper | Only for the optional experimental closed-lid mode, with macOS approval |
 
-The public app does not request Screen Recording or Accessibility permission to read session state or quotas; Automation is used only to bring a terminal tab to the front. The main app is not sandboxed; the WidgetKit extension is sandboxed and reads the shared data. A permission error is shown as a source or setup problem, not as zero usage.
+The public app does not request Screen Recording or Accessibility permission to read session state or quotas; Automation is used only for the terminal actions listed above. The main app is not sandboxed; the WidgetKit extension is sandboxed and reads the shared data. A permission error is shown as a source or setup problem, not as zero usage.
 
 ## Disconnecting and deleting data
 

@@ -6733,12 +6733,19 @@
     "fr": "{0} : la part d’aujourd’hui si le reste de la semaine doit tenir jusqu’à la réinitialisation ({1}).",
     "zh-Hans": "{0}：若要把本周剩余额度撑到重置（{1}），这是今天的份额。"
   },
-  "Вкладку закрыли: Lunavect открыл новую в Терминале.": {
-    "de": "Der Tab war geschlossen: Lunavect hat einen neuen im Terminal geöffnet.",
-    "en": "The tab was closed: Lunavect opened a new one in Terminal.",
-    "es": "La pestaña estaba cerrada: Lunavect abrió una nueva en Terminal.",
-    "fr": "L’onglet était fermé : Lunavect en a ouvert un nouveau dans le Terminal.",
-    "zh-Hans": "标签页已关闭：Lunavect 已在终端中打开了新的标签页。"
+  "Вкладка недоступна: Lunavect продолжил сессию в новом окне Терминала.": {
+    "de": "Der Tab war nicht verfügbar: Lunavect hat die Sitzung in einem neuen Terminal-Fenster fortgesetzt.",
+    "en": "The tab was unavailable: Lunavect continued the session in a new Terminal window.",
+    "es": "La pestaña no estaba disponible: Lunavect continuó la sesión en una nueva ventana de Terminal.",
+    "fr": "L’onglet n’était pas disponible : Lunavect a poursuivi la session dans une nouvelle fenêtre du Terminal.",
+    "zh-Hans": "标签页不可用：Lunavect 已在新的终端窗口中继续该会话。"
+  },
+  "Вкладка недоступна: Lunavect продолжил сессию в новом окне iTerm2.": {
+    "de": "Der Tab war nicht verfügbar: Lunavect hat die Sitzung in einem neuen iTerm2-Fenster fortgesetzt.",
+    "en": "The tab was unavailable: Lunavect continued the session in a new iTerm2 window.",
+    "es": "La pestaña no estaba disponible: Lunavect continuó la sesión en una nueva ventana de iTerm2.",
+    "fr": "L’onglet n’était pas disponible : Lunavect a poursuivi la session dans une nouvelle fenêtre d’iTerm2.",
+    "zh-Hans": "标签页不可用：Lunavect 已在新的 iTerm2 窗口中继续该会话。"
   },
   "До обрыва агент закончит шаг, после сброса окна ({0}) Lunavect напишет ему «продолжай».": {
     "de": "Vor dem Abbruch beendet der Agent seinen Schritt; nach dem Zurücksetzen des Fensters ({0}) schreibt Lunavect ihm „weiter“.",

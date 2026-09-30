@@ -142,7 +142,7 @@ import WeekleftCore
         await controls.tick()
         XCTAssertEqual(typed.opened.first?.command, "cd '/p/Lunavect' && claude --resume 0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21 'it'\\''s fine'")
         XCTAssertEqual(controls.controls.first?.state, .continued)
-        XCTAssertTrue(notices.last?.body.contains(L("Вкладку закрыли: Lunavect открыл новую в Терминале.")) == true)
+        XCTAssertTrue(notices.last?.body.contains(L("Вкладка недоступна: Lunavect продолжил сессию в новом окне Терминала.")) == true)
     }
 
     func testOutsideTerminalTheUserIsToldAndABusySessionIsNotInterrupted() async throws {

@@ -416,7 +416,8 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             control.state = control.stopAtWeek == nil && control.fiveHourGuard != true ? .continued : .watching
             control.note = L("Продолжена {0}.", Self.date(now))
             dependencies.notify(Notice(title: L("Сессия продолжается"),
-                                       body: control.title + (opened ? "\n" + L("Вкладку закрыли: Lunavect открыл новую в Терминале.") : ""),
+                                       body: control.title + (opened ? "\n" + (app == "iTerm2" ? L("Вкладка недоступна: Lunavect продолжил сессию в новом окне iTerm2.")
+                                                                            : L("Вкладка недоступна: Lunavect продолжил сессию в новом окне Терминала.")) : ""),
                                        category: nil, controlID: id))
         } else {
             control.state = .needsYou

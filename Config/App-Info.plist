@@ -52,7 +52,7 @@
     <key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Lunavect brings the Terminal or iTerm2 tab of a session to the front when you open it.</string>
+	<string>Lunavect brings the Terminal or iTerm2 tab of a session to the front when you open it, and continues a session you limited or scheduled by typing into its tab or opening a new window.</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHighResolutionCapable</key>
