@@ -74,7 +74,7 @@ Automatic update checks and downloads can be turned off in **Settings → Update
 
 The project uses GitHub's existing release-asset download counters and repository traffic reports: views, clones, referring sites and popular repository pages. These are GitHub platform statistics, not events sent by Lunavect. They do not tell us which sessions you open, which projects you work on, how often you launch the app or which features you use.
 
-The Lunavect website has no analytics scripts, tracking cookies or analytics consent banner. GitHub hosts the website, repository and release downloads and receives normal web request information under [GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement). App update requests also go to GitHub, as described above.
+The Lunavect website has no analytics scripts, tracking cookies or analytics consent banner. GitHub hosts the website, repository and release downloads and receives normal web request information under [GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement). App update requests also go to GitHub, as described above. The MacNative listing badge at the bottom of the home page is an image loaded from macnative.io, so viewing that page also sends normal web request information to MacNative.
 
 Download counts are requests for files, not a count of users or installations. Repeated downloads and updates can contribute to them. GitHub's repository traffic reports cover a limited period and do not provide a complete path from a referring site to a download or to app usage. See the [GitHub-only statistics guide](download-statistics.md) for the reporting scope.
 
