@@ -469,6 +469,8 @@ public enum SessionHooks {
         if secondary, let old = previous?.session {
             record.session.runtimePID = old.runtimePID; record.session.client = old.client
             record.session.terminalTTY = old.terminalTTY; record.session.terminalApp = old.terminalApp; record.session.ideLocation = old.ideLocation
+            // Started from inside another Claude session, the print run is nested; the session it resumed is not.
+            record.session.isNestedClaudeSession = old.isNestedClaudeSession
             try secureWrite(JSONEncoder().encode(record), to: file)
             return
         }

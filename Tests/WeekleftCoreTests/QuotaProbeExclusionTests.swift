@@ -265,15 +265,17 @@ final class QuotaProbeExclusionTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         func event(_ name: String) -> Data { Data(#"{"session_id":"\#(id)","hook_event_name":"\#(name)","cwd":"/Users/fixture"}"#.utf8) }
         let alive: (Int32) -> Bool = { $0 == 4100 }
-        try SessionHooks.capture(event("UserPromptSubmit"), provider: .claude, at: directory, now: now, client: .terminal,
+        try SessionHooks.capture(event("UserPromptSubmit"), provider: .claude, at: directory, now: now, client: .terminal, nestedClaudeRuntime: false,
                                  terminal: (tty: "/dev/ttys004", app: "Terminal"), runtimePID: 4100, isInternal: { _ in false }, isAlive: alive)
-        try SessionHooks.capture(event("Stop"), provider: .claude, at: directory, now: now.addingTimeInterval(5), client: .terminal,
+        try SessionHooks.capture(event("Stop"), provider: .claude, at: directory, now: now.addingTimeInterval(5), client: .terminal, nestedClaudeRuntime: false,
                                  terminal: (tty: "/dev/ttys004", app: "Terminal"), runtimePID: 4100, isInternal: { _ in false }, isAlive: alive)
+        // Live check 30.09: the print run was started from inside another Claude session and hid this one as nested.
         for (offset, name) in [(10.0, "SessionStart"), (11, "UserPromptSubmit"), (20, "Stop"), (21, "SessionEnd")] {
             try SessionHooks.capture(event(name), provider: .claude, at: directory, now: now.addingTimeInterval(offset), client: .background,
-                                     runtimePID: 5200, backgroundRun: true, isInternal: { _ in false }, isAlive: alive)
+                                     nestedClaudeRuntime: true, runtimePID: 5200, backgroundRun: true, isInternal: { _ in false }, isAlive: alive)
         }
         var session = try XCTUnwrap(SessionHooks.load(at: directory).first)
+        XCTAssertEqual(session.isNestedClaudeSession, false, "the print run's own parent does not hide the session")
         XCTAssertEqual(session.terminalTTY, "/dev/ttys004")
         XCTAssertEqual(session.client, .terminal)
         XCTAssertEqual(session.runtimePID, 4100)
