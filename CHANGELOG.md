@@ -26,7 +26,7 @@
 
 ### Limits
 
-- A used-up limit that lifts early, after a manual reset (Codex's usage limit resets) or added credits, shows within an hour: while a window is used up Lunavect now asks hourly and after session activity, not only at its scheduled reset. Before, the widget could keep showing 0% for days.
+- A Codex limit lifted early by a manual usage-limit reset shows within an hour: while a Codex window is used up Lunavect now asks hourly and after session activity, not only at its scheduled reset. Before, the widget could keep showing 0% for days. Claude, whose limits have no manual reset, still waits for the reset; a refresh asks at any time.
 
 ### Widgets and subscriptions
 

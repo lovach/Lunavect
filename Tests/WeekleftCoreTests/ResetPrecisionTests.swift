@@ -128,8 +128,7 @@ final class ResetPrecisionTests: XCTestCase {
     /// WP-1a's confirming probe ran 90 s after the shown minute's start. The reset is
     /// now stored 60 s later, so the grace is 30 s: the probe keeps its moment.
     func testConfirmingProbeKeepsItsMomentAfterTheShownMinute() throws {
-        // Half an hour before: the hourly check of a used-up window is not what is tested here.
-        let observed = probeReset.addingTimeInterval(-1800)
+        let observed = probeReset.addingTimeInterval(-3600)
         let exhausted = try ClaudeUsageText.parse(screen(weeklyUsed: 100), now: observed, timeZone: vienna)
         let policy = QuotaRefreshPolicy()
         XCTAssertFalse(policy.shouldFetch(.claude, snapshot: exhausted, trigger: .timer, now: statusLineReset.addingTimeInterval(-1)))

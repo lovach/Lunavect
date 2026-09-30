@@ -229,20 +229,25 @@ import XCTest
         XCTAssertEqual(h.probes.count, 2)
     }
 
-    // Q-09, 01-quota.md §6 п.20: Codex uses the same states and intervals.
+    // Q-09, 01-quota.md §6 п.20: Codex uses the same intervals; a used-up Codex window is
+    // asked about hourly, since a manual usage-limit reset lifts it early (owner report 30.09).
     func testCodexIsNotAskedEveryFiveMinutes() async throws {
         let h = Harness(now: start)
         let reset = start.addingTimeInterval(2 * 3600)
         let exhausted = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: reset),
                                           fetchedAt: start, source: "Codex CLI")
-        h.result = { _, date in try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 2, durationMinutes: 10080, resetsAt: reset.addingTimeInterval(7 * 86400)),
-                                                  fetchedAt: date, source: "Codex CLI") }
+        h.result = { _, date in
+            date < reset ? try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: reset), fetchedAt: date, source: "Codex CLI")
+                : try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 2, durationMinutes: 10080, resetsAt: reset.addingTimeInterval(7 * 86400)),
+                                    fetchedAt: date, source: "Codex CLI")
+        }
         let store = try makeStore(h, snapshots: [exhausted], providers: [.codex])
         store.start(); await settle(store)
-        for minute in stride(from: 5.0, through: 120, by: 5) {
+        for minute in stride(from: 5.0, through: 115, by: 5) {
             h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await settle(store)
         }
-        XCTAssertEqual(h.codexFetches.count, 0, "Exhausted until the reset")
+        XCTAssertEqual(h.codexFetches.count, 1, "Used up: once an hour, not every five minutes")
+        h.codexFetches.removeAll()
         h.now = reset.addingTimeInterval(6); h.fireDue(); h.ticks[300]?(); await settle(store)
         XCTAssertEqual(h.codexFetches.count, 1, "One confirming request after the exact reset plus 5 s")
         for minute in stride(from: 5.0, through: 50, by: 5) {
