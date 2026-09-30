@@ -27,7 +27,7 @@
 
 ### Limits
 
-- A Codex limit lifted early by a manual usage-limit reset shows within an hour: while a Codex window is used up Lunavect now asks hourly and after session activity, not only at its scheduled reset. Before, the widget could keep showing 0% for days. Claude, whose limits have no manual reset, still waits for the reset; a refresh asks at any time.
+- A limit lifted early by a manual reset in the Claude or Codex app now shows without waiting for the scheduled reset; before, the widget could keep showing 0% for days. A used-up Codex window is asked about hourly and after session activity. A used-up Claude window is asked about after a response its limit did not refuse, at most hourly, so refused attempts and timers still bring no probe. A refresh asks at any time.
 
 ### Widgets and subscriptions
 

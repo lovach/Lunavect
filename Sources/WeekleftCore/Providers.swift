@@ -121,10 +121,12 @@ public enum CodexProvider {
 /// app-server, so both run when the window state calls for it, never on a fixed
 /// cadence (docs/connections.md, "When limits are refreshed").
 ///
-/// - While a Claude window is used up with a future reset nothing is asked, not
-///   even about the other window's passed reset: no request is possible, so nothing
-///   can change before that reset. A used-up Codex window is asked about hourly and
-///   after session activity: Codex's manual usage-limit resets lift it early.
+/// - A used-up window with a future reset can still lift early: the Claude and
+///   Codex apps offer a manual reset (owner report 30.09). A used-up Codex window is
+///   asked about hourly and after session activity. Claude's probe is a short
+///   session other clients may list, so a used-up Claude window is asked about only
+///   after session activity, at most hourly. The other window's passed reset brings
+///   no request of its own.
 /// - After a reset one confirming request runs once the grace has passed. An
 ///   answer that still shows the passed reset is not a confirmation: the next one
 ///   follows the failure backoff.
@@ -135,12 +137,10 @@ public enum CodexProvider {
 /// - Failures back off 5, 10, 20, 40, then 60 minutes. Wake and a restored
 ///   network start over only for a transient cause; a cause the user has to
 ///   change (trust, sign-in, billing, format) waits for an explicit refresh or a
-///   changed connection. A used-up Claude window waits for its reset; a used-up
-///   Codex window is asked about hourly and after session activity as well, since
-///   Codex's manual usage-limit resets lift it early (owner report 30.09). Claude's
-///   "limit reached" pauses until the earliest known reset. An answer without any
-///   known window backs off like a failure. An explicit refresh asks at most once
-///   per 30 seconds.
+///   changed connection. Claude's "limit reached" pauses until the earliest known
+///   reset; session activity may ask again after an hour, since a manual reset
+///   lifts it early. An answer without any known window backs off like a failure.
+///   An explicit refresh asks at most once per 30 seconds.
 public struct QuotaRefreshPolicy: Sendable {
     public enum Trigger: String, Sendable { case launch, timer, sessionEvent, wake, networkRestored, resetDue, manual }
     public struct Timing: Sendable, Equatable {
@@ -158,6 +158,8 @@ public struct QuotaRefreshPolicy: Sendable {
         var lastCompleted: Date?
         var lastVerified: Date?
         var lastEvent: Date?
+        /// The latest session event was a response the provider's limit refused.
+        var lastEventRefused = false
         var failures = 0
         var lastFailure: Date?
         /// Wake or a restored network may have removed the cause of the last failure.
@@ -172,20 +174,28 @@ public struct QuotaRefreshPolicy: Sendable {
     public func shouldFetch(_ provider: ProviderID, snapshot: UsageSnapshot?, trigger: Trigger, now: Date) -> Bool {
         let state = states[provider] ?? ProviderState()
         if trigger == .manual { return manualRetryDate(provider, now: now) == nil }
-        if let paused = state.pausedUntil, now < paused { return false }
+        if let paused = state.pausedUntil, now < paused {
+            // A manual reset lifts a reached limit early: session activity may ask again after an hour.
+            guard trigger == .sessionEvent, !state.lastEventRefused, let failed = state.lastFailure,
+                  now.timeIntervalSince(failed) >= timing.idleInterval else { return false }
+        }
         if let retry = retryDate(state), let failed = state.lastFailure, now >= failed, now < retry { return false }
         guard let snapshot, snapshot.fetchedAt != nil, snapshot.hasQuota || snapshot.unlimited == true else { return true }
         let windows = [snapshot.weekly, snapshot.fiveHour].compactMap { $0 }
-        // Usage within a window never decreases before its reset, except that Codex lets
-        // the user take a manual reset (owner report 30.09: the widget kept 0 % for three
-        // days). Claude's probe cannot answer while a window is used up, so it waits for the
-        // reset, including another window's passed reset (both are confirmed afterwards);
-        // Codex's rate-limit read always answers, so it is asked hourly and after activity.
+        // Usage within a window never decreases before its reset, except that the Claude and
+        // Codex apps let the user take a manual reset (owner report 30.09: the widget kept 0 %
+        // for three days). Codex's rate-limit read is asked hourly and after activity. Claude's
+        // probe is a short session other clients may list, and a used-up limit kept bringing it
+        // every hour (R1-01): only a response the limit did not refuse, which follows a lifted
+        // limit, asks, at most hourly. The other window's passed reset is confirmed afterwards.
         if windows.contains(where: { $0.isUsedUp && ($0.resetsAt.map { $0 > now } ?? false) }) {
-            guard provider == .codex else { return false }
             let observed = (snapshot.freshnessVerified ? snapshot.fetchedAt : state.lastVerified) ?? snapshot.fetchedAt ?? now
             let age = now.timeIntervalSince(observed)
             if age < 0 { return true }
+            if provider == .claude {
+                let attempt = state.lastCompleted.map { now.timeIntervalSince($0) } ?? .infinity
+                return trigger == .sessionEvent && !state.lastEventRefused && age >= timing.idleInterval && attempt >= timing.idleInterval
+            }
             return trigger == .sessionEvent ? age > timing.eventMinimumAge : age >= timing.idleInterval
         }
         // A passed reset: the saved values belong to the previous window, also when
@@ -220,9 +230,11 @@ public struct QuotaRefreshPolicy: Sendable {
         guard state.failures > 0, let failed = state.lastFailure, !timing.backoff.isEmpty else { return nil }
         return failed.addingTimeInterval(timing.backoff[min(state.failures, timing.backoff.count) - 1])
     }
-    public mutating func noteEvent(_ provider: ProviderID, at date: Date) {
+    /// `refused`: the response ended on the provider's usage limit, which says nothing about a lifted limit.
+    public mutating func noteEvent(_ provider: ProviderID, at date: Date, refused: Bool = false) {
         let previous = states[provider]?.lastEvent ?? .distantPast
         states[provider, default: ProviderState()].lastEvent = max(previous, date)
+        if date >= previous { states[provider, default: ProviderState()].lastEventRefused = refused }
     }
     /// A request finished. A snapshot carrying an issue is a failure that keeps the
     /// old values; `reason` is its typed cause when known. On a failure `snapshot`

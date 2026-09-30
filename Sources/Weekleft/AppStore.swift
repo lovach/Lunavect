@@ -249,11 +249,12 @@ import WeekleftCore
         guard started else { return }
         var fresh: Set<ProviderID> = []
         for provider in providers {
-            guard let latest = rows.filter({ $0.provider == provider && [.hook, .localEvent].contains($0.evidence) }).map(\.updatedAt).max() else { continue }
-            let known = lastSessionEvent[provider]
+            guard let newest = rows.filter({ $0.provider == provider && [.hook, .localEvent].contains($0.evidence) }).max(by: { $0.updatedAt < $1.updatedAt })
+            else { continue }
+            let latest = newest.updatedAt, known = lastSessionEvent[provider]
             guard known.map({ latest > $0 }) ?? true else { continue }
             lastSessionEvent[provider] = latest
-            refreshPolicy.noteEvent(provider, at: min(latest, now))
+            refreshPolicy.noteEvent(provider, at: min(latest, now), refused: newest.phase == .failed && newest.failure == .limit)
             // The first observation after launch is the baseline, not a new response.
             if known != nil { fresh.insert(provider) }
         }

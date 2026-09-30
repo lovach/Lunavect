@@ -39,11 +39,11 @@ A Claude `/usage` probe starts Claude Code for a few seconds, and a Codex reques
 | State | Shown | Automatic request |
 | --- | --- | --- |
 | Current value | Remaining percentage and countdown; `*` after 15 minutes | After 15 minutes while sessions are active (an event within the last hour), otherwise after an hour |
-| 0 % remaining, reset ahead | `0%` and the countdown, without `*` | None before the saved reset, also when the other window's reset passes meanwhile |
+| 0 % remaining, reset ahead | `0%` and the countdown, without `*` | A manual reset in the Claude or Codex app can lift it early. Codex: hourly and after session activity. Claude: only after a response its limit did not refuse, at most hourly, since each probe is a short session other clients may list. The other window's passed reset brings no request of its own |
 | Reset passed, no newer data | A dash and "Reset at HH:MM, waiting for the new window's first data" | One request at the latest passed reset plus a grace (30 s after the end of the minute `/usage` showed; 5 s for exact status-line and Codex times); an answer that still shows the passed reset is repeated with the backoff |
 | Window not started (0 % used, no reset) | 100 % and "Starts with the first request" | After session activity, otherwise hourly |
 | Codex with unlimited credits and no window | ∞ and "No limits" | Hourly |
-| Last request failed, or an answer without any known window | Last value with `*` and the specific reason, or a dash | Backs off 5, 10, 20, 40, then 60 minutes; "limit reached" waits for the earliest known reset |
+| Last request failed, or an answer without any known window | Last value with `*` and the specific reason, or a dash | Backs off 5, 10, 20, 40, then 60 minutes; "limit reached" waits for the earliest known reset, or an hour and a response its limit did not refuse |
 
 A finished response reported by the lifecycle hooks triggers a request 90 seconds after the last event of a burst when the data is older than two minutes; hooks also run for Claude Desktop sessions. After wake Lunavect waits four seconds and asks only if the network is up. Wake and a restored connection restart the backoff after a network, timeout or loading failure; a workspace trust question, sign-in, API billing or unsupported screen keeps its backoff until you refresh. A timer, reset or session event that arrives while another refresh runs is evaluated after it. **Refresh limits** in the menu and the limits panel and **Refresh data** in Connections always ask, at most once per 30 seconds per provider. **Refresh sessions** in the session panel reads sessions only and never starts a quota probe.
 
