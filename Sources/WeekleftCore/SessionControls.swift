@@ -395,6 +395,8 @@ public extension TerminalLocation {
     /// line feed, which Claude Code's fullscreen interface takes as a new line (live check 30.09): `carriageReturn`
     /// ends the text with the carriage return a real Enter sends.
     /// `agentAllowed` false: the session's agent is gone from the device, so a program there is someone else's.
+    /// A closed terminal app has no tab to type into: the script does not launch it, since a launched Terminal
+    /// opens a new window that can get the old tab's device; the new-window path opens it with the command instead.
     /// `titleContains`: the tab was found only by the session's folder, so it must also carry the session's
     /// name in its title (Codex titles its tab "<thread name> | <folder>").
     static func typeScript(tty: String, app: String, text: String, command: String? = nil, agent: String? = nil, submitAgain: Bool = false,
@@ -412,6 +414,7 @@ public extension TerminalLocation {
         switch app {
         case "Terminal":
             return """
+            if application "Terminal" is not running then return false
             with timeout of \(focusTimeout) seconds
             tell application "Terminal"
                 repeat with w in windows
@@ -440,6 +443,7 @@ public extension TerminalLocation {
             """
         case "iTerm2":
             return """
+            if application "iTerm2" is not running then return false
             with timeout of \(focusTimeout) seconds
             tell application "iTerm2"
                 repeat with w in windows

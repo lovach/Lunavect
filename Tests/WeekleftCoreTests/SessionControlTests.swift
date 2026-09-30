@@ -187,6 +187,17 @@ final class SessionControlTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go")).contains("custom title"))
     }
 
+    /// Typing never starts the terminal app: when it is closed there is no tab, and its new window could get the old device.
+    func testTypingDoesNotLaunchAClosedTerminal() throws {
+        for app in ["Terminal", "iTerm2"] {
+            let script = try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: app, text: "go", carriageReturn: true))
+            XCTAssertTrue(script.hasPrefix("if application \"\(app)\" is not running then return false\n"), app)
+        }
+        var error: NSDictionary?
+        let terminal = try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", carriageReturn: true, titleContains: "Fix"))
+        XCTAssertTrue(try XCTUnwrap(NSAppleScript(source: terminal)).compileAndReturnError(&error), "\(error ?? [:])")
+    }
+
     /// The session's agent is gone from the device: a program there is someone else's and gets no text.
     func testNoTextForAnotherProgramOnTheDevice() throws {
         let script = try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", command: "cd '/p' && claude --resume 0f3c2a51-5e2b 'go'",
