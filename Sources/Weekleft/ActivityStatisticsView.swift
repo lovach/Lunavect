@@ -663,60 +663,7 @@ struct ActivityStatisticsCards: View {
         }.frame(maxWidth: .infinity, alignment: .topLeading)
     }
     /// Night, morning, afternoon and evening as shares of the time, then the weekdays.
-    private var timeOfDayCard: some View {
-        let grid = summary.weekdayHours
-        let hours = (0..<24).map { hour in grid.reduce(0) { $0 + $1[hour] } }
-        let total = hours.reduce(0, +)
-        let parts = [(L("Ночью"), 0), (L("Утром"), 6), (L("Днём"), 12), (L("Вечером"), 18)]
-        let values = parts.map { part in hours[part.1..<(part.1 + 6)].reduce(0, +) }
-        let top = values.indices.max { values[$0] < values[$1] } ?? 0
-        let days = grid.map { $0.reduce(0, +) }
-        let busiestDay = days.indices.max { days[$0] < days[$1] } ?? 0
-        var calendar = Calendar.current; calendar.locale = L10n.locale
-        let symbols = calendar.shortWeekdaySymbols
-        let names = (0..<7).map { symbols[(calendar.firstWeekday - 1 + $0) % 7] }
-        let share = { (value: TimeInterval) in PercentText.format(Int((value / max(total, 1) * 100).rounded())) }
-        return card(L("Когда вы работаете"), trailing: total > 0 ? L("Чаще всего: {0}, {1}", parts[top].0.lowercased(with: L10n.locale), names[busiestDay]) : nil) {
-            if total <= 0 {
-                Text(L("Нет записей за выбранный период")).font(.system(size: 12)).foregroundStyle(.secondary)
-            } else {
-                GeometryReader { geometry in
-                    HStack(spacing: 2) {
-                        ForEach(0..<4, id: \.self) { index in
-                            Rectangle().fill(Self.heat.opacity(0.3 + 0.7 * values[index] / max(values[top], 1)))
-                                .frame(width: max(2, (geometry.size.width - 6) * values[index] / total))
-                        }
-                    }.clipShape(RoundedRectangle(cornerRadius: 5))
-                }.frame(height: 14).accessibilityHidden(true)
-                HStack(alignment: .top) {
-                    ForEach(0..<4, id: \.self) { index in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(parts[index].0 + " · " + String(format: "%02d–%02d", parts[index].1, parts[index].1 + 6))
-                                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
-                            Text(share(values[index])).font(.system(size: 16, weight: index == top ? .semibold : .medium)).monospacedDigit()
-                            Text(ActivitySummary.duration(values[index])).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
-                        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
-                    }
-                }
-                Divider().padding(.vertical, 2)
-                HStack(spacing: 8) {
-                    ForEach(0..<7, id: \.self) { day in
-                        VStack(spacing: 4) {
-                            GeometryReader { geometry in
-                                Capsule().fill(.primary.opacity(0.08)).overlay(alignment: .leading) {
-                                    Capsule().fill(Self.heat.opacity(day == busiestDay ? 1 : 0.55))
-                                        .frame(width: geometry.size.width * days[day] / max(days[busiestDay], 1))
-                                }
-                            }.frame(height: 6)
-                            Text(names[day]).font(.system(size: 10)).foregroundStyle(.secondary)
-                            Text(days[day] > 0 ? ActivitySummary.duration(days[day]) : "—").font(.system(size: 10)).monospacedDigit()
-                                .lineLimit(1).minimumScaleFactor(0.8)
-                        }.frame(maxWidth: .infinity).accessibilityElement(children: .combine)
-                    }
-                }
-            }
-        }
-    }
+    private var timeOfDayCard: some View { ActivityDayClockCard(weekdayHours: summary.weekdayHours) }
     private var projectsCard: some View {
         let top = Array(summary.projects.prefix(5))
         let maximum = top.first?.seconds ?? 0
@@ -877,5 +824,123 @@ struct ActivityCalendarCard: View {
 enum TokenText {
     static func compact(_ value: Int64) -> String {
         value.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)).locale(L10n.locale))
+    }
+}
+
+/// The day as a 24-hour clock: each hour's work as the brightness of its segment, the four parts
+/// of the day beside it, the weekdays below (owner's pick 30.09, variant B). Hover state stays here
+/// so pointing at an hour does not redraw the other cards.
+struct ActivityDayClockCard: View {
+    let weekdayHours: [[TimeInterval]]
+    @State var hoveredHour: Int?
+    private static let parts: [(title: String, start: Int, symbol: String)] = [
+        (L("Ночью"), 0, "moon.stars.fill"), (L("Утром"), 6, "sunrise.fill"), (L("Днём"), 12, "sun.max.fill"), (L("Вечером"), 18, "sunset.fill")]
+    private static let ring: CGFloat = 18, labelGap: CGFloat = 12
+
+    var body: some View {
+        let hours = (0..<24).map { hour in weekdayHours.reduce(0) { $0 + ($1.indices.contains(hour) ? $1[hour] : 0) } }
+        let total = hours.reduce(0, +)
+        let values = Self.parts.map { part in hours[part.start..<(part.start + 6)].reduce(0, +) }
+        let top = values.indices.max { values[$0] < values[$1] } ?? 0
+        let days = weekdayHours.map { $0.reduce(0, +) }
+        let busiestDay = days.indices.max { days[$0] < days[$1] } ?? 0
+        var calendar = Calendar.current; calendar.locale = L10n.locale
+        let symbols = calendar.shortWeekdaySymbols
+        let names = (0..<7).map { symbols[(calendar.firstWeekday - 1 + $0) % 7] }
+        let trailing: String? = total <= 0 ? nil : hoveredHour.map { String(format: "%02d:00–%02d:00", $0, $0 + 1) + " · " + Self.hours(hours[$0]) }
+            ?? L("Чаще всего: {0}, {1}", Self.parts[top].title.lowercased(with: L10n.locale), names.indices.contains(busiestDay) ? names[busiestDay] : "")
+        return StatisticsCard(title: L("Когда вы работаете"), trailing: trailing) {
+            if total <= 0 {
+                Text(L("Нет записей за выбранный период")).font(.system(size: 12)).foregroundStyle(.secondary)
+            } else {
+                HStack(alignment: .center, spacing: 28) {
+                    clock(hours, top: top, share: values[top] / total)
+                    Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 16) {
+                        GridRow { part(0, values, total, top); part(1, values, total, top) }
+                        GridRow { part(2, values, total, top); part(3, values, total, top) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Divider().padding(.vertical, 4)
+                weekdays(days, names: names, busiest: busiestDay)
+            }
+        }
+    }
+
+    private func clock(_ hours: [TimeInterval], top: Int, share: Double) -> some View {
+        let maximum = max(hours.max() ?? 0, 1)
+        return ZStack {
+            Canvas { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let radius = min(size.width, size.height) / 2 - Self.ring / 2 - Self.labelGap
+                for hour in 0..<24 {
+                    var path = Path()
+                    path.addArc(center: center, radius: radius, startAngle: .degrees(Double(hour) * 15 - 90 + 1),
+                                endAngle: .degrees(Double(hour + 1) * 15 - 90 - 1), clockwise: false)
+                    let strength = hours[hour] / maximum
+                    let opacity = hour == hoveredHour ? 1 : 0.1 + (hour / 6 == top ? 0.9 : 0.55) * strength
+                    context.stroke(path, with: .color(ActivityStatisticsCards.heat.opacity(opacity)), style: StrokeStyle(lineWidth: Self.ring))
+                }
+                for (index, label) in ["00", "06", "12", "18"].enumerated() {
+                    let angle = Double(index) * .pi / 2 - .pi / 2, distance = radius + Self.ring / 2 + 7
+                    context.draw(Text(label).font(.system(size: 9)).foregroundColor(.secondary),
+                                 at: CGPoint(x: center.x + CGFloat(cos(angle)) * distance, y: center.y + CGFloat(sin(angle)) * distance))
+                }
+            }
+            VStack(spacing: 0) {
+                Image(systemName: Self.parts[top].symbol).font(.system(size: 13)).foregroundStyle(ActivityStatisticsCards.heat)
+                Text(PercentText.format(Int((share * 100).rounded()))).font(.system(size: 22, weight: .semibold)).monospacedDigit()
+                Text(Self.parts[top].title.lowercased(with: L10n.locale)).font(.system(size: 10)).foregroundStyle(.secondary)
+            }.accessibilityHidden(true)
+        }.frame(width: 170, height: 170)
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let point):
+                    let dx = Double(point.x - 85), dy = Double(point.y - 85)
+                    // Only the ring answers; the middle keeps the summary.
+                    guard (dx * dx + dy * dy).squareRoot() > 45 else { if hoveredHour != nil { hoveredHour = nil }; return }
+                    var degrees = atan2(dy, dx) * 180 / .pi + 90
+                    if degrees < 0 { degrees += 360 }
+                    let hour = min(23, Int(degrees / 15))
+                    if hour != hoveredHour { hoveredHour = hour }
+                case .ended: hoveredHour = nil
+                }
+            }
+            .accessibilityElement().accessibilityLabel(L("Когда вы работаете"))
+    }
+
+    private func part(_ index: Int, _ values: [TimeInterval], _ total: TimeInterval, _ top: Int) -> some View {
+        let part = Self.parts[index]
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Image(systemName: part.symbol).foregroundStyle(index == top ? ActivityStatisticsCards.heat : .secondary)
+                Text(part.title).foregroundStyle(index == top ? .primary : .secondary)
+                Text(String(format: "%02d–%02d", part.start, part.start + 6)).foregroundStyle(.tertiary)
+            }.font(.system(size: 11)).lineLimit(1).minimumScaleFactor(0.8)
+            Text(PercentText.format(Int((values[index] / max(total, 1) * 100).rounded())))
+                .font(.system(size: 18, weight: index == top ? .semibold : .regular)).monospacedDigit()
+            Text(Self.hours(values[index])).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+    }
+
+    private func weekdays(_ days: [TimeInterval], names: [String], busiest: Int) -> some View {
+        let maximum = max(days.max() ?? 0, 1)
+        return HStack(alignment: .bottom, spacing: 10) {
+            ForEach(days.indices, id: \.self) { day in
+                VStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 4).fill(ActivityStatisticsCards.heat.opacity(day == busiest ? 1 : 0.42))
+                        .frame(width: 26, height: max(3, 44 * days[day] / maximum))
+                    Text(names.indices.contains(day) ? names[day] : "").font(.system(size: 10, weight: day == busiest ? .semibold : .regular))
+                        .foregroundStyle(day == busiest ? .primary : .secondary)
+                    Text(days[day] > 0 ? Self.hours(days[day]) : "—").font(.system(size: 10)).foregroundStyle(.secondary).monospacedDigit()
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }.frame(maxWidth: .infinity).accessibilityElement(children: .combine)
+            }
+        }.frame(height: 82, alignment: .bottom)
+    }
+
+    /// Whole hours from an hour on, minutes below it.
+    static func hours(_ seconds: TimeInterval) -> String {
+        seconds >= 3600 ? L("{0} ч", String(Int((seconds / 3600).rounded()))) : ActivitySummary.duration(seconds)
     }
 }

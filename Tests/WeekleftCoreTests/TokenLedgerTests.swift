@@ -73,6 +73,26 @@ final class TokenLedgerTests: XCTestCase {
         XCTAssertEqual(session.models["gpt-6-astra"]?.reasoning, 30)
     }
 
+    /// Codex does not keep its error event; the limit travels with the turn's completion (codex-rs rollout policy).
+    func testACodexTurnTheLimitEndedIsNotedAndTheLogsAreFound() throws {
+        try write("codex/2026/09/29/rollout-a.jsonl", [
+            ["type": "session_meta", "payload": ["id": "t1", "cwd": "/Users/u/capsule"]],
+            ["type": "event_msg", "timestamp": "2026-09-29T18:00:00Z", "payload": ["type": "task_complete", "turn_id": "x", "last_agent_message": NSNull()]],
+            ["type": "event_msg", "timestamp": "2026-09-29T19:30:00Z", "payload": ["type": "task_complete", "turn_id": "y", "last_agent_message": NSNull(),
+                "error": ["message": "You\u{2019}ve hit your usage limit.", "codex_error_info": "usage_limit_exceeded"]]]])
+        try write("codex/2026/09/29/rollout-b.jsonl", [
+            ["type": "session_meta", "payload": ["id": "t2", "source": ["subagent": ["thread_spawn": ["parent_thread_id": "t1"]]]]],
+            ["type": "event_msg", "timestamp": "2026-09-29T19:40:00Z", "payload": ["type": "task_complete",
+                "error": ["message": "limit", "codex_error_info": "usage_limit_exceeded"]]]])
+        try write("claude/-Users-u-Lunavect/0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21.jsonl", [claude("m1", input: 10, output: 5)])
+        var ledger = TokenLedger()
+        _ = ledger.scan(sources: sources, now: now)
+        XCTAssertEqual(ledger.limitHits, ["codex:t1": ISO8601DateFormatter().date(from: "2026-09-29T19:30:00Z")!], "a finished turn and a subagent do not count")
+        XCTAssertEqual(ledger.transcript(.codex, sessionID: "t1")?.lastPathComponent, "rollout-a.jsonl")
+        XCTAssertEqual(ledger.transcript(.claude, sessionID: "0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21")?.lastPathComponent, "0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21.jsonl")
+        XCTAssertNil(ledger.transcript(.codex, sessionID: "t2"))
+    }
+
     func testLimitShareSplitsTheUsedPercentByWeight() throws {
         var ledger = TokenLedger()
         let calendar = Calendar(identifier: .gregorian)

@@ -46,6 +46,63 @@ final class SessionControlTests: XCTestCase {
         XCTAssertEqual(WeekLevel.estimate(snapshot: passed, ledger: ledger, now: now), 0)
     }
 
+    func testTheFiveHourGuardWrapsUpThenRestsAndTheWeekStopComesFirst() {
+        var control = SessionControl(provider: .claude, sessionID: "s", title: "t", cwd: "/p", stopAtWeek: 60, startLevel: 40)
+        control.fiveHourGuard = true
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(control.decide(weekLevel: 45, fiveHourLevel: 50, now: now).state, .watching)
+        XCTAssertEqual(control.decide(weekLevel: 45, fiveHourLevel: 90, now: now).reason, .fiveHour)
+        XCTAssertEqual(control.decide(weekLevel: 45, fiveHourLevel: 97, now: now).state, .resting)
+        XCTAssertEqual(control.decide(weekLevel: 61, fiveHourLevel: 97, now: now).state, .stopped, "the week's stop is final and comes first")
+        XCTAssertEqual(control.decide(weekLevel: 57, fiveHourLevel: 97, now: now).state, .resting, "a rest outranks the week's wrap-up")
+        control.guardOffUntil = now.addingTimeInterval(60)
+        XCTAssertEqual(control.decide(weekLevel: 45, fiveHourLevel: 97, now: now).state, .watching, "continued by hand until the next window")
+    }
+
+    func testTheSuggestedLevelSpreadsTheRestOfTheWeekOverTheDaysLeft() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(SessionControl.suggestedStop(level: 40, resetsAt: now.addingTimeInterval(3.5 * 86400), now: now), 55)
+        XCTAssertEqual(SessionControl.suggestedStop(level: 90, resetsAt: now.addingTimeInterval(3600), now: now), 100, "the last day may use the rest")
+        XCTAssertEqual(SessionControl.suggestedStop(level: 40, resetsAt: nil, now: now), 50)
+    }
+
+    func testTheSummaryAndTheLastReplyComeFromTheAgentsOwnWords() throws {
+        XCTAssertEqual(SessionControl.summaryParts(L("Сделано:") + " экспорт.\n" + L("Осталось:") + " тесты.")?.left, "тесты.")
+        XCTAssertNil(SessionControl.summaryParts("Всё готово."))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let lines: [[String: Any]] = [
+            ["type": "assistant", "message": ["content": [["type": "text", "text": "Сделано: всё."]]]],
+            ["type": "assistant", "isSidechain": true, "message": ["content": [["type": "text", "text": "subagent"]]]],
+            ["type": "assistant", "isApiErrorMessage": true, "message": ["content": [["type": "text", "text": "Claude usage limit reached"]]]]]
+        try Data(lines.map { String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self) }.joined(separator: "\n").utf8).write(to: url)
+        XCTAssertEqual(SessionReply.last(in: url, provider: .claude), "Сделано: всё.", "an API error line and a subagent are not the reply")
+        XCTAssertEqual(SessionReply.reply(["type": "event_msg", "payload": ["type": "agent_message", "message": " done "]], provider: .codex), "done")
+    }
+
+    func testResumeCommandsAreQuotedAndOnlyForRealSessionIDs() {
+        XCTAssertEqual(TerminalLocation.resumeCommand(provider: .claude, sessionID: "0f3c2a51-5e2b", text: "it's\nok", cwd: "/p/a b"),
+                       "cd '/p/a b' && claude --resume 0f3c2a51-5e2b 'it'\\''s ok'")
+        XCTAssertEqual(TerminalLocation.resumeCommand(provider: .codex, sessionID: "019a0c0a-96ca", text: "go"), "codex resume 019a0c0a-96ca 'go'")
+        XCTAssertNil(TerminalLocation.resumeCommand(provider: .claude, sessionID: "x; rm -rf ~", text: "go"))
+        XCTAssertEqual(TerminalLocation.resumeCommand(provider: .claude, sessionID: "0f3c2a51-5e2b", text: "go", cwd: "relative"), "claude --resume 0f3c2a51-5e2b 'go'")
+        let script = TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", command: "claude --resume 0f3c2a51-5e2b 'go'") ?? ""
+        XCTAssertTrue(script.contains("do script \"go\" in t") && script.contains("do script \"claude --resume 0f3c2a51-5e2b 'go'\" in t"),
+                      "the message while the agent runs, the resume command at a shell prompt")
+    }
+
+    func testClaudeAutomaticContinueFollowsItsSettings() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let managed = home.appendingPathComponent("managed.json")
+        XCTAssertTrue(ClaudeAutoContinue.enabled(home: home, managed: managed), "on by default")
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".claude"), withIntermediateDirectories: true)
+        try Data(#"{"autoContinueAtUsageLimit": false}"#.utf8).write(to: home.appendingPathComponent(".claude/settings.json"))
+        XCTAssertFalse(ClaudeAutoContinue.enabled(home: home, managed: managed))
+        try Data(#"{"autoContinueAtUsageLimit": true}"#.utf8).write(to: managed)
+        XCTAssertTrue(ClaudeAutoContinue.enabled(home: home, managed: managed), "managed settings come first")
+    }
+
     func testTypedTextIsOneQuotedLine() {
         XCTAssertEqual(TerminalLocation.typedText("say \"hi\"\nnow \\ ok"), "say \\\"hi\\\" now \\\\ ok")
         XCTAssertNil(TerminalLocation.typeScript(tty: "/dev/ttys001; rm", app: "Terminal", text: "x"))

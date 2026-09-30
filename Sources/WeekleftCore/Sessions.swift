@@ -135,6 +135,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         hasTaskActivity != true && (phase == .idle || phase == .finished)
     }
     public var activityPath: String?
+    /// How Claude Code's own wait for a usage limit ended (`fired`, `stale`, `disabled`), and when.
+    public var limitWait: String?
+    public var limitWaitAt: Date?
     public var id: String { provider.rawValue + ":" + sessionID }
     public var project: String { cwd.contains("/scratch-workspaces/") ? L("Без папки") : cwd.isEmpty ? L("Без проекта") : URL(fileURLWithPath: cwd).lastPathComponent }
     /// Source names stay intact. Missing names are localized only for display,
@@ -622,6 +625,13 @@ public struct SessionRecord: Codable, Sendable {
             record.session.phase = .permission
         case "Notification":
             guard let type = payload["notification_type"] as? String else { throw SessionError.invalidResponse }
+            // Claude Code's own wait for a usage limit ended: continued, waiting for Enter after
+            // a long sleep, or given up. Kept for the session controls; nothing else changes.
+            if ["quota_auto_resume_fired", "quota_auto_resume_stale", "quota_auto_resume_disabled"].contains(type) {
+                var kept = previous ?? record
+                kept.session.limitWait = String(type.dropFirst("quota_auto_resume_".count)); kept.session.limitWaitAt = now
+                return kept
+            }
             // Types without a lifecycle meaning here (agent_completed,
             // quota_auto_resume_*, future ones) change nothing, not even freshness.
             guard ["permission_prompt", "idle_prompt", "elicitation_dialog", "elicitation_url_dialog",

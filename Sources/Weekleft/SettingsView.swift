@@ -67,6 +67,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var onShowWelcome: () -> Void = {}
     @AppStorage("settingsSection") private var section: SettingsSection = .connections
     @AppStorage("interfaceAppearance") private var appearance = InterfaceAppearance.dark
+    @AppStorage(SessionCutOffAction.key) private var cutOff = SessionCutOffAction.ask
     @FocusState private var focusedSection: SettingsSection?
 
     var body: some View {
@@ -200,6 +201,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                     Text(L("Завершённые сессии переходят в скрытые. Работающие и ожидающие ответа остаются. При новой задаче сессия возвращается автоматически."))
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    Divider()
+                    SettingsRow(L("Если лимит оборвал работу")) {
+                        Picker(L("Если лимит оборвал работу"), selection: $cutOff) {
+                            ForEach(SessionCutOffAction.allCases) { Text($0.title).tag($0) }
+                        }.labelsHidden().accessibilityIdentifier("session-cut-off")
+                    }
+                    Text(L("Когда Codex упрётся в лимит посреди ответа, Lunavect предложит продолжить сессию после сброса. Claude Code продолжает сам; Lunavect поможет, если Mac спал во время сброса или автопродолжение Claude выключено. «Продолжать без вопроса»: Lunavect продолжит сам и сообщит об этом."))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }.padding(12)
             }
             Text(L("Изменения сохраняются автоматически."))
@@ -208,6 +218,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 await Self.restoreBaseSettings(awake: awake, features: features) {
                     menuBarAppearance.restoreDefaults()
                     sessions.autoHideMinutes = 0
+                    cutOff = .ask
                     store.preferences.restoreAppearanceDefaults()
                     updates.setAutomatic(false)
                     updates.setCheckingAutomatically(true)

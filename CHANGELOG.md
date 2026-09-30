@@ -5,20 +5,24 @@
 ### Limits for running sessions
 
 - Two-finger click (or ⋯) on a Claude or Codex session: **Limit Usage…** stops it when the week reaches the level you type, and can continue it after the reset; **Continue Later…** continues it after the five-hour or weekly reset or at a set time.
-- Near the level the agent is asked to finish its step and write what is left; at the level its next action is refused and a new prompt is blocked with the reason, through the hooks Lunavect already installs. Nothing is killed: files and the conversation stay as they are.
-- The continuation ("Continue from where you stopped", or your own words) is typed into the session's own Terminal or iTerm2 tab once it is idle; for other apps a notification says what to write.
-- The **Tasks** tab lists limited and planned sessions; a small symbol marks them in the session list.
+- The level starts at today's share: the rest of the week spread evenly over the days to the reset.
+- **Don't get cut off by the 5-hour window** (on by default): shortly before the five-hour window runs out the agent finishes its step and waits; after the window resets Lunavect tells it to continue, and the week's level still applies.
+- Near the level the agent is asked to finish its step and write two lines, what is done and what is left; at the level its next action is refused and a new prompt is blocked with the reason, through the hooks Lunavect already installs. Nothing is killed: files and the conversation stay as they are. The **Tasks** card shows the agent's summary.
+- The continuation ("Continue from where you stopped", or your own words) is typed into the session's own Terminal or iTerm2 tab once it is idle and not asking for a permission. When the agent has exited in that tab, Lunavect runs `claude --resume` or `codex resume` there; when the tab is closed, it opens a new Terminal window in the session's folder. For other apps a notification says what to write.
+- When Codex hits its usage limit mid-answer, Lunavect asks whether to continue the session after the reset (Settings → General → **If a limit cuts work off**: Ask, Continue without asking, Do nothing). Claude Code 2.1.234 and later continues by itself after a claude.ai usage limit; Lunavect only presses Enter when the Mac slept through the reset and Claude Code waits for it, or offers to continue when Claude's own automatic continue is off or gave up.
+- Notifications about a stopped session have **Continue now** and **+5%**; the question after a cut-off has **Continue after the reset** and **No thanks**.
+- The **Tasks** tab lists limited, resting and planned sessions; a small symbol marks them in the session list.
 
 ### Agent Monitor
 
-- **Agent Monitor** (status menu and Statistics) lists sessions with tokens, model, the share used by subagents, the estimated share of the weekly limit and the current pace, and shows each provider's week and hourly pace. Session rows show the share of the week too.
+- **Agent Monitor** (status menu and Statistics) lists sessions with tokens, model, the share used by subagents, the estimated share of the weekly limit and the current pace, and shows each provider's week and hourly pace.
 - Statistics gain **Where tokens went**: cache share, subagents, and projects and models weighted by price, which is roughly how a limit is spent. Tokens are read from the local Claude and Codex logs; the first pass reads them all once in the background.
 
 ### Statistics
 
 - **Year** and **All time** join Day, Week and Month. Year is drawn by week; All time adapts to the amount of history (by day under two months, by week under a year, by month beyond). Both start at the week of the first record, so a short history is not squeezed into a corner of an empty year, and each source's line starts at its own first record. Hovering the chart shows that week's time per source and together.
 - Daily totals are now kept without a time limit (about 1 KB a day). Once, Lunavect reads every Claude and Codex log still on the Mac and adds those days, marked ≈ as recovered.
-- New cards: a **Calendar** of days with work (with the longest day and the average per day with work), **When you work** (shares of night, morning, afternoon and evening, and time per weekday), **Projects** by time, **Agents waited for you** (answers, permissions and the typical wait, counted live from this version) and **Sessions** (count, average and longest). Hovering a calendar day shows its time.
+- New cards: a **Calendar** of days with work (with the longest day and the average per day with work), **When you work** (the day as a 24-hour clock with each hour's work, shares of night, morning, afternoon and evening, and time per weekday; hovering an hour shows its time), **Projects** by time, **Agents waited for you** (answers, permissions and the typical wait, counted live from this version) and **Sessions** (count, average and longest). Hovering a calendar day shows its time.
 
 ### Widgets and subscriptions
 

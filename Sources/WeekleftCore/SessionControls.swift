@@ -1,7 +1,8 @@
 import Foundation
 
 /// What the user asked Lunavect to do with one running session (owner decisions 30.09):
-/// stop it when the week reaches a level, and continue it later with a message.
+/// stop it when the week reaches a level, rest it before the 5-hour window runs out,
+/// and continue it later with a message.
 public struct SessionControl: Codable, Equatable, Identifiable, Sendable {
     public enum Resume: String, Codable, CaseIterable, Sendable, Identifiable {
         /// After the weekly reset: the week's level only falls then.
@@ -9,6 +10,8 @@ public struct SessionControl: Codable, Equatable, Identifiable, Sendable {
         case afterFiveHourReset
         /// At a time the user chose.
         case at
+        /// After the window that cut the session off resets.
+        case afterLimitReset
         public var id: String { rawValue }
     }
     public enum State: String, Codable, Sendable {
@@ -16,13 +19,21 @@ public struct SessionControl: Codable, Equatable, Identifiable, Sendable {
         case watching
         /// Close to the limit: the agent was asked to finish its step.
         case wrappingUp
-        /// At the limit: new actions are refused.
+        /// At the week's limit: new actions are refused.
         case stopped
+        /// The 5-hour window is nearly used up: new actions are refused until it resets,
+        /// then the session continues by itself.
+        case resting
+        /// The provider's limit cut the session off; the user is asked whether to continue it after the reset.
+        case offered
         /// The message was delivered; nothing left to do.
         case continued
         /// The message could not be typed into the session; the user was told.
         case needsYou
     }
+    /// Which limit a wrap-up or stop belongs to.
+    public enum Reason: String, Codable, Sendable { case week, fiveHour }
+
     public var id: String { TokenLedger.sessionKey(provider, sessionID) }
     public var provider: ProviderID
     public var sessionID: String
@@ -32,12 +43,32 @@ public struct SessionControl: Codable, Equatable, Identifiable, Sendable {
     public var stopAtWeek: Double?
     /// The week's level when the limit was set, to ask for a wrap-up in proportion.
     public var startLevel: Double?
-    /// Continue the session with this message; nil only stops it.
+    /// Continue after the weekly reset when the week stopped the session.
+    public var continueAfterWeek: Bool?
+    /// Wrap up before the 5-hour window runs out and continue after its reset.
+    public var fiveHourGuard: Bool?
+    /// The 5-hour guard waits until this date: the user continued a resting session.
+    public var guardOffUntil: Date?
+    /// What to type when continuing; nil types `defaultMessage`.
     public var message: String?
     public var resume: Resume?
+    /// A continuation is due at this time.
     public var resumeAt: Date?
+    public var reason: Reason?
     public var state: State = .watching
     public var note: String?
+    /// The agent's last reply after it stopped: what it did and what is left.
+    public var summary: String?
+    public var summaryAt: Date?
+    /// Where the session ran, to continue it when its row is gone.
+    public var client: SessionClient?
+    public var terminalApp: String?
+    /// The limit failure this control answers: the session's time then.
+    public var cutOffAt: Date?
+    /// Claude Code waits for Enter after the reset (the Mac slept through it): continuing presses Enter only.
+    public var pressEnter: Bool?
+    /// Claude Code itself continues after the limit that cut the resting session off: nothing to type.
+    public var nativeContinue: Bool?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -50,35 +81,92 @@ public struct SessionControl: Codable, Equatable, Identifiable, Sendable {
 
     /// The message Lunavect types when the user left the field empty.
     public static var defaultMessage: String { L("Продолжай с того места, где остановился.") }
+    public var text: String { pressEnter == true ? "" : message ?? Self.defaultMessage }
+    /// The 5-hour window's level for a wrap-up and for the rest: the provider cuts off at 100 %,
+    /// and the estimate between readings needs a margin.
+    public static let fiveHourWrap = 88.0, fiveHourRest = 96.0
 
     /// Where the week stands on the way to this limit: proceed, wrap up or stop.
     /// The wrap-up comes at 80 % of the distance from where the limit was set, at least one point before it.
-    public func decide(weekLevel: Double) -> State {
-        guard let stop = stopAtWeek else { return .watching }
-        if weekLevel >= stop { return .stopped }
-        let start = min(startLevel ?? weekLevel, stop)
-        let wrapAt = min(stop - 1, start + (stop - start) * 0.8)
-        return weekLevel >= wrapAt ? .wrappingUp : .watching
+    public func decide(weekLevel: Double) -> State { decide(weekLevel: weekLevel, fiveHourLevel: nil, now: .distantPast).state }
+
+    /// The week's stop comes first, then the 5-hour rest, then a wrap-up for either.
+    public func decide(weekLevel: Double?, fiveHourLevel: Double?, now: Date) -> (state: State, reason: Reason?) {
+        var week = State.watching
+        if let stop = stopAtWeek, let weekLevel {
+            let start = min(startLevel ?? weekLevel, stop)
+            let wrapAt = min(stop - 1, start + (stop - start) * 0.8)
+            week = weekLevel >= stop ? .stopped : weekLevel >= wrapAt ? .wrappingUp : .watching
+        }
+        var five = State.watching
+        if fiveHourGuard == true, (guardOffUntil ?? .distantPast) <= now, let fiveHourLevel {
+            five = fiveHourLevel >= Self.fiveHourRest ? .resting : fiveHourLevel >= Self.fiveHourWrap ? .wrappingUp : .watching
+        }
+        if week == .stopped { return (.stopped, .week) }
+        if five == .resting { return (.resting, .fiveHour) }
+        if week == .wrappingUp { return (.wrappingUp, .week) }
+        if five == .wrappingUp { return (.wrappingUp, .fiveHour) }
+        return (.watching, nil)
+    }
+
+    /// The level that spreads the rest of the week evenly over the days left: today's share.
+    public static func suggestedStop(level: Double, resetsAt: Date?, now: Date) -> Double {
+        guard let resetsAt, resetsAt > now else { return min(100, (level + 10).rounded()) }
+        let days = max(1, (resetsAt.timeIntervalSince(now) / 86400).rounded(.up))
+        return min(100, max(level + 1, level + (100 - level) / days).rounded(.up))
+    }
+
+    /// "Done: …" and "Left: …" from the agent's reply when it followed the wrap-up request.
+    public static func summaryParts(_ text: String) -> (done: String, left: String)? {
+        let done = L("Сделано:"), left = L("Осталось:")
+        guard let doneRange = text.range(of: done), let leftRange = text.range(of: left, range: doneRange.upperBound..<text.endIndex) else { return nil }
+        let first = text[doneRange.upperBound..<leftRange.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        let second = text[leftRange.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return first.isEmpty || second.isEmpty ? nil : (first, second)
     }
 }
 
-/// The week's level now: the last reading plus what the ledger saw since, in its percent per weighted token.
+/// A limit window's level now: the last reading plus what the ledger saw since, in its percent per weighted token.
 public enum WeekLevel {
     public static func estimate(snapshot: UsageSnapshot?, ledger: TokenLedger, now: Date) -> Double? {
-        guard let snapshot, let week = snapshot.weekly else { return nil }
-        // The week has reset since the reading: the new week starts near zero until the next reading.
-        if let resets = week.resetsAt, resets <= now { return 0 }
-        guard let fetched = snapshot.fetchedAt, fetched < now,
-              let ratio = percentPerWeight(ledger: ledger, provider: snapshot.provider, week: week, now: now) else { return week.usedPercent }
-        let since = ledger.weight(snapshot.provider, from: fetched, to: now)
-        return min(100, week.usedPercent + since * ratio)
+        estimate(snapshot: snapshot, window: snapshot?.weekly, ledger: ledger, now: now)
     }
-    /// Percent of the weekly limit per price-weighted token, from this week's used percent
-    /// and the tokens the ledger saw in the same week. nil until both are known.
+    public static func estimate(snapshot: UsageSnapshot?, window: QuotaWindow?, ledger: TokenLedger, now: Date) -> Double? {
+        guard let snapshot, let window else { return nil }
+        // The window has reset since the reading: the new one starts near zero until the next reading.
+        if let resets = window.resetsAt, resets <= now { return 0 }
+        guard let fetched = snapshot.fetchedAt, fetched < now,
+              let ratio = percentPerWeight(ledger: ledger, provider: snapshot.provider, week: window, now: now) else { return window.usedPercent }
+        let since = ledger.weight(snapshot.provider, from: fetched, to: now)
+        return min(100, window.usedPercent + since * ratio)
+    }
+    /// Percent of a limit window per price-weighted token, from its used percent
+    /// and the tokens the ledger saw in the same window. nil until both are known.
     public static func percentPerWeight(ledger: TokenLedger, provider: ProviderID, week: QuotaWindow?, now: Date) -> Double? {
         guard let week, let resets = week.resetsAt, week.usedPercent > 0 else { return nil }
         let weight = ledger.weight(provider, from: resets.addingTimeInterval(-Double(week.durationMinutes) * 60), to: now)
         return weight > 0 ? week.usedPercent / weight : nil
+    }
+    /// When a used-up limit of the provider resets: the latest of its used-up windows.
+    public static func limitReset(_ snapshot: UsageSnapshot?, now: Date) -> Date? {
+        guard let snapshot else { return nil }
+        let windows = [snapshot.fiveHour, snapshot.weekly].compactMap { $0 } + (snapshot.modelQuotas ?? []).map(\.window)
+        return windows.filter(\.isUsedUp).compactMap(\.resetsAt).filter { $0 > now }.max()
+    }
+}
+
+/// Claude Code's `autoContinueAtUsageLimit` (on by default since 2.1.234): after a claude.ai usage
+/// limit it waits in the open session and continues by itself. Managed settings first, then the user's.
+public enum ClaudeAutoContinue {
+    public static func enabled(home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                               managed: URL = URL(fileURLWithPath: "/Library/Application Support/ClaudeCode/managed-settings.json")) -> Bool {
+        for file in [managed, home.appendingPathComponent(".claude/settings.json")] {
+            guard let data = try? Data(contentsOf: file), data.count < 5_000_000,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let value = object["autoContinueAtUsageLimit"] as? Bool else { continue }
+            return value
+        }
+        return true
     }
 }
 
@@ -109,6 +197,7 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
     /// The hook's reply for one event: `{}` for every session the user did not limit.
     /// Claude Code and Codex read the same shapes: PreToolUse denies with a reason the
     /// agent sees or adds context; UserPromptSubmit blocks with a reason the user sees.
+    /// A resting session is written as stopped: its hooks answer the same way.
     public func reply(payload: Data) -> String {
         guard !entries.isEmpty, let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let event = object["hook_event_name"] as? String, let session = object["session_id"] as? String else { return "{}" }
@@ -117,11 +206,11 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
         guard let provider, let entry = entries[TokenLedger.sessionKey(provider, session)] else { return "{}" }
         let reply: [String: Any]?
         switch (event, entry.state) {
-        case ("PreToolUse", .stopped):
+        case ("PreToolUse", .stopped), ("PreToolUse", .resting):
             reply = ["hookSpecificOutput": ["hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": entry.agent]]
         case ("PreToolUse", .wrappingUp):
             reply = ["hookSpecificOutput": ["hookEventName": "PreToolUse", "additionalContext": entry.agent]]
-        case ("UserPromptSubmit", .stopped):
+        case ("UserPromptSubmit", .stopped), ("UserPromptSubmit", .resting):
             reply = ["decision": "block", "reason": entry.user]
         case ("UserPromptSubmit", .wrappingUp):
             reply = ["hookSpecificOutput": ["hookEventName": "UserPromptSubmit", "additionalContext": entry.agent]]
@@ -132,9 +221,11 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
     }
 }
 
-/// The saved controls.
+/// The saved controls, and the cut-offs the user declined.
 public struct SessionControlList: Codable, Equatable, Sendable {
     public var controls: [SessionControl] = []
+    /// Session id → the cut-off time the user said no to, so it is not offered again.
+    public var declined: [String: Date]?
     public init() {}
     public static var fileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Weekleft/session-controls.json")
@@ -152,16 +243,75 @@ public struct SessionControlList: Codable, Equatable, Sendable {
     }
 }
 
-/// Typing the continuation into the session's own Terminal or iTerm2 tab.
+/// The agent's last reply in its own log: the end of a Claude transcript or a Codex rollout.
+public enum SessionReply {
+    /// Reads at most the last 512 KB; an API error line (a limit message) is not a reply.
+    public static func last(in url: URL, provider: ProviderID) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return nil }
+        let start = size > 524_288 ? size - 524_288 : 0
+        guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }
+        let lines = data.split(separator: UInt8(ascii: "\n"))
+        for line in lines.reversed() {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { continue }
+            if let text = reply(object, provider: provider) { return String(text.prefix(1200)) }
+        }
+        return nil
+    }
+    static func reply(_ object: [String: Any], provider: ProviderID) -> String? {
+        switch provider {
+        case .claude:
+            guard object["type"] as? String == "assistant", object["isApiErrorMessage"] as? Bool != true, object["isSidechain"] as? Bool != true,
+                  let message = object["message"] as? [String: Any], let content = message["content"] as? [[String: Any]] else { return nil }
+            let text = content.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        case .codex:
+            guard object["type"] as? String == "event_msg", let payload = object["payload"] as? [String: Any],
+                  payload["type"] as? String == "agent_message", let text = (payload["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty else { return nil }
+            return text
+        default: return nil
+        }
+    }
+}
+
+/// Continuing a session in Terminal or iTerm2: in its own tab while the agent is there,
+/// with the client's resume command when the tab went back to the shell or is gone.
 public extension TerminalLocation {
     /// One line of plain text, quoted for AppleScript.
     static func typedText(_ text: String) -> String {
         let line = text.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
         return String(line.prefix(500)).replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
-    static func typeScript(tty: String, app: String, text: String) -> String? {
+    /// A string for the shell, in single quotes.
+    static func shellQuoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+    /// `claude --resume <id> '<text>'` or `codex resume <id> '<text>'`, from the session's folder when given.
+    static func resumeCommand(provider: ProviderID, sessionID: String, text: String, cwd: String? = nil) -> String? {
+        guard sessionID.range(of: #"^[A-Za-z0-9-]{8,80}\z"#, options: .regularExpression) != nil else { return nil }
+        let line = String(text.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ").prefix(500))
+        let command: String
+        switch provider {
+        case .claude: command = "claude --resume " + sessionID + " " + shellQuoted(line)
+        case .codex: command = "codex resume " + sessionID + " " + shellQuoted(line)
+        default: return nil
+        }
+        guard let cwd, cwd.hasPrefix("/"), !cwd.contains("\n"), !cwd.contains("\r") else { return command }
+        return "cd " + shellQuoted(cwd) + " && " + command
+    }
+    /// Programs that mean the agent still runs in the tab, and shells that mean it exited.
+    static let agentProcesses = ["claude", "codex", "node"]
+    static let shellProcesses = ["zsh", "-zsh", "bash", "-bash", "fish", "-fish", "sh", "-sh", "login"]
+
+    /// Finds the tab by its tty: types `text` while the agent runs there, `command` at a shell prompt.
+    /// `false` when the tab is gone or runs something else.
+    static func typeScript(tty: String, app: String, text: String, command: String? = nil) -> String? {
         guard valid(tty) else { return nil }
-        let typed = typedText(text)
+        let typed = typedText(text), resume = command.map(typedText)
+        let agents = agentProcesses.map { "\"\($0)\"" }.joined(separator: ", "), shells = shellProcesses.map { "\"\($0)\"" }.joined(separator: ", ")
+        let terminalShell = resume.map { "if {\(shells)} contains ((last item of names) as text) then\ndo script \"\($0)\" in t\nreturn true\nend if" } ?? ""
+        let itermShell = resume.map { "if {\(shells)} contains job then\ntell s to write text \"\($0)\"\nreturn true\nend if" } ?? ""
         switch app {
         case "Terminal":
             return """
@@ -170,8 +320,17 @@ public extension TerminalLocation {
                 repeat with w in windows
                     repeat with t in tabs of w
                         if tty of t is "\(tty)" and (count of processes of t) > 0 then
-                            do script "\(typed)" in t
-                            return true
+                            set names to processes of t
+                            set agentRuns to false
+                            repeat with p in names
+                                if {\(agents)} contains (p as text) then set agentRuns to true
+                            end repeat
+                            if agentRuns then
+                                do script "\(typed)" in t
+                                return true
+                            end if
+                            \(terminalShell)
+                            return false
                         end if
                     end repeat
                 end repeat
@@ -187,8 +346,16 @@ public extension TerminalLocation {
                     repeat with t in tabs of w
                         repeat with s in sessions of t
                             if tty of s is "\(tty)" then
-                                tell s to write text "\(typed)"
-                                return true
+                                set job to ""
+                                try
+                                    tell s to set job to (variable named "jobName")
+                                end try
+                                if {\(agents)} contains job then
+                                    tell s to write text "\(typed)"
+                                    return true
+                                end if
+                                \(itermShell)
+                                return false
                             end if
                         end repeat
                     end repeat
@@ -200,9 +367,34 @@ public extension TerminalLocation {
         default: return nil
         }
     }
+    /// A new window of `app` (Terminal when unknown) running `command` in a login shell.
+    static func openScript(app: String, command: String) -> String {
+        let typed = typedText(command)
+        if app == "iTerm2" {
+            return """
+            with timeout of \(focusTimeout) seconds
+            tell application "iTerm2"
+                set w to (create window with default profile)
+                tell current session of w to write text "\(typed)"
+            end tell
+            end timeout
+            return true
+            """
+        }
+        return """
+        with timeout of \(focusTimeout) seconds
+        tell application "Terminal" to do script "\(typed)"
+        end timeout
+        return true
+        """
+    }
     /// Types `text` and Return into the tab; false when the tab is gone.
-    static func type(_ text: String, tty: String, app: String, timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
-        guard let source = typeScript(tty: tty, app: app, text: text) else { throw SessionOpeningError.terminalFocusFailed(app) }
+    static func type(_ text: String, tty: String, app: String, command: String? = nil, timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
+        guard let source = typeScript(tty: tty, app: app, text: text, command: command) else { throw SessionOpeningError.terminalFocusFailed(app) }
         return try await executeFocusScript(source, app: app, timeout: timeout)
+    }
+    static func open(_ command: String, app: String, timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
+        let target = app == "iTerm2" ? "iTerm2" : "Terminal"
+        return try await executeFocusScript(openScript(app: target, command: command), app: target, timeout: timeout)
     }
 }

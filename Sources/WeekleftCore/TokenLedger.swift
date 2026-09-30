@@ -112,9 +112,21 @@ public struct TokenLedger: Codable, Sendable, Equatable {
     /// True once every log has been read to its end at least once.
     public var caughtUp: Bool? = false
     var cursors: [String: TokenFileCursor] = [:]
+    /// Codex threads whose turn the usage limit ended, and when (a `task_complete` with `usage_limit_exceeded`).
+    public var limitHits: [String: Date]?
     public init() {}
 
     public static func sessionKey(_ provider: ProviderID, _ sessionID: String) -> String { provider.rawValue + ":" + sessionID }
+    /// The session's own log among the files read: a Claude transcript named by its id, or the Codex rollout of its thread.
+    public func transcript(_ provider: ProviderID, sessionID: String) -> URL? {
+        let path: String?
+        switch provider {
+        case .claude: path = cursors.keys.first { $0.hasSuffix("/" + sessionID + ".jsonl") && !$0.contains("/subagents/") }
+        case .codex: path = cursors.first { $0.value.session == sessionID && $0.value.parent == nil }?.key
+        default: path = nil
+        }
+        return path.map(URL.init(fileURLWithPath:))
+    }
     /// "provider|project|model|0 or 1": what the archive and statistics group by.
     public static func entryKey(_ provider: ProviderID, project: String, model: String, subagent: Bool) -> String {
         [provider.rawValue, project, model, subagent ? "1" : "0"].joined(separator: "|")
@@ -196,7 +208,7 @@ public struct TokenLedger: Codable, Sendable, Equatable {
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
         do { try handle.seek(toOffset: UInt64(cursor.offset)) } catch { return 0 }
-        let markers = provider == .claude ? [Data("\"usage\"".utf8)] : [Data("\"token_count\"".utf8), Data("\"session_meta\"".utf8), Data("\"turn_context\"".utf8)]
+        let markers = provider == .claude ? [Data("\"usage\"".utf8)] : [Data("\"token_count\"".utf8), Data("\"session_meta\"".utf8), Data("\"turn_context\"".utf8), Data("\"usage_limit_exceeded\"".utf8)]
         let chunkSize = 2 * 1024 * 1024, longestLine = 16 * 1024 * 1024
         var pending = Data(), bytes: Int64 = 0, skippingLongLine = false
         let fileSession = UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil ? url.deletingPathExtension().lastPathComponent : nil
@@ -360,6 +372,14 @@ public struct TokenLedger: Codable, Sendable, Equatable {
             if let model = payload["model"] as? String { cursor.model = model }
             if let cwd = payload["cwd"] as? String, cursor.cwd == nil { cursor.cwd = cwd }
         case "event_msg":
+            if payload["type"] as? String == "task_complete" {
+                // The limit ended this turn: the error travels with its completion (Codex does not keep the error event).
+                if let error = payload["error"] as? [String: Any], error["codex_error_info"] as? String == "usage_limit_exceeded",
+                   cursor.parent == nil, let session = cursor.session {
+                    var hits = limitHits ?? [:]; hits[Self.sessionKey(.codex, session)] = date; limitHits = hits
+                }
+                return
+            }
             guard payload["type"] as? String == "token_count", let info = payload["info"] as? [String: Any],
                   let usage = info["total_token_usage"] as? [String: Any], let session = cursor.parent ?? cursor.session else { return }
             let cached = int(usage["cached_input_tokens"]), reasoning = int(usage["reasoning_output_tokens"])
@@ -398,6 +418,7 @@ public struct TokenLedger: Codable, Sendable, Equatable {
         let cutoff = now.addingTimeInterval(-Double(Self.keepDays) * 86400)
         let hourCutoff = Int(floor(now.addingTimeInterval(-8 * 86400).timeIntervalSince1970 / 3600))
         sessions = sessions.filter { ($0.value.last ?? .distantPast) >= cutoff }
+        limitHits = limitHits?.filter { now.timeIntervalSince($0.value) < 2 * 86400 }
         for key in sessions.keys { sessions[key]!.hours = sessions[key]!.hours.filter { $0.key >= hourCutoff } }
     }
     /// Drops days older than the kept window. Call after the archive has taken them.

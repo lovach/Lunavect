@@ -37,8 +37,8 @@ Some paths still use **Weekleft**, the original internal name, to preserve compa
 | `~/Library/Application Support/Weekleft/QuotaProbe/` | Isolated working directory for Claude's `/usage` command |
 | `~/Library/Application Support/Weekleft/activity-details.json` | Project and session activity breakdowns |
 | `~/Library/Application Support/Weekleft/activity-archive.json` | Daily totals kept for Year and All time: per project folder name and session identifier, no titles or full paths |
-| `~/Library/Application Support/Weekleft/token-ledger.json` | Tokens per session, model and day read from the local Claude and Codex logs, with the read position in each log; no prompts or replies |
-| `~/Library/Application Support/Weekleft/session-controls.json` | Sessions you limited or planned to continue: title, folder, level, time and the message to type |
+| `~/Library/Application Support/Weekleft/token-ledger.json` | Tokens per session, model and day read from the local Claude and Codex logs, with the read position in each log, and the time a Codex turn ended on the usage limit (two days); no prompts or replies |
+| `~/Library/Application Support/Weekleft/session-controls.json` | Sessions you limited or planned to continue: title, folder, level, time, the message to type, the agent's last reply after it stopped (at most 1,200 characters, for the Tasks card) and cut-offs you declined (two days) |
 | `~/Library/Application Support/Weekleft/Sessions/limits.json` | Only sessions at or near their level, read by the Claude and Codex hooks to refuse the next action |
 | `~/Library/Group Containers/<TEAM_ID>.com.lunavect.shared/Weekleft/` | The signed app's shared quota snapshot, aggregate activity and widget selection data |
 | `~/Library/Application Support/Lunavect/IDEBridge/` | Descriptors of connected VS Code or JetBrains companions: process IDs, session ID and working directory |

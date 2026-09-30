@@ -78,7 +78,10 @@ enum StatusItemClick {
         let store = self.store, sessions = self.sessions
         return SessionControlService(url: environment.isPreview ? nil : SessionControlService.defaultURL,
                                      limitURL: environment.isPreview ? nil : SessionControlService.defaultLimitURL,
-                                     dependencies: .init(ledger: { store.tokenService.ledger }, snapshots: { store.snapshots }, sessions: { sessions.sessions }))
+                                     dependencies: .init(ledger: { store.tokenService.ledger }, snapshots: { store.snapshots }, sessions: { sessions.sessions },
+                                                         cutOff: { [defaults = environment.defaults] in
+                                                             SessionCutOffAction(rawValue: defaults.string(forKey: SessionCutOffAction.key) ?? "") ?? .ask
+                                                         }))
     }()
     var controlWindow: NSWindow?
     var menuBarAppearance: MenuBarAppearance { environment.menuBarAppearance }
@@ -175,6 +178,8 @@ enum StatusItemClick {
                 guard let self else { return }
                 if self.popover.isShown { self.popover.performClose(nil) } else { self.showSessions() }
             }
+            features.onControlAction = { [weak self] action, id in self?.controls.handle(action: action, controlID: id) }
+            features.limitCutOff = { [weak self] session in self?.controls.limitCutOff(session) ?? (false, nil) }
             features.onOpenSession = { [weak self] id in
                 Task { @MainActor in
                     guard let self else { return }
