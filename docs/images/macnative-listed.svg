@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="168" height="44" viewBox="0 0 168 44" role="img" aria-label="Listed on MacNative">
+  <rect x="0.5" y="0.5" width="167" height="43" rx="22" fill="#14161c" stroke="#262a33" stroke-width="1"/>
+  <g transform="translate(8 10)"><g transform="scale(0.046875)">
+    <g stroke="#5b657a" stroke-width="7">
+      <rect x="112" y="52" width="288" height="284" rx="42" fill="#8793aa"/>
+      <rect x="96" y="100" width="320" height="292" rx="46" fill="#c4ccd9"/>
+      <rect x="76" y="154" width="360" height="306" rx="54" fill="#f4f6fa"/>
+    </g>
+    <g fill="#171d2a">
+      <rect x="174" y="254" width="22" height="48" rx="11"/>
+      <rect x="316" y="254" width="22" height="48" rx="11"/>
+      <rect x="245" y="296" width="22" height="58" rx="11"/>
+    </g>
+    <path d="M210 380c30 22 77 22 104-7" fill="none" stroke="#171d2a" stroke-width="16" stroke-linecap="round"/>
+  </g></g>
+  <line x1="36" y1="0" x2="36" y2="44" stroke="#262a33" stroke-width="1"/>
+  <text x="44" y="18" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="7.5" font-weight="600" letter-spacing="0.6" fill="#6b7280">LISTED ON</text>
+  <text x="44" y="34" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" font-weight="700" fill="#f3f4f6">MacNative.io</text>
+</svg>
