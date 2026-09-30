@@ -674,7 +674,6 @@ struct SessionRow: View {
                     }
                     if let background { BackgroundWorkBadge(work: background).padding(.leading, 2) }
                     Spacer(minLength: 0)
-                    if let badge = usage?.badge { Text(badge).monospacedDigit().lineLimit(1).fixedSize() }
                     Text(session.shortProjectPath).lineLimit(1).truncationMode(.head)
                         .frame(maxWidth: 128, alignment: .trailing)
                         .help(session.cwd)
