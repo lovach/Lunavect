@@ -431,7 +431,9 @@ enum StatusItemClick {
         window.isReleasedWhenClosed = false; window.delegate = self
         window.contentView = NSHostingView(rootView: LocalizedRoot(language: environment.language) { [controls, store, sessions] in
             SessionControlView(session: session, mode: mode, controls: controls, store: store,
-                               hooksReady: sessions.hooksInstalled[session.provider] ?? false,
+                               hooksReady: (sessions.hooksInstalled[session.provider] ?? false)
+                                   && !(session.provider == .codex && sessions.codexHookTrust == .untrusted),
+                               hooksUntrusted: session.provider == .codex && sessions.codexHookTrust == .untrusted,
                                onClose: { [weak self] in self?.controlWindow?.close() })
         }.defaultAppStorage(environment.defaults))
         window.center()

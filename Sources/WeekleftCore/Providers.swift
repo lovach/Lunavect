@@ -61,6 +61,59 @@ public enum CodexProvider {
         catch SessionError.invalidResponse { throw UsageError.invalidResponse }
         catch is SessionError { throw UsageError.missingCLI }
     }
+
+    /// Whether Codex runs Lunavect's hooks. Codex runs only hooks the user trusted and asks
+    /// again when one changes or moves ("Hooks need review"); until then it skips them
+    /// silently (live check 30.09: all eight "modified" for two days, no Codex events).
+    public enum HookTrust: String, Codable, Sendable { case trusted, untrusted, unknown }
+    /// Asks the app-server's read-only `hooks/list`; `.unknown` when Codex cannot tell (an older
+    /// Codex, no Lunavect hooks, any failure), so no warning is shown on a guess.
+    public static func hookTrust(resolver: ClientExecutableResolver) async -> HookTrust {
+        guard let path = try? resolver.resolve(.codex) else { return .unknown }
+        return (try? await SessionProcess.detached { try readHookTrust(cliPath: path) }) ?? .unknown
+    }
+    static func readHookTrust(cliPath: String, timeout: TimeInterval = 20) throws -> HookTrust {
+        guard FileManager.default.isExecutableFile(atPath: cliPath) else { return .unknown }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return try SessionProcess.withProcess(path: cliPath, arguments: ["app-server", "--stdio"], timeout: timeout) { _, input, output, deadline in
+            // No conversation is started. Only initialize and hooks/list are sent.
+            func send(_ object: [String: Any]) throws {
+                var data = try JSONSerialization.data(withJSONObject: object); data.append(10)
+                try SessionProcess.writeCodexInput(data, to: input.fileHandleForWriting, until: deadline)
+            }
+            try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "weekleft", "version": "0.1.0"]]])
+            var buffer = Data(), total = 0
+            while true {
+                let data = try SessionProcess.readChunk(output.fileHandleForReading, until: deadline)
+                if data.isEmpty { return .unknown }
+                total += data.count
+                guard total < 4_000_000 else { return .unknown }
+                buffer.append(data)
+                while let newline = buffer.firstIndex(of: 10) {
+                    try Task.checkCancellation()
+                    let line = buffer.prefix(upTo: newline); buffer.removeSubrange(...newline)
+                    guard let message = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], let id = message["id"] as? Int else { continue }
+                    if id == 1 {
+                        guard message["error"] == nil else { return .unknown }
+                        try send(["method": "initialized"])
+                        try send(["id": 2, "method": "hooks/list", "params": ["cwds": [home]]])
+                    } else if id == 2 {
+                        guard let result = message["result"] as? [String: Any] else { return .unknown }
+                        return hookTrust(fromList: result)
+                    }
+                }
+            }
+        }
+    }
+    /// Lunavect's hooks carry its marker in their command; "trusted" and "managed" run,
+    /// "untrusted" and "modified" do not.
+    static func hookTrust(fromList result: [String: Any]) -> HookTrust {
+        let marker = SessionHooks.marker(.codex)
+        let statuses = ((result["data"] as? [[String: Any]]) ?? []).flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] }
+            .filter { ($0["command"] as? String)?.contains(marker) == true }.compactMap { $0["trustStatus"] as? String }
+        guard !statuses.isEmpty else { return .unknown }
+        return statuses.allSatisfy { ["trusted", "managed"].contains($0) } ? .trusted : .untrusted
+    }
 }
 
 /// When Lunavect asks a client for new quota data. A Claude probe starts the
@@ -68,9 +121,10 @@ public enum CodexProvider {
 /// app-server, so both run when the window state calls for it, never on a fixed
 /// cadence (docs/connections.md, "When limits are refreshed").
 ///
-/// - While any window is used up with a future reset nothing is asked, not even
-///   about the other window's passed reset: no request is possible, so nothing
-///   can change before that reset.
+/// - While a Claude window is used up with a future reset nothing is asked, not
+///   even about the other window's passed reset: no request is possible, so nothing
+///   can change before that reset. A used-up Codex window is asked about hourly and
+///   after session activity: Codex's manual usage-limit resets lift it early.
 /// - After a reset one confirming request runs once the grace has passed. An
 ///   answer that still shows the passed reset is not a confirmation: the next one
 ///   follows the failure backoff.

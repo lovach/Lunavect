@@ -6984,5 +6984,47 @@
     "es": "tras el reinicio",
     "fr": "après la réinitialisation",
     "zh-Hans": "重置后"
+  },
+  "Codex не запускает обработчики Lunavect": {
+    "de": "Codex führt die Hooks von Lunavect nicht aus",
+    "en": "Codex does not run Lunavect’s hooks",
+    "es": "Codex no ejecuta los hooks de Lunavect",
+    "fr": "Codex n’exécute pas les hooks de Lunavect",
+    "zh-Hans": "Codex 未运行 Lunavect 的钩子"
+  },
+  "После изменения обработчиков Codex просит доверить их заново. Пока этого не сделать, Lunavect не видит, работают ли сессии Codex и ждут ли ответа, и не может остановить их на пределе.": {
+    "de": "Nach einer Änderung der Hooks fragt Codex erneut, ob Sie ihnen vertrauen. Bis dahin sieht Lunavect nicht, ob Codex-Sitzungen arbeiten oder warten, und kann sie an einem Limit nicht anhalten.",
+    "en": "After hooks change, Codex asks you to trust them again. Until you do, Lunavect does not see whether Codex sessions are working or waiting, and cannot stop them at a limit.",
+    "es": "Cuando los hooks cambian, Codex te pide confiar en ellos otra vez. Hasta que lo hagas, Lunavect no ve si las sesiones de Codex trabajan o esperan, y no puede detenerlas en un límite.",
+    "fr": "Après une modification des hooks, Codex vous demande de leur faire à nouveau confiance. D’ici là, Lunavect ne voit pas si les sessions Codex travaillent ou attendent, et ne peut pas les arrêter à une limite.",
+    "zh-Hans": "钩子变更后，Codex 会要求你重新信任它们。在此之前，Lunavect 无法看到 Codex 会话是在工作还是在等待，也无法在达到上限时停止它们。"
+  },
+  "Запустите codex в Терминале и выберите «Trust all and continue». Lunavect проверит снова сам.": {
+    "de": "Starten Sie codex im Terminal und wählen Sie „Trust all and continue“. Lunavect prüft danach selbst erneut.",
+    "en": "Run codex in Terminal and choose “Trust all and continue”. Lunavect checks again by itself.",
+    "es": "Ejecuta codex en Terminal y elige «Trust all and continue». Lunavect lo comprobará de nuevo por sí mismo.",
+    "fr": "Lancez codex dans le Terminal et choisissez « Trust all and continue ». Lunavect vérifiera de nouveau tout seul.",
+    "zh-Hans": "在终端中运行 codex 并选择“Trust all and continue”。Lunavect 会自行再次检查。"
+  },
+  "Открыть Codex в Терминале": {
+    "de": "Codex im Terminal öffnen",
+    "en": "Open Codex in Terminal",
+    "es": "Abrir Codex en Terminal",
+    "fr": "Ouvrir Codex dans le Terminal",
+    "zh-Hans": "在终端中打开 Codex"
+  },
+  "Не удалось открыть Терминал.": {
+    "de": "Terminal konnte nicht geöffnet werden.",
+    "en": "Could not open Terminal.",
+    "es": "No se pudo abrir Terminal.",
+    "fr": "Impossible d’ouvrir le Terminal.",
+    "zh-Hans": "无法打开终端。"
+  },
+  "Codex не запускает обработчики Lunavect: без них сессию не остановить. Как это исправить, написано в Настройки → Подключения.": {
+    "de": "Codex führt die Hooks von Lunavect nicht aus: Ohne sie lässt sich die Sitzung nicht anhalten. Unter Einstellungen → Verbindungen steht, wie Sie das beheben.",
+    "en": "Codex does not run Lunavect’s hooks: without them the session cannot be stopped. Settings → Connections says how to fix it.",
+    "es": "Codex no ejecuta los hooks de Lunavect: sin ellos no se puede detener la sesión. En Ajustes → Conexiones se explica cómo arreglarlo.",
+    "fr": "Codex n’exécute pas les hooks de Lunavect : sans eux, la session ne peut pas être arrêtée. Réglages → Connexions explique comment corriger cela.",
+    "zh-Hans": "Codex 未运行 Lunavect 的钩子：没有它们就无法停止会话。修复方法见“设置 → 连接”。"
   }
 }

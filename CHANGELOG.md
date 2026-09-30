@@ -12,6 +12,7 @@
 - When Codex hits its usage limit mid-answer, Lunavect asks whether to continue the session after the reset (Settings → General → **If a limit cuts work off**: Ask, Continue without asking, Do nothing). Claude Code 2.1.234 and later continues by itself after a claude.ai usage limit; Lunavect only presses Enter when the Mac slept through the reset and Claude Code waits for it, or offers to continue when Claude's own automatic continue is off or gave up.
 - Notifications about a stopped session have **Continue now** and **+5%**; the question after a cut-off has **Continue after the reset** and **No thanks**.
 - The **Tasks** tab lists limited, resting and planned sessions; a small symbol marks them in the session list.
+- Settings → Connections warns when Codex does not run Lunavect's hooks. Codex asks you to trust hooks again after they change or move and skips them silently until then; without them Lunavect sees no Codex events and cannot stop a Codex session. **Open Codex in Terminal** opens Codex where you choose "Trust all and continue"; Lunavect checks again by itself. Limit Usage says the same for a Codex session.
 
 ### Agent Monitor
 

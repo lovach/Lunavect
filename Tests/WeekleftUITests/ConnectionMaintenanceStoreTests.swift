@@ -273,6 +273,30 @@ import SwiftUI
         let data = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(sheet.tiffRepresentation))?.representation(using: .png, properties: [:]))
         try data.write(to: URL(fileURLWithPath: output))
     }
+    /// Codex skips hooks the user has not trusted (live check 30.09): the store asks at start,
+    /// then at most hourly, and again at once when asked from Settings.
+    func testCodexHookTrustIsAskedAtStartHourlyAndOnRequest() async throws {
+        final class Calls: @unchecked Sendable { var count = 0; var answer = CodexProvider.HookTrust.untrusted }
+        let calls = Calls()
+        var dependencies = SessionStore.Dependencies()
+        dependencies.hooksState = { [.codex: true] }
+        dependencies.codexHookTrust = { _ in calls.count += 1; return calls.answer }
+        let sessions = SessionStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), isolated: true, dependencies: dependencies)
+        sessions.useProviders([.codex])
+        sessions.start(clientResolver: { ClientExecutableResolver() })
+        defer { sessions.stop() }
+        for _ in 0..<50 where sessions.codexHookTrust == .unknown { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(sessions.codexHookTrust, .untrusted)
+        XCTAssertEqual(calls.count, 1)
+        sessions.checkCodexHookTrust()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(calls.count, 1, "not again within the hour")
+        calls.answer = .trusted
+        sessions.checkCodexHookTrust(force: true)
+        for _ in 0..<50 where sessions.codexHookTrust != .trusted { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(sessions.codexHookTrust, .trusted, "Check again asks at once")
+        XCTAssertEqual(calls.count, 2)
+    }
     private func snapshot<V: View>(_ view: V, size: NSSize) throws -> NSImage {
         let host = NSHostingView(rootView: view.preferredColorScheme(.dark))
         host.appearance = NSAppearance(named: .darkAqua)

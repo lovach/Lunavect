@@ -83,6 +83,8 @@ struct SessionControlView: View {
     @ObservedObject var controls: SessionControlService
     @ObservedObject var store: AppStore
     var hooksReady: Bool
+    /// Codex skips Lunavect's hooks until the user trusts them again.
+    var hooksUntrusted = false
     var onClose: () -> Void
     @State private var stop: Double = 90
     @State private var fiveHourGuard = true
@@ -106,7 +108,9 @@ struct SessionControlView: View {
             Text(session.displayTitle + " · " + session.provider.title + " · " + session.project)
                 .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
             if !hooksReady {
-                Label(L("Lunavect не подключён к событиям {0}: без этого сессию не остановить. Включите подключение в настройках.", session.provider.title), systemImage: "exclamationmark.triangle")
+                Label(hooksUntrusted ? L("Codex не запускает обработчики Lunavect: без них сессию не остановить. Как это исправить, написано в Настройки → Подключения.")
+                      : L("Lunavect не подключён к событиям {0}: без этого сессию не остановить. Включите подключение в настройках.", session.provider.title),
+                      systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if mode == .limit { limitForm } else { laterForm }

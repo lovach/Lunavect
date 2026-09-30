@@ -127,6 +127,21 @@ final class SessionControlTests: XCTestCase {
         XCTAssertEqual(ledger.recent?["claude"]?.isEmpty, true, "minutes older than six hours are dropped")
     }
 
+    /// Live check 30.09: Codex's `hooks/list` showed Lunavect's hooks "modified" while the others were trusted.
+    func testCodexHookTrustComesFromLunavectsOwnHooks() {
+        func list(_ lunavect: [String], other: String = "trusted") -> [String: Any] {
+            let marker = "'/x/LunavectHook' --session-hook codex # lunavect-session-monitor:codex"
+            return ["data": [["cwd": "/Users/u", "hooks": lunavect.map { ["handlerType": "command", "command": marker, "trustStatus": $0] }
+                + [["handlerType": "command", "command": "node statusbar.js", "trustStatus": other]], "warnings": [], "errors": []]]]
+        }
+        XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["trusted", "trusted"], other: "modified")), .trusted, "only Lunavect's hooks count")
+        XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["trusted", "modified"])), .untrusted)
+        XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["untrusted"])), .untrusted)
+        XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["managed"])), .trusted)
+        XCTAssertEqual(CodexProvider.hookTrust(fromList: list([])), .unknown, "no Lunavect hook: nothing to warn about")
+        XCTAssertEqual(CodexProvider.hookTrust(fromList: [:]), .unknown)
+    }
+
     func testTypedTextIsOneQuotedLine() {
         XCTAssertEqual(TerminalLocation.typedText("say \"hi\"\nnow \\ ok"), "say \\\"hi\\\" now \\\\ ok")
         XCTAssertNil(TerminalLocation.typeScript(tty: "/dev/ttys001; rm", app: "Terminal", text: "x"))
