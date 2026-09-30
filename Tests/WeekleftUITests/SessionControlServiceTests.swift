@@ -7,6 +7,11 @@ import WeekleftCore
         var calls: [(text: String, tty: String, app: String, command: String?)] = []
         var opened: [(command: String, app: String)] = []
         var result = true
+        /// The limit file's entries when each text was typed: the hooks read it then.
+        var limits: URL?
+        var entriesAtTyping: [Int] = []
+        /// Runs while the text is typed, as a user acting meanwhile would.
+        var during: (@MainActor () -> Void)?
     }
     private var now = Date(timeIntervalSince1970: 1_800_000_000)
     private var notices: [SessionControlService.Notice] = []
@@ -17,18 +22,26 @@ import WeekleftCore
     private var ledger = TokenLedger()
     private var cutOff = SessionCutOffAction.ask
     private var claudeContinues = true
+    private var fiveHourKnown = true
     private var titles: [String] { notices.map(\.title) }
 
     private func service(_ typed: Typed, rows: @escaping () -> [AgentSession], limits: URL) -> SessionControlService {
-        SessionControlService(url: nil, limitURL: limits, dependencies: .init(
+        typed.limits = limits
+        return SessionControlService(url: nil, limitURL: limits, dependencies: .init(
             ledger: { [unowned self] in self.ledger },
             snapshots: { [unowned self] in [UsageSnapshot(provider: .claude,
                 weekly: try! QuotaWindow(usedPercent: self.level, durationMinutes: 10080, resetsAt: self.now.addingTimeInterval(self.reset)),
-                fiveHour: try! QuotaWindow(usedPercent: self.fiveHour, durationMinutes: 300, resetsAt: self.now.addingTimeInterval(self.fiveReset)), fetchedAt: self.now),
+                fiveHour: self.fiveHourKnown ? try! QuotaWindow(usedPercent: self.fiveHour, durationMinutes: 300, resetsAt: self.now.addingTimeInterval(self.fiveReset)) : nil,
+                fetchedAt: self.now),
                 UsageSnapshot(provider: .codex, fiveHour: try! QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: self.now.addingTimeInterval(self.fiveReset)),
                               fetchedAt: self.now)] },
             sessions: rows,
-            type: { text, tty, app, command, _, _ in typed.calls.append((text, tty, app, command)); return typed.result },
+            type: { text, tty, app, command, _, _ in
+                typed.calls.append((text, tty, app, command))
+                if let url = typed.limits { typed.entriesAtTyping.append(SessionLimitFile.load(from: url).entries.count) }
+                if let during = typed.during { await during() }
+                return typed.result
+            },
             open: { command, app in typed.opened.append((command, app)); return true },
             notify: { [unowned self] notice in self.notices.append(notice) },
             cutOff: { [unowned self] in self.cutOff },
@@ -76,6 +89,7 @@ import WeekleftCore
         XCTAssertEqual(controls.controls.first?.state, .watching, "the limit stays for the new week")
         XCTAssertNil(controls.controls.first?.resumeAt)
         XCTAssertTrue(SessionLimitFile.load(from: limits).entries.isEmpty)
+        XCTAssertEqual(typed.entriesAtTyping, [0], "the hooks no longer stop the session when «продолжай» arrives")
     }
 
     func testRestsBeforeTheFiveHourCutOffAndContinuesAfterItsReset() async throws {
@@ -94,7 +108,9 @@ import WeekleftCore
         now = now.addingTimeInterval(3661); fiveHour = 3; fiveReset = 5 * 3600
         await controls.tick()
         XCTAssertEqual(typed.calls.map(\.text), ["дальше"])
-        XCTAssertEqual(typed.calls.first?.command, "claude --resume 0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21 'дальше'", "at a shell prompt the tab resumes the session")
+        XCTAssertEqual(typed.calls.first?.command, "cd '/p/Lunavect' && claude --resume 0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21 'дальше'",
+                       "at a shell prompt the tab resumes the session from its folder: the device may belong to another tab now")
+        XCTAssertEqual(typed.entriesAtTyping, [0], "the rest is lifted before the text is typed")
         XCTAssertEqual(controls.controls.first?.state, .watching, "the next window is guarded too")
         XCTAssertEqual(controls.controls.first?.message, "дальше", "the text stays for the next rest")
     }
@@ -170,7 +186,7 @@ import WeekleftCore
         now = now.addingTimeInterval(3700)
         await controls.tick()
         XCTAssertEqual(typed.calls.first?.text, SessionControl.defaultMessage)
-        XCTAssertEqual(typed.calls.first?.command, "codex resume " + id + " '" + SessionControl.defaultMessage + "'")
+        XCTAssertEqual(typed.calls.first?.command, "cd '/p/Lunavect' && codex resume " + id + " '" + SessionControl.defaultMessage + "'")
     }
 
     func testADeclinedCutOffIsNotOfferedAgainAndOffAsksNothing() async throws {
@@ -182,6 +198,16 @@ import WeekleftCore
         XCTAssertTrue(controls.controls.isEmpty)
         await controls.tick()
         XCTAssertTrue(controls.controls.isEmpty, "the same cut-off is not offered again")
+
+        // Removing its card answers it too.
+        let other = "019a0c0a-96ca-7cf2-9f85-caba5f66eed8", second = row(.codex, id: other)
+        ledger.limitHits = ["codex:" + other: now.addingTimeInterval(-30)]
+        let removing = service(typed, rows: [second], limits: limits)
+        await removing.tick()
+        XCTAssertEqual(removing.controls.first?.state, .offered)
+        removing.remove("codex:" + other)
+        await removing.tick()
+        XCTAssertTrue(removing.controls.isEmpty, "a removed card does not come back for the same cut-off")
 
         cutOff = .off; notices = []
         let quiet = service(typed, rows: [session], limits: limits)
@@ -203,6 +229,9 @@ import WeekleftCore
         var stale = failed; stale.limitWait = "stale"; stale.limitWaitAt = now
         rows = [stale]; cutOff = .auto
         await controls.tick()
+        XCTAssertTrue(typed.calls.isEmpty, "a minute for the notice's «Не продолжать»")
+        now = now.addingTimeInterval(61)
+        await controls.tick()
         XCTAssertEqual(typed.calls.map(\.text), [""])
         XCTAssertNil(typed.calls.first?.command, "never a resume command into the shell for Enter")
         XCTAssertEqual(titles.first, L("Лимит сбросился, пока Mac спал"))
@@ -214,6 +243,68 @@ import WeekleftCore
         await offering.tick()
         XCTAssertEqual(offering.controls.first?.state, .offered)
         XCTAssertEqual(offering.limitCutOff(failed).handled, true)
+    }
+
+    /// The user removes the control while its text is typed: it does not come back.
+    func testAControlRemovedWhileTypingStaysRemoved() async throws {
+        let limits = limits(), typed = Typed(), session = row()
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.continueLater(session, when: .at, at: now.addingTimeInterval(-1), message: "дальше")
+        typed.during = { controls.remove("claude:S1") }
+        await controls.tick()
+        XCTAssertEqual(typed.calls.count, 1)
+        XCTAssertTrue(controls.controls.isEmpty)
+    }
+
+    /// No 5-hour reading: a rest the window caused is kept until its own time, not let go early.
+    func testARestIsKeptWhileTheFiveHourLevelIsUnknown() async throws {
+        let limits = limits(), typed = Typed(), session = row()
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.setLimit(for: session, stopAtWeek: 95, fiveHourGuard: true, continueAfterReset: false, message: nil)
+        fiveHour = 97; await controls.tick()
+        XCTAssertEqual(controls.controls.first?.state, .resting)
+        fiveHourKnown = false; await controls.tick()
+        XCTAssertEqual(controls.controls.first?.state, .resting)
+        XCTAssertTrue(typed.calls.isEmpty)
+        now = now.addingTimeInterval(3661); await controls.tick()
+        XCTAssertEqual(typed.calls.count, 1, "released at the reset it waited for")
+    }
+
+    /// Claude Code waits for Enter and pressing it failed: the card never offers a second process.
+    func testAFailedEnterKeepsItsWay() async throws {
+        let limits = limits(), typed = Typed(); typed.result = false
+        var stale = row(id: "0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21"); stale.phase = .failed; stale.failure = .limit
+        stale.limitWait = "stale"; stale.limitWaitAt = now
+        cutOff = .auto
+        let controls = service(typed, rows: [stale], limits: limits)
+        await controls.tick(); now = now.addingTimeInterval(61); await controls.tick()
+        XCTAssertEqual(controls.controls.first?.state, .needsYou)
+        XCTAssertEqual(controls.controls.first?.pressEnter, true)
+        XCTAssertTrue(typed.opened.isEmpty)
+        controls.openInTerminal("claude:0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21")
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertTrue(typed.opened.isEmpty, "claude --resume would run beside the waiting process")
+    }
+
+    /// «Continue later» chosen before the window's reset was known: filled in once a reading shows it.
+    func testAContinuationWithAnUnknownResetIsFilledInLater() async throws {
+        let limits = limits(), typed = Typed(), session = row()
+        fiveHourKnown = false
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.continueLater(session, when: .afterFiveHourReset, at: nil, message: nil)
+        XCTAssertNil(controls.controls.first?.resumeAt)
+        fiveHourKnown = true; await controls.tick()
+        XCTAssertEqual(controls.controls.first?.resumeAt, now.addingTimeInterval(fiveReset + 60))
+    }
+
+    /// A cut-off no reading after it shows as used up continues after five hours, not never.
+    func testACutOffWithoutAUsedUpReadingContinuesAfterFiveHours() {
+        let cut = now.addingTimeInterval(-600)
+        let lagging = try! UsageSnapshot(provider: .codex, fiveHour: QuotaWindow(usedPercent: 40, durationMinutes: 300, resetsAt: now.addingTimeInterval(3600)),
+                                         fetchedAt: now)
+        XCTAssertEqual(SessionControlService.resumeDate(.afterLimitReset, cutOffAt: cut, snapshot: lagging, now: now), cut.addingTimeInterval(5 * 3600 + 60))
+        var before = lagging; before.fetchedAt = cut.addingTimeInterval(-60)
+        XCTAssertNil(SessionControlService.resumeDate(.afterLimitReset, cutOffAt: cut, snapshot: before, now: now), "no reading since the cut-off yet")
     }
 
     func testRaiseLiftsTheStopByFivePointsAndContinues() async throws {

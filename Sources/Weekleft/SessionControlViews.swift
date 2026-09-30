@@ -294,7 +294,9 @@ struct SessionControlListView: View {
                     Button("+" + PercentText.format(5)) { controls.raise(control.id) }.help(L("Поднять предел на 5 процентных пунктов и продолжить"))
                     Button(L("Снять")) { controls.remove(control.id) }
                 case .needsYou:
-                    if TerminalLocation.resumeCommand(provider: control.provider, sessionID: control.sessionID, text: control.text) != nil {
+                    // Claude Code waiting for Enter still runs: no second process for the same session.
+                    if control.pressEnter != true,
+                       TerminalLocation.resumeCommand(provider: control.provider, sessionID: control.sessionID, text: control.text) != nil {
                         Button(L("Продолжить в Терминале")) { controls.openInTerminal(control.id) }
                     }
                     Button(L("Снять")) { controls.remove(control.id) }

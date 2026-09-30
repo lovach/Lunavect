@@ -421,6 +421,8 @@ public enum SessionList {
                 // source decides the phase, the last task event is its activity.
                 if !event.isUnstartedClaudeLifecycle { row.updatedAt = max(row.updatedAt, event.updatedAt) }
                 if let reopened = event.reopenedAt, reopened > (row.reopenedAt ?? .distantPast) { row.reopenedAt = reopened }
+                // Claude Code's own wait for a usage limit is known only to the hook: the session controls read it.
+                if let wait = event.limitWaitAt, wait > (row.limitWaitAt ?? .distantPast) { row.limitWait = event.limitWait; row.limitWaitAt = wait }
                 result[event.id] = row
             } else { result[event.id] = event }
         }

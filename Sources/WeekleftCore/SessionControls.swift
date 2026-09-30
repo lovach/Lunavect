@@ -178,7 +178,11 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
         public var agent: String
         /// What the user reads when a prompt to a stopped session is blocked.
         public var user: String
-        public init(state: SessionControl.State, agent: String, user: String) { self.state = state; self.agent = agent; self.user = user }
+        /// The entry lapses then (the window's reset): a stop never outlives its limit when Lunavect is not running.
+        public var until: Date?
+        public init(state: SessionControl.State, agent: String, user: String, until: Date? = nil) {
+            self.state = state; self.agent = agent; self.user = user; self.until = until
+        }
     }
     public var entries: [String: Entry] = [:]
     public init(entries: [String: Entry] = [:]) { self.entries = entries }
@@ -198,12 +202,13 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
     /// Claude Code and Codex read the same shapes: PreToolUse denies with a reason the
     /// agent sees or adds context; UserPromptSubmit blocks with a reason the user sees.
     /// A resting session is written as stopped: its hooks answer the same way.
-    public func reply(payload: Data) -> String {
+    public func reply(payload: Data, now: Date = Date()) -> String {
         guard !entries.isEmpty, let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let event = object["hook_event_name"] as? String, let session = object["session_id"] as? String else { return "{}" }
         let provider: ProviderID? = entries[TokenLedger.sessionKey(.claude, session)] != nil ? .claude
             : entries[TokenLedger.sessionKey(.codex, session)] != nil ? .codex : nil
-        guard let provider, let entry = entries[TokenLedger.sessionKey(provider, session)] else { return "{}" }
+        guard let provider, let entry = entries[TokenLedger.sessionKey(provider, session)],
+              entry.until.map({ $0 > now }) ?? true else { return "{}" }
         let reply: [String: Any]?
         switch (event, entry.state) {
         case ("PreToolUse", .stopped), ("PreToolUse", .resting):
@@ -280,17 +285,21 @@ public enum SessionReply {
 /// Continuing a session in Terminal or iTerm2: in its own tab while the agent is there,
 /// with the client's resume command when the tab went back to the shell or is gone.
 public extension TerminalLocation {
-    /// One line of plain text, quoted for AppleScript.
-    static func typedText(_ text: String) -> String {
-        let line = text.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
-        return String(line.prefix(500)).replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    /// One line of the message, at most 500 characters, quoted for AppleScript.
+    static func typedText(_ text: String) -> String { scriptLine(String(text.prefix(500))) }
+    /// One line quoted for AppleScript, whole: a command is never cut inside its quotes.
+    static func scriptLine(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
     /// A string for the shell, in single quotes.
     static func shellQuoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
     /// `claude --resume <id> '<text>'` or `codex resume <id> '<text>'`, from the session's folder when given.
     static func resumeCommand(provider: ProviderID, sessionID: String, text: String, cwd: String? = nil) -> String? {
         guard sessionID.range(of: #"^[A-Za-z0-9-]{8,80}\z"#, options: .regularExpression) != nil else { return nil }
-        let line = String(text.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ").prefix(500))
+        var line = String(text.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ").prefix(500))
+        // A message starting with "-" would be read as an option.
+        if line.hasPrefix("-") { line = " " + line }
         let command: String
         switch provider {
         case .claude: command = "claude --resume " + sessionID + " " + shellQuoted(line)
@@ -309,11 +318,15 @@ public extension TerminalLocation {
     /// `false` when the tab is gone or runs something else.
     /// Codex reads fast input as a paste, where Return is a new line (live check 30.09): `submitAgain`
     /// presses Return once more after a pause so the message is sent.
-    static func typeScript(tty: String, app: String, text: String, command: String? = nil, agent: String? = nil, submitAgain: Bool = false) -> String? {
+    /// `agentAllowed` false: the session's agent is gone from the device, so a program there is someone else's.
+    static func typeScript(tty: String, app: String, text: String, command: String? = nil, agent: String? = nil, submitAgain: Bool = false,
+                           agentAllowed: Bool = true) -> String? {
         guard valid(tty) else { return nil }
-        let typed = typedText(text), resume = command.map(typedText)
-        let names = agentProcesses + (agent.map { [typedText($0)] } ?? [])
+        let typed = typedText(text), resume = command.map(scriptLine)
+        let names = agentAllowed ? agentProcesses + (agent.map { [scriptLine($0)] } ?? []) : []
         let agents = names.map { "\"\($0)\"" }.joined(separator: ", "), shells = shellProcesses.map { "\"\($0)\"" }.joined(separator: ", ")
+        let versioned = agentAllowed ? "(count of pn) > 0 and \"0123456789\" contains (character 1 of pn)" : "false"
+        let versionedJob = agentAllowed ? "((count of job) > 0 and \"0123456789\" contains (character 1 of job))" : "false"
         let terminalShell = resume.map { "if {\(shells)} contains ((last item of names) as text) then\ndo script \"\($0)\" in t\nreturn true\nend if" } ?? ""
         let itermShell = resume.map { "if {\(shells)} contains job then\ntell s to write text \"\($0)\"\nreturn true\nend if" } ?? ""
         switch app {
@@ -329,7 +342,7 @@ public extension TerminalLocation {
                             repeat with p in names
                                 set pn to p as text
                                 if {\(agents)} contains pn then set agentRuns to true
-                                if (count of pn) > 0 and "0123456789" contains (character 1 of pn) then set agentRuns to true
+                                if \(versioned) then set agentRuns to true
                             end repeat
                             if agentRuns then
                                 do script "\(typed)" in t
@@ -357,7 +370,7 @@ public extension TerminalLocation {
                                 try
                                     tell s to set job to (variable named "jobName")
                                 end try
-                                if {\(agents)} contains job or ((count of job) > 0 and "0123456789" contains (character 1 of job)) then
+                                if {\(agents)} contains job or \(versionedJob) then
                                     tell s to write text "\(typed)"
                                     \(submitAgain ? "delay 0.6\ntell s to write text \"\"" : "")
                                     return true
@@ -377,7 +390,7 @@ public extension TerminalLocation {
     }
     /// A new window of `app` (Terminal when unknown) running `command` in a login shell.
     static func openScript(app: String, command: String) -> String {
-        let typed = typedText(command)
+        let typed = scriptLine(command)
         if app == "iTerm2" {
             return """
             with timeout of \(focusTimeout) seconds
@@ -397,11 +410,17 @@ public extension TerminalLocation {
         """
     }
     /// Types `text` and Return into the tab; false when the tab is gone.
-    static func type(_ text: String, tty: String, app: String, command: String? = nil, agentPID: Int32? = nil, submitAgain: Bool = false,
+    static func type(_ text: String, tty: String, app: String, command: String? = nil, agentPID: Int32? = nil, provider: ProviderID,
                      timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
         // The session's own runtime names its process exactly, whatever the installer called the binary.
         let agent = agentPID.flatMap(SessionProcess.runtimeProcess).map { URL(fileURLWithPath: $0.executable).lastPathComponent }
-        guard let source = typeScript(tty: tty, app: app, text: text, command: command, agent: agent, submitAgain: submitAgain) else {
+        // macOS gives a closed tab's device to the next tab, and the user may have started another agent or
+        // program there: type the message only while this session's runtime (its recorded process when known)
+        // runs on the device. An interpreter alone counts only for Claude, whose npm install runs under node.
+        let occupancy = occupancy(of: tty, provider: provider, runtimePID: agentPID)
+        let agentAllowed = occupancy == .provider || occupancy == .unknown || (occupancy == .interpreter && provider == .claude)
+        guard let source = typeScript(tty: tty, app: app, text: text, command: command, agent: agent, submitAgain: provider == .codex,
+                                      agentAllowed: agentAllowed) else {
             throw SessionOpeningError.terminalFocusFailed(app)
         }
         return try await executeFocusScript(source, app: app, timeout: timeout)

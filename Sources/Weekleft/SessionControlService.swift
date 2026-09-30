@@ -41,10 +41,10 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         var ledger: @MainActor () -> TokenLedger
         var snapshots: @MainActor () -> [UsageSnapshot]
         var sessions: @MainActor () -> [AgentSession]
-        /// Types into the session's tab: the message while the agent runs there, the resume command at a shell prompt.
-        /// Types into the session's tab (text, tty, app, resume command, agent pid, provider).
+        /// Types into the session's tab (text, tty, app, resume command, agent pid, provider): the message while
+        /// the agent runs there, the resume command at a shell prompt.
         var type: @Sendable (String, String, String, String?, Int32?, ProviderID) async throws -> Bool = { text, tty, app, command, pid, provider in
-            try await TerminalLocation.type(text, tty: tty, app: app, command: command, agentPID: pid, submitAgain: provider == .codex)
+            try await TerminalLocation.type(text, tty: tty, app: app, command: command, agentPID: pid, provider: provider)
         }
         /// A new window running the resume command.
         var open: @Sendable (String, String) async throws -> Bool = { command, app in try await TerminalLocation.open(command, app: app) }
@@ -145,6 +145,8 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         upsert(control)
     }
     func remove(_ id: String) {
+        // The cut-off it answered stays in the logs for hours: it is not offered again.
+        if let cut = controls.first(where: { $0.id == id })?.cutOffAt { declined[id] = max(declined[id] ?? cut, cut) }
         controls.removeAll { $0.id == id }
         save(); writeLimits()
     }
@@ -190,7 +192,8 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     }
     /// Resumes the session in a new Terminal window when it could not be typed into.
     func openInTerminal(_ id: String) {
-        guard let control = controls.first(where: { $0.id == id }),
+        // Claude Code waiting for Enter still runs: a second process would write the same transcript.
+        guard let control = controls.first(where: { $0.id == id }), control.pressEnter != true,
               let command = TerminalLocation.resumeCommand(provider: control.provider, sessionID: control.sessionID, text: control.text, cwd: control.cwd) else { return }
         let app = control.terminalApp == "iTerm2" ? "iTerm2" : "Terminal"
         Task {
@@ -224,6 +227,20 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     }
     /// A minute after the reset, so the provider has let the account go again.
     private static func afterReset(_ date: Date) -> Date { date.addingTimeInterval(60) }
+    /// When a continuation chosen before its reset was known is due, once a reading shows it.
+    /// A cut-off whose used-up window no reading after it shows (a lagging reading, a model or
+    /// credit limit) continues after five hours, when any 5-hour window has reset.
+    static func resumeDate(_ resume: SessionControl.Resume, cutOffAt: Date?, snapshot: UsageSnapshot?, now: Date) -> Date? {
+        switch resume {
+        case .afterWeeklyReset: return snapshot?.weekly?.resetsAt.map(afterReset)
+        case .afterFiveHourReset: return snapshot?.fiveHour?.resetsAt.map(afterReset)
+        case .at: return nil
+        case .afterLimitReset:
+            if let reset = WeekLevel.limitReset(snapshot, now: now) { return afterReset(reset) }
+            guard let cut = cutOffAt, let fetched = snapshot?.fetchedAt, fetched.timeIntervalSince(cut) > 60 else { return nil }
+            return afterReset(cut.addingTimeInterval(5 * 3600))
+        }
+    }
 
     // MARK: Watching
 
@@ -234,16 +251,20 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             guard var control = controls.first(where: { $0.id == id }) else { continue }
             let snapshot = snapshot(control.provider)
             let row = sessions.first { TokenLedger.sessionKey($0.provider, $0.sessionID) == id }
-            if control.resumeAt == nil, control.resume == .afterLimitReset, control.state != .continued,
-               let reset = WeekLevel.limitReset(snapshot, now: now) {
-                control.resumeAt = Self.afterReset(reset); upsert(control, write: false)
+            // A reset unknown when the continuation was chosen is filled in once a reading shows it.
+            if control.resumeAt == nil, control.state != .continued, let resume = control.resume,
+               let due = Self.resumeDate(resume, cutOffAt: control.cutOffAt, snapshot: snapshot, now: now) {
+                control.resumeAt = due; upsert(control, write: false)
             }
             if ![.offered, .needsYou, .continued].contains(control.state), control.stopAtWeek != nil || control.fiveHourGuard == true {
                 let week = control.stopAtWeek == nil ? nil : weekLevel(control.provider)
                 // The week's level is unknown: keep the state rather than let a stopped session go.
                 if control.stopAtWeek == nil || week != nil {
                     let five = control.fiveHourGuard == true ? fiveHourLevel(control.provider) : nil
-                    let next = control.decide(weekLevel: week, fiveHourLevel: five, now: now)
+                    var next = control.decide(weekLevel: week, fiveHourLevel: five, now: now)
+                    // The 5-hour level is unknown: keep the rest or wrap-up it caused until its own time.
+                    if control.fiveHourGuard == true, five == nil, control.reason == .fiveHour, next.state != .stopped,
+                       control.resumeAt.map({ $0 > now }) ?? true { next = (control.state, control.reason) }
                     if next.state != control.state || next.reason != control.reason {
                         enter(next.state, reason: next.reason, control: &control, snapshot: snapshot, now: now)
                         upsert(control, write: false)
@@ -262,6 +283,8 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
                !delivering.contains(id) {
                 if let phase = row?.effectivePhase(now: now), phase == .running || phase == .permission { continue }
                 delivering.insert(id)
+                // The hooks read the new state before anything is typed: an old stop would block the message.
+                writeLimits()
                 await deliver(id, row: row)
                 delivering.remove(id)
             }
@@ -325,7 +348,9 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             var control = existing ?? newControl(row, now: now)
             control.cutOffAt = at; control.pressEnter = enter ? true : nil
             control.resume = enter ? .at : .afterLimitReset
-            control.resumeAt = enter ? now : WeekLevel.limitReset(snapshot(row.provider), now: now).map(Self.afterReset)
+            // Automatic Enter waits a minute, so the notice's «Не продолжать» can still stop it.
+            control.resumeAt = enter ? (action == .auto ? now.addingTimeInterval(60) : now)
+                : WeekLevel.limitReset(snapshot(row.provider), now: now).map(Self.afterReset)
             control.state = action == .ask ? .offered : .watching; control.note = nil; control.updatedAt = now
             control.summary = nil; control.summaryAt = nil
             let when = control.resumeAt.map(Self.date)
@@ -369,20 +394,25 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     }
 
     private func deliver(_ id: String, row: AgentSession?) async {
-        guard var control = controls.first(where: { $0.id == id }) else { return }
-        let now = dependencies.clock(), text = control.text
-        let app = row?.terminalApp ?? control.terminalApp, client = row?.client ?? control.client
+        guard let due = controls.first(where: { $0.id == id }) else { return }
+        let text = due.text
+        let app = row?.terminalApp ?? due.terminalApp, client = row?.client ?? due.client
         // Enter alone belongs to the waiting Claude Code; a shell or a new window gets nothing.
-        let enter = control.pressEnter == true
-        let inTab = enter ? nil : TerminalLocation.resumeCommand(provider: control.provider, sessionID: control.sessionID, text: text)
-        let fresh = enter ? nil : TerminalLocation.resumeCommand(provider: control.provider, sessionID: control.sessionID, text: text, cwd: control.cwd)
+        let enter = due.pressEnter == true
+        // From the session's folder also in its tab: macOS may have given the tab's device to another project.
+        let command = enter ? nil : TerminalLocation.resumeCommand(provider: due.provider, sessionID: due.sessionID, text: text, cwd: due.cwd)
         var typed = false, opened = false
         if client == .terminal, let app, ["Terminal", "iTerm2"].contains(app) {
-            if let tty = row?.terminalTTY { typed = (try? await dependencies.type(text, tty, app, inTab, row?.runtimePID, control.provider)) == true }
-            if !typed, let fresh { opened = (try? await dependencies.open(fresh, app)) == true }
+            if let tty = row?.terminalTTY { typed = (try? await dependencies.type(text, tty, app, command, row?.runtimePID, due.provider)) == true }
+            if !typed, let command { opened = (try? await dependencies.open(command, app)) == true }
         }
-        control.resumeAt = nil; control.resume = nil; control.pressEnter = nil; control.updatedAt = now
+        // The user may have removed or changed the control while the script ran.
+        guard var control = controls.first(where: { $0.id == id }) else { return }
+        let now = dependencies.clock()
+        if control.resumeAt == due.resumeAt { control.resumeAt = nil; control.resume = nil }
+        control.updatedAt = now
         if typed || opened {
+            control.pressEnter = nil
             control.state = control.stopAtWeek == nil && control.fiveHourGuard != true ? .continued : .watching
             control.note = L("Продолжена {0}.", Self.date(now))
             dependencies.notify(Notice(title: L("Сессия продолжается"),
@@ -393,7 +423,7 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             control.note = enter ? L("Откройте сессию и нажмите Enter.") : L("Напишите агенту: «{0}»", text)
             dependencies.notify(Notice(title: L("Лимит сброшен: сессию можно продолжить"),
                                        body: control.title + "\n" + (enter ? L("Откройте сессию и нажмите Enter.") : L("Откройте её и напишите агенту «{0}».", text)),
-                                       category: fresh == nil ? nil : Self.Category.needsYou, controlID: id))
+                                       category: command == nil ? nil : Self.Category.needsYou, controlID: id))
         }
         upsert(control)
     }
@@ -405,24 +435,28 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         for control in controls where [.wrappingUp, .stopped, .resting].contains(control.state) {
             let level = PercentText.format(Int((control.stopAtWeek ?? 0).rounded()))
             let reset = control.resumeAt.map(Self.date) ?? L("после сброса")
+            // The entry lapses five minutes after its window resets, also when Lunavect is not running then.
+            let snapshot = snapshot(control.provider)
+            let window = control.reason == .fiveHour || control.state == .resting ? snapshot?.fiveHour : snapshot?.weekly
+            let until = window?.resetsAt.map { $0.addingTimeInterval(300) }
             switch (control.state, control.reason) {
             case (.stopped, _):
                 file.entries[control.id] = .init(state: .stopped,
                     agent: L("Lunavect: неделя дошла до {0}, эта сессия остановлена до сброса лимита. Не выполняй новых действий.", level) + " " + format,
-                    user: L("Lunavect остановил эту сессию: неделя дошла до {0}. Чтобы продолжить сейчас, снимите ограничение в Lunavect (меню сессии или вкладка «Задачи»).", level))
+                    user: L("Lunavect остановил эту сессию: неделя дошла до {0}. Чтобы продолжить сейчас, снимите ограничение в Lunavect (меню сессии или вкладка «Задачи»).", level), until: until)
             case (.resting, _):
                 file.entries[control.id] = .init(state: .stopped,
                     agent: L("Lunavect: окно 5 часов почти исчерпано, эта сессия ждёт его сброса ({0}). Не выполняй новых действий: Lunavect сам попросит продолжить.", reset) + " " + format,
-                    user: L("Lunavect поставил эту сессию на паузу до сброса окна 5 часов ({0}) и потом продолжит её сам. Чтобы продолжить сейчас, нажмите «Продолжить сейчас» во вкладке «Задачи».", reset))
+                    user: L("Lunavect поставил эту сессию на паузу до сброса окна 5 часов ({0}) и потом продолжит её сам. Чтобы продолжить сейчас, нажмите «Продолжить сейчас» во вкладке «Задачи».", reset), until: until)
             case (.wrappingUp, .fiveHour):
                 file.entries[control.id] = .init(state: .wrappingUp,
                     agent: L("Lunavect: окно 5 часов почти исчерпано. Закончи текущий шаг и не начинай новую работу: после сброса окна Lunavect попросит продолжить.") + " " + format,
-                    user: "")
+                    user: "", until: until)
             default:
                 guard control.stopAtWeek != nil else { continue }
                 file.entries[control.id] = .init(state: .wrappingUp,
                     agent: L("Lunavect: неделя почти дошла до {0}, предела этой сессии. Закончи текущий шаг и не начинай новую работу.", level) + " " + format,
-                    user: "")
+                    user: "", until: until)
             }
         }
         guard file != writtenLimits, let limitURL else { return }

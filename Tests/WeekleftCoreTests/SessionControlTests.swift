@@ -32,6 +32,18 @@ final class SessionControlTests: XCTestCase {
         XCTAssertEqual(SessionLimitFile().reply(payload: Data("not json".utf8)), "{}")
     }
 
+    /// Only Lunavect lifts an entry; when it is not running, the entry lapses with its window's reset.
+    func testALimitEntryLapsesAfterItsWindowResets() throws {
+        let reset = Date(timeIntervalSince1970: 1_800_000_000)
+        var file = SessionLimitFile()
+        file.entries["claude:A"] = .init(state: .stopped, agent: "agent-stop", user: "user-stop", until: reset)
+        let payload = try JSONSerialization.data(withJSONObject: ["hook_event_name": "PreToolUse", "session_id": "A"])
+        XCTAssertTrue(file.reply(payload: payload, now: reset.addingTimeInterval(-1)).contains("deny"))
+        XCTAssertEqual(file.reply(payload: payload, now: reset), "{}")
+        let old = try JSONDecoder().decode(SessionLimitFile.self, from: Data(#"{"entries":{"claude:A":{"state":"stopped","agent":"a","user":"u"}}}"#.utf8))
+        XCTAssertTrue(old.reply(payload: payload, now: reset).contains("deny"), "an entry without a date stays until Lunavect lifts it")
+    }
+
     func testTheWeekLevelRunsAheadOfTheReadingAndFallsAfterTheReset() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         var ledger = TokenLedger()
@@ -96,6 +108,43 @@ final class SessionControlTests: XCTestCase {
         // Live check 30.09: the native installer's process is named by its version, not "claude".
         XCTAssertTrue(script.contains(#""0123456789" contains (character 1 of pn)"#))
         XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", agent: "my \"agent\"")?.contains(#""my \"agent\"""#) == true)
+    }
+
+    /// A long message is cut before quoting: the command always closes its quotes.
+    func testALongMessageKeepsTheResumeCommandWhole() throws {
+        let text = String(repeating: "слово ", count: 90)
+        let command = try XCTUnwrap(TerminalLocation.resumeCommand(provider: .claude, sessionID: "0f3c2a51-5e2b", text: text,
+                                                                   cwd: "/Users/u/Projects/" + String(repeating: "deep/", count: 20)))
+        XCTAssertTrue(command.hasSuffix("'"))
+        let script = try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: text, command: command))
+        XCTAssertTrue(script.contains(TerminalLocation.scriptLine(command)), "the whole command reaches the shell")
+        XCTAssertTrue(TerminalLocation.openScript(app: "Terminal", command: command).contains(TerminalLocation.scriptLine(command)))
+        XCTAssertEqual(TerminalLocation.resumeCommand(provider: .codex, sessionID: "019a0c0a-96ca", text: "-v please"), "codex resume 019a0c0a-96ca ' -v please'",
+                       "a message is never read as an option")
+    }
+
+    /// The session's agent is gone from the device: a program there is someone else's and gets no text.
+    func testNoTextForAnotherProgramOnTheDevice() throws {
+        let script = try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", command: "cd '/p' && claude --resume 0f3c2a51-5e2b 'go'",
+                                                               agent: "2.1.283", agentAllowed: false))
+        XCTAssertFalse(script.contains("\"node\""))
+        XCTAssertFalse(script.contains("\"2.1.283\""))
+        XCTAssertFalse(script.contains("character 1 of pn"))
+        XCTAssertTrue(script.contains("do script \"cd '/p' && claude --resume 0f3c2a51-5e2b 'go'\" in t"), "a shell prompt still resumes it")
+        let iterm = try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "iTerm2", text: "go", agentAllowed: false))
+        XCTAssertTrue(iterm.contains("if {} contains job or false then"))
+    }
+
+    /// Claude Code's own wait for a usage limit reaches the merged row of a Terminal session.
+    func testTheLimitWaitSurvivesTheCatalogMerge() {
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        let catalog = AgentSession(provider: .claude, sessionID: "S", title: "t", cwd: "/p", phase: .idle, updatedAt: at, observedAt: at, runtimeConfirmed: true)
+        var event = AgentSession(provider: .claude, sessionID: "S", title: "t", cwd: "/p", phase: .failed, updatedAt: at, observedAt: at.addingTimeInterval(-5),
+                                 evidence: .hook)
+        event.limitWait = "stale"; event.limitWaitAt = at
+        let merged = SessionList.merge(catalog: [catalog], events: [event], now: at.addingTimeInterval(10)).first
+        XCTAssertEqual(merged?.limitWait, "stale")
+        XCTAssertEqual(merged?.limitWaitAt, at)
     }
 
     func testClaudeAutomaticContinueFollowsItsSettings() throws {
