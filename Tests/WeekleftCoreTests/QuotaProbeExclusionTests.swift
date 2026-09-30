@@ -204,6 +204,94 @@ final class QuotaProbeExclusionTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AgentSession.self, from: JSONEncoder().encode(check))
         XCTAssertEqual(decoded, check)
     }
+
+    /// Owner report 29.09: the autoharness plugin runs `claude -p` from Python after
+    /// every reply. Such a run is listed as a background run, never as work.
+    func testPrintModeRunIsABackgroundRunThatIsNotWork() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for arguments in [["claude", "-p", "--agent", "autoharness:reflector", "--dangerously-skip-permissions"],
+                          ["/Users/u/.local/bin/claude", "--print", "hello"], ["node", "/opt/homebrew/bin/claude", "--print=json"]] {
+            XCTAssertTrue(SessionProcess.isPrintRun(arguments: arguments), arguments.joined(separator: " "))
+        }
+        for arguments in [["claude"], ["claude", "--resume", "x"], ["-p"], ["claude", "--output-format", "stream-json", "--input-format", "stream-json"],
+                          ["claude", "--permission-mode", "plan"], []] {
+            XCTAssertFalse(SessionProcess.isPrintRun(arguments: arguments), arguments.joined(separator: " "))
+        }
+        XCTAssertFalse(SessionProcess.isPrintRun(pid: 42, arguments: { _ in nil }), "Unreadable arguments are an ordinary session")
+        let rows: [[String: Any]] = [
+            ["pid": 4343, "cwd": "/Users/fixture/Projects/lunavect", "kind": "interactive", "sessionId": "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d77",
+             "name": "lunavect-dd", "status": "busy"],
+            ["pid": 51_234, "cwd": "/Users/fixture", "kind": "interactive", "sessionId": "5d7a4a33-1c1e-4b0c-8a60-6f2d7c1b9e01", "name": "Fix widgets", "status": "busy"],
+        ]
+        let parsed = try SessionParser.claude(JSONSerialization.data(withJSONObject: rows), now: now, backgroundRun: {
+            SessionProcess.isPrintRun(pid: $0, arguments: { $0 == 4343 ? ["claude", "-p", "--agent", "autoharness:reflector"] : ["claude"] })
+        }, host: { $0 == 4343 ? SessionLaunchHost(kind: .application, name: "Python") : nil })
+        let run = try XCTUnwrap(parsed.first { $0.title == "lunavect-dd" })
+        XCTAssertEqual(run.isBackgroundRun, true)
+        XCTAssertEqual(run.effectivePhase(now: now), .idle, "not counted as working")
+        XCTAssertEqual(run.backgroundRunRefusal, .backgroundRun("Python"))
+        XCTAssertEqual(parsed.first { $0.title == "Fix widgets" }?.isBackgroundRun, nil)
+        XCTAssertEqual(parsed.first { $0.title == "Fix widgets" }?.effectivePhase(now: now), .running)
+        XCTAssertTrue(SessionOpeningError.backgroundRun("Python").errorDescription?.contains("Python") == true)
+        XCTAssertNotNil(SessionOpeningError.backgroundRun(nil).errorDescription)
+    }
+
+    /// The hook marks the run too, so it keeps its label after the catalog stops listing it.
+    func testBackgroundRunSurvivesMergingAndItsHookRecord() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let id = "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d77"
+        let catalog = AgentSession(provider: .claude, sessionID: id, title: "lunavect-dd", cwd: "/Users/fixture", client: .desktop,
+                                   phase: .running, updatedAt: now, observedAt: now, evidence: .catalog)
+        var event = AgentSession(provider: .claude, sessionID: id, title: "", cwd: "/Users/fixture", client: .desktop,
+                                 phase: .running, updatedAt: now, observedAt: now.addingTimeInterval(1), evidence: .hook)
+        event.isBackgroundRun = true
+        XCTAssertEqual(SessionList.merge(catalog: [catalog], events: [event], now: now.addingTimeInterval(2)).first?.isBackgroundRun, true)
+        XCTAssertEqual(SessionList.merge(catalog: [], events: [event], now: now.addingTimeInterval(2)).first?.isBackgroundRun, true)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let payload = Data(#"{"session_id":"\#(id)","hook_event_name":"UserPromptSubmit","cwd":"/Users/fixture"}"#.utf8)
+        try SessionHooks.capture(payload, provider: .claude, at: directory, now: now, client: .desktop, backgroundRun: true,
+                                 isInternal: { _ in false })
+        XCTAssertEqual(SessionHooks.load(at: directory).first?.isBackgroundRun, true)
+    }
+
+    /// Audit 30.09: `claude -p --resume <id>` (or `--continue`) from a script on a session still open in Terminal
+    /// shares its id. The print run must not take the session's tab, runtime or client, nor end it; and an
+    /// interactive runtime reporting later clears a print run's mark.
+    func testAPrintRunOnALiveInteractiveSessionKeepsItsTab() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let id = "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d78"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func event(_ name: String) -> Data { Data(#"{"session_id":"\#(id)","hook_event_name":"\#(name)","cwd":"/Users/fixture"}"#.utf8) }
+        let alive: (Int32) -> Bool = { $0 == 4100 }
+        try SessionHooks.capture(event("UserPromptSubmit"), provider: .claude, at: directory, now: now, client: .terminal, nestedClaudeRuntime: false,
+                                 terminal: (tty: "/dev/ttys004", app: "Terminal"), runtimePID: 4100, isInternal: { _ in false }, isAlive: alive)
+        try SessionHooks.capture(event("Stop"), provider: .claude, at: directory, now: now.addingTimeInterval(5), client: .terminal, nestedClaudeRuntime: false,
+                                 terminal: (tty: "/dev/ttys004", app: "Terminal"), runtimePID: 4100, isInternal: { _ in false }, isAlive: alive)
+        // Live check 30.09: the print run was started from inside another Claude session and hid this one as nested.
+        for (offset, name) in [(10.0, "SessionStart"), (11, "UserPromptSubmit"), (20, "Stop"), (21, "SessionEnd")] {
+            try SessionHooks.capture(event(name), provider: .claude, at: directory, now: now.addingTimeInterval(offset), client: .background,
+                                     nestedClaudeRuntime: true, runtimePID: 5200, backgroundRun: true, isInternal: { _ in false }, isAlive: alive)
+        }
+        var session = try XCTUnwrap(SessionHooks.load(at: directory).first)
+        XCTAssertEqual(session.isNestedClaudeSession, false, "the print run's own parent does not hide the session")
+        XCTAssertEqual(session.terminalTTY, "/dev/ttys004")
+        XCTAssertEqual(session.client, .terminal)
+        XCTAssertEqual(session.runtimePID, 4100)
+        XCTAssertNotEqual(session.isBackgroundRun, true)
+        XCTAssertNotEqual(session.phase, .finished, "the print run's end is not the session's end")
+        // A print run first, then the interactive process: the interactive runtime decides again.
+        let other = "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d79"
+        func otherEvent(_ name: String) -> Data { Data(#"{"session_id":"\#(other)","hook_event_name":"\#(name)","cwd":"/Users/fixture"}"#.utf8) }
+        try SessionHooks.capture(otherEvent("UserPromptSubmit"), provider: .claude, at: directory, now: now, client: .background,
+                                 runtimePID: 5300, backgroundRun: true, isInternal: { _ in false }, isAlive: { _ in false })
+        try SessionHooks.capture(otherEvent("UserPromptSubmit"), provider: .claude, at: directory, now: now.addingTimeInterval(60), client: .terminal,
+                                 terminal: (tty: "/dev/ttys005", app: "Terminal"), runtimePID: 5400, isInternal: { _ in false }, isAlive: { _ in true })
+        session = try XCTUnwrap(SessionHooks.load(at: directory).first { $0.sessionID == other })
+        XCTAssertNil(session.isBackgroundRun)
+        XCTAssertEqual(session.terminalTTY, "/dev/ttys005")
+    }
 }
 
 private extension AgentSession {

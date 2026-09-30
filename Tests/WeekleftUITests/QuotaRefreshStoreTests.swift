@@ -116,6 +116,13 @@ import XCTest
                      phase: .ready, updatedAt: updatedAt, observedAt: updatedAt, evidence: evidence)
     }
 
+    /// A response Claude's usage limit refused (StopFailure `rate_limit`).
+    private func refused(updatedAt: Date) -> AgentSession {
+        var session = row(updatedAt: updatedAt)
+        session.phase = .failed; session.failure = .limit
+        return session
+    }
+
     // Q-01: the five-minute timer evaluates; it is not the probe period.
     func testTimerTicksDoNotProbeEveryFiveMinutes() async throws {
         let h = Harness(now: start)
@@ -229,20 +236,25 @@ import XCTest
         XCTAssertEqual(h.probes.count, 2)
     }
 
-    // Q-09, 01-quota.md §6 п.20: Codex uses the same states and intervals.
+    // Q-09, 01-quota.md §6 п.20: Codex uses the same intervals; a used-up Codex window is
+    // asked about hourly, since a manual usage-limit reset lifts it early (owner report 30.09).
     func testCodexIsNotAskedEveryFiveMinutes() async throws {
         let h = Harness(now: start)
         let reset = start.addingTimeInterval(2 * 3600)
         let exhausted = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: reset),
                                           fetchedAt: start, source: "Codex CLI")
-        h.result = { _, date in try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 2, durationMinutes: 10080, resetsAt: reset.addingTimeInterval(7 * 86400)),
-                                                  fetchedAt: date, source: "Codex CLI") }
+        h.result = { _, date in
+            date < reset ? try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: reset), fetchedAt: date, source: "Codex CLI")
+                : try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 2, durationMinutes: 10080, resetsAt: reset.addingTimeInterval(7 * 86400)),
+                                    fetchedAt: date, source: "Codex CLI")
+        }
         let store = try makeStore(h, snapshots: [exhausted], providers: [.codex])
         store.start(); await settle(store)
-        for minute in stride(from: 5.0, through: 120, by: 5) {
+        for minute in stride(from: 5.0, through: 115, by: 5) {
             h.now = start.addingTimeInterval(minute * 60); h.ticks[300]?(); await settle(store)
         }
-        XCTAssertEqual(h.codexFetches.count, 0, "Exhausted until the reset")
+        XCTAssertEqual(h.codexFetches.count, 1, "Used up: once an hour, not every five minutes")
+        h.codexFetches.removeAll()
         h.now = reset.addingTimeInterval(6); h.fireDue(); h.ticks[300]?(); await settle(store)
         XCTAssertEqual(h.codexFetches.count, 1, "One confirming request after the exact reset plus 5 s")
         for minute in stride(from: 5.0, through: 50, by: 5) {
@@ -322,8 +334,8 @@ import XCTest
             minute += 5
             h.now = start.addingTimeInterval(Double(minute) * 60)
             h.fireDue(); h.ticks[300]?(); await settle(store)
-            // The user keeps trying: every finished (refused) response is a session event.
-            if minute % 60 == 0 { store.observeSessionEvents([row(updatedAt: h.now)], now: h.now) }
+            // The user keeps trying: every refused response is a session event.
+            if minute % 60 == 0 { store.observeSessionEvents([refused(updatedAt: h.now)], now: h.now) }
             if minute % (12 * 60) == 0 {
                 h.wake?(); h.now = h.now.addingTimeInterval(5); h.fireDue(); await settle(store)
                 network.update(available: false); network.update(available: true); await settle(store)
@@ -342,6 +354,42 @@ import XCTest
         }
         XCTAssertEqual(h.probes.count, 1, "The new window is current for the idle interval")
         XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 0)
+    }
+
+    /// Owner report 30.09: the Claude app offers a manual limit reset. A response the limit
+    /// did not refuse follows a lifted limit: it asks once, and again at most hourly.
+    func testAnsweredResponseAsksAboutAUsedUpWeekAtMostHourly() async throws {
+        let h = Harness(now: start)
+        let weeklyReset = start.addingTimeInterval(3 * 86400)
+        let exhausted = try UsageSnapshot(provider: .claude,
+            weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: weeklyReset, resetPrecision: .minute),
+            fetchedAt: start.addingTimeInterval(-7200), source: ClaudeUsageProbe.source)
+        var lifted = false
+        h.result = { _, date in
+            try UsageSnapshot(provider: .claude, weekly: QuotaWindow(usedPercent: lifted ? 3 : 100, durationMinutes: 10080, resetsAt: weeklyReset, resetPrecision: .minute),
+                              fetchedAt: date, source: ClaudeUsageProbe.source)
+        }
+        let store = try makeStore(h, snapshots: [exhausted], providers: [.claude])
+        store.start(); await settle(store)
+        store.observeSessionEvents([refused(updatedAt: start)], now: start)
+        for minute in stride(from: 5.0, through: 60, by: 5) {
+            h.now = start.addingTimeInterval(minute * 60); h.fireDue(); h.ticks[300]?(); await settle(store)
+        }
+        XCTAssertEqual(h.probes, [], "Refused responses and timers ask nothing")
+        // Answered, but the week is still used up (added credits): one probe, then an hour's quiet.
+        store.observeSessionEvents([row(updatedAt: h.now)], now: h.now)
+        h.now = h.now.addingTimeInterval(120); h.fireDue(); await settle(store)
+        XCTAssertEqual(h.probes.count, 1, "An answered response asks about the used-up week")
+        store.observeSessionEvents([row(updatedAt: h.now)], now: h.now)
+        h.now = h.now.addingTimeInterval(1800); h.fireDue(); await settle(store)
+        XCTAssertEqual(h.probes.count, 1, "At most hourly")
+        // The manual reset: the next answered response after the hour shows it.
+        lifted = true
+        h.now = h.now.addingTimeInterval(1800)
+        store.observeSessionEvents([row(updatedAt: h.now)], now: h.now)
+        h.now = h.now.addingTimeInterval(120); h.fireDue(); await settle(store)
+        XCTAssertEqual(h.probes.count, 2)
+        XCTAssertEqual(store.snapshots.first?.weekly?.usedPercent, 3)
     }
 
     /// R1-02: Claude's own "limit reached" screen pauses automatic probes until the

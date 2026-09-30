@@ -20,6 +20,7 @@ import WeekleftCore
     var statusLineObservedAt: @Sendable () -> Date? = { ClaudeProvider.statusLineObservedAt() }
     var scheduling = AppRefreshScheduling()
     var discoverCodex: @Sendable () -> String? = AppStore.discoverCodex
+    var tokens: TokenService? = nil
 }
 
 /// Cancel handles keep timers and system notifications replaceable in lifecycle
@@ -65,6 +66,7 @@ import WeekleftCore
     @Published var storageIssue: String?
     var activityHistory: ActivityHistory { activityService.history }
     var activityDetails: ActivityDetails { activityService.details }
+    var activityArchive: ActivityArchive { activityService.archive }
     var activityIssue: String? { activityService.issue }
     var activityDetailsIssue: String? { activityService.detailsIssue }
     var importingActivity: Bool { activityService.importing }
@@ -81,6 +83,8 @@ import WeekleftCore
     }
     private let snapshotPersistence: SnapshotPersistence?
     private let activityService: ActivityService
+    /// Tokens per session, read from the client logs; views observe it directly.
+    let tokenService: TokenService
     private let clock: () -> Date
     private var appliedWrite = 0
     private var providerGenerations: [ProviderID: Int] = [:]
@@ -154,6 +158,7 @@ import WeekleftCore
                     WidgetCenter.shared.reloadTimelines(ofKind: "LunavectOverviewWidget")
                 }), writesEnabled: self.savesChanges, clock: clock)
         }
+        tokenService = isolated ? TokenService(url: nil, scan: { _, _ in .init() }) : dataServices?.tokens ?? TokenService()
         let saved = isolated ? "" : defaults.string(forKey: "codexPath") ?? ""
         codexPath = isolated ? "" : saved
         var loadedState = state ?? SharedState()
@@ -202,6 +207,8 @@ import WeekleftCore
         guard !isolated, !started else { return }
         started = true
         network.start(); activityService.start(providers: providers)
+        tokenService.onDaily = { [weak activityService] in activityService?.setTokens($0, replaceFrom: $1) }
+        tokenService.start()
         requestBackgroundRefresh(trigger: .launch)
         let generation = lifecycleGeneration
         cancelTriggers = [
@@ -242,11 +249,12 @@ import WeekleftCore
         guard started else { return }
         var fresh: Set<ProviderID> = []
         for provider in providers {
-            guard let latest = rows.filter({ $0.provider == provider && [.hook, .localEvent].contains($0.evidence) }).map(\.updatedAt).max() else { continue }
-            let known = lastSessionEvent[provider]
+            guard let newest = rows.filter({ $0.provider == provider && [.hook, .localEvent].contains($0.evidence) }).max(by: { $0.updatedAt < $1.updatedAt })
+            else { continue }
+            let latest = newest.updatedAt, known = lastSessionEvent[provider]
             guard known.map({ latest > $0 }) ?? true else { continue }
             lastSessionEvent[provider] = latest
-            refreshPolicy.noteEvent(provider, at: min(latest, now))
+            refreshPolicy.noteEvent(provider, at: min(latest, now), refused: newest.phase == .failed && newest.failure == .limit)
             // The first observation after launch is the baseline, not a new response.
             if known != nil { fresh.insert(provider) }
         }
@@ -357,6 +365,7 @@ import WeekleftCore
             apply(persistence.flush(SharedState(snapshots: snapshots, preferences: preferences)))
         }
         activityService.stop()
+        tokenService.stop()
     }
     /// What an explicit refresh did, so a control can say why nothing happened (R2-U-03).
     enum RefreshOutcome: Equatable {

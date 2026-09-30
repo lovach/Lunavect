@@ -392,6 +392,7 @@ extension ClientCapabilityDiagnosticTests {
         let unsupportedScreen = "Current week (all models)\nNEW LIMIT FORMAT: 38 units\nResets someday\nEsc to cancel\n"
         try Data(("#!/bin/sh\nprintf '%s' " + SessionHooks.quote(unsupportedScreen) + "\n").utf8).write(to: cli)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
+        warmUpFreshExecutable(cli)
         do {
             _ = try await ClaudeUsageProbe.fetch(cliPath: cli.path, timeout: 1, directory: root.appendingPathComponent("probe"))
             XCTFail("Unknown complete usage output must not appear as a successful snapshot")

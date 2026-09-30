@@ -36,6 +36,11 @@ Some paths still use **Weekleft**, the original internal name, to preserve compa
 | `~/Library/Application Support/Weekleft/ConnectionSetup/` | Commands used to install or sign in to an official client |
 | `~/Library/Application Support/Weekleft/QuotaProbe/` | Isolated working directory for Claude's `/usage` command |
 | `~/Library/Application Support/Weekleft/activity-details.json` | Project and session activity breakdowns |
+| `~/Library/Application Support/Weekleft/activity-archive.json` | Daily totals kept for Year and All time: per project folder name and session identifier, no titles or full paths |
+| `~/Library/Application Support/Weekleft/token-ledger.json` | Tokens per session, model and day read from the local Claude and Codex logs, with the read position in each log, the ids of Claude responses already counted (35 days), totals per minute for the last six hours (for limit estimates) and the time a Codex turn ended on the usage limit (two days); no prompts or replies |
+| `~/Library/Application Support/Weekleft/session-controls.json` | Sessions you limited or planned to continue: title, folder, level, time, the message to type, the agent's last reply after it stopped (at most 1,200 characters, for the Tasks card) and cut-offs you declined (two days) |
+| `~/Library/Application Support/Weekleft/Sessions/limits.json` | Only sessions at or near their level, read by the Claude and Codex hooks to refuse the next action; each entry lapses when its window resets |
+| `~/Library/Application Support/Weekleft/Sessions/limit-overrides.json` | Stopped sessions you wrote to, with the time: the hooks let them act again and Lunavect lifts the stop, then removes the entry |
 | `~/Library/Group Containers/<TEAM_ID>.com.lunavect.shared/Weekleft/` | The signed app's shared quota snapshot, aggregate activity and widget selection data |
 | `~/Library/Application Support/Lunavect/IDEBridge/` | Descriptors of connected VS Code or JetBrains companions: process IDs, session ID and working directory |
 | The IDE bridge socket directory (see [IDE sessions](ide-sessions.md)) | User-only Unix sockets of running companions, removed when the editor shuts down normally |
@@ -83,12 +88,12 @@ Download counts are requests for files, not a count of users or installations. R
 | Capability | When used |
 | --- | --- |
 | Read local client files and edit client configuration | After connecting a provider; the connection guide explains its handlers and status-line changes |
-| Automation (control Terminal or iTerm2) | When you open a Terminal or iTerm2 session from its row; macOS asks once, and a denial is managed in System Settings → Privacy & Security → Automation. See [sessions](sessions.md) |
+| Automation (control Terminal or iTerm2) | When you open a Terminal or iTerm2 session from its row; when a session you limited or scheduled continues (the continuation is typed into its tab, or `claude --resume` / `codex resume` runs there or in a new window); and when **Open Codex in Terminal** starts Codex for hook trust. macOS asks once, and a denial is managed in System Settings → Privacy & Security → Automation. See [sessions](sessions.md) |
 | Notifications | If you enable alerts for session completion or requests for input |
 | Launch at login | If you enable it in Settings |
 | Privileged keep-awake helper | Only for the optional experimental closed-lid mode, with macOS approval |
 
-The public app does not request Screen Recording or Accessibility permission to read session state or quotas; Automation is used only to bring a terminal tab to the front. The main app is not sandboxed; the WidgetKit extension is sandboxed and reads the shared data. A permission error is shown as a source or setup problem, not as zero usage.
+The public app does not request Screen Recording or Accessibility permission to read session state or quotas; Automation is used only for the terminal actions listed above. The main app is not sandboxed; the WidgetKit extension is sandboxed and reads the shared data. A permission error is shown as a source or setup problem, not as zero usage.
 
 ## Disconnecting and deleting data
 

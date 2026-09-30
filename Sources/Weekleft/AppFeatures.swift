@@ -131,6 +131,11 @@ struct PanelShortcut: Codable, Equatable {
     @Published private(set) var shortcut: PanelShortcut?
     var onTogglePanel: (() -> Void)?
     var onOpenSession: ((String) -> Void)?
+    /// A button in a limit or continuation notice: the action and the control's id.
+    var onControlAction: ((String, String) -> Void)?
+    /// For a session the usage limit stopped: whether the session controls post their own notice,
+    /// or a line to add (Claude Code continues by itself).
+    var limitCutOff: ((AgentSession) -> (handled: Bool, note: String?))?
     /// A click on the signed-out notice opens the client's setup step.
     var onRepair: ((ConnectionRepairRequest) -> Void)?
     var onPermissionFinished: (() -> Void)?
@@ -331,10 +336,13 @@ struct PanelShortcut: Codable, Equatable {
         for notice in notices {
             guard (notice.kind == .completed && completion) || (notice.kind == .permission && permission) || (notice.kind == .input && input)
                 || (notice.kind == .failed && failure) else { continue }
+            let cutOff = notice.kind == .failed && notice.session.failure == .limit ? limitCutOff?(notice.session) : nil
+            if cutOff?.handled == true { continue }
             var body = notice.session.provider.title + " · " + notice.session.displayTitle
             if notice.session.failure == .limit, let reset = limitResetTime(for: notice.session.provider, now: date ?? now()) {
                 body += " · " + L("снова доступен в {0}", Self.resetText(reset, now: date ?? now()))
             }
+            if let note = cutOff?.note { body += " · " + note }
             let title = notice.kind == .failed ? (notice.session.failure?.title ?? notice.kind.title) : notice.kind.title
             deliver(title: title, body: body, sessionID: notice.session.id, kind: notice.kind)
         }
@@ -353,6 +361,23 @@ struct PanelShortcut: Codable, Equatable {
         evaluateLimits(at: date ?? now())
         let connected = providers ?? Set(ProviderID.allCases)
         announceSignIn(SignInAttention.all(snapshots, providers: connected), left: SignInAttention.left(snapshots, providers: connected))
+    }
+    /// One notice per passed end date when the provider still reports subscription
+    /// limits: the plan was probably renewed, maybe a day late (owner request 29.09).
+    func observePlans(_ preferences: WidgetPreferences, snapshots: [UsageSnapshot], at date: Date? = nil) {
+        guard !isolated, !stopped else { return }
+        var announced = defaults.dictionary(forKey: "noticePlanRenewal") as? [String: String] ?? [:]
+        let before = announced
+        for provider in PlanRenewal.renewed(preferences, snapshots: snapshots, providers: preferences.providers, now: date ?? now()) {
+            let end = preferences.subscriptionDates[provider.rawValue] ?? ""
+            guard announced[provider.rawValue] != end else { continue }
+            announced[provider.rawValue] = end
+            if limits && (banners || sounds) {
+                deliver(title: L("Подписка {0}, похоже, продлилась", provider.title),
+                        body: L("Обновите дату окончания: Настройки Lunavect → Подписки."), sessionID: nil, kind: .limit)
+            }
+        }
+        if announced != before { defaults.set(announced, forKey: "noticePlanRenewal") }
     }
     /// One notice when a provider's client becomes signed out; the Limits switch and
     /// the delivery channels decide, as for limit notices (owner report 28.09).
@@ -478,21 +503,30 @@ struct PanelShortcut: Codable, Equatable {
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let hasSound = notification.request.content.sound != nil
-        return await notificationPresentationOptions(hasSound: hasSound)
+        let control = notification.request.content.categoryIdentifier.hasPrefix("lunavect.control.")
+        return await notificationPresentationOptions(hasSound: hasSound, sessionControl: control)
     }
-    func notificationPresentationOptions(hasSound: Bool) -> UNNotificationPresentationOptions {
+    /// Session-limit notices follow the user's limits, not the banner switch (docs/notifications.md): they show
+    /// while Lunavect is active too.
+    func notificationPresentationOptions(hasSound: Bool, sessionControl: Bool = false) -> UNNotificationPresentationOptions {
         guard !stopped, !isolated else { return [] }
-        var options: UNNotificationPresentationOptions = banners ? [.banner, .list] : []
+        var options: UNNotificationPresentationOptions = banners || sessionControl ? [.banner, .list] : []
         if sounds && hasSound { options.insert(.sound) }
         return options
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         // Only copied, Sendable identifiers cross onto the app's actor.
         let info = response.notification.request.content.userInfo
-        await receiveNotificationResponse(sessionID: info["sessionID"] as? String, repair: info["repair"] as? String)
+        let action = response.actionIdentifier
+        await receiveNotificationResponse(sessionID: info["sessionID"] as? String, repair: info["repair"] as? String,
+                                          control: (info["controlID"] as? String).map { (action, $0) })
     }
-    func receiveNotificationResponse(sessionID: String?, repair: String? = nil) {
+    func receiveNotificationResponse(sessionID: String?, repair: String? = nil, control: (action: String, id: String)? = nil) {
         guard !stopped, !isolated else { return }
+        // A button of a session-control notice acts without opening the panel.
+        if let control, control.action != UNNotificationDefaultActionIdentifier, control.action != UNNotificationDismissActionIdentifier {
+            onControlAction?(control.action, control.id); return
+        }
         if let sessionID { onOpenSession?(sessionID) }
         else if let request = repair.flatMap(ConnectionRepairRequest.init(rawValue:)) { onRepair?(request) }
     }

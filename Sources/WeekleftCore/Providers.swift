@@ -61,6 +61,60 @@ public enum CodexProvider {
         catch SessionError.invalidResponse { throw UsageError.invalidResponse }
         catch is SessionError { throw UsageError.missingCLI }
     }
+
+    /// Whether Codex runs Lunavect's hooks. Codex runs only hooks the user trusted and asks
+    /// again when one changes or moves ("Hooks need review"); until then it skips them
+    /// silently (live check 30.09: all eight "modified" for two days, no Codex events).
+    public enum HookTrust: String, Codable, Sendable { case trusted, untrusted, unknown }
+    /// Asks the app-server's read-only `hooks/list`; `.unknown` when Codex cannot tell (an older
+    /// Codex, no Lunavect hooks, any failure), so no warning is shown on a guess.
+    public static func hookTrust(resolver: ClientExecutableResolver) async -> HookTrust {
+        guard let path = try? resolver.resolve(.codex) else { return .unknown }
+        return (try? await SessionProcess.detached { try readHookTrust(cliPath: path) }) ?? .unknown
+    }
+    static func readHookTrust(cliPath: String, timeout: TimeInterval = 20) throws -> HookTrust {
+        guard FileManager.default.isExecutableFile(atPath: cliPath) else { return .unknown }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return try SessionProcess.withProcess(path: cliPath, arguments: ["app-server", "--stdio"], timeout: timeout) { _, input, output, deadline in
+            // No conversation is started. Only initialize and hooks/list are sent.
+            func send(_ object: [String: Any]) throws {
+                var data = try JSONSerialization.data(withJSONObject: object); data.append(10)
+                try SessionProcess.writeCodexInput(data, to: input.fileHandleForWriting, until: deadline)
+            }
+            try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "weekleft", "version": "0.1.0"]]])
+            var buffer = Data(), total = 0
+            while true {
+                let data = try SessionProcess.readChunk(output.fileHandleForReading, until: deadline)
+                if data.isEmpty { return .unknown }
+                total += data.count
+                guard total < 4_000_000 else { return .unknown }
+                buffer.append(data)
+                while let newline = buffer.firstIndex(of: 10) {
+                    try Task.checkCancellation()
+                    let line = buffer.prefix(upTo: newline); buffer.removeSubrange(...newline)
+                    guard let message = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], let id = message["id"] as? Int else { continue }
+                    if id == 1 {
+                        guard message["error"] == nil else { return .unknown }
+                        try send(["method": "initialized"])
+                        try send(["id": 2, "method": "hooks/list", "params": ["cwds": [home]]])
+                    } else if id == 2 {
+                        guard let result = message["result"] as? [String: Any] else { return .unknown }
+                        return hookTrust(fromList: result)
+                    }
+                }
+            }
+        }
+    }
+    /// Lunavect's hooks carry its marker in their command; "trusted" and "managed" run,
+    /// "untrusted" and "modified" do not. A status Lunavect does not know warns of nothing.
+    static func hookTrust(fromList result: [String: Any]) -> HookTrust {
+        let marker = SessionHooks.marker(.codex)
+        let statuses = ((result["data"] as? [[String: Any]]) ?? []).flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] }
+            .filter { ($0["command"] as? String)?.contains(marker) == true }.compactMap { $0["trustStatus"] as? String }
+        guard !statuses.isEmpty else { return .unknown }
+        if statuses.contains(where: { ["untrusted", "modified"].contains($0) }) { return .untrusted }
+        return statuses.allSatisfy { ["trusted", "managed"].contains($0) } ? .trusted : .unknown
+    }
 }
 
 /// When Lunavect asks a client for new quota data. A Claude probe starts the
@@ -68,9 +122,12 @@ public enum CodexProvider {
 /// app-server, so both run when the window state calls for it, never on a fixed
 /// cadence (docs/connections.md, "When limits are refreshed").
 ///
-/// - While any window is used up with a future reset nothing is asked, not even
-///   about the other window's passed reset: no request is possible, so nothing
-///   can change before that reset.
+/// - A used-up window with a future reset can still lift early: the Claude and
+///   Codex apps offer a manual reset (owner report 30.09). A used-up Codex window is
+///   asked about hourly and after session activity. Claude's probe is a short
+///   session other clients may list, so a used-up Claude window is asked about only
+///   after session activity, at most hourly. The other window's passed reset brings
+///   no request of its own.
 /// - After a reset one confirming request runs once the grace has passed. An
 ///   answer that still shows the passed reset is not a confirmation: the next one
 ///   follows the failure backoff.
@@ -82,8 +139,9 @@ public enum CodexProvider {
 ///   network start over only for a transient cause; a cause the user has to
 ///   change (trust, sign-in, billing, format) waits for an explicit refresh or a
 ///   changed connection. Claude's "limit reached" pauses until the earliest known
-///   reset. An answer without any known window backs off like a failure. An
-///   explicit refresh asks at most once per 30 seconds.
+///   reset; session activity may ask again after an hour, since a manual reset
+///   lifts it early. An answer without any known window backs off like a failure.
+///   An explicit refresh asks at most once per 30 seconds.
 public struct QuotaRefreshPolicy: Sendable {
     public enum Trigger: String, Sendable { case launch, timer, sessionEvent, wake, networkRestored, resetDue, manual }
     public struct Timing: Sendable, Equatable {
@@ -101,6 +159,8 @@ public struct QuotaRefreshPolicy: Sendable {
         var lastCompleted: Date?
         var lastVerified: Date?
         var lastEvent: Date?
+        /// The latest session event was a response the provider's limit refused.
+        var lastEventRefused = false
         var failures = 0
         var lastFailure: Date?
         /// Wake or a restored network may have removed the cause of the last failure.
@@ -115,14 +175,30 @@ public struct QuotaRefreshPolicy: Sendable {
     public func shouldFetch(_ provider: ProviderID, snapshot: UsageSnapshot?, trigger: Trigger, now: Date) -> Bool {
         let state = states[provider] ?? ProviderState()
         if trigger == .manual { return manualRetryDate(provider, now: now) == nil }
-        if let paused = state.pausedUntil, now < paused { return false }
+        if let paused = state.pausedUntil, now < paused {
+            // A manual reset lifts a reached limit early: session activity may ask again after an hour.
+            guard trigger == .sessionEvent, !state.lastEventRefused, let failed = state.lastFailure,
+                  now.timeIntervalSince(failed) >= timing.idleInterval else { return false }
+        }
         if let retry = retryDate(state), let failed = state.lastFailure, now >= failed, now < retry { return false }
         guard let snapshot, snapshot.fetchedAt != nil, snapshot.hasQuota || snapshot.unlimited == true else { return true }
         let windows = [snapshot.weekly, snapshot.fiveHour].compactMap { $0 }
-        // Usage within a window never decreases, and no request is possible while
-        // a window is used up: nothing changes before its reset, including another
-        // window whose reset has passed (both are confirmed together afterwards).
-        if windows.contains(where: { $0.isUsedUp && ($0.resetsAt.map { $0 > now } ?? false) }) { return false }
+        // Usage within a window never decreases before its reset, except that the Claude and
+        // Codex apps let the user take a manual reset (owner report 30.09: the widget kept 0 %
+        // for three days). Codex's rate-limit read is asked hourly and after activity. Claude's
+        // probe is a short session other clients may list, and a used-up limit kept bringing it
+        // every hour (R1-01): only a response the limit did not refuse, which follows a lifted
+        // limit, asks, at most hourly. The other window's passed reset is confirmed afterwards.
+        if windows.contains(where: { $0.isUsedUp && ($0.resetsAt.map { $0 > now } ?? false) }) {
+            let observed = (snapshot.freshnessVerified ? snapshot.fetchedAt : state.lastVerified) ?? snapshot.fetchedAt ?? now
+            let age = now.timeIntervalSince(observed)
+            if age < 0 { return true }
+            if provider == .claude {
+                let attempt = state.lastCompleted.map { now.timeIntervalSince($0) } ?? .infinity
+                return trigger == .sessionEvent && !state.lastEventRefused && age >= timing.idleInterval && attempt >= timing.idleInterval
+            }
+            return trigger == .sessionEvent ? age > timing.eventMinimumAge : age >= timing.idleInterval
+        }
         // A passed reset: the saved values belong to the previous window, also when
         // an answer after the reset still showed it. Confirm the new windows once the
         // grace (minute rounding of the CLI) after the latest passed reset is over;
@@ -155,9 +231,11 @@ public struct QuotaRefreshPolicy: Sendable {
         guard state.failures > 0, let failed = state.lastFailure, !timing.backoff.isEmpty else { return nil }
         return failed.addingTimeInterval(timing.backoff[min(state.failures, timing.backoff.count) - 1])
     }
-    public mutating func noteEvent(_ provider: ProviderID, at date: Date) {
+    /// `refused`: the response ended on the provider's usage limit, which says nothing about a lifted limit.
+    public mutating func noteEvent(_ provider: ProviderID, at date: Date, refused: Bool = false) {
         let previous = states[provider]?.lastEvent ?? .distantPast
         states[provider, default: ProviderState()].lastEvent = max(previous, date)
+        if date >= previous { states[provider, default: ProviderState()].lastEventRefused = refused }
     }
     /// A request finished. A snapshot carrying an issue is a failure that keeps the
     /// old values; `reason` is its typed cause when known. On a failure `snapshot`

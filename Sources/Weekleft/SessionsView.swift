@@ -22,6 +22,13 @@ struct SessionsView: View {
     var onRepair: ((ConnectionRepairRequest) -> Void)? = nil
     var onHeightChange: ((CGFloat) -> Void)? = nil
     var onReorderingChange: ((Bool) -> Void)? = nil
+    /// Tokens and the estimated share of the week, from the token ledger.
+    var tokenUsage: ((AgentSession, Date) -> SessionTokenUsage?)? = nil
+    /// Limits and planned continuations of sessions; the panel lists them in its second tab.
+    var controls: SessionControlService? = nil
+    var onControl: ((AgentSession, SessionControlMode) -> Void)? = nil
+    @AppStorage("sessionPanelTab") private var panelTab = "sessions"
+    private var showingTasks: Bool { controls != nil && panelTab == "tasks" }
     @StateObject private var reorder = SessionReorderState()
     @State private var geometry = SessionPanelGeometry()
     @State private var sectionHeights: [String: CGFloat] = [:]
@@ -90,7 +97,12 @@ struct SessionsView: View {
     private var hasFilters: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !provider.isEmpty || activeOnly || attentionOnly }
     private func panelHeight(at now: Date) -> CGFloat {
         if panelState.showsHiddenSessions { return min(480, max(300, CGFloat(store.hiddenCount) * 62 + 180)) }
-        return listLayout(rowCount: visible(at: now).count).panelHeight
+        return listLayout(rowCount: layoutRows(at: now)).panelHeight
+    }
+    /// A task card is about three session rows tall; the tab keeps room for the explanation when empty.
+    private func layoutRows(at now: Date) -> Int {
+        guard showingTasks, let controls else { return visible(at: now).count }
+        return max(4, controls.controls.count * 3 + 1)
     }
     private func listLayout(rowCount: Int) -> SessionPanelLayout {
         SessionPanelLayout(rowCount: rowCount, topHeight: sectionHeights["top"] ?? 142,
@@ -113,7 +125,7 @@ struct SessionsView: View {
     }
     private func sessionList(at now: Date) -> some View {
         let rows = visible(at: now)
-        let layout = listLayout(rowCount: rows.count)
+        let layout = listLayout(rowCount: layoutRows(at: now))
         return VStack(spacing: 0) {
             VStack(spacing: 0) {
             header(at: now).padding(.horizontal, 12).padding(.vertical, 8).fixedSize(horizontal: false, vertical: true)
@@ -143,6 +155,8 @@ struct SessionsView: View {
                     .accessibilityIdentifier("session-setup-notice")
             }
             if updates.notice != nil { UpdateNoticeView(updates: updates).padding(.horizontal, 12).padding(.bottom, 8) }
+            if let controls { SessionPanelTabs(controls: controls, selection: $panelTab).padding(.horizontal, 12).padding(.bottom, 7) }
+            if !showingTasks {
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     InterfaceIcon(.search).foregroundStyle(.secondary)
@@ -184,12 +198,16 @@ struct SessionsView: View {
                     }.font(.system(size: 12)).padding(.top, 3)
                 }
             }.padding(.horizontal, 12).padding(.bottom, 7).disabled(reorder.rows != nil)
+            }
             Divider().opacity(contrast == .increased ? 1 : 0.45)
             }.fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: SessionPanelSectionHeights.self, value: ["top": geometry.size.height])
                 })
-            if rows.isEmpty {
+            if showingTasks, let controls {
+                ScrollView { SessionControlListView(controls: controls) }
+                    .frame(height: layout.viewportHeight).padding(.vertical, SessionPanelLayout.verticalInset)
+            } else if rows.isEmpty {
                 // Only the centre may scroll when translated copy or diagnostics
                 // needs more room. Never push the panel controls outside its bounds.
                 ScrollView { emptyState.frame(maxWidth: .infinity) }
@@ -200,7 +218,10 @@ struct SessionsView: View {
                     LazyVStack(spacing: SessionPanelLayout.rowSpacing) {
                         ForEach(rows) { row in
                                 SessionRow(
-                                    session: row, now: now, phase: row.effectivePhase(now: now),
+                                    session: row, now: now, phase: row.effectivePhase(now: now), usage: tokenUsage?(row, now),
+                                    control: controls?.control(for: row),
+                                    onLimit: onControl.map { action in { action(row, .limit) } },
+                                    onLater: onControl.map { action in { action(row, .later) } },
                                     offlineSince: network.offlineSince, swipePresentation: swipePresentation, onHide: { perform { try store.hide(row) } },
                                     onError: { actionIssue = $0 }, onOpen: { open(row) },
                                     isOpening: panelState.openingIDs.contains(row.id),
@@ -283,7 +304,7 @@ struct SessionsView: View {
             }
             VStack(spacing: 0) {
             Divider().opacity(contrast == .increased ? 1 : 0.45)
-            footer.padding(.horizontal, 12).padding(.vertical, 7).fixedSize(horizontal: false, vertical: true)
+            if !showingTasks { footer.padding(.horizontal, 12).padding(.vertical, 7).fixedSize(horizontal: false, vertical: true) }
             }.fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { geometry in
                     Color.clear.preference(key: SessionPanelSectionHeights.self, value: ["bottom": geometry.size.height])
@@ -511,6 +532,10 @@ struct SessionRow: View {
     var session: AgentSession
     var now: Date
     var phase: SessionPhase
+    var usage: SessionTokenUsage? = nil
+    var control: SessionControl? = nil
+    var onLimit: (() -> Void)? = nil
+    var onLater: (() -> Void)? = nil
     /// Brief path changes (Wi-Fi roaming) are not reported as a lost network.
     var offlineSince: Date? = nil
     var offline: Bool { phase == .running && offlineSince.map { now.timeIntervalSince($0) >= 10 } == true }
@@ -582,6 +607,9 @@ struct SessionRow: View {
             .init(title: L("Открыть сессию"), enabled: !isOpening, action: openSession),
             session.client == .vscode ? .init(title: L("В {0} должен быть открыт проект этой сессии.", hostTitle), enabled: false, action: {}) : nil,
             .separator,
+            onLimit.map { .init(title: L("Ограничить расход…"), action: $0) },
+            onLater.map { .init(title: L("Продолжить позже…"), action: $0) },
+            onLimit == nil && onLater == nil ? nil : .separator,
             onPin.map { .init(title: L(isPinned ? "Открепить" : "Закрепить"), action: $0) },
         ].compactMap { $0 } + reorderMenuItems + [
             .init(title: L("Скрыть в Lunavect"), keyEquivalent: Self.hideKey, keyModifiers: .command, action: onHide),
@@ -610,12 +638,18 @@ struct SessionRow: View {
         if let background { lines.append(background.summary) }
         lines.append(session.cwd.isEmpty ? session.project : session.cwd)
         lines.append(session.provider.title + " · " + hostTitle)
+        if let usage { lines.append(usage.detail) }
+        if let control { lines.append(control.stateTitle) }
         return lines.joined(separator: "\n")
     }
     /// The pin glyph is decorative; VoiceOver hears the pinned state with the status.
     var accessibilityStatus: String { isPinned ? statusTitle + ", " + L("Закреплена") : statusTitle }
     var statusTitle: String {
         if session.isLimitsCheck == true { return L("Служебная проверка лимитов") }
+        if session.isBackgroundRun == true {
+            guard session.phase.isActive else { return L("Фоновый запуск завершён") }
+            return session.launchHost.map { L("Фоновый запуск · {0}", $0.name) } ?? L("Фоновый запуск")
+        }
         guard phase == .running else { return phase == .failed ? session.failure?.title ?? phase.title : phase.title }
         if offline { return L("Нет сети") }
         if session.compactionTrigger != nil { return session.activityTitle }
@@ -647,6 +681,7 @@ struct SessionRow: View {
                     }
                     if let background { BackgroundWorkBadge(work: background).padding(.leading, 2) }
                     Spacer(minLength: 0)
+                    if let control { Image(systemName: control.symbol).foregroundStyle(control.tint).help(control.stateTitle) }
                     Text(session.shortProjectPath).lineLimit(1).truncationMode(.head)
                         .frame(maxWidth: 128, alignment: .trailing)
                         .help(session.cwd)
@@ -813,4 +848,35 @@ private struct SessionOverflowControl: View {
 extension Notification.Name {
     /// A session was brought to its window; the panel steps aside.
     static let lunavectSessionOpened = Notification.Name("LunavectSessionOpened")
+}
+
+/// A session's tokens for its row: a short share of the week and a tooltip line.
+struct SessionTokenUsage: Equatable {
+    /// "≈2.4%" once a session has used at least half a percent of the week.
+    var badge: String?
+    var detail: String
+    @MainActor static func make(tokens: TokenService, snapshots: [UsageSnapshot], session: AgentSession, now: Date) -> SessionTokenUsage? {
+        guard let value = tokens.tokens(session.provider, sessionID: session.sessionID), value.total.total > 0 else { return nil }
+        let share = tokens.share(of: value, window: snapshots.first { $0.provider == session.provider }?.weekly, now: now)
+        var parts = [L("Токены: {0}", TokenText.compact(value.total.total))]
+        if let share {
+            parts.append(L("≈ {0} недели", TokenMonitorView.percent(share.percent)))
+            if share.perHour >= 0.05 { parts.append(L("сейчас {0} в час", TokenMonitorView.percent(share.perHour))) }
+        }
+        return SessionTokenUsage(badge: share.flatMap { $0.percent >= 0.5 ? "≈" + TokenMonitorView.percent($0.percent) : nil },
+                                 detail: parts.joined(separator: " · "))
+    }
+}
+
+/// Sessions and Tasks: the two tabs of the panel. The task count follows the task list.
+struct SessionPanelTabs: View {
+    @ObservedObject var controls: SessionControlService
+    @Binding var selection: String
+    var body: some View {
+        let active = controls.controls.filter { $0.state != .continued }.count
+        Picker(L("Раздел"), selection: $selection) {
+            Text(L("Сессии")).tag("sessions")
+            Text(active > 0 ? L("Задачи · {0}", String(active)) : L("Задачи")).tag("tasks")
+        }.pickerStyle(.segmented).labelsHidden().accessibilityIdentifier("session-panel-tabs")
+    }
 }

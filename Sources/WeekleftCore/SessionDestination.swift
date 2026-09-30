@@ -66,6 +66,8 @@ public extension AgentSession {
     }
     /// A limits check run by hand is not opened at all (decision 28.09).
     var limitsCheckRefusal: SessionOpeningError? { isLimitsCheck == true ? .limitsCheck : nil }
+    /// A print-mode run has no window or tab to open; the message says what it is.
+    var backgroundRunRefusal: SessionOpeningError? { isBackgroundRun == true ? .backgroundRun(launchHost?.name) : nil }
     /// The place a catalog runtime runs in when no route leads there, named instead
     /// of a generic failure. Nil when the host is unknown or supported.
     var launchHostRefusal: SessionOpeningError? {
@@ -108,11 +110,15 @@ public enum SessionOpeningError: LocalizedError, Equatable {
     case ideBridgeMissing(String), ideSessionUnavailable(String), ideUnsupported(String), ideAmbiguous(String), ideTimedOut(String)
     case ideBridgeUnresponsive(String), ideCompanionIncompatible(String), ideActivationFailed(String)
     case missingCLI(ProviderID), missingProject, missingTerminal, invalidID, missingDesktopLink, missingClient(String), launchFailed(SessionClient)
-    case limitsCheck, embeddedTerminal(String), hostUnsupported(String)
+    case limitsCheck, backgroundRun(String?), embeddedTerminal(String), hostUnsupported(String)
     public var errorDescription: String? {
         switch self {
         case .limitsCheck:
             return L("Это служебная проверка лимитов Claude (команда /usage), а не рабочая сессия. Открывать её не нужно: завершите её в окне, где она запущена, клавишей Esc, затем дважды Ctrl+C.")
+        case .backgroundRun(let host?):
+            return L("Это фоновый запуск Claude без окна (claude -p). Его запустила программа {0}: так работают плагины и скрипты. Открыть его нельзя, у него нет окна или вкладки. Он завершится сам.", host)
+        case .backgroundRun(nil):
+            return L("Это фоновый запуск Claude без окна (claude -p): так работают плагины и скрипты. Открыть его нельзя, у него нет окна или вкладки. Он завершится сам.")
         case .embeddedTerminal(let app): return L("Сессия запущена во встроенном терминале {0}. Lunavect не может переключить его вкладку: откройте окно {0}.", app)
         case .hostUnsupported(let app): return L("Сессия запущена в {0}. Lunavect пока не умеет переходить к сессиям в этом приложении: откройте окно {0}.", app)
         case .sessionMayBeOpen: return L("Сессия может быть открыта в терминале. Вернитесь в исходное окно. Через «…» можно открыть папку проекта или скопировать ID сессии.")

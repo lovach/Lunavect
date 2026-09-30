@@ -135,6 +135,7 @@ struct ConnectionsView: View {
     @State private var disconnectedEventsOnly = false
     /// The card the user refreshed; background polls do not show progress in every card.
     @State private var refreshingCard: ProviderID?
+    @State private var codexOpenIssue: String?
     /// A repair asked for outside Settings (sessions panel, limits popover, a notice).
     @AppStorage(ConnectionRepairRequest.defaultsKey) private var repairRequest = ""
     private var availability: QuotaCheckAvailability {
@@ -208,7 +209,10 @@ struct ConnectionsView: View {
                 }
 
             }.padding(8).fixedSize(horizontal: false, vertical: true)
-        }.onAppear { statusLineObservedAt = store.statusLineObservedAt(); sessions.updateHookConfiguration(); openRequestedRepair() }
+        }.onAppear {
+            statusLineObservedAt = store.statusLineObservedAt(); sessions.updateHookConfiguration(); openRequestedRepair()
+            sessions.checkCodexHookTrust()
+        }
             .onChange(of: repairRequest) { openRequestedRepair() }
             .sheet(item: $selectedProvider, onDismiss: {
                 statusLineObservedAt = store.statusLineObservedAt()
@@ -223,6 +227,49 @@ struct ConnectionsView: View {
                     repairProvider = provider; selectedRepair = repair
                 }
             }
+    }
+    /// Codex skips hooks the user has not trusted, silently (live check 30.09). Lunavect never
+    /// writes that trust itself: it says what to choose in Codex and opens Codex in Terminal.
+    private var codexHookTrustWarning: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(L("Codex не запускает обработчики Lunavect"), systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(.orange)
+            Text(L("После изменения обработчиков Codex просит доверить их заново. Пока этого не сделать, Lunavect не видит, работают ли сессии Codex и ждут ли ответа, и не может остановить их на пределе."))
+                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(L("Запустите codex в Терминале и выберите «Trust all and continue». Lunavect проверит снова сам."))
+                .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button(L("Открыть Codex в Терминале")) { openCodexForTrust() }.buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("codex-hooks-open")
+                Button(L("Проверить снова")) { sessions.checkCodexHookTrust(force: true) }
+                    .accessibilityIdentifier("codex-hooks-check")
+            }.controlSize(.small)
+            if let codexOpenIssue {
+                Text(codexOpenIssue).font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.35)))
+            .accessibilityElement(children: .contain).accessibilityIdentifier("codex-hooks-untrusted")
+    }
+    /// Codex asks about an untrusted folder before its hooks: the folder of a recent Codex
+    /// session is one it already trusts; the home folder otherwise.
+    private func openCodexForTrust() {
+        let recent: String? = sessions.sessions.filter { $0.provider == .codex && $0.cwd.hasPrefix("/") }.max { $0.updatedAt < $1.updatedAt }?.cwd
+        let folder = recent.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil } ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let command = "cd " + TerminalLocation.shellQuoted(folder) + " && codex"
+        codexOpenIssue = nil
+        Task {
+            do {
+                guard try await TerminalLocation.open(command, app: "Terminal") else { throw SessionOpeningError.terminalFocusFailed("Terminal") }
+                // Give the user time to choose, then look again.
+                try await Task.sleep(for: .seconds(90))
+                sessions.checkCodexHookTrust(force: true)
+            } catch is CancellationError {
+            } catch {
+                codexOpenIssue = (error as? LocalizedError)?.errorDescription ?? L("Не удалось открыть Терминал.")
+            }
+        }
     }
     /// Opens the same setup step as the card's own button, once per request.
     private func openRequestedRepair() {
@@ -312,6 +359,7 @@ struct ConnectionsView: View {
                     }
                 }
             }
+            if id == .codex, sessions.hooksInstalled[.codex] == true, sessions.codexHookTrust == .untrusted { codexHookTrustWarning }
             DisclosureGroup(L("Подробности подключения")) {
                 VStack(alignment: .leading, spacing: 10) {
                     ConnectionStepRow(number: 1, title: L("Приложение найдено"), complete: card.clientFound)

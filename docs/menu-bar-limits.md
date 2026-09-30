@@ -25,7 +25,7 @@ The menu bar, the details panel, widgets and **Settings → Limits** use one sta
 - Missing data shows a dash or an unfilled dashed ring.
 - After the saved reset has passed without newer data: a dash and "Reset at HH:MM, waiting for the new window's first data". Neither the old value nor an assumed 100% is shown.
 - Saved values older than 15 minutes, or values associated with a source error, show an asterisk or a faded dashed arc. The details panel identifies saved data.
-- An exhausted window shows `0%`, an empty meter and its countdown without an asterisk: it cannot change before the reset.
+- An exhausted window shows `0%`, an empty meter and its countdown without an asterisk. Only a manual reset in the Claude or Codex app lifts it before the reset; Lunavect notices it within about an hour (see [when limits are refreshed](connections.md#when-limits-are-refreshed)).
 - A window that has not started (0% used and no reset yet, typically right after a weekly reset) shows `100%` and "Starts with the first request", without a countdown.
 - Codex reporting unlimited credits without any rate-limit window shows `∞` and "No limits"; an answer without a known window otherwise shows a dash.
 - Disabled services are omitted even if their previous snapshots remain stored.

@@ -31,6 +31,26 @@ final class SessionFeatureIssueTests: XCTestCase {
         await Task.detached { await features.receiveNotificationResponse(sessionID: "claude:late") }.value
         XCTAssertEqual(opened, ["claude:fixture"])
     }
+    /// Session-limit notices follow the user's limits, not the banner switch: they show while Lunavect is active,
+    /// and their buttons act without opening the panel.
+    @MainActor func testSessionLimitNoticesShowWithBannersOffAndTheirButtonsAct() async throws {
+        let suite = "Lunavect.ControlNotices." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let features = AppFeatures(defaults: defaults, permissionAccess: FailingFeaturePermissions(), playSound: { _ in })
+        features.banners = false; features.sounds = false
+        var actions: [String] = [], opened: [String] = []
+        features.onControlAction = { actions.append($0 + " " + $1) }
+        features.onOpenSession = { opened.append($0) }
+        let control = await Task.detached { await features.notificationPresentationOptions(hasSound: false, sessionControl: true) }.value
+        XCTAssertEqual(control, [.banner, .list])
+        let other = await Task.detached { await features.notificationPresentationOptions(hasSound: false) }.value
+        XCTAssertTrue(other.isEmpty, "other notices still follow the switch")
+        await Task.detached { await features.receiveNotificationResponse(sessionID: "claude:S1", control: ("lunavect.control.raise", "claude:S1")) }.value
+        XCTAssertEqual(actions, ["lunavect.control.raise claude:S1"]); XCTAssertTrue(opened.isEmpty)
+        await Task.detached { await features.receiveNotificationResponse(sessionID: "claude:S1", control: (UNNotificationDefaultActionIdentifier, "claude:S1")) }.value
+        XCTAssertEqual(opened, ["claude:S1"], "a click on the notice itself opens the session")
+    }
     @MainActor func testLoginAndNotificationFailuresRemainOnTheirOwnSettingsPage() async throws {
         let suite = "Lunavect.FeatureIssue." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

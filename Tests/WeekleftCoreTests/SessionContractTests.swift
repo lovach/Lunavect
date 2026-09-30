@@ -201,6 +201,16 @@ final class SessionContractTests: XCTestCase {
         XCTAssertEqual(progress.session.phase, .running)
         XCTAssertTrue(progress.pendingApprovals.isEmpty)
     }
+    /// Claude Code's own wait for a usage limit (2.1.234+) is kept for the session controls without changing the lifecycle.
+    func testTheEndOfClaudesOwnLimitWaitIsKeptWithoutChangingTheSession() throws {
+        let running = try event("UserPromptSubmit")
+        let failed = try event("StopFailure", previous: running, at: now.addingTimeInterval(5), extra: ["error": "rate_limit"])
+        let stale = try event("Notification", previous: failed, at: now.addingTimeInterval(3600), extra: ["notification_type": "quota_auto_resume_stale"])
+        XCTAssertEqual(stale.session.limitWait, "stale")
+        XCTAssertEqual(stale.session.limitWaitAt, now.addingTimeInterval(3600))
+        XCTAssertEqual(stale.session.phase, .failed)
+        XCTAssertEqual(stale.session.updatedAt, failed.session.updatedAt, "not even freshness changes")
+    }
     func testIdleReminderDoesNotCreateSecondAttentionNotice() throws {
         let running = try event("UserPromptSubmit")
         let ready = try event("Stop", previous: running, at: now.addingTimeInterval(10))

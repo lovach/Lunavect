@@ -12,6 +12,8 @@ import WeekleftCore
     typealias Importer = @Sendable (Set<ProviderID>, Date, Date) async throws -> ActivityImportResult
     @Published private(set) var history: ActivityHistory
     @Published private(set) var details: ActivityDetails
+    /// Daily totals kept forever (Year, All time and the statistics cards).
+    @Published private(set) var archive: ActivityArchive
     @Published private(set) var issue: String?
     @Published private(set) var detailsIssue: String?
     @Published private(set) var importing = false
@@ -37,6 +39,17 @@ import WeekleftCore
     private var powerObservers: [(NotificationCenter, NSObjectProtocol)] = []
     private let logger = Logger(subsystem: "com.weekleft.app", category: "activity")
     private var appliedWrite = 0
+    typealias Backfill = @Sendable (_ boundary: Date, _ now: Date) async throws -> ActivityImportResult
+    private let backfill: Backfill
+    private let archiveURL: URL?
+    private let archiveQueue = DispatchQueue(label: "com.weekleft.activity-archive", qos: .utility)
+    /// Changed on every observation; published and written with the details.
+    private var workingArchive: ActivityArchive
+    private var backfilling = false
+    /// When the whole history window was last recomputed into the archive; nil after an import.
+    private var archiveRefreshedAt: Date?
+    /// Sessions waiting for the user: since when, and when last seen waiting.
+    private var waitingSessions: [String: (provider: ProviderID, permission: Bool, start: Date, last: Date)] = [:]
     private var importGeneration = 0
     /// Readable so tests can await a cancelled worker instead of a time window.
     private(set) var importTask: Task<Void, Never>?
@@ -49,8 +62,16 @@ import WeekleftCore
          powerNotifications: NotificationCenter? = NSWorkspace.shared.notificationCenter,
          clock: @escaping () -> Date = Date.init, importer: @escaping Importer = { providers, boundary, now in
              try await ActivityService.readLocalHistory(providers: providers, boundary: boundary, now: now)
-         }) {
-        self.isolated = isolated; self.clock = clock; self.importer = importer
+         }, archive: ActivityArchive? = nil, archiveURL: URL? = ActivityArchive.fileURL,
+         backfill: @escaping Backfill = { boundary, now in try await ActivityService.readOlderHistory(before: boundary, now: now) }) {
+        self.isolated = isolated; self.clock = clock; self.importer = importer; self.backfill = backfill
+        // Only a service that writes its history keeps the archive on disk.
+        // Tests never read or write the real archive; a fixture passes its own URL.
+        self.archiveURL = isolated || storage == nil || !writesEnabled || (LiveWriteGuard.underTestsForStores && archiveURL == ActivityArchive.fileURL) ? nil : archiveURL
+        let loadedArchive = archive ?? self.archiveURL.flatMap { url in
+            (try? LocalStateRecovery.load(from: url, empty: ActivityArchive(), read: { try ActivityArchive.load(from: $0) }))?.value
+        } ?? ActivityArchive()
+        self.archive = loadedArchive; self.workingArchive = loadedArchive
         self.storage = isolated ? nil : storage
         self.writesEnabled = writesEnabled && !isolated && storage != nil
         let loaded: ActivityPersistence.LoadResult
@@ -77,7 +98,7 @@ import WeekleftCore
             }
         }
     }
-    func interruptObservation() { tracker.interruptObservation() }
+    func interruptObservation() { tracker.interruptObservation(); endWaiting() }
     /// History and details are written with fsync before the Mac sleeps.
     func saveBeforeSleep() {
         guard acceptsWork else { return }
@@ -88,6 +109,7 @@ import WeekleftCore
         started = true; acceptsWork = true
         setProviders(providers)
         if tracker.history.needsImport(providers: Set(providers)), !importing { scheduleImport() }
+        scheduleBackfill()
     }
     func setProviders(_ values: [ProviderID]) {
         let next = Set(values)
@@ -111,6 +133,7 @@ import WeekleftCore
         if next != observationState { observationState = next; transitionSince = transitionSince ?? now }
         let gaps = tracker.history.observationGaps?.count ?? 0
         tracker.observe(selected, now: now)
+        observeWaiting(selected, now: now)
         if let recorded = tracker.history.observationGaps, recorded.count > gaps {
             logger.info("Observation gap not counted as work; \(recorded.count, privacy: .public) since \(recorded.since.timeIntervalSince1970, privacy: .public)")
         }
@@ -147,7 +170,7 @@ import WeekleftCore
                     return
                 }
                 self.tracker = ActivityTracker(history: ActivityHistory(), details: self.tracker.details)
-                self.history = self.tracker.history
+                self.history = self.tracker.history; self.archiveRefreshedAt = nil
                 self.issue = "Прежний файл статистики сохранён отдельно. Сбор начат заново."
                 self.unavailable = false
                 self.scheduleImport()
@@ -192,6 +215,7 @@ import WeekleftCore
                 guard !Task.isCancelled, let self,
                       self.acceptsWork, self.importGeneration == generation, self.providers == providers else { return }
                 for (selected, result) in results { self.tracker.mergeImport(result, now: self.clock(), providers: selected) }
+                self.archiveRefreshedAt = nil
                 // A merged import is written at once, private details included.
                 self.save(now: self.clock(), synchronously: false, forceDetails: true)
                 self.finishImport(generation: generation)
@@ -213,10 +237,21 @@ import WeekleftCore
         importTask?.cancel(); importTask = nil; pendingImport = false
         if importing { importing = false }
     }
+    /// The token ledger's days; the next archive save writes them.
+    func setTokens(_ daily: [String: [String: TokenCounts]], replaceFrom: String = "") {
+        workingArchive.setTokens(daily, replaceFrom: replaceFrom)
+        if archive != workingArchive { archive = workingArchive }
+    }
     private func publish(now: Date) -> ActivityPersistence.State {
         tracker.pruneDetails(now: now)
         if history != tracker.history { history = tracker.history }
         if details != tracker.details { details = tracker.details }
+        // Live checkpoints only change the last days; the whole window (about 40 ms on a busy
+        // month) is recomputed after an import, on a new day and every half hour.
+        let full = archiveRefreshedAt.map { now < $0 || now.timeIntervalSince($0) >= 1800 || !Calendar.current.isDate($0, inSameDayAs: now) } ?? true
+        workingArchive.refresh(history: tracker.history, details: tracker.details, now: now, recentDays: full ? ActivityArchive.historyDays : 2)
+        if full { archiveRefreshedAt = now }
+        if archive != workingArchive { archive = workingArchive }
         savedAt = now; transitionSince = nil
         return .init(history: tracker.history, details: tracker.details)
     }
@@ -231,7 +266,10 @@ import WeekleftCore
     }
     private func save(now: Date, synchronously: Bool, forceDetails: Bool = false, durable: Bool = false) {
         guard !unavailable else { return }
+        let submittedAt = detailsSubmittedAt
         let state = submission(publish(now: now), now: now, forceDetails: forceDetails || synchronously)
+        // The archive follows the private details: every five minutes, at import, sleep and quit.
+        if detailsSubmittedAt != submittedAt || synchronously { saveArchive(synchronously: synchronously || durable) }
         guard writesEnabled, let storage else { return }
         if synchronously { apply(storage.flush(state)) }
         else {
@@ -245,6 +283,67 @@ import WeekleftCore
         appliedWrite = result.sequence
         if issue != result.historyIssue { issue = result.historyIssue }
         if detailsIssue != result.detailsIssue { detailsIssue = result.detailsIssue }
+    }
+    private func saveArchive(synchronously: Bool) {
+        guard let url = archiveURL else { return }
+        let value = workingArchive
+        let write: @Sendable () -> Void = { [logger] in
+            do { try value.save(to: url, synchronize: synchronously) }
+            catch { logger.error("Activity archive not saved: \((error as NSError).domain, privacy: .public) \((error as NSError).code)") }
+        }
+        if synchronously { archiveQueue.sync(execute: write) } else { archiveQueue.async(execute: write) }
+    }
+    /// Once: client logs older than the history window become archived days.
+    private func scheduleBackfill() {
+        guard archiveURL != nil, !backfilling, (workingArchive.backfillVersion ?? 0) < ActivityArchive.currentBackfillVersion else { return }
+        backfilling = true
+        let now = clock(), backfill = backfill
+        let calendar = Calendar.current
+        let boundary = calendar.date(byAdding: .day, value: -ActivityArchive.historyDays, to: calendar.startOfDay(for: now)) ?? now
+        Task { [weak self] in
+            let result = try? await backfill(boundary, now)
+            guard let self, self.acceptsWork else { return }
+            self.backfilling = false
+            // A read that stopped at its budget is kept; it is not retried every launch.
+            if let result, !result.cancelled { self.workingArchive.fill(from: result, before: boundary) }
+            guard result.map({ !$0.cancelled }) ?? false else { return }
+            self.workingArchive.backfillVersion = ActivityArchive.currentBackfillVersion
+            if self.archive != self.workingArchive { self.archive = self.workingArchive }
+            self.saveArchive(synchronously: false)
+        }
+    }
+    /// Waiting for an answer or a permission, per session, while Lunavect observes it.
+    private func observeWaiting(_ rows: [AgentSession], now: Date) {
+        var next: [String: (provider: ProviderID, permission: Bool, start: Date, last: Date)] = [:]
+        for row in rows {
+            let phase = row.effectivePhase(now: now)
+            guard phase == .input || phase == .permission else { continue }
+            let permission = phase == .permission
+            if var entry = waitingSessions[row.id], entry.permission == permission, now >= entry.last,
+               now.timeIntervalSince(entry.last) <= tracker.maximumGap {
+                workingArchive.addWaiting(row.provider, permission: permission, seconds: now.timeIntervalSince(entry.last), at: now)
+                entry.last = now
+                next[row.id] = entry
+            } else {
+                if let old = waitingSessions[row.id] { workingArchive.addWait(old.provider, seconds: old.last.timeIntervalSince(old.start), endedAt: old.last) }
+                next[row.id] = (row.provider, permission, now, now)
+            }
+        }
+        for (id, old) in waitingSessions where next[id] == nil {
+            workingArchive.addWait(old.provider, seconds: old.last.timeIntervalSince(old.start), endedAt: old.last)
+        }
+        waitingSessions = next
+    }
+    private func endWaiting() {
+        for old in waitingSessions.values { workingArchive.addWait(old.provider, seconds: old.last.timeIntervalSince(old.start), endedAt: old.last) }
+        waitingSessions = [:]
+    }
+    nonisolated static func readOlderHistory(before boundary: Date, now: Date) async throws -> ActivityImportResult {
+        let worker = Task.detached(priority: .background) {
+            ActivityHistoryImporter.read(sources: ActivityHistoryImporter.localSources(), before: boundary, now: now,
+                                         since: .distantPast, maximumSeconds: 300)
+        }
+        return await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
     }
     nonisolated static func readLocalHistory(providers: Set<ProviderID>, boundary: Date, now: Date) async throws -> ActivityImportResult {
         try Task.checkCancellation()

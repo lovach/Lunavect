@@ -3121,12 +3121,12 @@
     "fr": "Un anneau discontinu indique des données enregistrées ou indisponibles. Cliquez pour les détails.",
     "zh-Hans": "虚线圆环表示已保存或不可用的数据，点击查看详情。"
   },
-  "При первом запуске автоматически восстанавливаются доступные записи длительности Claude и Codex за последние 30 дней. Знак ≈ означает, что итог включает время из журналов: оно может включать ожидание внутри задачи. Удалённую или не записанную историю восстановить нельзя.": {
-    "de": "Beim ersten Start werden verfügbare Zeitaufzeichnungen von Claude und Codex der letzten 30 Tage automatisch importiert. ≈ bedeutet, dass die Summe Protokollzeiten enthält, einschließlich möglicher Wartezeiten innerhalb einer Aufgabe. Gelöschte oder nicht aufgezeichnete Daten lassen sich nicht wiederherstellen.",
-    "en": "On first launch, available Claude and Codex duration records from the last 30 days are restored automatically. ≈ means the total includes log durations, which may include waiting within a task. Deleted or unrecorded history cannot be restored.",
-    "es": "Al iniciar por primera vez, se recuperan los registros de duración disponibles de Claude y Codex de los últimos 30 días. ≈ indica que el total incluye tiempos de registros, que pueden incluir esperas dentro de una tarea. No se puede recuperar el historial eliminado o no registrado.",
-    "fr": "Au premier lancement, les durées disponibles de Claude et Codex des 30 derniers jours sont restaurées automatiquement. ≈ indique que le total inclut des durées de journaux pouvant comprendre de l’attente dans une tâche. L’historique supprimé ou non enregistré ne peut pas être restauré.",
-    "zh-Hans": "首次启动时会自动恢复 Claude 和 Codex 最近30天可用的时长记录。≈ 表示总时长包含日志时长，可能包括任务内的等待时间。已删除或未记录的历史无法恢复。"
+  "При первом запуске автоматически восстанавливаются доступные записи длительности Claude и Codex за последние 30 дней, а для «Года» и «Всего времени» — итоги по дням из всех журналов, которые ещё есть на этом Mac. Знак ≈ означает, что итог включает время из журналов: оно может включать ожидание внутри задачи. Удалённую или не записанную историю восстановить нельзя.": {
+    "en": "On first launch, available Claude and Codex duration records from the last 30 days are restored automatically, and for Year and All time the daily totals of every log still on this Mac. ≈ means the total includes log durations, which may include waiting within a task. Deleted or unrecorded history cannot be restored.",
+    "de": "Beim ersten Start werden verfügbare Zeitaufzeichnungen von Claude und Codex der letzten 30 Tage automatisch importiert, für Jahr und Gesamt die Tagessummen aller Protokolle, die noch auf diesem Mac vorhanden sind. ≈ bedeutet, dass die Summe Protokollzeiten enthält, einschließlich möglicher Wartezeiten innerhalb einer Aufgabe. Gelöschte oder nicht aufgezeichnete Daten lassen sich nicht wiederherstellen.",
+    "es": "Al iniciar por primera vez, se recuperan los registros de duración disponibles de Claude y Codex de los últimos 30 días y, para Año y Todo, los totales diarios de todos los registros que siguen en este Mac. ≈ indica que el total incluye tiempos de registros, que pueden incluir esperas dentro de una tarea. No se puede recuperar el historial eliminado o no registrado.",
+    "fr": "Au premier lancement, les durées disponibles de Claude et Codex des 30 derniers jours sont restaurées automatiquement, et pour Année et Tout, les totaux quotidiens de tous les journaux encore présents sur ce Mac. ≈ indique que le total inclut des durées de journaux pouvant comprendre de l’attente dans une tâche. L’historique supprimé ou non enregistré ne peut pas être restauré.",
+    "zh-Hans": "首次启动时会自动恢复 Claude 和 Codex 最近30天可用的时长记录，并为“年”和“全部”恢复此 Mac 上仍保留的所有日志的每日总计。≈ 表示总时长包含日志时长，可能包括任务内的等待时间。已删除或未记录的历史无法恢复。"
   },
   "Приложение": {
     "de": "App",
@@ -5144,12 +5144,12 @@
     "fr": "Consultez les conditions d’arrêt ci-dessous. Vous pourrez réactiver le mode lorsque les conditions auront changé.",
     "zh-Hans": "请检查下方的停止条件。条件改变后可重新开启此模式。"
   },
-  "День — по часам, неделя — последние 7 дней, месяц — последние 30 дней. Пик считается в текущем часовом поясе. Линия соединяет известные точки; между ними значения без записей остаются неизвестными.": {
-    "en": "Day shows hours, week the last 7 days, and month the last 30 days. Peak time uses the current time zone. The line connects recorded points; values without records between them remain unknown.",
-    "de": "Tag zeigt Stunden, Woche die letzten 7 Tage und Monat die letzten 30 Tage. Die Spitzenzeit gilt in der aktuellen Zeitzone. Die Linie verbindet bekannte Punkte; Werte ohne Aufzeichnungen dazwischen bleiben unbekannt.",
-    "es": "Día muestra horas, semana los últimos 7 días y mes los últimos 30. El pico usa la zona horaria actual. La línea conecta puntos registrados; los valores sin registros entre ellos siguen siendo desconocidos.",
-    "fr": "Jour affiche les heures, semaine les 7 derniers jours et mois les 30 derniers jours. Le pic suit le fuseau horaire actuel. La ligne relie les points connus ; les valeurs sans données entre eux restent inconnues.",
-    "zh-Hans": "日视图按小时显示，周视图显示最近 7 天，月视图显示最近 30 天。峰值按当前时区计算。曲线连接已知数据点；点之间没有记录的数值仍为未知。"
+  "День — по часам, неделя — последние 7 дней, месяц — последние 30 дней, год — по неделям, всё время — с первой записи. Итоги каждого дня хранятся без ограничения срока. Пик считается в текущем часовом поясе. Линия соединяет известные точки; между ними значения без записей остаются неизвестными.": {
+    "en": "Day shows hours, week the last 7 days, month the last 30 days, year weeks, and all time everything since the first record. Daily totals are kept without a time limit. Peak time uses the current time zone. The line connects recorded points; values without records between them remain unknown.",
+    "de": "Tag zeigt Stunden, Woche die letzten 7 Tage, Monat die letzten 30 Tage, Jahr Wochen und Gesamt alles seit der ersten Aufzeichnung. Tagessummen werden unbegrenzt aufbewahrt. Die Spitzenzeit gilt in der aktuellen Zeitzone. Die Linie verbindet bekannte Punkte; Werte ohne Aufzeichnungen dazwischen bleiben unbekannt.",
+    "es": "Día muestra horas, semana los últimos 7 días, mes los últimos 30, año por semanas y todo desde el primer registro. Los totales diarios se guardan sin límite de tiempo. El pico usa la zona horaria actual. La línea conecta puntos registrados; los valores sin registros entre ellos siguen siendo desconocidos.",
+    "fr": "Jour affiche les heures, semaine les 7 derniers jours, mois les 30 derniers jours, année par semaine et tout depuis le premier enregistrement. Les totaux quotidiens sont conservés sans limite de durée. Le pic suit le fuseau horaire actuel. La ligne relie les points connus ; les valeurs sans données entre eux restent inconnues.",
+    "zh-Hans": "日视图按小时显示，周视图显示最近 7 天，月视图显示最近 30 天，年视图按周显示，全部显示自第一条记录以来的数据。每日总计无期限保存。峰值按当前时区计算。曲线连接已知数据点；点之间没有记录的数值仍为未知。"
   },
   "Язык и тема станут системными. Сбросятся оформление строки меню и виджетов, уведомления и звук, сочетание клавиш, автозапуск, автоскрытие сессий и настройки обновлений. Keep Awake выключится, его параметры и ожидание разрешения сбросятся. Подключения, история, скрытые сессии, их порядок и даты подписок сохранятся.": {
     "en": "Language and theme will follow the system. Menu bar and widget appearance, notifications and sound, the shortcut, launch at login, session auto-hide and update preferences will reset. Keep Awake will stop, and its settings and pending permission request will reset. Connections, history, hidden sessions, their order and subscription dates will be kept.",
@@ -5773,5 +5773,1279 @@
     "es": "El límite semanal de {0} se ha restablecido",
     "fr": "La limite hebdomadaire de {0} a été réinitialisée",
     "zh-Hans": "{0} 每周额度已重置"
+  },
+  "Фоновый запуск": {
+    "en": "Background run",
+    "de": "Hintergrundlauf",
+    "es": "Ejecución en segundo plano",
+    "fr": "Exécution en arrière-plan",
+    "zh-Hans": "后台运行"
+  },
+  "Фоновый запуск · {0}": {
+    "en": "Background run · {0}",
+    "de": "Hintergrundlauf · {0}",
+    "es": "Ejecución en segundo plano · {0}",
+    "fr": "Exécution en arrière-plan · {0}",
+    "zh-Hans": "后台运行 · {0}"
+  },
+  "Фоновый запуск завершён": {
+    "en": "Background run finished",
+    "de": "Hintergrundlauf beendet",
+    "es": "Ejecución en segundo plano terminada",
+    "fr": "Exécution en arrière-plan terminée",
+    "zh-Hans": "后台运行已结束"
+  },
+  "Это фоновый запуск Claude без окна (claude -p). Его запустила программа {0}: так работают плагины и скрипты. Открыть его нельзя, у него нет окна или вкладки. Он завершится сам.": {
+    "en": "This is a background Claude run without a window (claude -p), started by {0}, the way plugins and scripts work. It cannot be opened: it has no window or tab. It ends by itself.",
+    "de": "Dies ist ein Claude-Hintergrundlauf ohne Fenster (claude -p), gestartet von {0}, wie es Plug-ins und Skripte tun. Er lässt sich nicht öffnen, da er kein Fenster und keinen Tab hat. Er endet von selbst.",
+    "es": "Es una ejecución de Claude en segundo plano sin ventana (claude -p), iniciada por {0}, como hacen los complementos y los scripts. No se puede abrir: no tiene ventana ni pestaña. Terminará sola.",
+    "fr": "Il s’agit d’une exécution de Claude en arrière-plan sans fenêtre (claude -p), lancée par {0}, comme le font les plug-ins et les scripts. Elle ne peut pas être ouverte : elle n’a ni fenêtre ni onglet. Elle se termine d’elle-même.",
+    "zh-Hans": "这是由 {0} 启动的无窗口 Claude 后台运行（claude -p），插件和脚本就是这样工作的。它没有窗口或标签页，无法打开，会自行结束。"
+  },
+  "Это фоновый запуск Claude без окна (claude -p): так работают плагины и скрипты. Открыть его нельзя, у него нет окна или вкладки. Он завершится сам.": {
+    "en": "This is a background Claude run without a window (claude -p), the way plugins and scripts work. It cannot be opened: it has no window or tab. It ends by itself.",
+    "de": "Dies ist ein Claude-Hintergrundlauf ohne Fenster (claude -p), wie ihn Plug-ins und Skripte starten. Er lässt sich nicht öffnen, da er kein Fenster und keinen Tab hat. Er endet von selbst.",
+    "es": "Es una ejecución de Claude en segundo plano sin ventana (claude -p), como hacen los complementos y los scripts. No se puede abrir: no tiene ventana ni pestaña. Terminará sola.",
+    "fr": "Il s’agit d’une exécution de Claude en arrière-plan sans fenêtre (claude -p), comme le font les plug-ins et les scripts. Elle ne peut pas être ouverte : elle n’a ni fenêtre ni onglet. Elle se termine d’elle-même.",
+    "zh-Hans": "这是无窗口的 Claude 后台运行（claude -p），插件和脚本就是这样工作的。它没有窗口或标签页，无法打开，会自行结束。"
+  },
+  "{0} от времени работы": {
+    "en": "{0} of work time",
+    "de": "{0} der Arbeitszeit",
+    "es": "{0} del tiempo de trabajo",
+    "fr": "{0} du temps de travail",
+    "zh-Hans": "占工作时间的 {0}"
+  },
+  "Агенты ждали вас": {
+    "en": "Agents waited for you",
+    "de": "Agenten haben auf Sie gewartet",
+    "es": "Los agentes te esperaron",
+    "fr": "Les agents vous ont attendu",
+    "zh-Hans": "代理等待您的时间"
+  },
+  "Время ожидания ответа или разрешения считается с этой версии, пока открыт Lunavect.": {
+    "en": "Time waiting for your answer or permission is counted from this version while Lunavect is open.",
+    "de": "Die Wartezeit auf Ihre Antwort oder Erlaubnis wird ab dieser Version gezählt, solange Lunavect geöffnet ist.",
+    "es": "El tiempo de espera de tu respuesta o permiso se cuenta desde esta versión mientras Lunavect está abierto.",
+    "fr": "Le temps d’attente de votre réponse ou autorisation est compté depuis cette version tant que Lunavect est ouvert.",
+    "zh-Hans": "从此版本起，在 Lunavect 打开期间统计等待您回复或授权的时间。"
+  },
+  "Всё время": {
+    "en": "All time",
+    "de": "Gesamt",
+    "es": "Todo",
+    "fr": "Tout",
+    "zh-Hans": "全部"
+  },
+  "Дней с работой: {0}": {
+    "en": "Days with work: {0}",
+    "de": "Tage mit Arbeit: {0}",
+    "es": "Días con trabajo: {0}",
+    "fr": "Jours avec activité : {0}",
+    "zh-Hans": "有工作的天数：{0}"
+  },
+  "Записи начинаются {0}: более ранние журналы на этом Mac не сохранились.": {
+    "en": "Records start on {0}: earlier logs are no longer on this Mac.",
+    "de": "Die Aufzeichnungen beginnen am {0}: ältere Protokolle sind auf diesem Mac nicht mehr vorhanden.",
+    "es": "Los registros empiezan el {0}: los registros anteriores ya no están en este Mac.",
+    "fr": "Les enregistrements commencent le {0} : les journaux plus anciens ne sont plus sur ce Mac.",
+    "zh-Hans": "记录从 {0} 开始：此 Mac 上已没有更早的日志。"
+  },
+  "Календарь": {
+    "en": "Calendar",
+    "de": "Kalender",
+    "es": "Calendario",
+    "fr": "Calendrier",
+    "zh-Hans": "日历"
+  },
+  "Когда вы работаете": {
+    "en": "When you work",
+    "de": "Wann Sie arbeiten",
+    "es": "Cuándo trabajas",
+    "fr": "Quand vous travaillez",
+    "zh-Hans": "您的工作时间"
+  },
+  "Обычное ожидание": {
+    "en": "Typical wait",
+    "de": "Übliche Wartezeit",
+    "es": "Espera habitual",
+    "fr": "Attente habituelle",
+    "zh-Hans": "通常等待"
+  },
+  "Ответы": {
+    "en": "Answers",
+    "de": "Antworten",
+    "es": "Respuestas",
+    "fr": "Réponses",
+    "zh-Hans": "回复"
+  },
+  "Проекты": {
+    "en": "Projects",
+    "de": "Projekte",
+    "es": "Proyectos",
+    "fr": "Projets",
+    "zh-Hans": "项目"
+  },
+  "Разрешения": {
+    "en": "Permissions",
+    "de": "Berechtigungen",
+    "es": "Permisos",
+    "fr": "Autorisations",
+    "zh-Hans": "授权"
+  },
+  "С {0}": {
+    "en": "Since {0}",
+    "de": "Seit {0}",
+    "es": "Desde {0}",
+    "fr": "Depuis le {0}",
+    "zh-Hans": "自 {0} 起"
+  },
+  "Самая длинная": {
+    "en": "Longest",
+    "de": "Längste",
+    "es": "La más larga",
+    "fr": "La plus longue",
+    "zh-Hans": "最长"
+  },
+  "Сессий с работой": {
+    "en": "Sessions with work",
+    "de": "Sitzungen mit Arbeit",
+    "es": "Sesiones con trabajo",
+    "fr": "Sessions avec activité",
+    "zh-Hans": "有工作的会话"
+  },
+  "Средняя длина": {
+    "en": "Average length",
+    "de": "Durchschnittliche Dauer",
+    "es": "Duración media",
+    "fr": "Durée moyenne",
+    "zh-Hans": "平均时长"
+  },
+  "Чаще всего: {0}, {1}": {
+    "en": "Most often: {0}, {1}",
+    "de": "Am häufigsten: {0}, {1}",
+    "es": "Con más frecuencia: {0}, {1}",
+    "fr": "Le plus souvent : {0}, {1}",
+    "zh-Hans": "最常见：{0}，{1}"
+  },
+  "По неделям": {
+    "en": "By week",
+    "de": "Nach Wochen",
+    "es": "Por semanas",
+    "fr": "Par semaine",
+    "zh-Hans": "按周"
+  },
+  "По месяцам": {
+    "en": "By month",
+    "de": "Nach Monaten",
+    "es": "Por meses",
+    "fr": "Par mois",
+    "zh-Hans": "按月"
+  },
+  "Самая загруженная неделя": {
+    "en": "Busiest week",
+    "de": "Arbeitsreichste Woche",
+    "es": "Semana con más trabajo",
+    "fr": "Semaine la plus chargée",
+    "zh-Hans": "最忙的一周"
+  },
+  "Самый загруженный месяц": {
+    "en": "Busiest month",
+    "de": "Arbeitsreichster Monat",
+    "es": "Mes con más trabajo",
+    "fr": "Mois le plus chargé",
+    "zh-Hans": "最忙的一个月"
+  },
+  "Самый загруженный день": {
+    "en": "Busiest day",
+    "de": "Arbeitsreichster Tag",
+    "es": "Día con más trabajo",
+    "fr": "Jour le plus chargé",
+    "zh-Hans": "最忙的一天"
+  },
+  "{0} дн.": {
+    "en": "{0} d",
+    "de": "{0} T.",
+    "es": "{0} d",
+    "fr": "{0} j",
+    "zh-Hans": "{0} 天"
+  },
+  "Дней до конца подписки: {0}": {
+    "en": "Days left in the plan: {0}",
+    "de": "Verbleibende Tage des Abonnements: {0}",
+    "es": "Días que quedan de la suscripción: {0}",
+    "fr": "Jours restants de l’abonnement : {0}",
+    "zh-Hans": "订阅剩余天数：{0}"
+  },
+  "Другая дата": {
+    "en": "Another date",
+    "de": "Anderes Datum",
+    "es": "Otra fecha",
+    "fr": "Autre date",
+    "zh-Hans": "其他日期"
+  },
+  "Обновите дату окончания: Настройки Lunavect → Подписки.": {
+    "en": "Update the end date in Lunavect Settings → Subscriptions.",
+    "de": "Aktualisieren Sie das Enddatum unter Lunavect-Einstellungen → Abonnements.",
+    "es": "Actualiza la fecha de fin en Ajustes de Lunavect → Suscripciones.",
+    "fr": "Mettez à jour la date de fin dans Réglages de Lunavect → Abonnements.",
+    "zh-Hans": "请在 Lunavect 设置 → 订阅中更新结束日期。"
+  },
+  "Подписка {0}, похоже, продлилась": {
+    "en": "{0} plan seems renewed",
+    "de": "Das {0}-Abonnement wurde anscheinend verlängert",
+    "es": "La suscripción de {0} parece renovada",
+    "fr": "L’abonnement {0} semble renouvelé",
+    "zh-Hans": "{0} 订阅似乎已续订"
+  },
+  "Подписка {0}, похоже, продлилась: Lunavect снова получает её лимиты. Обновите дату окончания.": {
+    "en": "The {0} plan seems renewed: Lunavect receives its limits again. Update the end date.",
+    "de": "Das {0}-Abonnement wurde anscheinend verlängert: Lunavect erhält wieder seine Limits. Aktualisieren Sie das Enddatum.",
+    "es": "La suscripción de {0} parece renovada: Lunavect vuelve a recibir sus límites. Actualiza la fecha de fin.",
+    "fr": "L’abonnement {0} semble renouvelé : Lunavect reçoit de nouveau ses limites. Mettez à jour la date de fin.",
+    "zh-Hans": "{0} 订阅似乎已续订：Lunavect 又能获取它的额度了。请更新结束日期。"
+  },
+  "Подписка до {0}": {
+    "en": "Plan until {0}",
+    "de": "Abonnement bis {0}",
+    "es": "Suscripción hasta el {0}",
+    "fr": "Abonnement jusqu’au {0}",
+    "zh-Hans": "订阅至 {0}"
+  },
+  "Подписка заканчивается сегодня": {
+    "en": "The plan ends today",
+    "de": "Das Abonnement endet heute",
+    "es": "La suscripción termina hoy",
+    "fr": "L’abonnement se termine aujourd’hui",
+    "zh-Hans": "订阅今天结束"
+  },
+  "Подписка закончилась {0}": {
+    "en": "Plan ended {0}",
+    "de": "Abonnement endete am {0}",
+    "es": "La suscripción terminó el {0}",
+    "fr": "Abonnement terminé le {0}",
+    "zh-Hans": "订阅已于 {0} 结束"
+  },
+  "Показывать дату окончания подписки": {
+    "en": "Show plan end date",
+    "de": "Enddatum des Abonnements anzeigen",
+    "es": "Mostrar fecha de fin de la suscripción",
+    "fr": "Afficher la date de fin d’abonnement",
+    "zh-Hans": "显示订阅结束日期"
+  },
+  "сегодня": {
+    "en": "today",
+    "de": "heute",
+    "es": "hoy",
+    "fr": "aujourd’hui",
+    "zh-Hans": "今天"
+  },
+  "Вместе": {
+    "de": "Zusammen",
+    "en": "Together",
+    "es": "Juntos",
+    "fr": "Ensemble",
+    "zh-Hans": "合计"
+  },
+  "Самый долгий день": {
+    "de": "Längster Tag",
+    "en": "Longest day",
+    "es": "Día más largo",
+    "fr": "Journée la plus longue",
+    "zh-Hans": "最长的一天"
+  },
+  "В среднем за день с работой": {
+    "de": "Durchschnitt pro Arbeitstag",
+    "en": "Average per day with work",
+    "es": "Media por día con trabajo",
+    "fr": "Moyenne par jour d’activité",
+    "zh-Hans": "有工作日的平均时长"
+  },
+  "Записей нет": {
+    "de": "Keine Aufzeichnungen",
+    "en": "No records",
+    "es": "Sin registros",
+    "fr": "Aucun enregistrement",
+    "zh-Hans": "无记录"
+  },
+  "Без работы": {
+    "de": "Keine Arbeit",
+    "en": "No work",
+    "es": "Sin trabajo",
+    "fr": "Aucune activité",
+    "zh-Hans": "无工作"
+  },
+  "Ночью": {
+    "de": "Nachts",
+    "en": "At night",
+    "es": "De madrugada",
+    "fr": "La nuit",
+    "zh-Hans": "夜间"
+  },
+  "Утром": {
+    "de": "Morgens",
+    "en": "In the morning",
+    "es": "Por la mañana",
+    "fr": "Le matin",
+    "zh-Hans": "上午"
+  },
+  "Днём": {
+    "de": "Nachmittags",
+    "en": "In the afternoon",
+    "es": "Por la tarde",
+    "fr": "L’après-midi",
+    "zh-Hans": "下午"
+  },
+  "Вечером": {
+    "de": "Abends",
+    "en": "In the evening",
+    "es": "Por la noche",
+    "fr": "Le soir",
+    "zh-Hans": "晚上"
+  },
+  "{0} в час": {
+    "en": "{0} an hour",
+    "de": "{0} pro Stunde",
+    "es": "{0} por hora",
+    "fr": "{0} par heure",
+    "zh-Hans": "每小时 {0}"
+  },
+  "{0} токенов": {
+    "en": "{0} tokens",
+    "de": "{0} Tokens",
+    "es": "{0} tokens",
+    "fr": "{0} jetons",
+    "zh-Hans": "{0} 个 token"
+  },
+  "Доли учитывают цену токенов: чтение из кэша в 10 раз дешевле обычного ввода, ответ в 5–8 раз дороже. Примерно так расходуется лимит.": {
+    "en": "Shares weigh tokens by price: a cache read costs a tenth of fresh input, a response five to eight times more. That is roughly how a limit is spent.",
+    "de": "Die Anteile gewichten Tokens nach Preis: Ein Cache-Lesezugriff kostet ein Zehntel normaler Eingabe, eine Antwort das Fünf- bis Achtfache. So etwa wird ein Limit verbraucht.",
+    "es": "Las proporciones ponderan los tokens por precio: leer de la caché cuesta una décima parte de la entrada normal y una respuesta, de cinco a ocho veces más. Así se gasta aproximadamente un límite.",
+    "fr": "Les parts pondèrent les jetons par leur prix : une lecture du cache coûte un dixième d’une entrée normale, une réponse cinq à huit fois plus. C’est à peu près ainsi qu’une limite se consomme.",
+    "zh-Hans": "占比按 token 价格加权：读取缓存的成本是普通输入的十分之一，回复是其五到八倍。额度大致就是这样消耗的。"
+  },
+  "За неделю": {
+    "en": "This week",
+    "de": "Diese Woche",
+    "es": "Esta semana",
+    "fr": "Cette semaine",
+    "zh-Hans": "本周"
+  },
+  "Из кэша": {
+    "en": "From cache",
+    "de": "Aus dem Cache",
+    "es": "De la caché",
+    "fr": "Depuis le cache",
+    "zh-Hans": "来自缓存"
+  },
+  "Лимит неизвестен": {
+    "en": "Limit unknown",
+    "de": "Limit unbekannt",
+    "es": "Límite desconocido",
+    "fr": "Limite inconnue",
+    "zh-Hans": "额度未知"
+  },
+  "Модель": {
+    "en": "Model",
+    "de": "Modell",
+    "es": "Modelo",
+    "fr": "Modèle",
+    "zh-Hans": "模型"
+  },
+  "Модель не указана": {
+    "en": "Model not reported",
+    "de": "Modell nicht angegeben",
+    "es": "Modelo no indicado",
+    "fr": "Modèle non indiqué",
+    "zh-Hans": "未注明模型"
+  },
+  "Мониторинг агентов — Lunavect": {
+    "en": "Agent Monitor — Lunavect",
+    "de": "Agentenmonitor — Lunavect",
+    "es": "Monitor de agentes — Lunavect",
+    "fr": "Moniteur des agents — Lunavect",
+    "zh-Hans": "智能体监视器 — Lunavect"
+  },
+  "Мониторинг агентов…": {
+    "en": "Agent Monitor…",
+    "de": "Agentenmonitor…",
+    "es": "Monitor de agentes…",
+    "fr": "Moniteur des agents…",
+    "zh-Hans": "智能体监视器…"
+  },
+  "На что ушли токены": {
+    "en": "Where tokens went",
+    "de": "Wofür die Tokens verbraucht wurden",
+    "es": "En qué se fueron los tokens",
+    "fr": "Où sont passés les jetons",
+    "zh-Hans": "token 用在了哪里"
+  },
+  "Неделя: {0}": {
+    "en": "Week: {0}",
+    "de": "Woche: {0}",
+    "es": "Semana: {0}",
+    "fr": "Semaine : {0}",
+    "zh-Hans": "本周：{0}"
+  },
+  "По моделям": {
+    "en": "By model",
+    "de": "Nach Modell",
+    "es": "Por modelo",
+    "fr": "Par modèle",
+    "zh-Hans": "按模型"
+  },
+  "По проектам": {
+    "en": "By project",
+    "de": "Nach Projekt",
+    "es": "Por proyecto",
+    "fr": "Par projet",
+    "zh-Hans": "按项目"
+  },
+  "Показать": {
+    "en": "Show",
+    "de": "Anzeigen",
+    "es": "Mostrar",
+    "fr": "Afficher",
+    "zh-Hans": "显示"
+  },
+  "Последний час": {
+    "en": "Last hour",
+    "de": "Letzte Stunde",
+    "es": "Última hora",
+    "fr": "Dernière heure",
+    "zh-Hans": "最近一小时"
+  },
+  "Проект": {
+    "en": "Project",
+    "de": "Projekt",
+    "es": "Proyecto",
+    "fr": "Projet",
+    "zh-Hans": "项目"
+  },
+  "Сброс {0}": {
+    "en": "Resets {0}",
+    "de": "Zurückgesetzt {0}",
+    "es": "Se restablece {0}",
+    "fr": "Réinitialisation {0}",
+    "zh-Hans": "{0} 重置"
+  },
+  "Сейчас": {
+    "en": "Now",
+    "de": "Jetzt",
+    "es": "Ahora",
+    "fr": "Maintenant",
+    "zh-Hans": "当前"
+  },
+  "Сейчас не расходуется": {
+    "en": "Not being spent now",
+    "de": "Wird gerade nicht verbraucht",
+    "es": "Ahora no se está gastando",
+    "fr": "Pas consommée en ce moment",
+    "zh-Hans": "当前未在消耗"
+  },
+  "Сейчас ≈ {0} в час": {
+    "en": "Now ≈ {0} an hour",
+    "de": "Jetzt ≈ {0} pro Stunde",
+    "es": "Ahora ≈ {0} por hora",
+    "fr": "En ce moment ≈ {0} par heure",
+    "zh-Hans": "当前约每小时 {0}"
+  },
+  "Сессия": {
+    "en": "Session",
+    "de": "Sitzung",
+    "es": "Sesión",
+    "fr": "Session",
+    "zh-Hans": "会话"
+  },
+  "Субагенты": {
+    "en": "Subagents",
+    "de": "Subagenten",
+    "es": "Subagentes",
+    "fr": "Sous-agents",
+    "zh-Hans": "子智能体"
+  },
+  "Считаем токены по журналам…": {
+    "en": "Counting tokens in the logs…",
+    "de": "Tokens in den Protokollen werden gezählt…",
+    "es": "Contando tokens en los registros…",
+    "fr": "Comptage des jetons dans les journaux…",
+    "zh-Hans": "正在统计日志中的 token…"
+  },
+  "Считаем токены по журналам Claude и Codex…": {
+    "en": "Counting tokens in the Claude and Codex logs…",
+    "de": "Tokens in den Protokollen von Claude und Codex werden gezählt…",
+    "es": "Contando tokens en los registros de Claude y Codex…",
+    "fr": "Comptage des jetons dans les journaux de Claude et Codex…",
+    "zh-Hans": "正在统计 Claude 和 Codex 日志中的 token…"
+  },
+  "Токены": {
+    "en": "Tokens",
+    "de": "Tokens",
+    "es": "Tokens",
+    "fr": "Jetons",
+    "zh-Hans": "token"
+  },
+  "Токены: {0}": {
+    "en": "Tokens: {0}",
+    "de": "Tokens: {0}",
+    "es": "Tokens: {0}",
+    "fr": "Jetons : {0}",
+    "zh-Hans": "token：{0}"
+  },
+  "сейчас {0} в час": {
+    "en": "now {0} an hour",
+    "de": "jetzt {0} pro Stunde",
+    "es": "ahora {0} por hora",
+    "fr": "en ce moment {0} par heure",
+    "zh-Hans": "当前每小时 {0}"
+  },
+  "≈ % недели": {
+    "en": "≈ % of week",
+    "de": "≈ % der Woche",
+    "es": "≈ % de la semana",
+    "fr": "≈ % de la semaine",
+    "zh-Hans": "≈ 周额度 %"
+  },
+  "≈ {0} недели": {
+    "en": "≈ {0} of the week",
+    "de": "≈ {0} der Woche",
+    "es": "≈ {0} de la semana",
+    "fr": "≈ {0} de la semaine",
+    "zh-Hans": "≈ 周额度的 {0}"
+  },
+  "≈ — оценка: процент недельного лимита делится между сессиями по их токенам с учётом цены. Чаты в приложениях Claude и ChatGPT в журналы не попадают, поэтому доли сессий могут быть завышены.": {
+    "en": "≈ is an estimate: the weekly limit's used percent is split between sessions by their price-weighted tokens. Chats in the Claude and ChatGPT apps are not in the logs, so session shares can run high.",
+    "de": "≈ ist eine Schätzung: Der verbrauchte Anteil des Wochenlimits wird nach den preisgewichteten Tokens auf die Sitzungen verteilt. Chats in den Apps Claude und ChatGPT stehen nicht in den Protokollen, daher können die Anteile zu hoch ausfallen.",
+    "es": "≈ es una estimación: el porcentaje usado del límite semanal se reparte entre las sesiones según sus tokens ponderados por precio. Los chats de las apps de Claude y ChatGPT no están en los registros, así que las proporciones pueden salir altas.",
+    "fr": "≈ est une estimation : le pourcentage utilisé de la limite hebdomadaire est réparti entre les sessions selon leurs jetons pondérés par le prix. Les discussions dans les apps Claude et ChatGPT ne figurent pas dans les journaux, les parts peuvent donc être surestimées.",
+    "zh-Hans": "≈ 为估算：周额度的已用百分比按各会话按价格加权的 token 分摊。Claude 和 ChatGPT 应用中的聊天不在日志里，因此会话占比可能偏高。"
+  },
+  "Задачи": {
+    "en": "Tasks",
+    "de": "Aufgaben",
+    "es": "Tareas",
+    "fr": "Tâches",
+    "zh-Hans": "任务"
+  },
+  "Задачи · {0}": {
+    "en": "Tasks · {0}",
+    "de": "Aufgaben · {0}",
+    "es": "Tareas · {0}",
+    "fr": "Tâches · {0}",
+    "zh-Hans": "任务 · {0}"
+  },
+  "После сброса недели": {
+    "en": "After the weekly reset",
+    "de": "Nach dem Wochen-Reset",
+    "es": "Tras el reinicio semanal",
+    "fr": "Après la réinitialisation hebdomadaire",
+    "zh-Hans": "每周重置后"
+  },
+  "После сброса окна 5 часов": {
+    "en": "After the 5-hour reset",
+    "de": "Nach dem 5-Stunden-Reset",
+    "es": "Tras el reinicio de 5 horas",
+    "fr": "Après la réinitialisation de 5 heures",
+    "zh-Hans": "5 小时窗口重置后"
+  },
+  "Продолжит {0}.": {
+    "en": "Continues {0}.",
+    "de": "Geht {0} weiter.",
+    "es": "Continuará {0}.",
+    "fr": "Reprendra {0}.",
+    "zh-Hans": "将于 {0} 继续。"
+  },
+  "Раздел": {
+    "en": "Section",
+    "de": "Bereich",
+    "es": "Sección",
+    "fr": "Section",
+    "zh-Hans": "分区"
+  },
+  "продолжит {0}": {
+    "en": "continues {0}",
+    "de": "geht {0} weiter",
+    "es": "continuará {0}",
+    "fr": "reprendra {0}",
+    "zh-Hans": "将于 {0} 继续"
+  },
+  "Lunavect не подключён к событиям {0}: без этого сессию не остановить. Включите подключение в настройках.": {
+    "en": "Lunavect is not connected to {0} events, so it cannot stop the session. Turn on the connection in Settings.",
+    "de": "Lunavect ist nicht mit den Ereignissen von {0} verbunden und kann die Sitzung nicht anhalten. Aktivieren Sie die Verbindung in den Einstellungen.",
+    "es": "Lunavect no está conectado a los eventos de {0}, así que no puede detener la sesión. Activa la conexión en Ajustes.",
+    "fr": "Lunavect n’est pas relié aux événements de {0} et ne peut pas arrêter la session. Activez la connexion dans les réglages.",
+    "zh-Hans": "Lunavect 未连接到 {0} 的事件，无法停止会话。请在设置中打开连接。"
+  },
+  "Lunavect: пользователь написал в эту сессию, и её ограничение снято. Продолжай по его сообщению.": {
+    "en": "Lunavect: the user wrote to this session, so its limit is lifted. Continue with their message.",
+    "de": "Lunavect: Der Nutzer hat in diese Sitzung geschrieben, daher ist ihr Limit aufgehoben. Fahren Sie mit seiner Nachricht fort.",
+    "es": "Lunavect: el usuario escribió en esta sesión, así que su límite se ha quitado. Continúa con su mensaje.",
+    "fr": "Lunavect : l’utilisateur a écrit dans cette session, sa limite est donc levée. Continue avec son message.",
+    "zh-Hans": "Lunavect：用户已在此会话中发送消息，因此其限制已解除。请按用户的消息继续。"
+  },
+  "В точное время": {
+    "en": "At a set time",
+    "de": "Zu einer bestimmten Zeit",
+    "es": "A una hora concreta",
+    "fr": "À une heure précise",
+    "zh-Hans": "在指定时间"
+  },
+  "Время": {
+    "en": "Time",
+    "de": "Zeit",
+    "es": "Hora",
+    "fr": "Heure",
+    "zh-Hans": "时间"
+  },
+  "Если в это время агент ещё работает, Lunavect подождёт, пока он закончит.": {
+    "en": "If the agent is still working then, Lunavect waits until it finishes.",
+    "de": "Arbeitet der Agent dann noch, wartet Lunavect, bis er fertig ist.",
+    "es": "Si el agente sigue trabajando en ese momento, Lunavect espera a que termine.",
+    "fr": "Si l’agent travaille encore à ce moment, Lunavect attend qu’il ait fini.",
+    "zh-Hans": "如果届时智能体仍在工作，Lunavect 会等它完成。"
+  },
+  "Ждёт": {
+    "en": "Waiting",
+    "de": "Wartet",
+    "es": "Esperando",
+    "fr": "En attente",
+    "zh-Hans": "等待中"
+  },
+  "Заканчивает шаг перед пределом": {
+    "en": "Finishing its step before the limit",
+    "de": "Beendet den Schritt vor dem Limit",
+    "es": "Terminando su paso antes del límite",
+    "fr": "Termine son étape avant la limite",
+    "zh-Hans": "在上限前完成当前步骤"
+  },
+  "Запланировать": {
+    "en": "Schedule",
+    "de": "Planen",
+    "es": "Programar",
+    "fr": "Planifier",
+    "zh-Hans": "安排"
+  },
+  "Когда": {
+    "en": "When",
+    "de": "Wann",
+    "es": "Cuándo",
+    "fr": "Quand",
+    "zh-Hans": "时间"
+  },
+  "Лимит сброшен: сессию можно продолжить": {
+    "en": "Limit reset: the session can continue",
+    "de": "Limit zurückgesetzt: Die Sitzung kann weitergehen",
+    "es": "Límite reiniciado: la sesión puede continuar",
+    "fr": "Limite réinitialisée : la session peut reprendre",
+    "zh-Hans": "额度已重置：会话可以继续"
+  },
+  "Можно продолжить": {
+    "en": "Ready to continue",
+    "de": "Kann fortgesetzt werden",
+    "es": "Lista para continuar",
+    "fr": "Peut reprendre",
+    "zh-Hans": "可以继续"
+  },
+  "На пределе агент остановится; файлы и разговор останутся как есть": {
+    "en": "At the limit the agent stops; files and the conversation stay as they are",
+    "de": "Am Limit hält der Agent an; Dateien und Unterhaltung bleiben, wie sie sind",
+    "es": "En el límite el agente se detiene; los archivos y la conversación quedan como están",
+    "fr": "À la limite, l’agent s’arrête ; les fichiers et la conversation restent tels quels",
+    "zh-Hans": "到达上限时智能体会停止；文件和对话保持原样"
+  },
+  "Нажмите двумя пальцами на сессию (или «⋯») и выберите «Ограничить расход…», чтобы она остановилась на нужном проценте недели, или «Продолжить позже…», чтобы Lunavect сам написал ей «продолжай» после сброса лимита.": {
+    "en": "Click a session with two fingers (or ⋯) and choose Limit Usage… to stop it at the percent of the week you want, or Continue Later… to have Lunavect tell it to continue after the limit resets.",
+    "de": "Klicken Sie mit zwei Fingern auf eine Sitzung (oder ⋯) und wählen Sie „Verbrauch begrenzen…“, damit sie beim gewünschten Wochenanteil anhält, oder „Später fortsetzen…“, damit Lunavect ihr nach dem Zurücksetzen „weiter“ schreibt.",
+    "es": "Haz clic con dos dedos en una sesión (o ⋯) y elige «Limitar consumo…» para que se detenga en el porcentaje de la semana que quieras, o «Continuar más tarde…» para que Lunavect le diga que siga tras el reinicio del límite.",
+    "fr": "Cliquez sur une session avec deux doigts (ou ⋯) et choisissez « Limiter la consommation… » pour l’arrêter au pourcentage de la semaine voulu, ou « Reprendre plus tard… » pour que Lunavect lui dise de continuer après la réinitialisation.",
+    "zh-Hans": "用两指点按会话（或点 ⋯），选择“限制用量…”让它在你设定的周额度百分比停止，或选择“稍后继续…”让 Lunavect 在额度重置后让它继续。"
+  },
+  "Напишите агенту: «{0}»": {
+    "en": "Write to the agent: “{0}”",
+    "de": "Schreiben Sie dem Agenten: „{0}“",
+    "es": "Escribe al agente: «{0}»",
+    "fr": "Écrivez à l’agent : « {0} »",
+    "zh-Hans": "对智能体写：“{0}”"
+  },
+  "Недельный лимит {0} пока неизвестен: без него предел не задать.": {
+    "en": "The {0} weekly limit is not known yet, so no limit can be set.",
+    "de": "Das Wochenlimit von {0} ist noch unbekannt; ohne es lässt sich keine Grenze setzen.",
+    "es": "El límite semanal de {0} aún no se conoce; sin él no se puede fijar un tope.",
+    "fr": "La limite hebdomadaire de {0} est encore inconnue ; impossible de fixer un seuil sans elle.",
+    "zh-Hans": "尚不知道 {0} 的每周额度，无法设置上限。"
+  },
+  "Неделя уже на этом уровне: сессия остановится сразу.": {
+    "en": "The week is already at this level: the session stops right away.",
+    "de": "Die Woche liegt bereits auf diesem Stand: Die Sitzung hält sofort an.",
+    "es": "La semana ya está en ese nivel: la sesión se detendrá de inmediato.",
+    "fr": "La semaine est déjà à ce niveau : la session s’arrêtera tout de suite.",
+    "zh-Hans": "本周用量已达到这个水平：会话会立即停止。"
+  },
+  "Незадолго до предела агент закончит шаг и напишет, что осталось": {
+    "en": "Shortly before the limit the agent finishes its step and writes what is left",
+    "de": "Kurz vor dem Limit beendet der Agent seinen Schritt und schreibt, was fehlt",
+    "es": "Poco antes del límite el agente termina su paso y escribe lo que falta",
+    "fr": "Peu avant la limite, l’agent termine son étape et écrit ce qui reste",
+    "zh-Hans": "接近上限时，智能体会完成当前步骤并写出剩余内容"
+  },
+  "Ограничить": {
+    "en": "Limit",
+    "de": "Begrenzen",
+    "es": "Limitar",
+    "fr": "Limiter",
+    "zh-Hans": "限制"
+  },
+  "Ограничить расход": {
+    "en": "Limit Usage",
+    "de": "Verbrauch begrenzen",
+    "es": "Limitar consumo",
+    "fr": "Limiter la consommation",
+    "zh-Hans": "限制用量"
+  },
+  "Ограничить расход…": {
+    "en": "Limit Usage…",
+    "de": "Verbrauch begrenzen…",
+    "es": "Limitar consumo…",
+    "fr": "Limiter la consommation…",
+    "zh-Hans": "限制用量…"
+  },
+  "Остановится на {0} недели": {
+    "en": "Stops at {0} of the week",
+    "de": "Hält bei {0} der Woche an",
+    "es": "Se detendrá al {0} de la semana",
+    "fr": "S’arrêtera à {0} de la semaine",
+    "zh-Hans": "将在周额度 {0} 时停止"
+  },
+  "Остановить, когда неделя дойдёт до": {
+    "en": "Stop when the week reaches",
+    "de": "Anhalten, wenn die Woche erreicht",
+    "es": "Detener cuando la semana llegue al",
+    "fr": "Arrêter quand la semaine atteint",
+    "zh-Hans": "当周用量达到时停止"
+  },
+  "Откройте её и напишите агенту «{0}».": {
+    "en": "Open it and write to the agent: “{0}”.",
+    "de": "Öffnen Sie sie und schreiben Sie dem Agenten: „{0}“.",
+    "es": "Ábrela y escribe al agente: «{0}».",
+    "fr": "Ouvrez-la et écrivez à l’agent : « {0} ».",
+    "zh-Hans": "打开它并对智能体写：“{0}”。"
+  },
+  "Пока ничего не запланировано": {
+    "en": "Nothing planned yet",
+    "de": "Noch nichts geplant",
+    "es": "Aún no hay nada programado",
+    "fr": "Rien de prévu pour l’instant",
+    "zh-Hans": "暂无安排"
+  },
+  "Продолжай с того места, где остановился.": {
+    "en": "Continue from where you stopped.",
+    "de": "Machen Sie dort weiter, wo Sie aufgehört haben.",
+    "es": "Continúa desde donde lo dejaste.",
+    "fr": "Reprends là où tu t’es arrêté.",
+    "zh-Hans": "从你停下的地方继续。"
+  },
+  "Продолжена": {
+    "en": "Continued",
+    "de": "Fortgesetzt",
+    "es": "Continuada",
+    "fr": "Reprise",
+    "zh-Hans": "已继续"
+  },
+  "Продолжена {0}.": {
+    "en": "Continued {0}.",
+    "de": "Fortgesetzt {0}.",
+    "es": "Continuada {0}.",
+    "fr": "Reprise {0}.",
+    "zh-Hans": "已于 {0} 继续。"
+  },
+  "Продолжит {0}": {
+    "en": "Continues {0}",
+    "de": "Geht {0} weiter",
+    "es": "Continuará {0}",
+    "fr": "Reprendra {0}",
+    "zh-Hans": "将于 {0} 继续"
+  },
+  "Продолжить позже": {
+    "en": "Continue Later",
+    "de": "Später fortsetzen",
+    "es": "Continuar más tarde",
+    "fr": "Reprendre plus tard",
+    "zh-Hans": "稍后继续"
+  },
+  "Продолжить позже…": {
+    "en": "Continue Later…",
+    "de": "Später fortsetzen…",
+    "es": "Continuar más tarde…",
+    "fr": "Reprendre plus tard…",
+    "zh-Hans": "稍后继续…"
+  },
+  "Продолжить сейчас": {
+    "en": "Continue now",
+    "de": "Jetzt fortsetzen",
+    "es": "Continuar ahora",
+    "fr": "Reprendre maintenant",
+    "zh-Hans": "立即继续"
+  },
+  "Сессия продолжается": {
+    "en": "Session continues",
+    "de": "Sitzung wird fortgesetzt",
+    "es": "La sesión continúa",
+    "fr": "La session reprend",
+    "zh-Hans": "会话继续"
+  },
+  "Напишите в сессию или снимите ограничение в Lunavect, чтобы продолжить.": {
+    "en": "Write to the session or remove the limit in Lunavect to continue.",
+    "de": "Schreiben Sie in die Sitzung oder heben Sie das Limit in Lunavect auf, um fortzufahren.",
+    "es": "Escribe en la sesión o quita el límite en Lunavect para continuar.",
+    "fr": "Écrivez dans la session ou retirez la limite dans Lunavect pour reprendre.",
+    "zh-Hans": "在会话中发送消息，或在 Lunavect 中取消限制即可继续。"
+  },
+  "Снять": {
+    "en": "Remove",
+    "de": "Aufheben",
+    "es": "Quitar",
+    "fr": "Retirer",
+    "zh-Hans": "取消"
+  },
+  "Что написать агенту": {
+    "en": "What to write to the agent",
+    "de": "Was dem Agenten geschrieben wird",
+    "es": "Qué escribirle al agente",
+    "fr": "Quoi écrire à l’agent",
+    "zh-Hans": "要对智能体说什么"
+  },
+  "Эта сессия открыта не в Terminal и не в iTerm2: Lunavect пришлёт уведомление, и продолжить нужно будет вручную.": {
+    "en": "This session is not in Terminal or iTerm2: Lunavect will send a notification, and you continue it by hand.",
+    "de": "Diese Sitzung läuft nicht in Terminal oder iTerm2: Lunavect sendet eine Mitteilung, und Sie setzen sie selbst fort.",
+    "es": "Esta sesión no está en Terminal ni en iTerm2: Lunavect enviará un aviso y tendrás que continuarla a mano.",
+    "fr": "Cette session n’est ni dans Terminal ni dans iTerm2 : Lunavect enverra une notification et vous la reprendrez à la main.",
+    "zh-Hans": "此会话不在终端或 iTerm2 中：Lunavect 会发送通知，需要你手动继续。"
+  },
+  "Эта сессия уже потратила ≈ {0}.": {
+    "en": "This session has used ≈ {0} already.",
+    "de": "Diese Sitzung hat bereits ≈ {0} verbraucht.",
+    "es": "Esta sesión ya gastó ≈ {0}.",
+    "fr": "Cette session a déjà utilisé ≈ {0}.",
+    "zh-Hans": "此会话已用掉约 {0}。"
+  },
+  "Это ещё ≈ {0} недели.": {
+    "en": "That is ≈ {0} more of the week.",
+    "de": "Das sind ≈ {0} mehr der Woche.",
+    "es": "Son ≈ {0} más de la semana.",
+    "fr": "Soit ≈ {0} de plus de la semaine.",
+    "zh-Hans": "即再用约 {0} 的周额度。"
+  },
+  "сейчас {0}": {
+    "en": "now {0}",
+    "de": "jetzt {0}",
+    "es": "ahora {0}",
+    "fr": "maintenant {0}",
+    "zh-Hans": "当前 {0}"
+  },
+  "стоп {0}": {
+    "en": "stop {0}",
+    "de": "Stopp {0}",
+    "es": "tope {0}",
+    "fr": "arrêt {0}",
+    "zh-Hans": "停止 {0}"
+  },
+  "Claude Code ждёт Enter, чтобы продолжить.": {
+    "de": "Claude Code wartet auf die Eingabetaste, um fortzufahren.",
+    "en": "Claude Code is waiting for Enter to continue.",
+    "es": "Claude Code espera que pulses Enter para continuar.",
+    "fr": "Claude Code attend Entrée pour reprendre.",
+    "zh-Hans": "Claude Code 正在等待按下 Enter 以继续。"
+  },
+  "Claude Code продолжит сам после сброса": {
+    "de": "Claude Code macht nach dem Zurücksetzen selbst weiter",
+    "en": "Claude Code will continue by itself after the reset",
+    "es": "Claude Code continuará solo tras el reinicio",
+    "fr": "Claude Code reprendra tout seul après la réinitialisation",
+    "zh-Hans": "Claude Code 会在重置后自行继续"
+  },
+  "Lunavect впишет это в ту же вкладку Терминала. Если вкладку закроют, откроет новую и продолжит тот же разговор.": {
+    "de": "Lunavect gibt dies im selben Terminal-Tab ein. Wird der Tab geschlossen, öffnet es einen neuen und setzt dieselbe Unterhaltung fort.",
+    "en": "Lunavect types this into the same Terminal tab. If the tab is closed, it opens a new one and continues the same conversation.",
+    "es": "Lunavect lo escribirá en la misma pestaña de Terminal. Si la pestaña se cierra, abrirá una nueva y continuará la misma conversación.",
+    "fr": "Lunavect le saisira dans le même onglet du Terminal. Si l’onglet est fermé, il en ouvrira un nouveau et reprendra la même conversation.",
+    "zh-Hans": "Lunavect 会在同一个终端标签页中输入这段话。如果标签页已关闭，它会打开新的标签页并继续同一段对话。"
+  },
+  "Lunavect нажмёт Enter, и Claude Code продолжит.": {
+    "de": "Lunavect drückt die Eingabetaste, und Claude Code macht weiter.",
+    "en": "Lunavect will press Enter and Claude Code will continue.",
+    "es": "Lunavect pulsará Enter y Claude Code continuará.",
+    "fr": "Lunavect appuiera sur Entrée et Claude Code reprendra.",
+    "zh-Hans": "Lunavect 会按下 Enter，Claude Code 随即继续。"
+  },
+  "Вы продолжили её {0}.": {
+    "en": "You continued it {0}.",
+    "de": "Sie haben sie {0} fortgesetzt.",
+    "es": "La continuaste {0}.",
+    "fr": "Vous l’avez reprise {0}.",
+    "zh-Hans": "你已于 {0} 继续。"
+  },
+  "Lunavect продолжит её после сброса в {0}.": {
+    "de": "Lunavect setzt sie nach dem Zurücksetzen ({0}) fort.",
+    "en": "Lunavect will continue it after the reset at {0}.",
+    "es": "Lunavect la continuará tras el reinicio ({0}).",
+    "fr": "Lunavect la reprendra après la réinitialisation ({0}).",
+    "zh-Hans": "Lunavect 会在 {0} 重置后继续它。"
+  },
+  "Lunavect продолжит её после сброса лимита.": {
+    "de": "Lunavect setzt sie nach dem Zurücksetzen des Limits fort.",
+    "en": "Lunavect will continue it after the limit resets.",
+    "es": "Lunavect la continuará cuando se reinicie el límite.",
+    "fr": "Lunavect la reprendra après la réinitialisation de la limite.",
+    "zh-Hans": "Lunavect 会在额度重置后继续它。"
+  },
+  "Lunavect: неделя дошла до предела этой сессии ({0}), сессия остановлена до сброса лимита. Не выполняй новых действий.": {
+    "de": "Lunavect: Die Woche hat das Limit dieser Sitzung ({0}) erreicht; die Sitzung ist bis zum Zurücksetzen des Limits angehalten. Führen Sie keine weiteren Aktionen aus.",
+    "en": "Lunavect: the week reached this session's limit ({0}); the session is stopped until the limit resets. Take no further actions.",
+    "es": "Lunavect: la semana llegó al límite de esta sesión ({0}); la sesión está detenida hasta que se reinicie el límite. No hagas más acciones.",
+    "fr": "Lunavect : la semaine a atteint la limite de cette session ({0}) ; la session est arrêtée jusqu’à la réinitialisation de la limite. N’effectue plus d’actions.",
+    "zh-Hans": "Lunavect：本周用量已达此会话的上限（{0}），会话在额度重置前已停止。不要再执行任何操作。"
+  },
+  "Lunavect: окно 5 часов почти исчерпано, эта сессия ждёт его сброса ({0}). Не выполняй новых действий: Lunavect сам попросит продолжить.": {
+    "de": "Lunavect: Das 5-Stunden-Fenster ist fast aufgebraucht; diese Sitzung wartet auf sein Zurücksetzen ({0}). Führen Sie keine weiteren Aktionen aus: Lunavect bittet Sie danach, fortzufahren.",
+    "en": "Lunavect: the 5-hour window is nearly used up; this session waits for its reset ({0}). Take no further actions: Lunavect will ask you to continue.",
+    "es": "Lunavect: la ventana de 5 horas está casi agotada; esta sesión espera su reinicio ({0}). No hagas más acciones: Lunavect te pedirá que continúes.",
+    "fr": "Lunavect : la fenêtre de 5 heures est presque épuisée ; cette session attend sa réinitialisation ({0}). N’effectue plus d’actions : Lunavect te demandera de reprendre.",
+    "zh-Hans": "Lunavect：5 小时窗口即将用尽，此会话正在等待其重置（{0}）。不要再执行任何操作：Lunavect 会请你继续。"
+  },
+  "Lunavect: окно 5 часов почти исчерпано. Закончи текущий шаг и не начинай новую работу: после сброса окна Lunavect попросит продолжить.": {
+    "de": "Lunavect: Das 5-Stunden-Fenster ist fast aufgebraucht. Schließen Sie den aktuellen Schritt ab und beginnen Sie keine neue Arbeit: Nach dem Zurücksetzen des Fensters bittet Lunavect Sie, fortzufahren.",
+    "en": "Lunavect: the 5-hour window is nearly used up. Finish the current step and start no new work: after the window resets, Lunavect will ask you to continue.",
+    "es": "Lunavect: la ventana de 5 horas está casi agotada. Termina el paso actual y no empieces trabajo nuevo: cuando se reinicie la ventana, Lunavect te pedirá que continúes.",
+    "fr": "Lunavect : la fenêtre de 5 heures est presque épuisée. Termine l’étape en cours et ne commence rien de nouveau : après la réinitialisation, Lunavect te demandera de reprendre.",
+    "zh-Hans": "Lunavect：5 小时窗口即将用尽。完成当前步骤，不要开始新工作：窗口重置后 Lunavect 会请你继续。"
+  },
+  "Lunavect: неделя почти дошла до {0}, предела этой сессии. Закончи текущий шаг и не начинай новую работу.": {
+    "de": "Lunavect: Die Woche hat fast {0} erreicht, das Limit dieser Sitzung. Schließen Sie den aktuellen Schritt ab und beginnen Sie keine neue Arbeit.",
+    "en": "Lunavect: the week has almost reached {0}, this session’s limit. Finish the current step and start no new work.",
+    "es": "Lunavect: la semana casi llegó al {0}, el límite de esta sesión. Termina el paso actual y no empieces trabajo nuevo.",
+    "fr": "Lunavect : la semaine a presque atteint {0}, la limite de cette session. Termine l’étape en cours et ne commence rien de nouveau.",
+    "zh-Hans": "Lunavect：本周用量即将达到 {0}，即此会话的上限。完成当前步骤，不要开始新工作。"
+  },
+  "{0}: столько приходится на сегодня, если растянуть остаток недели до сброса в {1}.": {
+    "de": "{0}: der Anteil für heute, wenn der Rest der Woche bis zum Zurücksetzen ({1}) reichen soll.",
+    "en": "{0}: today’s share if the rest of the week is to last until the reset ({1}).",
+    "es": "{0}: lo que toca hoy si repartes el resto de la semana hasta el reinicio ({1}).",
+    "fr": "{0} : la part d’aujourd’hui si le reste de la semaine doit tenir jusqu’à la réinitialisation ({1}).",
+    "zh-Hans": "{0}：若要把本周剩余额度撑到重置（{1}），这是今天的份额。"
+  },
+  "Вкладка недоступна: Lunavect продолжил сессию в новом окне Терминала.": {
+    "de": "Der Tab war nicht verfügbar: Lunavect hat die Sitzung in einem neuen Terminal-Fenster fortgesetzt.",
+    "en": "The tab was unavailable: Lunavect continued the session in a new Terminal window.",
+    "es": "La pestaña no estaba disponible: Lunavect continuó la sesión en una nueva ventana de Terminal.",
+    "fr": "L’onglet n’était pas disponible : Lunavect a poursuivi la session dans une nouvelle fenêtre du Terminal.",
+    "zh-Hans": "标签页不可用：Lunavect 已在新的终端窗口中继续该会话。"
+  },
+  "Вкладка недоступна: Lunavect продолжил сессию в новом окне iTerm2.": {
+    "de": "Der Tab war nicht verfügbar: Lunavect hat die Sitzung in einem neuen iTerm2-Fenster fortgesetzt.",
+    "en": "The tab was unavailable: Lunavect continued the session in a new iTerm2 window.",
+    "es": "La pestaña no estaba disponible: Lunavect continuó la sesión en una nueva ventana de iTerm2.",
+    "fr": "L’onglet n’était pas disponible : Lunavect a poursuivi la session dans une nouvelle fenêtre d’iTerm2.",
+    "zh-Hans": "标签页不可用：Lunavect 已在新的 iTerm2 窗口中继续该会话。"
+  },
+  "До обрыва агент закончит шаг, после сброса окна ({0}) Lunavect напишет ему «продолжай».": {
+    "de": "Vor dem Abbruch beendet der Agent seinen Schritt; nach dem Zurücksetzen des Fensters ({0}) schreibt Lunavect ihm „weiter“.",
+    "en": "The agent finishes its step before the cut-off; after the window resets ({0}), Lunavect tells it to continue.",
+    "es": "Antes del corte, el agente termina su paso; tras el reinicio de la ventana ({0}), Lunavect le escribirá «continúa».",
+    "fr": "Avant la coupure, l’agent termine son étape ; après la réinitialisation de la fenêtre ({0}), Lunavect lui écrira « continue ».",
+    "zh-Hans": "在中断前，智能体会完成当前步骤；窗口重置后（{0}），Lunavect 会让它继续。"
+  },
+  "До обрыва агент закончит шаг, после сброса окна Lunavect напишет ему «продолжай».": {
+    "de": "Vor dem Abbruch beendet der Agent seinen Schritt; nach dem Zurücksetzen des Fensters schreibt Lunavect ihm „weiter“.",
+    "en": "The agent finishes its step before the cut-off; after the window resets, Lunavect tells it to continue.",
+    "es": "Antes del corte, el agente termina su paso; tras el reinicio de la ventana, Lunavect le escribirá «continúa».",
+    "fr": "Avant la coupure, l’agent termine son étape ; après la réinitialisation de la fenêtre, Lunavect lui écrira « continue ».",
+    "zh-Hans": "在中断前，智能体会完成当前步骤；窗口重置后，Lunavect 会让它继续。"
+  },
+  "Если лимит оборвал работу": {
+    "de": "Wenn ein Limit die Arbeit abbricht",
+    "en": "If a limit cuts work off",
+    "es": "Si un límite corta el trabajo",
+    "fr": "Si une limite interrompt le travail",
+    "zh-Hans": "额度中断工作时"
+  },
+  "Ждёт сброса окна 5 часов": {
+    "de": "Wartet auf den 5-Stunden-Reset",
+    "en": "Waiting for the 5-hour reset",
+    "es": "Espera el reinicio de 5 horas",
+    "fr": "Attend la réinitialisation de 5 heures",
+    "zh-Hans": "等待 5 小时窗口重置"
+  },
+  "Итог агента": {
+    "de": "Zusammenfassung des Agenten",
+    "en": "Agent’s summary",
+    "es": "Resumen del agente",
+    "fr": "Résumé de l’agent",
+    "zh-Hans": "智能体小结"
+  },
+  "Когда Codex упрётся в лимит посреди ответа, Lunavect предложит продолжить сессию после сброса. Claude Code продолжает сам; Lunavect поможет, если Mac спал во время сброса или автопродолжение Claude выключено. «Продолжать без вопроса»: Lunavect продолжит сам и сообщит об этом.": {
+    "de": "Wenn Codex mitten in einer Antwort an ein Limit stößt, bietet Lunavect an, die Sitzung nach dem Zurücksetzen fortzusetzen. Claude Code macht selbst weiter; Lunavect hilft, wenn der Mac beim Zurücksetzen geschlafen hat oder das automatische Fortsetzen von Claude ausgeschaltet ist. „Ohne Nachfrage fortsetzen“: Lunavect setzt selbst fort und informiert Sie.",
+    "en": "When Codex hits a limit mid-answer, Lunavect offers to continue the session after the reset. Claude Code continues by itself; Lunavect helps if the Mac slept through the reset or Claude’s automatic continue is off. “Continue without asking”: Lunavect continues by itself and tells you.",
+    "es": "Cuando Codex llega a un límite en mitad de una respuesta, Lunavect te ofrece continuar la sesión tras el reinicio. Claude Code continúa solo; Lunavect ayuda si el Mac estuvo en reposo durante el reinicio o si la continuación automática de Claude está desactivada. «Continuar sin preguntar»: Lunavect continúa solo y te avisa.",
+    "fr": "Quand Codex atteint une limite en pleine réponse, Lunavect propose de reprendre la session après la réinitialisation. Claude Code reprend tout seul ; Lunavect aide si le Mac était en veille pendant la réinitialisation ou si la reprise automatique de Claude est désactivée. « Reprendre sans demander » : Lunavect reprend tout seul et vous prévient.",
+    "zh-Hans": "当 Codex 在回答中途达到额度上限时，Lunavect 会提议在重置后继续该会话。Claude Code 会自行继续；如果重置时 Mac 处于睡眠或 Claude 的自动继续已关闭，Lunavect 会帮忙。“无需询问直接继续”：Lunavect 会自行继续并通知你。"
+  },
+  "Когда неделя сбросится, продолжить эту сессию": {
+    "de": "Nach dem Zurücksetzen der Woche diese Sitzung fortsetzen",
+    "en": "When the week resets, continue this session",
+    "es": "Cuando se reinicie la semana, continuar esta sesión",
+    "fr": "Quand la semaine se réinitialise, reprendre cette session",
+    "zh-Hans": "本周额度重置后继续此会话"
+  },
+  "Коротко напиши двумя строками: «{0} …» и «{1} …».": {
+    "de": "Schreiben Sie kurz zwei Zeilen: „{0} …“ und „{1} …“.",
+    "en": "Briefly write two lines: “{0} …” and “{1} …”.",
+    "es": "Escribe brevemente dos líneas: «{0} …» y «{1} …».",
+    "fr": "Écris brièvement deux lignes : « {0} … » et « {1} … ».",
+    "zh-Hans": "简要写两行：“{0} …”和“{1} …”。"
+  },
+  "Лимит {0} закончился посреди работы": {
+    "de": "{0} hat mitten in der Arbeit das Limit erreicht",
+    "en": "{0} hit its limit mid-work",
+    "es": "{0} llegó al límite en mitad del trabajo",
+    "fr": "{0} a atteint sa limite en plein travail",
+    "zh-Hans": "{0} 在工作中途达到额度上限"
+  },
+  "Лимит закончился посреди работы": {
+    "de": "Das Limit ist mitten in der Arbeit ausgeschöpft",
+    "en": "The limit ran out mid-work",
+    "es": "El límite se agotó en mitad del trabajo",
+    "fr": "La limite est épuisée en plein travail",
+    "zh-Hans": "额度在工作中途用尽"
+  },
+  "Лимит сбросился, пока Mac спал": {
+    "de": "Das Limit wurde zurückgesetzt, während der Mac schlief",
+    "en": "The limit reset while the Mac was asleep",
+    "es": "El límite se reinició mientras el Mac estaba en reposo",
+    "fr": "La limite s’est réinitialisée pendant la veille du Mac",
+    "zh-Hans": "额度在 Mac 睡眠时已重置"
+  },
+  "Лимит сбросится в {0}. Продолжить эту сессию тогда?": {
+    "de": "Das Limit wird zurückgesetzt: {0}. Diese Sitzung dann fortsetzen?",
+    "en": "The limit resets {0}. Continue this session then?",
+    "es": "El límite se reinicia: {0}. ¿Continuar esta sesión entonces?",
+    "fr": "Réinitialisation de la limite : {0}. Reprendre cette session à ce moment-là ?",
+    "zh-Hans": "额度将于 {0} 重置。届时继续此会话？"
+  },
+  "Не надо": {
+    "de": "Nein danke",
+    "en": "No thanks",
+    "es": "No, gracias",
+    "fr": "Non merci",
+    "zh-Hans": "不用了"
+  },
+  "Не обрываться на окне 5 часов": {
+    "de": "Nicht am 5-Stunden-Fenster abbrechen",
+    "en": "Don’t get cut off by the 5-hour window",
+    "es": "No cortarse en la ventana de 5 horas",
+    "fr": "Ne pas être coupé par la fenêtre de 5 heures",
+    "zh-Hans": "不在 5 小时窗口处中断"
+  },
+  "Не продолжать": {
+    "de": "Nicht fortsetzen",
+    "en": "Don’t continue",
+    "es": "No continuar",
+    "fr": "Ne pas reprendre",
+    "zh-Hans": "不继续"
+  },
+  "Ничего не делать": {
+    "de": "Nichts tun",
+    "en": "Do nothing",
+    "es": "No hacer nada",
+    "fr": "Ne rien faire",
+    "zh-Hans": "不做任何事"
+  },
+  "Осталось:": {
+    "de": "Offen:",
+    "en": "Left:",
+    "es": "Falta:",
+    "fr": "Reste :",
+    "zh-Hans": "剩余："
+  },
+  "Остановлена: предел {0} недели": {
+    "de": "Angehalten: Limit {0} der Woche",
+    "en": "Stopped: limit {0} of the week",
+    "es": "Detenida: límite del {0} de la semana",
+    "fr": "Arrêtée : limite à {0} de la semaine",
+    "zh-Hans": "已停止：上限为周额度 {0}"
+  },
+  "Остановлена: предел {0}, неделя {1}": {
+    "de": "Angehalten: Limit {0}, Woche {1}",
+    "en": "Stopped: limit {0}, week {1}",
+    "es": "Detenida: límite {0}, semana {1}",
+    "fr": "Arrêtée : limite {0}, semaine {1}",
+    "zh-Hans": "已停止：上限 {0}，本周 {1}"
+  },
+  "Откройте сессию и нажмите Enter.": {
+    "de": "Öffnen Sie die Sitzung und drücken Sie die Eingabetaste.",
+    "en": "Open the session and press Enter.",
+    "es": "Abre la sesión y pulsa Enter.",
+    "fr": "Ouvrez la session et appuyez sur Entrée.",
+    "zh-Hans": "打开会话并按 Enter。"
+  },
+  "Claude Code мог показать своё меню лимита: откройте сессию и продолжите в ней.": {
+    "en": "Claude Code may be showing its usage-limit options: open the session and continue there.",
+    "de": "Claude Code zeigt möglicherweise seine Optionen zum Nutzungslimit: Öffnen Sie die Sitzung und setzen Sie sie dort fort.",
+    "es": "Puede que Claude Code muestre sus opciones del límite de uso: abre la sesión y continúa en ella.",
+    "fr": "Claude Code affiche peut-être ses options de limite d’utilisation : ouvrez la session et poursuivez-y.",
+    "zh-Hans": "Claude Code 可能正在显示用量上限选项：请打开会话并在其中继续。"
+  },
+  "Поднять предел на 5 процентных пунктов и продолжить": {
+    "de": "Limit um 5 Prozentpunkte erhöhen und fortsetzen",
+    "en": "Raise the limit by 5 percentage points and continue",
+    "es": "Subir el límite 5 puntos porcentuales y continuar",
+    "fr": "Relever la limite de 5 points et reprendre",
+    "zh-Hans": "将上限提高 5 个百分点并继续"
+  },
+  "Подставить {0}": {
+    "de": "{0} übernehmen",
+    "en": "Use {0}",
+    "es": "Usar {0}",
+    "fr": "Utiliser {0}",
+    "zh-Hans": "使用 {0}"
+  },
+  "Продолжать без вопроса": {
+    "de": "Ohne Nachfrage fortsetzen",
+    "en": "Continue without asking",
+    "es": "Continuar sin preguntar",
+    "fr": "Reprendre sans demander",
+    "zh-Hans": "无需询问直接继续"
+  },
+  "Продолжит после сброса окна.": {
+    "de": "Geht nach dem Zurücksetzen des Fensters weiter.",
+    "en": "Continues after the window resets.",
+    "es": "Continuará tras el reinicio de la ventana.",
+    "fr": "Reprendra après la réinitialisation de la fenêtre.",
+    "zh-Hans": "将在窗口重置后继续。"
+  },
+  "Продолжить в {0}": {
+    "de": "Um {0} fortsetzen",
+    "en": "Continue at {0}",
+    "es": "Continuar: {0}",
+    "fr": "Reprendre à {0}",
+    "zh-Hans": "于 {0} 继续"
+  },
+  "Продолжить в Терминале": {
+    "de": "Im Terminal fortsetzen",
+    "en": "Continue in Terminal",
+    "es": "Continuar en Terminal",
+    "fr": "Reprendre dans le Terminal",
+    "zh-Hans": "在终端中继续"
+  },
+  "Продолжить после сброса": {
+    "de": "Nach dem Zurücksetzen fortsetzen",
+    "en": "Continue after the reset",
+    "es": "Continuar tras el reinicio",
+    "fr": "Reprendre après la réinitialisation",
+    "zh-Hans": "重置后继续"
+  },
+  "Продолжить после сброса в {0}?": {
+    "de": "Nach dem Zurücksetzen ({0}) fortsetzen?",
+    "en": "Continue after the reset at {0}?",
+    "es": "¿Continuar tras el reinicio ({0})?",
+    "fr": "Reprendre après la réinitialisation ({0}) ?",
+    "zh-Hans": "在 {0} 重置后继续？"
+  },
+  "Продолжить после сброса лимита?": {
+    "de": "Nach dem Zurücksetzen des Limits fortsetzen?",
+    "en": "Continue after the limit resets?",
+    "es": "¿Continuar cuando se reinicie el límite?",
+    "fr": "Reprendre après la réinitialisation de la limite ?",
+    "zh-Hans": "额度重置后继续？"
+  },
+  "Продолжить эту сессию, когда лимит сбросится?": {
+    "de": "Diese Sitzung fortsetzen, wenn das Limit zurückgesetzt ist?",
+    "en": "Continue this session when the limit resets?",
+    "es": "¿Continuar esta sesión cuando se reinicie el límite?",
+    "fr": "Reprendre cette session quand la limite se réinitialise ?",
+    "zh-Hans": "额度重置后继续此会话？"
+  },
+  "Сделано:": {
+    "de": "Erledigt:",
+    "en": "Done:",
+    "es": "Hecho:",
+    "fr": "Fait :",
+    "zh-Hans": "已完成："
+  },
+  "Сессия ждёт сброса окна 5 часов": {
+    "de": "Sitzung wartet auf den 5-Stunden-Reset",
+    "en": "Session waits for the 5-hour reset",
+    "es": "La sesión espera el reinicio de 5 horas",
+    "fr": "La session attend la réinitialisation de 5 heures",
+    "zh-Hans": "会话正在等待 5 小时窗口重置"
+  },
+  "Сессия остановлена на {0} недели": {
+    "de": "Sitzung bei {0} der Woche angehalten",
+    "en": "Session stopped at {0} of the week",
+    "es": "Sesión detenida al {0} de la semana",
+    "fr": "Session arrêtée à {0} de la semaine",
+    "zh-Hans": "会话已在周额度 {0} 时停止"
+  },
+  "Спрашивать": {
+    "de": "Nachfragen",
+    "en": "Ask",
+    "es": "Preguntar",
+    "fr": "Demander",
+    "zh-Hans": "询问"
+  },
+  "не обрывается на окне 5 часов": {
+    "de": "bricht nicht am 5-Stunden-Fenster ab",
+    "en": "not cut off by the 5-hour window",
+    "es": "no se corta en la ventana de 5 horas",
+    "fr": "pas coupée par la fenêtre de 5 heures",
+    "zh-Hans": "不在 5 小时窗口处中断"
+  },
+  "после сброса": {
+    "de": "nach dem Zurücksetzen",
+    "en": "after the reset",
+    "es": "tras el reinicio",
+    "fr": "après la réinitialisation",
+    "zh-Hans": "重置后"
+  },
+  "Codex не запускает обработчики Lunavect": {
+    "de": "Codex führt die Hooks von Lunavect nicht aus",
+    "en": "Codex does not run Lunavect’s hooks",
+    "es": "Codex no ejecuta los hooks de Lunavect",
+    "fr": "Codex n’exécute pas les hooks de Lunavect",
+    "zh-Hans": "Codex 未运行 Lunavect 的钩子"
+  },
+  "После изменения обработчиков Codex просит доверить их заново. Пока этого не сделать, Lunavect не видит, работают ли сессии Codex и ждут ли ответа, и не может остановить их на пределе.": {
+    "de": "Nach einer Änderung der Hooks fragt Codex erneut, ob Sie ihnen vertrauen. Bis dahin sieht Lunavect nicht, ob Codex-Sitzungen arbeiten oder warten, und kann sie an einem Limit nicht anhalten.",
+    "en": "After hooks change, Codex asks you to trust them again. Until you do, Lunavect does not see whether Codex sessions are working or waiting, and cannot stop them at a limit.",
+    "es": "Cuando los hooks cambian, Codex te pide confiar en ellos otra vez. Hasta que lo hagas, Lunavect no ve si las sesiones de Codex trabajan o esperan, y no puede detenerlas en un límite.",
+    "fr": "Après une modification des hooks, Codex vous demande de leur faire à nouveau confiance. D’ici là, Lunavect ne voit pas si les sessions Codex travaillent ou attendent, et ne peut pas les arrêter à une limite.",
+    "zh-Hans": "钩子变更后，Codex 会要求你重新信任它们。在此之前，Lunavect 无法看到 Codex 会话是在工作还是在等待，也无法在达到上限时停止它们。"
+  },
+  "Запустите codex в Терминале и выберите «Trust all and continue». Lunavect проверит снова сам.": {
+    "de": "Starten Sie codex im Terminal und wählen Sie „Trust all and continue“. Lunavect prüft danach selbst erneut.",
+    "en": "Run codex in Terminal and choose “Trust all and continue”. Lunavect checks again by itself.",
+    "es": "Ejecuta codex en Terminal y elige «Trust all and continue». Lunavect lo comprobará de nuevo por sí mismo.",
+    "fr": "Lancez codex dans le Terminal et choisissez « Trust all and continue ». Lunavect vérifiera de nouveau tout seul.",
+    "zh-Hans": "在终端中运行 codex 并选择“Trust all and continue”。Lunavect 会自行再次检查。"
+  },
+  "Открыть Codex в Терминале": {
+    "de": "Codex im Terminal öffnen",
+    "en": "Open Codex in Terminal",
+    "es": "Abrir Codex en Terminal",
+    "fr": "Ouvrir Codex dans le Terminal",
+    "zh-Hans": "在终端中打开 Codex"
+  },
+  "Не удалось открыть Терминал.": {
+    "de": "Terminal konnte nicht geöffnet werden.",
+    "en": "Could not open Terminal.",
+    "es": "No se pudo abrir Terminal.",
+    "fr": "Impossible d’ouvrir le Terminal.",
+    "zh-Hans": "无法打开终端。"
+  },
+  "Codex не запускает обработчики Lunavect: без них сессию не остановить. Как это исправить, написано в Настройки → Подключения.": {
+    "de": "Codex führt die Hooks von Lunavect nicht aus: Ohne sie lässt sich die Sitzung nicht anhalten. Unter Einstellungen → Verbindungen steht, wie Sie das beheben.",
+    "en": "Codex does not run Lunavect’s hooks: without them the session cannot be stopped. Settings → Connections says how to fix it.",
+    "es": "Codex no ejecuta los hooks de Lunavect: sin ellos no se puede detener la sesión. En Ajustes → Conexiones se explica cómo arreglarlo.",
+    "fr": "Codex n’exécute pas les hooks de Lunavect : sans eux, la session ne peut pas être arrêtée. Réglages → Connexions explique comment corriger cela.",
+    "zh-Hans": "Codex 未运行 Lunavect 的钩子：没有它们就无法停止会话。修复方法见“设置 → 连接”。"
   }
 }

@@ -32,6 +32,8 @@ import WeekleftCore
         var helperLocation: HookHelperLocation?
         /// Other installed copies of Lunavect, reported at launch (matrix P4).
         var installedCopies: () -> [URL] = { [] }
+        /// Whether Codex runs Lunavect's hooks; inert (unknown) unless live.
+        var codexHookTrust: @Sendable (ClientExecutableResolver) async -> CodexProvider.HookTrust = { _ in .unknown }
 
         static func live(directory: URL) -> Self {
             Self(catalog: { provider, resolver, previous, priorityIDs in
@@ -74,7 +76,8 @@ import WeekleftCore
                      // Automatic discovery is already checked by the runtime reader itself.
                      await CodexActivityReader.shared.useExecutable(resolver.codexPath.isEmpty ? nil : resolver.codexPath)
                  }, clientSetup: { ClientConnection.LocalSetup(provider: $0) }, helperLocation: HookHelperLocation(),
-                 installedCopies: { InstalledCopies.others(running: Bundle.main.bundleURL) })
+                 installedCopies: { InstalledCopies.others(running: Bundle.main.bundleURL) },
+                 codexHookTrust: { await CodexProvider.hookTrust(resolver: $0) })
         }
         private static func readLocal<Value: Sendable>(_ operation: @escaping @Sendable () throws -> Value) async throws -> Value {
             try Task.checkCancellation()
@@ -106,6 +109,11 @@ import WeekleftCore
     /// Fixed codes only; bounded and local to this store's lifetime.
     @Published private(set) var diagnosticEntries: [DiagnosticEntry] = []
     @Published var hooksInstalled: [ProviderID: Bool] = [:]
+    /// Whether Codex runs Lunavect's hooks (Codex asks the user to trust changed hooks and
+    /// skips them until then). Asked at launch, hourly and from Settings.
+    @Published private(set) var codexHookTrust: CodexProvider.HookTrust = .unknown
+    private var hookTrustCheckedAt: Date?
+    private var checkingHookTrust = false
     /// Local configuration of each provider, read when connections are shown.
     @Published private(set) var connectionStates: [ProviderID: ClientConnection.LocalState] = [:]
     struct SetupNotice: Equatable {
@@ -465,6 +473,7 @@ import WeekleftCore
     }
     @discardableResult private func beginRefresh(requested: Bool = false) -> Task<Void, Never>? {
         guard !stopped, !Task.isCancelled else { return nil }
+        checkCodexHookTrust()
         if let refreshTask { return refreshTask }
         let current = generation, id = UUID()
         refreshing = true; refreshID = id
@@ -477,6 +486,22 @@ import WeekleftCore
         }
         refreshTask = task
         return task
+    }
+    /// Asks Codex whether it runs Lunavect's hooks, at most hourly unless `force`.
+    func checkCodexHookTrust(force: Bool = false) {
+        guard started, !stopped, hooksInstalled[.codex] == true, !checkingHookTrust else { return }
+        let now = Date()
+        if !force, let last = hookTrustCheckedAt, now.timeIntervalSince(last) < 3600 { return }
+        checkingHookTrust = true; hookTrustCheckedAt = now
+        let resolver = resolveClient(), check = dependencies.codexHookTrust
+        Task { [weak self] in
+            let state = await check(resolver)
+            guard let self else { return }
+            self.checkingHookTrust = false
+            // A failed check keeps what is known and asks again in five minutes, not after an hour.
+            if state == .unknown, self.codexHookTrust != .unknown { self.hookTrustCheckedAt = Date().addingTimeInterval(-3300); return }
+            if self.codexHookTrust != state { self.codexHookTrust = state }
+        }
     }
     func refresh() async {
         guard let task = beginRefresh(requested: true), let demand = refreshDemand else { return }
@@ -708,7 +733,7 @@ import WeekleftCore
         // Keep history available to the panel without reporting retained state
         // as a current observation to activity tracking or Keep Awake. A limits
         // check run by hand is listed, but is not work, a notice or activity.
-        onObservation?(taskRows.filter { $0.catalogHistory != true && $0.isLimitsCheck != true }, now)
+        onObservation?(taskRows.filter { $0.catalogHistory != true && $0.isLimitsCheck != true && $0.isBackgroundRun != true }, now)
         do {
             try removeHiddenInternalSessions()
             // The local event timer usually delivers the first rows before the
@@ -733,7 +758,7 @@ import WeekleftCore
             try hideInactiveSessions(taskRows, now: now)
         } catch { connectionMessage = error.localizedDescription }
         allSessions = taskRows; publishVisible(now: now)
-        observations.send((sessions.filter { $0.isLimitsCheck != true }, now))
+        observations.send((sessions.filter { $0.isLimitsCheck != true && $0.isBackgroundRun != true }, now))
     }
     private func removeHiddenInternalSessions() throws {
         let hidden = internalSessionIDs.intersection(visibility?.hidden ?? [])
@@ -904,7 +929,7 @@ enum SessionNavigation {
                                 openIDE: @MainActor (AgentSession) async throws -> Void = { try await focusIDE($0) }) async throws {
         try Task.checkCancellation()
         // A limits check run by hand is explained, never opened (decision 28.09).
-        if let refusal = session.limitsCheckRefusal { throw refusal }
+        if let refusal = session.limitsCheckRefusal ?? session.backgroundRunRefusal { throw refusal }
         if session.ideLocation != nil || session.client == .vscode || session.client == .jetbrains {
             try await openIDE(session)
             return

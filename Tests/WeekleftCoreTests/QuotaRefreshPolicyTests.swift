@@ -1,9 +1,10 @@
 import XCTest
 @testable import WeekleftCore
 
-/// Automatic requests follow the window state (01-quota.md §3, variant B): no
-/// probe for an exhausted window before its reset, one confirming probe after the
-/// reset plus grace, backoff after failures and no fixed five-minute cadence.
+/// Automatic requests follow the window state (01-quota.md §3, variant B): an
+/// exhausted window is asked about before its reset only for a manual reset (Claude
+/// after session activity, at most hourly; Codex hourly), one confirming probe after
+/// the reset plus grace, backoff after failures and no fixed five-minute cadence.
 /// The app asks `QuotaRefreshPolicy` before every automatic request; these tests
 /// use the policy exactly as `AppStore` does (R1-13).
 final class QuotaRefreshPolicyTests: XCTestCase {
@@ -19,37 +20,52 @@ final class QuotaRefreshPolicyTests: XCTestCase {
         automatic.filter { policy.shouldFetch(provider, snapshot: snapshot, trigger: $0, now: date) }
     }
 
-    // 01-quota.md §6 п.1, matrix L2
-    func testExhaustedWindowIsNotProbedAutomaticallyBeforeItsReset() throws {
+    // 01-quota.md §6 п.1, matrix L2; owner report 30.09: the Claude app offers a manual limit reset too.
+    func testExhaustedClaudeWindowIsAskedAboutOnlyAfterSessionActivity() throws {
         let reset = now.addingTimeInterval(2 * 86400)
         let exhausted = try probeSnapshot(used: 100, fetchedAt: now, weeklyReset: reset)
         let policy = QuotaRefreshPolicy()
-        for age in [1200.0, 3 * 3600.0, 30 * 3600.0] {
-            XCTAssertEqual(due(policy, exhausted, at: now.addingTimeInterval(age)), [], "age \(age): 0% remaining cannot change before the reset")
+        XCTAssertEqual(due(policy, exhausted, at: now.addingTimeInterval(1200)), [], "not within the hour, whatever the trigger")
+        for age in [3600.0, 3 * 3600.0, 30 * 3600.0] {
+            XCTAssertEqual(due(policy, exhausted, at: now.addingTimeInterval(age)), [.sessionEvent],
+                           "age \(age): no timer probe (R1-01); activity may follow a manual reset")
         }
         XCTAssertTrue(policy.shouldFetch(.claude, snapshot: exhausted, trigger: .manual, now: now.addingTimeInterval(1200)),
                       "An explicit refresh may still ask")
     }
 
-    /// R1-01: while one window is used up no request is possible, so the other
-    /// window's passed reset cannot be confirmed either. Both are asked about
-    /// together after the exhausted window's own reset.
+    /// Owner report 30.09: after a Codex usage-limit reset the widget kept 0 % for three days.
+    /// Codex's rate-limit read answers while a window is used up, so it is asked hourly and after activity.
+    func testUsedUpCodexWindowIsAskedAboutHourly() throws {
+        let exhausted = try UsageSnapshot(provider: .codex, weekly: QuotaWindow(usedPercent: 100, durationMinutes: 10080, resetsAt: now.addingTimeInterval(3 * 86400)),
+                                          fetchedAt: now, source: "Codex CLI")
+        let policy = QuotaRefreshPolicy()
+        XCTAssertEqual(due(policy, exhausted, at: now.addingTimeInterval(60), provider: .codex), [], "not right after the reading")
+        XCTAssertEqual(due(policy, exhausted, at: now.addingTimeInterval(1200), provider: .codex), [.sessionEvent], "within the hour only session activity")
+        XCTAssertEqual(due(policy, exhausted, at: now.addingTimeInterval(3600), provider: .codex).count, automatic.count, "then hourly")
+    }
+
+    /// R1-01: while one window is used up the other window's passed reset brings no
+    /// probe of its own (owner: "when limits are exhausted the probe keeps appearing").
+    /// Only session activity asks, at most hourly; both are confirmed together after
+    /// the exhausted window's own reset.
     func testExhaustedWindowOutranksTheOtherWindowsPassedReset() throws {
         let weeklyReset = now.addingTimeInterval(3 * 86400), fiveReset = now.addingTimeInterval(2 * 3600)
         let week = try probeSnapshot(used: 100, fetchedAt: now, weeklyReset: weeklyReset,
             fiveHour: QuotaWindow(usedPercent: 60, durationMinutes: 300, resetsAt: fiveReset, resetPrecision: .minute))
         var policy = QuotaRefreshPolicy()
         for offset: TimeInterval in [30, 3600, 86400, 2 * 86400] {
-            XCTAssertEqual(due(policy, week, at: fiveReset.addingTimeInterval(offset)), [], "five-hour reset + \(offset) s")
+            XCTAssertEqual(due(policy, week, at: fiveReset.addingTimeInterval(offset)), [.sessionEvent], "five-hour reset + \(offset) s")
         }
         policy.record(.claude, snapshot: week, succeeded: false, reason: .unsupportedResponse, at: fiveReset.addingTimeInterval(60))
         policy.resetBackoff()
-        XCTAssertEqual(due(policy, week, at: fiveReset.addingTimeInterval(7200)), [], "An unreadable screen does not lift the exhausted week")
+        XCTAssertEqual(due(policy, week, at: fiveReset.addingTimeInterval(7200)), [.sessionEvent], "An unreadable screen does not lift the exhausted week")
         XCTAssertEqual(due(policy, week, at: weeklyReset.addingTimeInterval(30)).count, automatic.count)
         // The same for a used-up five-hour window and a passed weekly reset.
         let session = try probeSnapshot(used: 40, fetchedAt: now, weeklyReset: now.addingTimeInterval(3600),
             fiveHour: QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: fiveReset, resetPrecision: .minute))
-        XCTAssertEqual(due(QuotaRefreshPolicy(), session, at: now.addingTimeInterval(3630)), [])
+        XCTAssertEqual(due(QuotaRefreshPolicy(), session, at: now.addingTimeInterval(3540)), [])
+        XCTAssertEqual(due(QuotaRefreshPolicy(), session, at: now.addingTimeInterval(3630)), [.sessionEvent])
         XCTAssertEqual(due(QuotaRefreshPolicy(), session, at: fiveReset.addingTimeInterval(30)).count, automatic.count)
     }
 
@@ -77,9 +93,10 @@ final class QuotaRefreshPolicyTests: XCTestCase {
                        "Usage within a window never decreases, whatever the source")
     }
 
-    /// R1-02: Claude reports the limit as reached. Nothing changes before a reset,
-    /// so automatic requests wait for the earliest known one; without a known reset
-    /// they wait for the longest backoff step. Wake does not shorten the pause.
+    /// R1-02: Claude reports the limit as reached. Automatic requests wait for the
+    /// earliest known reset; without a known reset they wait for the longest backoff
+    /// step. Wake does not shorten the pause; session activity may ask after an hour,
+    /// since a manual reset lifts the limit early (owner report 30.09).
     func testLimitReachedPausesUntilTheEarliestKnownReset() throws {
         let weeklyReset = now.addingTimeInterval(3 * 86400), fiveReset = now.addingTimeInterval(2 * 3600)
         var saved = try probeSnapshot(used: 92, fetchedAt: now.addingTimeInterval(-7200), weeklyReset: weeklyReset,
@@ -88,9 +105,11 @@ final class QuotaRefreshPolicyTests: XCTestCase {
         var policy = QuotaRefreshPolicy()
         policy.record(.claude, snapshot: saved, succeeded: false, reason: .limitReached, at: now)
         policy.resetBackoff()
-        for offset in [300.0, 3600, 7229] {
+        for offset in [300.0, 3599] {
             XCTAssertEqual(due(policy, saved, at: now.addingTimeInterval(offset)), [], "\(offset)")
         }
+        XCTAssertEqual(due(policy, saved, at: now.addingTimeInterval(3600)), [.sessionEvent], "a manual reset may have lifted it")
+        XCTAssertEqual(due(policy, saved, at: fiveReset.addingTimeInterval(29)), [], "the grace after the five-hour reset")
         XCTAssertTrue(policy.shouldFetch(.claude, snapshot: saved, trigger: .manual, now: now.addingTimeInterval(60)))
         XCTAssertFalse(due(policy, saved, at: fiveReset.addingTimeInterval(30)).isEmpty, "The five-hour reset may lift the limit")
         XCTAssertEqual(policy.nextCheck([saved], now: now), fiveReset.addingTimeInterval(30))

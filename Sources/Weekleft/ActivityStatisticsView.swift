@@ -7,6 +7,16 @@ struct ActivityStatisticsView: View {
     @ObservedObject var store: AppStore
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @AppStorage("statisticsPeriod") private var period = ActivityPeriod.week
+    /// "year" or "all" while a long range is shown; empty for the period above.
+    @AppStorage("statisticsLongRange") private var longRange = ""
+    private var range: StatisticsRange {
+        StatisticsRange(rawValue: longRange).flatMap { $0.period == nil ? $0 : nil } ?? StatisticsRange(rawValue: period.rawValue) ?? .week
+    }
+    private var rangeBinding: Binding<StatisticsRange> {
+        Binding(get: { range }, set: { value in
+            if let period = value.period { self.period = period; longRange = "" } else { longRange = value.rawValue }
+        })
+    }
     @AppStorage("statisticsSource") private var source = ActivitySource.all
     @AppStorage("settingsSection") private var settingsSection = SettingsSection.connections
     @State private var detailDate: Date?
@@ -23,9 +33,9 @@ struct ActivityStatisticsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 20) {
-                Picker(L("Период"), selection: $period) {
-                    ForEach(ActivityPeriod.allCases) { Text($0.title).tag($0) }
-                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 300, alignment: .leading).accessibilityIdentifier("statistics-period")
+                Picker(L("Период"), selection: rangeBinding) {
+                    ForEach(StatisticsRange.allCases) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 420, alignment: .leading).accessibilityIdentifier("statistics-period")
                 Spacer(minLength: 0)
                 if store.providers.count > 1 {
                     Picker(L("Источник"), selection: Binding(get: { effectiveSource }, set: { source = $0 })) {
@@ -47,14 +57,22 @@ struct ActivityStatisticsView: View {
                 historySection
             } else {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
-                    ActivityDetailChart(data: ActivityChartData(history: store.activityHistory, now: context.date, period: period, providers: providers),
-                                        unavailable: store.activityUnavailable, onSelection: { detailDate = $0 })
-                        .id(selectionScope.id)
+                    let archived = ActivityArchiveSummary.make(store.activityArchive, range: range, providers: providers, now: context.date)
+                    if range.period == nil {
+                        ActivityLongRangeChart(summary: archived, range: range, providers: providers, unavailable: store.activityUnavailable)
+                    } else {
+                        ActivityDetailChart(data: ActivityChartData(history: store.activityHistory, now: context.date, period: period, providers: providers),
+                                            unavailable: store.activityUnavailable, onSelection: { detailDate = $0 })
+                            .id(selectionScope.id)
+                    }
                     let breakdown = ActivityBreakdownData(history: store.activityHistory, details: store.activityDetails,
                                                           providers: providers, period: period, selectedDate: detailDate, now: context.date)
-                    ActivityBreakdownSummaryView(data: breakdown)
+                    if range.period != nil { ActivityBreakdownSummaryView(data: breakdown) }
+                    ActivityStatisticsCards(archive: store.activityArchive, summary: archived, range: range, providers: providers, now: context.date,
+                                            catchingUp: store.tokenService.catchingUp)
                     if let issue = store.activityDetailsIssue { Text(L(issue)).font(.system(size: 12)).foregroundStyle(.orange) }
                     historySection
+                    if range.period != nil {
                     Button { showingBreakdown = true } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "folder").accessibilityHidden(true)
@@ -70,6 +88,7 @@ struct ActivityStatisticsView: View {
                         .accessibilityLabel(L("Проекты и сессии"))
                         .accessibilityValue(breakdown.sessionCountLabel)
                         .sheet(isPresented: $showingBreakdown) { ActivityBreakdownView(data: breakdown) }
+                    }
                 }
             }
         }
@@ -98,11 +117,11 @@ struct ActivityStatisticsView: View {
                 )
                 historyExplanation(
                     "Восстановлено из журналов",
-                    "При первом запуске автоматически восстанавливаются доступные записи длительности Claude и Codex за последние 30 дней. Знак ≈ означает, что итог включает время из журналов: оно может включать ожидание внутри задачи. Удалённую или не записанную историю восстановить нельзя."
+                    "При первом запуске автоматически восстанавливаются доступные записи длительности Claude и Codex за последние 30 дней, а для «Года» и «Всего времени» — итоги по дням из всех журналов, которые ещё есть на этом Mac. Знак ≈ означает, что итог включает время из журналов: оно может включать ожидание внутри задачи. Удалённую или не записанную историю восстановить нельзя."
                 )
                 historyExplanation(
                     "Периоды и пробелы",
-                    "День — по часам, неделя — последние 7 дней, месяц — последние 30 дней. Пик считается в текущем часовом поясе. Линия соединяет известные точки; между ними значения без записей остаются неизвестными."
+                    "День — по часам, неделя — последние 7 дней, месяц — последние 30 дней, год — по неделям, всё время — с первой записи. Итоги каждого дня хранятся без ограничения срока. Пик считается в текущем часовом поясе. Линия соединяет известные точки; между ними значения без записей остаются неизвестными."
                 )
                 Divider()
                 Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
@@ -361,5 +380,567 @@ struct ActivityDetailChart: View {
     private func date(at x: CGFloat, width: CGFloat) -> Date? {
         guard let index = ActivityChartSelection.index(at: x, width: width, count: data.points.count) else { return nil }
         return data.validSelection(data.points[index].date)
+    }
+}
+
+/// Year and All time: one line per source over weeks or months from the daily archive.
+struct ActivityLongRangeChart: View {
+    let summary: ActivityArchiveSummary
+    let range: StatisticsRange
+    let providers: [ProviderID]
+    var unavailable = false
+    var chartHeight: CGFloat = 200
+    @State var hovered: Int?
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var scheme
+    private var sectionBackground: Color { reduceTransparency ? Color(nsColor: .controlBackgroundColor) : .primary.opacity(0.035) }
+    /// Starts at the first record: a year of unknown weeks would squeeze the known ones.
+    private var points: [ActivityArchiveSummary.Point] { Array(summary.points.drop { !$0.known }) }
+    private var hoveredPoint: ActivityArchiveSummary.Point? {
+        hovered.flatMap { points.indices.contains($0) ? points[$0] : nil }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(title).font(.system(size: 15, weight: .semibold)).accessibilityAddTraits(.isHeader)
+                Spacer()
+                Text(L(summary.bucket == .week ? "По неделям" : summary.bucket == .month ? "По месяцам" : "По дням"))
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 24) {
+                ForEach(providers) { provider in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 5) {
+                            Capsule().fill(activityAccent(provider, adaptive: true, scheme: scheme)).frame(width: 12, height: 3)
+                            Text(provider.title).font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                        Text(value(provider == .claude ? summary.claude : summary.codex)).font(.system(size: 15, weight: .medium)).monospacedDigit()
+                    }.accessibilityElement(children: .combine)
+                }
+            }
+            if unavailable || !summary.hasWork {
+                VStack(alignment: .leading, spacing: 10) {
+                    InterfaceIcon(.activity, size: 28)
+                    Text(L(unavailable ? "Статистика недоступна" : "Пока нет данных")).font(.system(size: 15, weight: .medium))
+                }.frame(maxWidth: .infinity, minHeight: chartHeight, alignment: .leading)
+            } else {
+                plot.frame(height: chartHeight)
+                    .accessibilityElement(children: .ignore).accessibilityLabel(L("Статистика активности"))
+                    .accessibilityValue(accessibilityValue).accessibilityIdentifier("statistics-long-chart")
+                readout
+                if let first = summary.firstDay, summary.points.contains(where: { !$0.known }) {
+                    Text(L("Записи начинаются {0}: более ранние журналы на этом Mac не сохранились.", first.formatted(.dateTime.day().month().year().locale(L10n.locale))))
+                        .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack(alignment: .top, spacing: 24) {
+                metric(L(summary.bucket == .week ? "Самая загруженная неделя" : summary.bucket == .month ? "Самый загруженный месяц" : "Самый загруженный день"),
+                       summary.busiest.map { label($0.start) + " · " + ActivitySummary.duration($0.together) } ?? "—")
+                metric(L("Пиковый час"), summary.peakHour.map { String(format: "%02d–%02d", $0, $0 + 1) } ?? "—")
+                if providers.count > 1 { metric(L("Вместе, без пересечений"), value(summary.together)) }
+            }
+        }.padding(20).foregroundStyle(.primary)
+            .background(sectionBackground, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(.primary.opacity(0.055), lineWidth: 0.6))
+    }
+    private var title: String {
+        if range == .all, let first = summary.firstDay {
+            return L("С {0}", first.formatted(.dateTime.day().month().year().locale(L10n.locale)))
+        }
+        let formatter = DateIntervalFormatter(); formatter.locale = L10n.locale; formatter.dateTemplate = "dMMMy"
+        let start = max(summary.range.start, summary.firstDay ?? summary.range.start)
+        return formatter.string(from: start, to: summary.range.end.addingTimeInterval(-1))
+    }
+    private func value(_ seconds: TimeInterval) -> String {
+        seconds > 0 ? (summary.recovered ? "≈ " : "") + ActivitySummary.duration(seconds) : "—"
+    }
+    private func label(_ date: Date) -> String {
+        switch summary.bucket {
+        case .month: return date.formatted(.dateTime.month(.wide).year().locale(L10n.locale))
+        case .week:
+            let end = Calendar.current.date(byAdding: .day, value: 6, to: date) ?? date
+            let formatter = DateIntervalFormatter(); formatter.locale = L10n.locale; formatter.dateTemplate = "dMMM"
+            return formatter.string(from: date, to: end)
+        case .day: return date.formatted(.dateTime.day().month().locale(L10n.locale))
+        }
+    }
+    private var accessibilityValue: String {
+        providers.map { $0.title + ": " + value($0 == .claude ? summary.claude : summary.codex) }.joined(separator: "; ")
+    }
+    /// The index where a provider's line starts: earlier points are unknown for it.
+    private func lineStart(_ provider: ProviderID, in points: [ActivityArchiveSummary.Point]) -> Int {
+        summary.firstDays[provider].map { day in points.lastIndex { $0.start <= day } ?? 0 } ?? points.count
+    }
+    private func seconds(_ point: ActivityArchiveSummary.Point, _ provider: ProviderID) -> TimeInterval {
+        provider == .claude ? point.claude : point.codex
+    }
+    private var readout: some View {
+        let point = hoveredPoint
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(point.map { label($0.start) } ?? L("За период")).font(.system(size: 12, weight: .medium))
+            HStack(spacing: 20) {
+                ForEach(providers) { provider in
+                    HStack(spacing: 6) {
+                        Circle().fill(activityAccent(provider, adaptive: true, scheme: scheme)).frame(width: 5, height: 5).accessibilityHidden(true)
+                        Text(provider.title)
+                        Text(readoutValue(provider, point)).monospacedDigit()
+                    }.font(.system(size: 13)).frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+                }
+                if providers.count > 1 {
+                    HStack(spacing: 6) {
+                        Text(L("Вместе")).foregroundStyle(.secondary)
+                        Text(point.map { $0.known ? ActivitySummary.duration($0.together) : "—" } ?? value(summary.together)).monospacedDigit()
+                    }.font(.system(size: 13)).frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+                }
+            }
+        }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(reduceTransparency ? Color(nsColor: .windowBackgroundColor) : .primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+            .accessibilityElement(children: .contain).accessibilityIdentifier("statistics-long-selection")
+    }
+    private func readoutValue(_ provider: ProviderID, _ point: ActivityArchiveSummary.Point?) -> String {
+        guard let point, let index = hovered else { return value(provider == .claude ? summary.claude : summary.codex) }
+        guard point.known, index >= lineStart(provider, in: points) else { return L("Записей нет") }
+        return (point.recovered ? "≈ " : "") + ActivitySummary.duration(seconds(point, provider))
+    }
+    private var plot: some View {
+        let points = points
+        let maximum = max(1, points.map { max($0.claude, $0.codex, providers.count == 1 ? $0.together : 0) }.max() ?? 1)
+        let starts = Dictionary(uniqueKeysWithValues: providers.map { ($0, lineStart($0, in: points)) })
+        return GeometryReader { geometry in
+            let width = geometry.size.width, height = geometry.size.height - 16
+            let step = points.count > 1 ? width / CGFloat(points.count - 1) : width
+            let y = { (seconds: TimeInterval) in height - CGFloat(seconds / maximum) * (height - 6) - 3 }
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 6).stroke(.primary.opacity(0.08), lineWidth: 0.6).frame(height: height)
+                ForEach(providers) { provider in
+                    Path { path in
+                        var started = false
+                        let start = starts[provider] ?? points.count
+                        for (index, point) in points.enumerated() where point.known && index >= start {
+                            let location = CGPoint(x: step * CGFloat(index), y: y(seconds(point, provider)))
+                            if started { path.addLine(to: location) } else { path.move(to: location); started = true }
+                        }
+                    }.stroke(activityAccent(provider, adaptive: true, scheme: scheme), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                }
+                if let hovered, points.indices.contains(hovered) {
+                    let x = step * CGFloat(hovered)
+                    Rectangle().fill(.primary.opacity(0.25)).frame(width: 1, height: height).offset(x: x - 0.5)
+                    ForEach(providers) { provider in
+                        if points[hovered].known && hovered >= starts[provider] ?? points.count {
+                            Circle().fill(activityAccent(provider, adaptive: true, scheme: scheme))
+                                .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                                .frame(width: 8, height: 8).position(x: x, y: y(seconds(points[hovered], provider)))
+                        }
+                    }
+                }
+                ForEach(axisLabels(width: width), id: \.offset) { item in
+                    Text(item.text).font(.system(size: 10)).foregroundStyle(.secondary).fixedSize()
+                        .position(x: min(max(item.offset, 14), width - 14), y: height + 9)
+                }
+                Color.clear.contentShape(Rectangle()).frame(width: width, height: height)
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location):
+                            let index = points.isEmpty ? nil : min(points.count - 1, max(0, Int((location.x / step).rounded())))
+                            if index != hovered { hovered = index }
+                        case .ended: if hovered != nil { hovered = nil }
+                        }
+                    }
+            }
+        }
+    }
+    private func axisLabels(width: CGFloat) -> [(offset: CGFloat, text: String)] {
+        let points = points
+        guard points.count > 1 else { return [] }
+        let step = width / CGFloat(points.count - 1), stride = max(1, points.count / 5)
+        let indices = Array(Swift.stride(from: 0, to: points.count, by: stride))
+        // Month names only when each label falls in another month; otherwise day and month.
+        let months = indices.map { Calendar.current.dateComponents([.year, .month], from: points[$0].start) }
+        let byMonth = summary.bucket != .day && Set(months.map { "\($0.year ?? 0)-\($0.month ?? 0)" }).count == months.count
+        return indices.map { index in
+            let date = points[index].start
+            let text = byMonth ? date.formatted(.dateTime.month(.abbreviated).locale(L10n.locale))
+                : date.formatted(.dateTime.day().month(.abbreviated).locale(L10n.locale))
+            return (step * CGFloat(index), text)
+        }
+    }
+    private func metric(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(value).font(.system(size: 14, weight: .medium)).monospacedDigit()
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+    }
+}
+
+/// A statistics card: title, optional note on the right, content.
+struct StatisticsCard<Content: View>: View {
+    let title: String
+    var trailing: String?
+    @ViewBuilder let content: Content
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title).font(.system(size: 14, weight: .semibold)).accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
+                if let trailing { Text(trailing).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit().lineLimit(1) }
+            }
+            content
+        }.padding(16).frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(reduceTransparency ? Color(nsColor: .controlBackgroundColor) : .primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// Calendar, time of day, projects, waiting and sessions for any range.
+struct ActivityStatisticsCards: View {
+    let archive: ActivityArchive
+    let summary: ActivityArchiveSummary
+    let range: StatisticsRange
+    let providers: [ProviderID]
+    let now: Date
+    /// The first pass over the logs is still running: no tokens yet is not zero tokens.
+    var catchingUp = false
+    static let heat = Color(red: 0.54, green: 0.50, blue: 0.94)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if range == .year || range == .all {
+                ActivityCalendarCard(archive: archive, firstDay: summary.firstDay, providers: providers, now: now)
+            }
+            if range != .day { timeOfDayCard }
+            HStack(alignment: .top, spacing: 12) {
+                projectsCard
+                waitingCard
+            }
+            tokensCard
+            sessionsCard
+        }.accessibilityIdentifier("statistics-cards")
+    }
+    private func card<Content: View>(_ title: String, trailing: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+        StatisticsCard(title: title, trailing: trailing, content: content)
+    }
+    /// Where the tokens went: projects and models by weight, which tracks the limit they used.
+    private var tokensCard: some View {
+        let total = summary.tokens.total
+        let share = { (weight: Double) in PercentText.format(Int((weight / max(summary.tokenWeight, 1) * 100).rounded())) }
+        return card(L("На что ушли токены"), trailing: total > 0 ? L("{0} токенов", TokenText.compact(total)) : nil) {
+            if total <= 0 {
+                Text(L(catchingUp ? "Считаем токены по журналам Claude и Codex…" : "Нет записей за выбранный период"))
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            } else {
+                HStack(alignment: .top, spacing: 24) {
+                    metric(L("Из кэша"), PercentText.format(Int((Double(summary.tokens.cacheRead) / Double(total) * 100).rounded())))
+                    metric(L("Субагенты"), share(summary.tokenSubagentWeight))
+                    metric(L("Ответы"), TokenText.compact(summary.tokens.output + summary.tokens.reasoning))
+                }
+                HStack(alignment: .top, spacing: 24) {
+                    tokenGroups(L("По проектам"), Array(summary.tokenProjects.prefix(5)), title: { $0 }, share: share)
+                    tokenGroups(L("По моделям"), Array(summary.tokenModels.prefix(5)), title: TokenLedger.modelTitle, share: share)
+                }
+                Text(L("Доли учитывают цену токенов: чтение из кэша в 10 раз дешевле обычного ввода, ответ в 5–8 раз дороже. Примерно так расходуется лимит."))
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button(L("Мониторинг агентов…")) { NSApp.sendAction(Selector(("showMonitor")), to: nil, from: nil) }
+                    .accessibilityIdentifier("statistics-open-monitor")
+            }
+        }
+    }
+    private func tokenGroups(_ heading: String, _ groups: [ActivityArchiveSummary.TokenGroup], title: @escaping (String) -> String,
+                             share: @escaping (Double) -> String) -> some View {
+        let maximum = groups.first?.weight ?? 0
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(heading).font(.system(size: 11)).foregroundStyle(.secondary)
+            ForEach(groups, id: \.name) { group in
+                HStack(spacing: 8) {
+                    Text(title(group.name)).font(.system(size: 12)).lineLimit(1).truncationMode(.middle).frame(width: 96, alignment: .leading)
+                    GeometryReader { geometry in
+                        Capsule().fill(.primary.opacity(0.08)).overlay(alignment: .leading) {
+                            Capsule().fill(Self.heat).frame(width: geometry.size.width * CGFloat(maximum > 0 ? group.weight / maximum : 0))
+                        }
+                    }.frame(height: 6)
+                    Text(share(group.weight)).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit().frame(width: 40, alignment: .trailing)
+                }.help(title(group.name) + " · " + L("{0} токенов", TokenText.compact(group.counts.total)))
+                    .accessibilityElement(children: .combine)
+            }
+        }.frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+    /// Night, morning, afternoon and evening as shares of the time, then the weekdays.
+    private var timeOfDayCard: some View { ActivityDayClockCard(weekdayHours: summary.weekdayHours) }
+    private var projectsCard: some View {
+        let top = Array(summary.projects.prefix(5))
+        let maximum = top.first?.seconds ?? 0
+        return card(L("Проекты")) {
+            if top.isEmpty {
+                Text(L("Нет записей за выбранный период")).font(.system(size: 12)).foregroundStyle(.secondary)
+            } else {
+                ForEach(top, id: \.name) { project in
+                    HStack(spacing: 8) {
+                        Text(project.name).font(.system(size: 12)).lineLimit(1).truncationMode(.middle).frame(width: 88, alignment: .leading)
+                        GeometryReader { geometry in
+                            Capsule().fill(.primary.opacity(0.08)).overlay(alignment: .leading) {
+                                Capsule().fill(Self.heat).frame(width: geometry.size.width * CGFloat(maximum > 0 ? project.seconds / maximum : 0))
+                            }
+                        }.frame(height: 6)
+                        Text(ActivitySummary.duration(project.seconds)).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+                            .lineLimit(1).minimumScaleFactor(0.8).frame(width: 88, alignment: .trailing)
+                    }.accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+    private var waitingCard: some View {
+        card(L("Агенты ждали вас")) {
+            if summary.waiting <= 0 {
+                Text(L("Время ожидания ответа или разрешения считается с этой версии, пока открыт Lunavect."))
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(ActivitySummary.duration(summary.waiting)).font(.system(size: 18, weight: .semibold)).monospacedDigit()
+                if summary.together > 0 {
+                    Text(L("{0} от времени работы", PercentText.format(Int((summary.waiting / summary.together * 100).rounded()))))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                row(L("Ответы"), ActivitySummary.duration(summary.waitingInput))
+                row(L("Разрешения"), ActivitySummary.duration(summary.waitingPermission))
+                if let typical = summary.typicalWait { row(L("Обычное ожидание"), ActivitySummary.duration(typical)) }
+            }
+        }
+    }
+    private var sessionsCard: some View {
+        card(L("Сессии")) {
+            HStack(alignment: .top, spacing: 24) {
+                metric(L("Сессий с работой"), summary.sessions > 0 ? String(summary.sessions) : "—")
+                metric(L("Средняя длина"), summary.averageSession.map(ActivitySummary.duration) ?? "—")
+                metric(L("Самая длинная"), summary.longestSession.map { ActivitySummary.duration($0.seconds) + " · " + $0.project } ?? "—")
+            }
+        }
+    }
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack { Text(label).foregroundStyle(.secondary); Spacer(); Text(value).monospacedDigit() }.font(.system(size: 12))
+            .accessibilityElement(children: .combine)
+    }
+    private func metric(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(value).font(.system(size: 14, weight: .medium)).monospacedDigit().lineLimit(2)
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+    }
+}
+
+/// Days with work since the first record. Hover state lives here, so moving over
+/// the grid redraws only this card; the cells are one drawing, not a view each.
+struct ActivityCalendarCard: View {
+    let archive: ActivityArchive
+    let firstDay: Date?
+    let providers: [ProviderID]
+    let now: Date
+    @State var hoveredDay: Int?
+    /// The grid keeps the cell size of a full year so the card does not jump as history grows.
+    @State var width: CGFloat = 640
+    private static let gap: CGFloat = 2, weeks = 53, top: CGFloat = 16
+    private var cell: CGFloat { (width - Self.gap * CGFloat(Self.weeks - 1)) / CGFloat(Self.weeks) }
+    var body: some View {
+        let first = firstDay.map { Calendar.current.startOfDay(for: $0) }
+        let cells = ActivityArchiveSummary.calendarCells(archive, providers: providers, now: now, since: first)
+        let columns = cells.count / 7
+        let maximum = cells.compactMap(\.seconds).max() ?? 0
+        let worked = cells.compactMap(\.seconds).filter { $0 > 0 }
+        let longest = cells.filter { ($0.seconds ?? 0) > 0 }.max { ($0.seconds ?? 0) < ($1.seconds ?? 0) }
+        let pitch = cell + Self.gap, gridWidth = pitch * CGFloat(columns) - Self.gap
+        return StatisticsCard(title: L("Календарь"), trailing: trailing(cells, first: first, worked: worked.count)) {
+            ZStack(alignment: .topLeading) {
+                ForEach(monthLabels(cells), id: \.column) { item in
+                    Text(item.text).font(.system(size: 9)).foregroundStyle(.secondary).fixedSize().offset(x: pitch * CGFloat(item.column))
+                }
+                Canvas { context, _ in
+                    for (index, item) in cells.enumerated() {
+                        let rect = CGRect(x: pitch * CGFloat(index / 7), y: Self.top + pitch * CGFloat(index % 7), width: cell, height: cell)
+                        let shape = Path(roundedRect: rect, cornerRadius: 2)
+                        guard let seconds = item.seconds else { continue }
+                        if let first, item.date < first {
+                            context.stroke(shape, with: .color(.primary.opacity(0.08)), style: StrokeStyle(lineWidth: 0.6, dash: [2, 1.5]))
+                        } else {
+                            context.fill(shape, with: .color(level(seconds, maximum: maximum)))
+                        }
+                    }
+                }.frame(width: max(0, gridWidth), height: Self.top + pitch * 7)
+                if let hoveredDay {
+                    RoundedRectangle(cornerRadius: 2).stroke(.primary.opacity(0.8), lineWidth: 1).frame(width: cell, height: cell)
+                        .offset(x: pitch * CGFloat(hoveredDay / 7), y: Self.top + pitch * CGFloat(hoveredDay % 7))
+                }
+                if width - gridWidth > 190, !worked.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        metric(L("Самый долгий день"), longest.map { dayText($0.date) + " · " + ActivitySummary.duration($0.seconds ?? 0) } ?? "—")
+                        metric(L("В среднем за день с работой"), ActivitySummary.duration(worked.reduce(0, +) / Double(worked.count)))
+                    }.frame(width: min(260, width - gridWidth - 28), alignment: .leading).offset(x: gridWidth + 28, y: Self.top)
+                }
+                Color.clear.contentShape(Rectangle()).frame(width: max(0, gridWidth), height: Self.top + pitch * 7)
+                    .onContinuousHover { phase in
+                        var index: Int?
+                        if case .active(let location) = phase, location.y >= Self.top {
+                            let week = Int(location.x / pitch), day = Int((location.y - Self.top) / pitch)
+                            let candidate = week * 7 + day
+                            if week < columns, day < 7, cells.indices.contains(candidate), cells[candidate].seconds != nil { index = candidate }
+                        }
+                        if index != hoveredDay { hoveredDay = index }
+                    }
+            }.frame(maxWidth: .infinity, minHeight: Self.top + pitch * 7, alignment: .topLeading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { if abs($0 - width) > 0.5 { width = $0 } }
+                .accessibilityElement(children: .ignore).accessibilityLabel(L("Календарь"))
+                .accessibilityValue(L("Дней с работой: {0}", String(worked.count)))
+        }
+    }
+    private func trailing(_ cells: [(date: Date, seconds: TimeInterval?)], first: Date?, worked: Int) -> String {
+        guard let hoveredDay, cells.indices.contains(hoveredDay), let seconds = cells[hoveredDay].seconds else { return L("Дней с работой: {0}", String(worked)) }
+        if let first, cells[hoveredDay].date < first { return dayText(cells[hoveredDay].date) + " · " + L("Записей нет") }
+        return dayText(cells[hoveredDay].date) + " · " + (seconds > 0 ? ActivitySummary.duration(seconds) : L("Без работы"))
+    }
+    private func level(_ seconds: TimeInterval, maximum: TimeInterval) -> Color {
+        guard seconds > 0, maximum > 0 else { return .primary.opacity(0.06) }
+        let ratio = seconds / maximum
+        return ActivityStatisticsCards.heat.opacity(ratio < 0.25 ? 0.3 : ratio < 0.5 ? 0.5 : ratio < 0.75 ? 0.75 : 1)
+    }
+    private func dayText(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).day().month().year().locale(L10n.locale))
+    }
+    private func monthLabels(_ cells: [(date: Date, seconds: TimeInterval?)]) -> [(column: Int, text: String)] {
+        var result: [(column: Int, text: String)] = [], last = -1
+        for week in 0..<(cells.count / 7) {
+            let month = Calendar.current.component(.month, from: cells[week * 7].date)
+            guard month != last else { continue }
+            // Skip a label squeezed against the previous one.
+            if let previous = result.last, week - previous.column < 3 { result.removeLast() }
+            result.append((week, cells[week * 7].date.formatted(.dateTime.month(.abbreviated).locale(L10n.locale))))
+            last = month
+        }
+        return result
+    }
+    private func metric(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(value).font(.system(size: 14, weight: .medium)).monospacedDigit().lineLimit(2)
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+    }
+}
+
+/// Token counts in the interface: "1.2B" in English, "1,2 млрд" in Russian.
+enum TokenText {
+    static func compact(_ value: Int64) -> String {
+        value.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)).locale(L10n.locale))
+    }
+}
+
+/// The day as a 24-hour clock: each hour's work as the brightness of its segment, the four parts
+/// of the day beside it, the weekdays below (owner's pick 30.09, variant B). Hover state stays here
+/// so pointing at an hour does not redraw the other cards.
+struct ActivityDayClockCard: View {
+    let weekdayHours: [[TimeInterval]]
+    @State var hoveredHour: Int?
+    private static let parts: [(title: String, start: Int, symbol: String)] = [
+        (L("Ночью"), 0, "moon.stars.fill"), (L("Утром"), 6, "sunrise.fill"), (L("Днём"), 12, "sun.max.fill"), (L("Вечером"), 18, "sunset.fill")]
+    private static let ring: CGFloat = 18, labelGap: CGFloat = 12
+
+    var body: some View {
+        let hours = (0..<24).map { hour in weekdayHours.reduce(0) { $0 + ($1.indices.contains(hour) ? $1[hour] : 0) } }
+        let total = hours.reduce(0, +)
+        let values = Self.parts.map { part in hours[part.start..<(part.start + 6)].reduce(0, +) }
+        let top = values.indices.max { values[$0] < values[$1] } ?? 0
+        let days = weekdayHours.map { $0.reduce(0, +) }
+        let busiestDay = days.indices.max { days[$0] < days[$1] } ?? 0
+        var calendar = Calendar.current; calendar.locale = L10n.locale
+        let symbols = calendar.shortWeekdaySymbols
+        let names = (0..<7).map { symbols[(calendar.firstWeekday - 1 + $0) % 7] }
+        let trailing: String? = total <= 0 ? nil : hoveredHour.map { String(format: "%02d:00–%02d:00", $0, $0 + 1) + " · " + Self.hours(hours[$0]) }
+            ?? L("Чаще всего: {0}, {1}", Self.parts[top].title.lowercased(with: L10n.locale), names.indices.contains(busiestDay) ? names[busiestDay] : "")
+        return StatisticsCard(title: L("Когда вы работаете"), trailing: trailing) {
+            if total <= 0 {
+                Text(L("Нет записей за выбранный период")).font(.system(size: 12)).foregroundStyle(.secondary)
+            } else {
+                HStack(alignment: .center, spacing: 28) {
+                    clock(hours, top: top, share: values[top] / total)
+                    Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 16) {
+                        GridRow { part(0, values, total, top); part(1, values, total, top) }
+                        GridRow { part(2, values, total, top); part(3, values, total, top) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Divider().padding(.vertical, 4)
+                weekdays(days, names: names, busiest: busiestDay)
+            }
+        }
+    }
+
+    private func clock(_ hours: [TimeInterval], top: Int, share: Double) -> some View {
+        let maximum = max(hours.max() ?? 0, 1)
+        return ZStack {
+            Canvas { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let radius = min(size.width, size.height) / 2 - Self.ring / 2 - Self.labelGap
+                for hour in 0..<24 {
+                    var path = Path()
+                    path.addArc(center: center, radius: radius, startAngle: .degrees(Double(hour) * 15 - 90 + 1),
+                                endAngle: .degrees(Double(hour + 1) * 15 - 90 - 1), clockwise: false)
+                    let strength = hours[hour] / maximum
+                    let opacity = hour == hoveredHour ? 1 : 0.1 + (hour / 6 == top ? 0.9 : 0.55) * strength
+                    context.stroke(path, with: .color(ActivityStatisticsCards.heat.opacity(opacity)), style: StrokeStyle(lineWidth: Self.ring))
+                }
+                for (index, label) in ["00", "06", "12", "18"].enumerated() {
+                    let angle = Double(index) * .pi / 2 - .pi / 2, distance = radius + Self.ring / 2 + 7
+                    context.draw(Text(label).font(.system(size: 9)).foregroundColor(.secondary),
+                                 at: CGPoint(x: center.x + CGFloat(cos(angle)) * distance, y: center.y + CGFloat(sin(angle)) * distance))
+                }
+            }
+            VStack(spacing: 0) {
+                Image(systemName: Self.parts[top].symbol).font(.system(size: 13)).foregroundStyle(ActivityStatisticsCards.heat)
+                Text(PercentText.format(Int((share * 100).rounded()))).font(.system(size: 22, weight: .semibold)).monospacedDigit()
+                Text(Self.parts[top].title.lowercased(with: L10n.locale)).font(.system(size: 10)).foregroundStyle(.secondary)
+            }.accessibilityHidden(true)
+        }.frame(width: 170, height: 170)
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let point):
+                    let dx = Double(point.x - 85), dy = Double(point.y - 85)
+                    // Only the ring answers; the middle keeps the summary.
+                    guard (dx * dx + dy * dy).squareRoot() > 45 else { if hoveredHour != nil { hoveredHour = nil }; return }
+                    var degrees = atan2(dy, dx) * 180 / .pi + 90
+                    if degrees < 0 { degrees += 360 }
+                    let hour = min(23, Int(degrees / 15))
+                    if hour != hoveredHour { hoveredHour = hour }
+                case .ended: hoveredHour = nil
+                }
+            }
+            .accessibilityElement().accessibilityLabel(L("Когда вы работаете"))
+    }
+
+    private func part(_ index: Int, _ values: [TimeInterval], _ total: TimeInterval, _ top: Int) -> some View {
+        let part = Self.parts[index]
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Image(systemName: part.symbol).foregroundStyle(index == top ? ActivityStatisticsCards.heat : .secondary)
+                Text(part.title).foregroundStyle(index == top ? .primary : .secondary)
+                Text(String(format: "%02d–%02d", part.start, part.start + 6)).foregroundStyle(.tertiary)
+            }.font(.system(size: 11)).lineLimit(1).minimumScaleFactor(0.8)
+            Text(PercentText.format(Int((values[index] / max(total, 1) * 100).rounded())))
+                .font(.system(size: 18, weight: index == top ? .semibold : .regular)).monospacedDigit()
+            Text(Self.hours(values[index])).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
+    }
+
+    private func weekdays(_ days: [TimeInterval], names: [String], busiest: Int) -> some View {
+        let maximum = max(days.max() ?? 0, 1)
+        return HStack(alignment: .bottom, spacing: 10) {
+            ForEach(days.indices, id: \.self) { day in
+                VStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 4).fill(ActivityStatisticsCards.heat.opacity(day == busiest ? 1 : 0.42))
+                        .frame(width: 26, height: max(3, 44 * days[day] / maximum))
+                    Text(names.indices.contains(day) ? names[day] : "").font(.system(size: 10, weight: day == busiest ? .semibold : .regular))
+                        .foregroundStyle(day == busiest ? .primary : .secondary)
+                    Text(days[day] > 0 ? Self.hours(days[day]) : "—").font(.system(size: 10)).foregroundStyle(.secondary).monospacedDigit()
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }.frame(maxWidth: .infinity).accessibilityElement(children: .combine)
+            }
+        }.frame(height: 82, alignment: .bottom)
+    }
+
+    /// Whole hours from an hour on, minutes below it.
+    static func hours(_ seconds: TimeInterval) -> String {
+        seconds >= 3600 ? L("{0} ч", String(Int((seconds / 3600).rounded()))) : ActivitySummary.duration(seconds)
     }
 }

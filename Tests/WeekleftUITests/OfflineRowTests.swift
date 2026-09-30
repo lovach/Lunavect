@@ -60,4 +60,23 @@ final class OfflineRowTests: XCTestCase {
             try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("limits-check-row-\(name).png"))
         }
     }
+
+
+    /// Owner report 29.09: a background `claude -p` run names itself and is not opened.
+    @MainActor func testBackgroundRunRowNamesItselfAndItsHost() throws {
+        let now = Date()
+        var run = AgentSession(provider: .claude, sessionID: "run", title: "lunavect-dd", cwd: "/Users/fixture", client: .desktop,
+                               phase: .running, updatedAt: now, observedAt: now, evidence: .catalog)
+        run.isBackgroundRun = true
+        run.launchHost = SessionLaunchHost(kind: .application, name: "Python")
+        func row(_ session: AgentSession) -> SessionRow {
+            SessionRow(session: session, now: now, phase: session.effectivePhase(now: now), swipePresentation: SessionSwipePresentation(),
+                       onHide: {}, onError: { _ in })
+        }
+        XCTAssertEqual(row(run).statusTitle, L("Фоновый запуск · {0}", "Python"))
+        run.launchHost = nil
+        XCTAssertEqual(row(run).statusTitle, L("Фоновый запуск"))
+        run.phase = .finished
+        XCTAssertEqual(row(run).statusTitle, L("Фоновый запуск завершён"))
+    }
 }

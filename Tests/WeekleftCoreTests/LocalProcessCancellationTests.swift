@@ -163,7 +163,11 @@ import Darwin
         let script = try sleepingFixture(in: root, marker: marker)
         let task = Task {
             try await TerminalLocation.executeFocusScript("return true", app: "Terminal", timeout: 1) { _, timeout in
-                try SessionProcess.run(path: script.path, arguments: [], timeout: timeout)
+                // /bin/sh reads the fixture, so its pid is reported within milliseconds. Executed
+                // directly, a just-written file first waits for macOS's first-run check (~0.25 s,
+                // over 1 s while other new programs start), which spent the whole 1 s budget before
+                // the pid was written: the helper was then reaped unseen (audit 30.09).
+                try SessionProcess.run(path: "/bin/sh", arguments: [script.path], timeout: timeout)
             }
         }
         defer { task.cancel() }

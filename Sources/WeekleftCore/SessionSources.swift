@@ -90,6 +90,8 @@ public enum SessionSources {
                 IDEProcessLocation.locate(parentPID: $0, provider: .claude)
             }, limitsCheck: {
                 SessionProcess.isLimitsCheck(pid: $0)
+            }, backgroundRun: {
+                SessionProcess.isPrintRun(pid: $0)
             }, host: {
                 SessionProcess.launchHost(runtimePID: $0)
             })
@@ -672,6 +674,14 @@ enum SessionProcess {
     static func isLimitsCheck(pid: Int32, arguments: (Int32) -> [String]? = processArguments) -> Bool {
         arguments(pid).map(isLimitsCheck(arguments:)) ?? false
     }
+    /// `claude -p` / `--print`: one question without a window, as plugins and scripts
+    /// run it. Only the presence of the flag is read; the arguments are not kept.
+    static func isPrintRun(arguments: [String]) -> Bool {
+        arguments.dropFirst().contains { $0 == "-p" || $0 == "--print" || $0.hasPrefix("--print=") }
+    }
+    static func isPrintRun(pid: Int32, arguments: (Int32) -> [String]? = processArguments) -> Bool {
+        arguments(pid).map(isPrintRun(arguments:)) ?? false
+    }
     /// The application a runtime runs in when Lunavect has no route there: the embedded
     /// terminal of Claude or Codex (the runtime has a controlling terminal), another
     /// application's terminal, or an application without one. Terminal, iTerm2, VS Code
@@ -904,7 +914,10 @@ public extension SessionHooks {
         // Hooks carry no event time: the helper's start orders concurrent events,
         // not the end of the process inspection below (S-I3).
         let now = Date()
-        // Lifecycle tools must never block, approve, or inject context into the source session.
+        // Lifecycle tools never block, approve or inject context, except in a session the
+        // user limited in Lunavect (owner decisions 30.09): there, near the limit the agent is
+        // asked to wrap up and at the limit its next action is refused, with the reason; the
+        // user's own message lifts the stop.
         guard let data = readHookPayload(from: .standardInput) else { print("{}"); return }
         let env = ProcessInfo.processInfo.environment
         let ide = IDEProcessLocation.locate(parentPID: getppid(), provider: provider)
@@ -912,8 +925,10 @@ public extension SessionHooks {
         let nested = provider == .claude ? SessionProcess.nestedClaudeRuntime(startPID: getppid()) : nil
         let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
         let runtimePID = provider == .claude ? SessionProcess.hookClientPID(startPID: getppid()) : nil
-        try? capture(data, provider: provider, now: now, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide, runtimePID: runtimePID)
-        print("{}")
+        let backgroundRun = runtimePID.map { SessionProcess.isPrintRun(pid: $0) } ?? false
+        try? capture(data, provider: provider, now: now, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide,
+                     runtimePID: runtimePID, backgroundRun: backgroundRun)
+        print(SessionLimitFile.answer(payload: data))
     }
 }
 

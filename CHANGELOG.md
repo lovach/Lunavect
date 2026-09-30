@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.2.8 — Unreleased
+
+### Limits for running sessions
+
+- Two-finger click (or ⋯) on a Claude or Codex session: **Limit Usage…** stops it when the week reaches the level you type, and can continue it after the reset; **Continue Later…** continues it after the five-hour or weekly reset or at a set time.
+- The level starts at today's share: the rest of the week spread evenly over the days to the reset.
+- **Don't get cut off by the 5-hour window** (on by default): shortly before the five-hour window runs out the agent finishes its step and waits; after the window resets Lunavect tells it to continue, and the week's level still applies.
+- Near the level the agent is asked to finish its step and write two lines, what is done and what is left; at the level its next action is refused with the reason, through the hooks Lunavect already installs. Your own message to the session is never blocked: it lifts the stop (the week's limit, or the rest until the 5-hour window resets). Claude Code's own continuation after its usage limit is not yours: a week's stop holds it back. Nothing is killed: files and the conversation stay as they are. The **Tasks** card shows the limit, the week's level (which can be past a limit set below it) and the agent's summary. A stop lapses when its window resets, also if Lunavect is not running then.
+- The continuation ("Continue from where you stopped", or your own words) is typed into the session's own Terminal or iTerm2 tab once it is idle and not asking for a permission. It is typed only while that session's own agent runs there. When the agent has exited and the tab is at a shell prompt, Lunavect runs `claude --resume` or `codex resume` there from the session's folder; when the session's own tab is closed or runs something else, it opens a new Terminal or iTerm2 window in the session's folder. Codex 0.159 runs its hooks without a terminal, so a Codex session's tab is found by its folder, and gets the text only when the tab's title names the session. When Lunavect cannot tell which tab runs a session, or a usage limit cut a Claude session off (Claude Code may be showing its limit options), nothing is typed and no second window opens: the card and a notification say what to do. For other apps a notification says what to write.
+- When Codex hits its usage limit mid-answer, Lunavect asks whether to continue the session after the reset (Settings → General → **If a limit cuts work off**: Ask, Continue without asking, Do nothing). Claude Code 2.1.234 and later continues by itself after a claude.ai usage limit; Lunavect only presses Enter when the Mac slept through the reset and Claude Code waits for it, or offers to continue when Claude's own automatic continue is off or gave up.
+- Notifications about a stopped session have **Continue now** and **+5%**; the question after a cut-off has **Continue after the reset** and **No thanks**.
+- The **Tasks** tab lists limited, resting and planned sessions; a small symbol marks them in the session list.
+- Settings → Connections warns when Codex does not run Lunavect's hooks. Codex asks you to trust hooks again after they change or move and skips them silently until then; without them Lunavect sees no Codex events and cannot stop a Codex session. **Open Codex in Terminal** opens Codex where you choose "Trust all and continue"; Lunavect checks again by itself. Limit Usage says the same for a Codex session.
+
+### Agent Monitor
+
+- **Agent Monitor** (status menu and Statistics) lists sessions with tokens, model, the share used by subagents, the estimated share of the weekly limit and the current pace, and shows each provider's week and hourly pace.
+- Statistics gain **Where tokens went**: cache share, subagents, and projects and models weighted by price, which is roughly how a limit is spent. Tokens are read from the local Claude and Codex logs; the first pass reads them all once in the background.
+
+### Statistics
+
+- **Year** and **All time** join Day, Week and Month. Year is drawn by week; All time adapts to the amount of history (by day under two months, by week under a year, by month beyond). Both start at the week of the first record, so a short history is not squeezed into a corner of an empty year, and each source's line starts at its own first record. Hovering the chart shows that week's time per source and together.
+- Daily totals are now kept without a time limit (about 1 KB a day). Once, Lunavect reads every Claude and Codex log still on the Mac and adds those days, marked ≈ as recovered.
+- New cards: a **Calendar** of days with work (with the longest day and the average per day with work), **When you work** (the day as a 24-hour clock with each hour's work, shares of night, morning, afternoon and evening, and time per weekday; hovering an hour shows its time), **Projects** by time, **Agents waited for you** (answers, permissions and the typical wait, counted live from this version) and **Sessions** (count, average and longest). Hovering a calendar day shows its time.
+
+### Limits
+
+- A limit lifted early by a manual reset in the Claude or Codex app now shows without waiting for the scheduled reset; before, the widget could keep showing 0% for days. A used-up Codex window is asked about hourly and after session activity. A used-up Claude window is asked about after a response its limit did not refuse, at most hourly, so refused attempts and timers still bring no probe. A refresh asks at any time.
+
+### Widgets and subscriptions
+
+- The limits widgets show the plan end date from Settings → Subscriptions as a compact icon and date: orange with the days left in the last week, red once it has passed. **Show plan end date** in Settings → Widgets turns it off.
+- When the end date has passed but the provider still reports subscription limits, the plan was probably renewed, sometimes a day late: Settings → Subscriptions offers the old date plus a month or another date, and one notification says so.
+
+### Sessions
+
+- A Claude run in print mode (`claude -p`), which plugins and scripts start without a window, is shown as **Background run** with the app that started it (for example "Background run · Python"). It no longer counts as working, sends no notifications, is not activity and does not keep the Mac awake. Clicking it explains what it is and that it cannot be opened, instead of asking you to open a window that does not exist.
+- A print run on a session that is still open in Terminal (`claude -p --resume` from a script, or from inside another Claude session) no longer takes over that session's row, tab or end.
+- The sessions panel changes its height after it has drawn instead of while drawing: switching between Sessions and Tasks with the panel open could crash Lunavect on macOS 26.
+
 ## 0.2.7 — 2026-09-28
 
 ### Limits

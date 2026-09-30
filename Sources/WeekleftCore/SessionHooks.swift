@@ -432,7 +432,7 @@ public enum SessionHooks {
     /// currently disables hooks there; this keeps a future client from recording it.
     /// `now` is the event's time: the hook helper passes the moment it started.
     public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, now: Date = Date(), client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil,
-                               runtimePID: Int32? = nil,
+                               runtimePID: Int32? = nil, backgroundRun: Bool = false,
                                isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) },
                                isAlive: (Int32) -> Bool = SessionSources.isProcessAlive) throws {
         try LiveWriteGuard.check(directory)
@@ -454,13 +454,31 @@ public enum SessionHooks {
         if unreadable {
             try? FileManager.default.moveItem(at: file, to: directory.appendingPathComponent(file.lastPathComponent + Self.corruptMarker + UUID().uuidString))
         }
+        // A print-mode run on a session that still runs interactively elsewhere (`claude -p --resume` or `--continue`
+        // from a script): it shares the session id, not the session's tab, runtime or client, and its end is not the
+        // session's end (docs: two processes on one session interleave one transcript).
+        let secondary = provider == .claude && backgroundRun && previous.map { old in
+            old.session.isBackgroundRun != true && (old.session.runtimePID.map { $0 != runtimePID && isAlive($0) } ?? false)
+        } == true
+        if secondary, (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["hook_event_name"] as? String == "SessionEnd" { return }
         var record = try SessionRecord.event(data, provider: provider, previous: previous, now: now, client: client)
         if unreadable { record.session.hookDiagnostic = HookDiagnostic(kind: .unreadableRecord, at: now) }
         // An ignored notice for a session without a record carries no lifecycle.
         if previous == nil, record.session.phase == .unknown { return }
         if provider == .claude, let nestedClaudeRuntime { record.session.isNestedClaudeSession = nestedClaudeRuntime }
+        if secondary, let old = previous?.session {
+            record.session.runtimePID = old.runtimePID; record.session.client = old.client
+            record.session.terminalTTY = old.terminalTTY; record.session.terminalApp = old.terminalApp; record.session.ideLocation = old.ideLocation
+            // Started from inside another Claude session, the print run is nested; the session it resumed is not.
+            record.session.isNestedClaudeSession = old.isNestedClaudeSession
+            try secureWrite(JSONEncoder().encode(record), to: file)
+            return
+        }
         // Replaced on every event: a resumed session runs in a new process.
         if provider == .claude { record.session.runtimePID = runtimePID }
+        // The latest runtime decides: an interactive process reporting again ends an earlier print-mode run's mark.
+        if provider == .claude, backgroundRun { record.session.isBackgroundRun = true }
+        else if provider == .claude, runtimePID != nil { record.session.isBackgroundRun = nil }
         if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
         if let ide {
             record.session.ideLocation = ide; record.session.client = ide.editor.client

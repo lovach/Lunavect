@@ -16,6 +16,7 @@ flowchart TD
     Snapshot --> Shared[snapshot.json — quotas and widget preferences]
     Disk --> History[activity.json — aggregate intervals]
     Disk --> Details[activity-details.json — private session metadata]
+    Activity --> Archive[activity-archive.json — daily totals kept forever]
     Snapshot --> Reload[Injected widget reload callbacks]
     Disk --> Reload
 ```

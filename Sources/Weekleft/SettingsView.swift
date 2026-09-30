@@ -67,6 +67,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var onShowWelcome: () -> Void = {}
     @AppStorage("settingsSection") private var section: SettingsSection = .connections
     @AppStorage("interfaceAppearance") private var appearance = InterfaceAppearance.dark
+    @AppStorage(SessionCutOffAction.key) private var cutOff = SessionCutOffAction.ask
     @FocusState private var focusedSection: SettingsSection?
 
     var body: some View {
@@ -200,6 +201,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                     Text(L("Завершённые сессии переходят в скрытые. Работающие и ожидающие ответа остаются. При новой задаче сессия возвращается автоматически."))
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    Divider()
+                    SettingsRow(L("Если лимит оборвал работу")) {
+                        Picker(L("Если лимит оборвал работу"), selection: $cutOff) {
+                            ForEach(SessionCutOffAction.allCases) { Text($0.title).tag($0) }
+                        }.labelsHidden().accessibilityIdentifier("session-cut-off")
+                    }
+                    Text(L("Когда Codex упрётся в лимит посреди ответа, Lunavect предложит продолжить сессию после сброса. Claude Code продолжает сам; Lunavect поможет, если Mac спал во время сброса или автопродолжение Claude выключено. «Продолжать без вопроса»: Lunavect продолжит сам и сообщит об этом."))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }.padding(12)
             }
             Text(L("Изменения сохраняются автоматически."))
@@ -208,6 +218,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 await Self.restoreBaseSettings(awake: awake, features: features) {
                     menuBarAppearance.restoreDefaults()
                     sessions.autoHideMinutes = 0
+                    cutOff = .ask
                     store.preferences.restoreAppearanceDefaults()
                     updates.setAutomatic(false)
                     updates.setCheckingAutomatically(true)
@@ -254,6 +265,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                     SettingsRow(L("Показывать 5-часовой лимит")) {
                         Toggle(L("Показывать 5-часовой лимит"), isOn: $store.preferences.showFiveHour)
                             .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("widget-shared-five-hour")
+                    }
+                    Divider()
+                    SettingsRow(L("Показывать дату окончания подписки")) {
+                        Toggle(L("Показывать дату окончания подписки"), isOn: $store.preferences.showPlanEnd)
+                            .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("widget-shared-plan-end")
                     }
                     if let models = claudeModelLimitNames(store.snapshots) {
                         Divider()
@@ -682,8 +698,13 @@ struct SubscriptionSettingsRow: View {
                 ProviderLogo(id: provider).foregroundStyle(activityAccent(provider, adaptive: true, scheme: scheme)).frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(provider.title).font(.headline)
-                    Text(L(store.preferences.subscriptionDates[provider.rawValue] == nil ? "Дата не указана" : "Указано вручную"))
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    if case .expired(let end)? = PlanEndState.of(store.preferences, provider: provider, now: Date()) {
+                        Text(L("Подписка закончилась {0}", end.formatted(.dateTime.day().month(.wide).locale(L10n.locale))))
+                            .font(.system(size: 12)).foregroundStyle(.red)
+                    } else {
+                        Text(L(store.preferences.subscriptionDates[provider.rawValue] == nil ? "Дата не указана" : "Указано вручную"))
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 Button {
@@ -705,6 +726,19 @@ struct SubscriptionSettingsRow: View {
                         .buttonStyle(.plain).help(L("Убрать дату")).accessibilityLabel(L("Убрать дату"))
                 }
             }.padding(12)
+            if let end = store.preferences.planEnd(provider), !PlanRenewal.renewed(store.preferences, snapshots: store.snapshots, providers: [provider], now: Date()).isEmpty {
+                let suggested = PlanRenewal.suggestedEnd(after: end, now: Date())
+                VStack(alignment: .leading, spacing: 8) {
+                    InterfaceLabel(L("Подписка {0}, похоже, продлилась: Lunavect снова получает её лимиты. Обновите дату окончания.", provider.title), .info)
+                        .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button(suggested.formatted(.dateTime.day().month(.wide).year().locale(L10n.locale))) {
+                            store.subscriptionBinding(provider).wrappedValue = suggested
+                        }.accessibilityIdentifier("subscription-renewal-suggested")
+                        Button(L("Другая дата")) { draft = suggested; editing = true }
+                    }
+                }.padding([.horizontal, .bottom], 12).accessibilityIdentifier("subscription-renewal")
+            }
         }
     }
 }

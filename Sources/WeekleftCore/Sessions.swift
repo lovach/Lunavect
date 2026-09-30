@@ -120,6 +120,12 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// `/usage` probe, for example by hand in another folder. It stays listed with a
     /// neutral state, but is not work, waiting, a notice or activity (decision 28.09).
     public var isLimitsCheck: Bool?
+    /// A Claude run in print mode (`claude -p`): a plugin or script asks one
+    /// question without a window or tab, and the run ends by itself. It stays
+    /// listed and says so, but is not the user's work, waiting, a notice or
+    /// activity, and there is nothing to open (owner report 29.09: the
+    /// autoharness plugin's reflector after every reply).
+    public var isBackgroundRun: Bool?
     /// The application a catalog runtime runs in when Lunavect has no route to it
     /// (the embedded terminal of Claude or Codex, a VS Code fork…): opening it then
     /// names that place instead of a generic failure.
@@ -129,6 +135,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         hasTaskActivity != true && (phase == .idle || phase == .finished)
     }
     public var activityPath: String?
+    /// How Claude Code's own wait for a usage limit ended (`fired`, `stale`, `disabled`), and when.
+    public var limitWait: String?
+    public var limitWaitAt: Date?
     public var id: String { provider.rawValue + ":" + sessionID }
     public var project: String { cwd.contains("/scratch-workspaces/") ? L("Без папки") : cwd.isEmpty ? L("Без проекта") : URL(fileURLWithPath: cwd).lastPathComponent }
     /// Source names stay intact. Missing names are localized only for display,
@@ -178,7 +187,7 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
             : phase == .running && awaitingBackground == true ? 3600 : 600
         guard age >= -60, age < lifetime else { return .unknown }
         // The check waits at its /usage screen; that is not a session waiting for the user.
-        if isLimitsCheck == true, phase.isActive { return .idle }
+        if isLimitsCheck == true || isBackgroundRun == true, phase.isActive { return .idle }
         return phase
     }
     public func isCurrent(now: Date = Date()) -> Bool {
@@ -264,6 +273,7 @@ public enum SessionParser {
                               terminal: (Int32) -> TerminalLocation.Target? = { _ in nil },
                               ide: (Int32) -> IDESessionLocation? = { _ in nil },
                               limitsCheck: (Int32) -> Bool = { _ in false },
+                              backgroundRun: (Int32) -> Bool = { _ in false },
                               host: (Int32) -> SessionLaunchHost? = { _ in nil }) throws -> [AgentSession] {
         guard let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw SessionError.invalidResponse }
         // The JSON listing is not a documented contract. When no row carries a
@@ -312,6 +322,7 @@ public enum SessionParser {
             } else if let safePID = rowPID {
                 session.isNestedClaudeSession = nestedRuntime(safePID)
                 if limitsCheck(safePID) { session.isLimitsCheck = true }
+                else if backgroundRun(safePID) { session.isBackgroundRun = true }
                 if let location = ide(safePID) {
                     session.ideLocation = location; session.client = location.editor.client
                 } else if let location = terminal(safePID), TerminalLocation.valid(location.tty) {
@@ -342,6 +353,7 @@ public enum SessionList {
             if event.evidence == .legacy, let hooked = hookedAt[event.id], event.observedAt.timeIntervalSince(hooked) < 10 { continue }
             if var row = result[event.id] {
                 if event.isCodexSubagent == true { row.isCodexSubagent = true }
+                if event.isBackgroundRun == true { row.isBackgroundRun = true }
                 // A live catalog PID identifies the current tab. Old hook records
                 // can still name a device from before this session was resumed.
                 if row.ideLocation == nil, row.terminalTTY == nil, row.client != .background, let ide = event.ideLocation {
@@ -409,6 +421,8 @@ public enum SessionList {
                 // source decides the phase, the last task event is its activity.
                 if !event.isUnstartedClaudeLifecycle { row.updatedAt = max(row.updatedAt, event.updatedAt) }
                 if let reopened = event.reopenedAt, reopened > (row.reopenedAt ?? .distantPast) { row.reopenedAt = reopened }
+                // Claude Code's own wait for a usage limit is known only to the hook: the session controls read it.
+                if let wait = event.limitWaitAt, wait > (row.limitWaitAt ?? .distantPast) { row.limitWait = event.limitWait; row.limitWaitAt = wait }
                 result[event.id] = row
             } else { result[event.id] = event }
         }
@@ -613,6 +627,13 @@ public struct SessionRecord: Codable, Sendable {
             record.session.phase = .permission
         case "Notification":
             guard let type = payload["notification_type"] as? String else { throw SessionError.invalidResponse }
+            // Claude Code's own wait for a usage limit ended: continued, waiting for Enter after
+            // a long sleep, or given up. Kept for the session controls; nothing else changes.
+            if ["quota_auto_resume_fired", "quota_auto_resume_stale", "quota_auto_resume_disabled"].contains(type) {
+                var kept = previous ?? record
+                kept.session.limitWait = String(type.dropFirst("quota_auto_resume_".count)); kept.session.limitWaitAt = now
+                return kept
+            }
             // Types without a lifecycle meaning here (agent_completed,
             // quota_auto_resume_*, future ones) change nothing, not even freshness.
             guard ["permission_prompt", "idle_prompt", "elicitation_dialog", "elicitation_url_dialog",

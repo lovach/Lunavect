@@ -1,4 +1,5 @@
 import AppKit
+import UserNotifications
 import SwiftUI
 import Combine
 import Carbon
@@ -73,12 +74,25 @@ enum StatusItemClick {
     let environment: AppEnvironment
     var store: AppStore { environment.store }
     var sessions: SessionStore { environment.sessions }
+    /// Limits and planned continuations of the user's sessions.
+    lazy var controls: SessionControlService = {
+        let store = self.store, sessions = self.sessions
+        return SessionControlService(url: environment.isPreview ? nil : SessionControlService.defaultURL,
+                                     limitURL: environment.isPreview ? nil : SessionControlService.defaultLimitURL,
+                                     dependencies: .init(ledger: { store.tokenService.ledger }, snapshots: { store.snapshots }, sessions: { sessions.sessions },
+                                                         sessionsLoaded: { sessions.updatedAt != nil },
+                                                         cutOff: { [defaults = environment.defaults] in
+                                                             SessionCutOffAction(rawValue: defaults.string(forKey: SessionCutOffAction.key) ?? "") ?? .ask
+                                                         }))
+    }()
+    var controlWindow: NSWindow?
     var menuBarAppearance: MenuBarAppearance { environment.menuBarAppearance }
     init(environment: AppEnvironment) { self.environment = environment; super.init() }
     var menuBarAnimator: MenuBarAnimator?
     var menuBarLimits: MenuBarLimitsController?
     var window: NSWindow?
     var welcomeWindow: NSWindow?
+    var monitorWindow: NSWindow?
     var statusItem: NSStatusItem!
     let popover = NSPopover()
     let popoverDismissal = SessionPopoverDismissal()
@@ -105,7 +119,8 @@ enum StatusItemClick {
         popover.delegate = self
         popover.contentSize = NSSize(width: 360, height: 480)
         popover.contentViewController = NSHostingController(
-            rootView: LocalizedRoot(language: environment.language) { [sessions, environment, sessionPanelState, network = store.network] in
+            rootView: LocalizedRoot(language: environment.language) { [sessions, environment, sessionPanelState, network = store.network,
+                                                                       panelControls = environment.isPreview ? nil : controls] in
                 SessionsView(
                     store: sessions, panelState: sessionPanelState, updates: environment.updates, network: network,
                     awake: environment.awake, isPreview: environment.isPreview,
@@ -117,9 +132,22 @@ enum StatusItemClick {
         }, onMenuBarSettings: { [weak self] in self?.showMenuBarSettings() }, onKeepAwakeSettings: { [weak self] in
             self?.environment.defaults.set(SettingsSection.keepAwake.rawValue, forKey: "settingsSection")
             self?.showSettings()
-        }, onRepair: { [weak self] in self?.showRepair($0) }, onHeightChange: { [weak self] height in self?.popover.contentSize = NSSize(width: 360, height: height) }, onReorderingChange: { [weak self] dragging in
+        }, onRepair: { [weak self] in self?.showRepair($0) }, onHeightChange: { [weak self] height in
+            guard let self else { return }
+            let size = NSSize(width: 360, height: height)
+            guard self.popover.isShown else { self.popover.contentSize = size; return }
+            // A shown popover animates the resize in a nested run loop; started inside SwiftUI's update it
+            // re-entered the update cycle and crashed (macOS 26.6, switching Sessions and Tasks). Resize after it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.popover.contentSize != size else { return }
+                self.popover.contentSize = size
+            }
+        }, onReorderingChange: { [weak self] dragging in
             self?.popover.behavior = dragging ? .applicationDefined : .transient
-        }) }.defaultAppStorage(environment.defaults))
+        }, tokenUsage: { [weak self] session, now in
+            guard let store = self?.store else { return nil }
+            return SessionTokenUsage.make(tokens: store.tokenService, snapshots: store.snapshots, session: session, now: now)
+        }, controls: panelControls, onControl: { [weak self] session, mode in self?.showControl(session, mode: mode) }) }.defaultAppStorage(environment.defaults))
         menuBarAnimator = MenuBarAnimator(statusItem: statusItem, updates: environment.updates)
         sessionOpenedObserver = NotificationCenter.default.addObserver(forName: .lunavectSessionOpened, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { if self?.popover.isShown == true { self?.popover.close() } }
@@ -162,6 +190,8 @@ enum StatusItemClick {
                 guard let self else { return }
                 if self.popover.isShown { self.popover.performClose(nil) } else { self.showSessions() }
             }
+            features.onControlAction = { [weak self] action, id in self?.controls.handle(action: action, controlID: id) }
+            features.limitCutOff = { [weak self] session in self?.controls.limitCutOff(session) ?? (false, nil) }
             features.onOpenSession = { [weak self] id in
                 Task { @MainActor in
                     guard let self else { return }
@@ -181,9 +211,11 @@ enum StatusItemClick {
                 features.observe(observation.rows, at: observation.date)
             }
             // Only connected providers are warned about.
-            limitObserver = store.$snapshots.combineLatest(store.$preferences.map(\.providers).removeDuplicates())
-                .receive(on: RunLoop.main).sink { snapshots, providers in
+            limitObserver = store.$snapshots.combineLatest(store.$preferences.removeDuplicates())
+                .receive(on: RunLoop.main).sink { snapshots, preferences in
+                    let providers = preferences.providers
                     features.observeLimits(snapshots.filter { providers.contains($0.provider) }, providers: Set(providers))
+                    features.observePlans(preferences, snapshots: snapshots)
                 }
         }
         if !environment.isPreview {
@@ -200,6 +232,11 @@ enum StatusItemClick {
             store.onNetworkRestored = { [weak self] in await self?.sessions.refresh() }
             store.start()
             sessions.start(clientResolver: { [weak self] in self?.store.clientResolver ?? ClientExecutableResolver() })
+            controls.start()
+            // Buttons of a notice delivered before this launch work before a new notice is posted.
+            if !LiveProcessGuard.refuses("notification") {
+                UNUserNotificationCenter.current().setNotificationCategories(SessionControlService.categories)
+            }
         }
         // Launch and reopen use the same small panel as a click on the menu-bar icon.
         let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
@@ -233,6 +270,7 @@ enum StatusItemClick {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if !environment.isPreview { controls.stop() }
         widgetRegistration?.stop()
         menuBarLimits?.stop()
         popoverDismissal.stop()
@@ -243,6 +281,7 @@ enum StatusItemClick {
         menu.addItem(withTitle: L("Статус в строке меню…"), action: #selector(showMenuBarSettings), keyEquivalent: "")
         menu.addItem(withTitle: L("Открыть сессии"), action: #selector(showSessions), keyEquivalent: "")
         menu.addItem(withTitle: L("Лимиты"), action: #selector(showLimits), keyEquivalent: "")
+        menu.addItem(withTitle: L("Мониторинг агентов…"), action: #selector(showMonitor), keyEquivalent: "")
         menu.addItem(withTitle: L("Настройки Lunavect…"), action: #selector(showSettings), keyEquivalent: "")
         menu.addItem(withTitle: L("Обновить лимиты"), action: #selector(refresh), keyEquivalent: "r")
         menu.addItem(withTitle: L("Проверить обновления"), action: #selector(showUpdates), keyEquivalent: "")
@@ -379,6 +418,44 @@ enum StatusItemClick {
             showSessions: { [weak self] in self?.showSessions() },
             showFallback: { [weak self] in self?.showMenuBarSettings() })
     }
+    /// Which session is spending the limit and how fast: tokens from the client logs.
+    @objc func showMonitor() {
+        menuBarLimits?.close()
+        popover.performClose(nil)
+        if monitorWindow == nil {
+            let monitor = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                   backing: .buffered, defer: false)
+            monitor.title = L("Мониторинг агентов — Lunavect"); monitor.isReleasedWhenClosed = false; monitor.delegate = self
+            monitor.contentView = NSHostingView(rootView: LocalizedRoot(language: environment.language) { [store, sessions] in
+                TokenMonitorView(tokens: store.tokenService, store: store, sessions: sessions)
+            }.defaultAppStorage(environment.defaults))
+            let frameName = "LunavectTokenMonitor"
+            if environment.isPreview || !monitor.setFrameUsingName(frameName) { monitor.center() }
+            if !environment.isPreview { monitor.setFrameAutosaveName(frameName) }
+            monitorWindow = monitor
+        }
+        updateActivationPolicy()
+        monitorWindow?.deminiaturize(nil)
+        monitorWindow?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
+    /// «Ограничить расход» or «Продолжить позже» for one session, in a small window of its own.
+    func showControl(_ session: AgentSession, mode: SessionControlMode) {
+        popover.performClose(nil)
+        controlWindow?.close()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.title = L(mode == .limit ? "Ограничить расход" : "Продолжить позже") + " — Lunavect"
+        window.isReleasedWhenClosed = false; window.delegate = self
+        window.contentView = NSHostingView(rootView: LocalizedRoot(language: environment.language) { [controls, store, sessions] in
+            SessionControlView(session: session, mode: mode, controls: controls, store: store,
+                               hooksReady: (sessions.hooksInstalled[session.provider] ?? false)
+                                   && !(session.provider == .codex && sessions.codexHookTrust == .untrusted),
+                               hooksUntrusted: session.provider == .codex && sessions.codexHookTrust == .untrusted,
+                               onClose: { [weak self] in self?.controlWindow?.close() })
+        }.defaultAppStorage(environment.defaults))
+        window.center()
+        controlWindow = window
+        window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
     @objc func showWelcome() {
         settingsReturnTransition.cancel()
         popover.performClose(nil)
@@ -416,6 +493,9 @@ enum StatusItemClick {
             // recomputing statistics. Release it; showSettings builds a new one.
             window = nil
         }
+        // Like Settings, the monitor stops reading the ledger once it is closed.
+        if let closed = notification.object as? NSWindow, closed === monitorWindow { monitorWindow = nil }
+        if let closed = notification.object as? NSWindow, closed === controlWindow { controlWindow = nil }
         if let closed = notification.object as? NSWindow, closed === welcomeWindow {
             WelcomeProgress.complete(defaults: environment.defaults); welcomeWindow = nil
         }
