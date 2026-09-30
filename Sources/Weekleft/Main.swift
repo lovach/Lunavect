@@ -132,7 +132,17 @@ enum StatusItemClick {
         }, onMenuBarSettings: { [weak self] in self?.showMenuBarSettings() }, onKeepAwakeSettings: { [weak self] in
             self?.environment.defaults.set(SettingsSection.keepAwake.rawValue, forKey: "settingsSection")
             self?.showSettings()
-        }, onRepair: { [weak self] in self?.showRepair($0) }, onHeightChange: { [weak self] height in self?.popover.contentSize = NSSize(width: 360, height: height) }, onReorderingChange: { [weak self] dragging in
+        }, onRepair: { [weak self] in self?.showRepair($0) }, onHeightChange: { [weak self] height in
+            guard let self else { return }
+            let size = NSSize(width: 360, height: height)
+            guard self.popover.isShown else { self.popover.contentSize = size; return }
+            // A shown popover animates the resize in a nested run loop; started inside SwiftUI's update it
+            // re-entered the update cycle and crashed (macOS 26.6, switching Sessions and Tasks). Resize after it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.popover.contentSize != size else { return }
+                self.popover.contentSize = size
+            }
+        }, onReorderingChange: { [weak self] dragging in
             self?.popover.behavior = dragging ? .applicationDefined : .transient
         }, tokenUsage: { [weak self] session, now in
             guard let store = self?.store else { return nil }
