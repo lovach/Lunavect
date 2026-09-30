@@ -55,6 +55,8 @@ final class SessionControlTests: XCTestCase {
         ledger.record(TokenCounts(output: 1000), provider: .claude, session: "a", cwd: "/p", model: "m", subagent: false, at: now.addingTimeInterval(-60), now: now, calendar: calendar)
         let week = try QuotaWindow(usedPercent: 50, durationMinutes: 10080, resetsAt: now.addingTimeInterval(86400))
         let snapshot = UsageSnapshot(provider: .claude, weekly: week, fetchedAt: now.addingTimeInterval(-1800))
+        XCTAssertEqual(WeekLevel.estimate(snapshot: snapshot, ledger: ledger, now: now), 50, "a ledger still on its first pass adds nothing")
+        ledger.caughtUp = true
         // 50 % over 10,000 weighted units; 5,000 more since the reading adds 25 points.
         XCTAssertEqual(try XCTUnwrap(WeekLevel.estimate(snapshot: snapshot, ledger: ledger, now: now)), 75, accuracy: 0.01)
         let passed = UsageSnapshot(provider: .claude, weekly: try QuotaWindow(usedPercent: 90, durationMinutes: 10080, resetsAt: now.addingTimeInterval(-60)), fetchedAt: now.addingTimeInterval(-3600))
@@ -183,7 +185,7 @@ final class SessionControlTests: XCTestCase {
     /// as spent after it. Within six hours the ledger keeps minutes.
     func testOnlyTokensAfterTheReadingRaiseTheFiveHourLevel() throws {
         let now = Date(timeIntervalSince1970: 1_800_001_800)   // half past an hour
-        var ledger = TokenLedger(); ledger.recentFrom = now.addingTimeInterval(-TokenLedger.recentSpan)
+        var ledger = TokenLedger(); ledger.recentFrom = now.addingTimeInterval(-TokenLedger.recentSpan); ledger.caughtUp = true
         let calendar = Calendar(identifier: .gregorian)
         ledger.record(TokenCounts(output: 1000), provider: .claude, session: "a", cwd: "/p", model: "m", subagent: false, at: now.addingTimeInterval(-1500), now: now, calendar: calendar)
         ledger.record(TokenCounts(output: 3000), provider: .claude, session: "a", cwd: "/p", model: "m", subagent: false, at: now.addingTimeInterval(-300), now: now, calendar: calendar)
@@ -206,6 +208,7 @@ final class SessionControlTests: XCTestCase {
         XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["trusted", "trusted"], other: "modified")), .trusted, "only Lunavect's hooks count")
         XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["trusted", "modified"])), .untrusted)
         XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["untrusted"])), .untrusted)
+        XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["trusted", "pending"])), .unknown, "a status Lunavect does not know warns of nothing")
         XCTAssertEqual(CodexProvider.hookTrust(fromList: list(["managed"])), .trusted)
         XCTAssertEqual(CodexProvider.hookTrust(fromList: list([])), .unknown, "no Lunavect hook: nothing to warn about")
         XCTAssertEqual(CodexProvider.hookTrust(fromList: [:]), .unknown)

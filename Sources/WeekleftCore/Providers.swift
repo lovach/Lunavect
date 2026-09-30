@@ -106,13 +106,14 @@ public enum CodexProvider {
         }
     }
     /// Lunavect's hooks carry its marker in their command; "trusted" and "managed" run,
-    /// "untrusted" and "modified" do not.
+    /// "untrusted" and "modified" do not. A status Lunavect does not know warns of nothing.
     static func hookTrust(fromList result: [String: Any]) -> HookTrust {
         let marker = SessionHooks.marker(.codex)
         let statuses = ((result["data"] as? [[String: Any]]) ?? []).flatMap { ($0["hooks"] as? [[String: Any]]) ?? [] }
             .filter { ($0["command"] as? String)?.contains(marker) == true }.compactMap { $0["trustStatus"] as? String }
         guard !statuses.isEmpty else { return .unknown }
-        return statuses.allSatisfy { ["trusted", "managed"].contains($0) } ? .trusted : .untrusted
+        if statuses.contains(where: { ["untrusted", "modified"].contains($0) }) { return .untrusted }
+        return statuses.allSatisfy { ["trusted", "managed"].contains($0) } ? .trusted : .unknown
     }
 }
 

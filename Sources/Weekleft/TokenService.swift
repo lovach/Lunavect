@@ -10,8 +10,9 @@ import WeekleftCore
     @Published private(set) var ledger: TokenLedger
     /// True until every log has been read once; the first pass over months of logs takes a while.
     @Published private(set) var catchingUp = false
-    /// Receives the ledger's days whenever they change, before old days are dropped.
-    var onDaily: (([String: [String: TokenCounts]]) -> Void)?
+    /// Receives the ledger's days whenever they change, before old days are dropped, and the first day
+    /// the archive takes as they are; older days only rise (the first pass, or logs Claude has deleted).
+    var onDaily: (([String: [String: TokenCounts]], String) -> Void)?
     typealias Scan = @Sendable (inout TokenLedger, Date) -> TokenLedger.ScanReport
     private let url: URL?
     private let scan: Scan
@@ -26,7 +27,8 @@ import WeekleftCore
     /// - Parameter scan: reads the logs; under tests the default reads nothing, so no test sees the real logs.
     init(url: URL? = TokenService.defaultURL, clock: @escaping () -> Date = Date.init, scan: Scan? = nil) {
         self.url = url; self.clock = clock
-        let idle: Scan = { _, _ in .init() }, logs: Scan = { ledger, now in ledger.scan(now: now) }
+        // Five-second slices: quitting waits for the slice in progress before the final save.
+        let idle: Scan = { _, _ in .init() }, logs: Scan = { ledger, now in ledger.scan(now: now, maximumSeconds: 5) }
         self.scan = scan ?? (LiveWriteGuard.underTestsForStores ? idle : logs)
         ledger = url.flatMap { try? TokenLedger.load(from: $0) } ?? TokenLedger()
         catchingUp = ledger.caughtUp != true
@@ -35,7 +37,7 @@ import WeekleftCore
 
     func start(interval: Duration = .seconds(15)) {
         guard loop == nil else { return }
-        onDaily?(ledger.daily)
+        onDaily?(ledger.daily, replaceFrom(ledger, now: clock()))
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -63,12 +65,17 @@ import WeekleftCore
         let changed = report.filesRead > 0 || updated.caughtUp != ledger.caughtUp
         if changed {
             var value = updated
-            onDaily?(value.daily)
+            onDaily?(value.daily, replaceFrom(value, now: now))
             value.pruneDays(now: now)
             ledger = value; unsaved = true
         }
         if catchingUp != (updated.caughtUp != true) { catchingUp = updated.caughtUp != true }
         save(force: false)
+    }
+
+    /// The kept window once every log has been read; nothing during the first pass.
+    private func replaceFrom(_ ledger: TokenLedger, now: Date) -> String {
+        ledger.caughtUp == true ? ActivityArchive.key(now.addingTimeInterval(-Double(TokenLedger.keepDays) * 86400), calendar: .current) : "~"
     }
 
     /// At most once a minute while working; the ledger is several megabytes.

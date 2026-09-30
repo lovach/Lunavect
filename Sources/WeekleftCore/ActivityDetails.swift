@@ -358,9 +358,13 @@ private extension ActivityDayRecord {
 }
 
 extension ActivityArchive {
-    /// The ledger is the source for every day it still holds; days it has dropped keep their tokens.
-    public mutating func setTokens(_ daily: [String: [String: TokenCounts]]) {
+    /// The ledger is the source for every day from `replaceFrom` on; days it has dropped keep their tokens.
+    /// An earlier day only rises: during the ledger's first pass it is still partial, and a rescan after
+    /// Claude deleted old transcripts must not lower what was counted while they existed.
+    public mutating func setTokens(_ daily: [String: [String: TokenCounts]], replaceFrom: String = "") {
         for (day, entries) in daily where days[day]?.tokens != entries {
+            if day < replaceFrom, let old = days[day]?.tokens,
+               old.values.reduce(0, { $0 + $1.total }) >= entries.values.reduce(0, { $0 + $1.total }) { continue }
             days[day, default: ActivityDayRecord()].tokens = entries.isEmpty ? nil : entries
         }
     }

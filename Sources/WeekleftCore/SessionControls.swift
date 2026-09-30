@@ -135,7 +135,8 @@ public enum WeekLevel {
         guard let snapshot, let window else { return nil }
         // The window has reset since the reading: the new one starts near zero until the next reading.
         if let resets = window.resetsAt, resets <= now { return 0 }
-        guard let fetched = snapshot.fetchedAt, fetched < now,
+        // Until the ledger has read every log once, its share of the window is partial and the ratio too high.
+        guard ledger.caughtUp == true, let fetched = snapshot.fetchedAt, fetched < now,
               let ratio = percentPerWeight(ledger: ledger, provider: snapshot.provider, week: window, now: fetched) else { return window.usedPercent }
         let since = ledger.weight(snapshot.provider, from: fetched, to: now)
         return min(100, window.usedPercent + since * ratio)
@@ -297,7 +298,8 @@ public enum SessionReply {
         let lines = data.split(separator: UInt8(ascii: "\n"))
         for line in lines.reversed() {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { continue }
-            if let text = reply(object, provider: provider) { return String(text.prefix(1200)) }
+            // The end of a long reply: the agent's "Done/Left" lines close it.
+            if let text = reply(object, provider: provider) { return text.count > 1200 ? "…" + String(text.suffix(1200)) : text }
         }
         return nil
     }

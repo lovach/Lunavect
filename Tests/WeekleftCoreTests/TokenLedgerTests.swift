@@ -128,7 +128,48 @@ final class TokenLedgerTests: XCTestCase {
         XCTAssertNil(ledger.sessions["claude:old"])
         XCTAssertEqual(ledger.daily[ActivityArchive.key(old, calendar: calendar)]?.values.first?.input, 7)
         ledger.pruneDays(now: now, calendar: calendar)
+        XCTAssertFalse(ledger.daily.isEmpty, "the first pass keeps every day: its next slice may add to it")
+        ledger.caughtUp = true
+        ledger.pruneDays(now: now, calendar: calendar)
         XCTAssertTrue(ledger.daily.isEmpty, "the archive keeps old days; the ledger drops them")
+        ledger.record(TokenCounts(input: 3), provider: .claude, session: "old", cwd: "/p/X", model: "m", subagent: false, at: old, now: now, calendar: calendar)
+        XCTAssertTrue(ledger.daily.isEmpty, "after the first pass an old response would overwrite its archived day")
+    }
+
+    /// A resumed or forked session's new transcript starts with copies of earlier responses
+    /// (1656 of 93852 responses on the owner's Mac, 30.09): each response counts once.
+    func testCopiesInAResumedSessionsTranscriptCountOnce() throws {
+        try write("claude/p/33333333-3333-3333-3333-333333333333.jsonl",
+                  [claude("m1", input: 10, output: 100, time: "2026-09-29T10:00:00Z"), claude("m2", input: 1, output: 5, time: "2026-09-29T10:05:00Z")])
+        var copy = claude("m1", input: 10, output: 100, time: "2026-09-29T10:00:00Z"); copy["sessionId"] = "s2"
+        try write("claude/p/44444444-4444-4444-4444-444444444444.jsonl",
+                  [copy, claude("m3", input: 2, output: 7, time: "2026-09-29T18:00:00Z")])
+        var ledger = TokenLedger()
+        _ = ledger.scan(sources: sources, now: now)
+        let total = ledger.sessions.values.reduce(TokenCounts()) { $0 + $1.total }
+        XCTAssertEqual(total.output, 100 + 5 + 7)
+        XCTAssertEqual(ledger.daily["2026-09-29"]?.values.reduce(0) { $0 + $1.output }, 112)
+    }
+
+    /// The first pass reads the logs in slices; a day older than the kept window keeps every slice's share.
+    func testTheFirstPassKeepsOldDaysWholeAcrossSlices() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        var ledger = TokenLedger()
+        let old = now.addingTimeInterval(-50 * 86400)
+        ledger.record(TokenCounts(output: 4), provider: .claude, session: "a", cwd: "/p", model: "m", subagent: false, at: old, now: now, calendar: calendar)
+        ledger.pruneDays(now: now, calendar: calendar)
+        ledger.record(TokenCounts(output: 6), provider: .claude, session: "b", cwd: "/p", model: "m", subagent: false, at: old, now: now, calendar: calendar)
+        XCTAssertEqual(ledger.daily[ActivityArchive.key(old, calendar: calendar)]?.values.reduce(0) { $0 + $1.output }, 10)
+        // The archive takes the ledger's older days only when they rise.
+        var archive = ActivityArchive()
+        let day = ActivityArchive.key(old, calendar: calendar)
+        archive.setTokens([day: ["k": TokenCounts(output: 50)]])
+        archive.setTokens(ledger.daily, replaceFrom: "~")
+        XCTAssertEqual(archive.days[day]?.tokens?["k"]?.output, 50, "a partial pass or deleted logs never lower an archived day")
+        archive.setTokens([day: ["k": TokenCounts(output: 70)]], replaceFrom: "~")
+        XCTAssertEqual(archive.days[day]?.tokens?["k"]?.output, 70)
+        archive.setTokens([day: ["k": TokenCounts(output: 60)]], replaceFrom: day)
+        XCTAssertEqual(archive.days[day]?.tokens?["k"]?.output, 60, "inside the kept window the ledger is the source")
     }
 
     func testRoundTripKeepsCursorsSoNothingIsCountedTwice() throws {

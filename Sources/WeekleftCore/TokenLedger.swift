@@ -95,11 +95,10 @@ struct TokenFileCursor: Codable, Sendable, Equatable {
     var model: String?
     /// Codex: the last cumulative total; the next one adds only the difference.
     var total: TokenCounts?
-    /// Claude repeats one response's usage on each of its lines: the last ids seen and their readings.
+    /// Claude repeats one response's usage on each of its lines: the last ids seen and their readings,
+    /// dropped once the file has been quiet for an hour.
     var seen: [String: TokenCounts]?
     var order: [String]?
-    /// Claude: the newest response time read in this file, to skip the copies Claude Code writes back later.
-    var newest: Date?
 }
 
 /// Tokens of every Claude and Codex session on this Mac, read from their local logs.
@@ -107,7 +106,9 @@ public struct TokenLedger: Codable, Sendable, Equatable {
     /// Sessions and daily entries are kept this long; older days live on in the archive.
     public static let keepDays = 35
     /// 2: Claude transcripts' written-back copies of earlier responses are no longer counted twice.
-    public static let currentVersion = 2
+    /// 3: nor the copies a resumed or forked session's new transcript starts with; the first pass
+    /// no longer loses old days between its slices.
+    public static let currentVersion = 3
     public var version: Int? = TokenLedger.currentVersion
     public var sessions: [String: SessionTokens] = [:]
     /// Day key → entry key (provider, project, model, subagent) → tokens. The archive keeps them after pruning.
@@ -124,6 +125,11 @@ public struct TokenLedger: Codable, Sendable, Equatable {
     /// or the first scan after an update that added it.
     public var recentFrom: Date?
     public static let recentSpan: TimeInterval = 6 * 3600
+    /// Every Claude response counted, by message id, with its day since 1970: Claude Code writes copies of
+    /// earlier responses into a transcript again, later in the same file and at the start of a resumed or
+    /// forked session's new file (1656 of 93852 responses on the owner's Mac, 30.09). Kept for the whole
+    /// first pass, then for the kept window; an older response after it is not counted at all.
+    var claudeResponses: [String: Int]?
     public init() {}
 
     public static func sessionKey(_ provider: ProviderID, _ sessionID: String) -> String { provider.rawValue + ":" + sessionID }
@@ -189,7 +195,13 @@ public struct TokenLedger: Codable, Sendable, Equatable {
                 guard lstat(entry.path, &info) == 0 else { continue }
                 present.insert(entry.path)
                 let size = Int64(info.st_size), inode = UInt64(info.st_ino)
-                if let cursor = cursors[entry.path], cursor.inode == inode, cursor.offset >= size { continue }
+                if let cursor = cursors[entry.path], cursor.inode == inode, cursor.offset >= size {
+                    // A file quiet for an hour holds only finished responses: their merge state is not needed.
+                    if cursor.seen != nil, now.timeIntervalSince(values.contentModificationDate ?? now) > 3600 {
+                        cursors[entry.path]?.seen = nil; cursors[entry.path]?.order = nil
+                    }
+                    continue
+                }
                 files.append((entry, values.contentModificationDate ?? .distantPast, size, inode, source.provider))
             }
         }
@@ -198,15 +210,23 @@ public struct TokenLedger: Codable, Sendable, Equatable {
         files.sort { $0.modified > $1.modified }
         for file in files {
             if monotonicNow() >= deadline || report.bytesRead >= maximumBytes { report.complete = false; break }
-            var cursor = cursors[file.url.path].flatMap { $0.inode == file.inode && $0.offset <= file.size ? $0 : nil }
+            let previous = cursors[file.url.path]
+            var cursor = previous.flatMap { $0.inode == file.inode && $0.offset <= file.size ? $0 : nil }
                 ?? TokenFileCursor(inode: file.inode, offset: 0)
+            // A rollout rewritten at the same path is read again from its start: Codex's cumulative
+            // totals then continue from the last one counted (Claude's responses are known by id).
+            if cursor.offset == 0, let previous, previous.total != nil {
+                cursor.session = previous.session; cursor.parent = previous.parent; cursor.cwd = previous.cwd
+                cursor.model = previous.model; cursor.total = previous.total
+            }
             let read = read(file.url, provider: file.provider, cursor: &cursor, now: now, calendar: calendar,
                             budget: maximumBytes - report.bytesRead, deadline: deadline, monotonicNow: monotonicNow)
             cursors[file.url.path] = cursor
             report.filesRead += 1; report.bytesRead += read
             if cursor.offset < file.size { report.complete = false }
         }
-        if report.complete { caughtUp = true }
+        // The first pass read the minutes of its early slices only partly: they count from now on.
+        if report.complete { if caughtUp != true { recentFrom = now }; caughtUp = true }
         pruneSessions(now: now)
         return report
     }
@@ -355,12 +375,6 @@ public struct TokenLedger: Codable, Sendable, Equatable {
                   let usage = message["usage"] as? [String: Any] else { return }
             let model = message["model"] as? String ?? ""
             guard model != "<synthetic>" else { return }
-            // Claude Code writes copies of earlier responses back into the transcript (same uuid and
-            // timestamp, hours later in the file); a response over a minute older than one already read is such a copy.
-            if let stamp = object["timestamp"] as? String, let written = Self.date(stamp) {
-                if let newest = cursor.newest, written < newest.addingTimeInterval(-60) { return }
-                cursor.newest = max(cursor.newest ?? written, written)
-            }
             let reading = TokenCounts(input: int(usage["input_tokens"]), cacheRead: int(usage["cache_read_input_tokens"]),
                                       cacheWrite: int(usage["cache_creation_input_tokens"]), output: int(usage["output_tokens"]))
             let id = message["id"] as? String ?? object["requestId"] as? String ?? object["uuid"] as? String ?? UUID().uuidString
@@ -368,6 +382,10 @@ public struct TokenLedger: Codable, Sendable, Equatable {
             let added: TokenCounts
             if let earlier = seen[id] { let merged = reading.maximum(earlier); added = merged.adding(over: earlier); seen[id] = merged }
             else {
+                // A copy of a response counted before, in this file or another one.
+                if claudeResponses?[id] != nil { return }
+                claudeResponses = claudeResponses ?? [:]
+                claudeResponses![id] = Int(floor(date.timeIntervalSince1970 / 86400))
                 added = reading; seen[id] = reading; order.append(id)
                 if order.count > 64 { seen.removeValue(forKey: order.removeFirst()) }
             }
@@ -414,6 +432,9 @@ public struct TokenLedger: Codable, Sendable, Equatable {
     public mutating func record(_ counts: TokenCounts, provider: ProviderID, session: String, cwd: String, model: String,
                          subagent: Bool, at date: Date, now: Date, calendar: Calendar) {
         guard !counts.isEmpty else { return }
+        // After the first pass the archive holds the days before the kept window: a response dated
+        // there is a copy the window no longer knows, and would overwrite that archived day.
+        if caughtUp == true, date < now.addingTimeInterval(-Double(Self.keepDays) * 86400) { return }
         if date >= now.addingTimeInterval(-Self.recentSpan), date <= now.addingTimeInterval(60) {
             if recent == nil { recent = [:] }
             recent![provider.rawValue, default: [:]][Int(floor(date.timeIntervalSince1970 / 60)), default: 0] += counts.weight(provider)
@@ -443,10 +464,16 @@ public struct TokenLedger: Codable, Sendable, Equatable {
         let oldest = now.addingTimeInterval(-Self.recentSpan), firstMinute = Int(floor(oldest.timeIntervalSince1970 / 60))
         recent = recent?.mapValues { $0.filter { $0.key >= firstMinute } }
         if let from = recentFrom, from < oldest { recentFrom = oldest }
+        if caughtUp == true, claudeResponses != nil {
+            let firstDay = Int(floor(cutoff.timeIntervalSince1970 / 86400)) - 1
+            claudeResponses = claudeResponses?.filter { $0.value >= firstDay }
+        }
         for key in sessions.keys { sessions[key]!.hours = sessions[key]!.hours.filter { $0.key >= hourCutoff } }
     }
-    /// Drops days older than the kept window. Call after the archive has taken them.
+    /// Drops days older than the kept window. Call after the archive has taken them, and only after the
+    /// first pass: until then a day's files can be spread over several slices.
     public mutating func pruneDays(now: Date, calendar: Calendar = .current) {
+        guard caughtUp == true else { return }
         let firstDay = ActivityArchive.key(now.addingTimeInterval(-Double(Self.keepDays) * 86400), calendar: calendar)
         daily = daily.filter { $0.key >= firstDay }
     }

@@ -207,7 +207,7 @@ import WeekleftCore
         guard !isolated, !started else { return }
         started = true
         network.start(); activityService.start(providers: providers)
-        tokenService.onDaily = { [weak activityService] in activityService?.setTokens($0) }
+        tokenService.onDaily = { [weak activityService] in activityService?.setTokens($0, replaceFrom: $1) }
         tokenService.start()
         requestBackgroundRefresh(trigger: .launch)
         let generation = lifecycleGeneration

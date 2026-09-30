@@ -498,6 +498,8 @@ import WeekleftCore
             let state = await check(resolver)
             guard let self else { return }
             self.checkingHookTrust = false
+            // A failed check keeps what is known and asks again in five minutes, not after an hour.
+            if state == .unknown, self.codexHookTrust != .unknown { self.hookTrustCheckedAt = Date().addingTimeInterval(-3300); return }
             if self.codexHookTrust != state { self.codexHookTrust = state }
         }
     }
