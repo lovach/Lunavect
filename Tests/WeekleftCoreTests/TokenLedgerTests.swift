@@ -73,6 +73,65 @@ final class TokenLedgerTests: XCTestCase {
         XCTAssertEqual(session.models["gpt-6-astra"]?.reasoning, 30)
     }
 
+    private func setModified(_ path: String, _ date: Date) throws {
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: root.appendingPathComponent(path).path)
+    }
+    private func codexTotal(_ ledger: TokenLedger, _ thread: String) -> Int64 { ledger.sessions["codex:" + thread]?.total.total ?? 0 }
+
+    /// Audit 30.09: Codex continues a long thread in a new file (`history_base`) whose totals start from the
+    /// earlier file's; it counts once whichever file is read first, and a reset total is not lost.
+    func testACodexThreadContinuedInANewFileCountsOnce() throws {
+        let base = "codex/2026/09/20/rollout-2026-09-20T02-00-00-t9.jsonl", next = "codex/2026/09/20/rollout-2026-09-20T13-00-00-t9_n1.jsonl"
+        try write(base, [["type": "session_meta", "payload": ["id": "t9", "cwd": "/Users/u/capsule"]],
+                         tokenCount(input: 1000, cached: 0, output: 100, reasoning: 0, time: "2026-09-29T10:00:00Z"),
+                         tokenCount(input: 3000, cached: 0, output: 300, reasoning: 0, time: "2026-09-29T11:00:00Z")])
+        try write(next, [["type": "session_meta", "payload": ["id": "t9", "cwd": "/Users/u/capsule", "history_base": ["thread_id": "t9", "end_byte_offset": 1]]],
+                         tokenCount(input: 3500, cached: 0, output: 350, reasoning: 0, time: "2026-09-29T13:00:00Z"),
+                         tokenCount(input: 4000, cached: 0, output: 400, reasoning: 0, time: "2026-09-29T14:00:00Z")])
+        // The earlier file read first (it is the more recently written): exact.
+        try setModified(next, now.addingTimeInterval(-7200)); try setModified(base, now.addingTimeInterval(-60))
+        var first = TokenLedger(); _ = first.scan(sources: sources, now: now)
+        XCTAssertEqual(codexTotal(first, "t9"), 4400)
+        // The continuation read first: at most its first response is not counted, never the earlier file twice.
+        try setModified(next, now.addingTimeInterval(-60)); try setModified(base, now.addingTimeInterval(-7200))
+        var second = TokenLedger(); _ = second.scan(sources: sources, now: now)
+        XCTAssertEqual(codexTotal(second, "t9"), 3300 + 550)
+    }
+
+    func testAResetCodexTotalCountsWhatWasSpentAfterIt() throws {
+        try write("codex/2026/09/29/rollout-r.jsonl", [["type": "session_meta", "payload": ["id": "tr", "cwd": "/Users/u/capsule"]],
+            tokenCount(input: 100, cached: 0, output: 0, reasoning: 0, time: "2026-09-29T10:00:00Z"),
+            tokenCount(input: 150, cached: 0, output: 0, reasoning: 0, time: "2026-09-29T10:01:00Z"),
+            tokenCount(input: 30, cached: 0, output: 0, reasoning: 0, time: "2026-09-29T10:02:00Z"),
+            tokenCount(input: 50, cached: 0, output: 0, reasoning: 0, time: "2026-09-29T10:03:00Z")])
+        var ledger = TokenLedger(); _ = ledger.scan(sources: sources, now: now)
+        XCTAssertEqual(codexTotal(ledger, "tr"), 150 + 30 + 20)
+    }
+
+    /// Codex moves finished rollouts to its archive: the same file under a new path is not read again.
+    func testAMovedRolloutIsNotCountedAgain() throws {
+        let path = "codex/2026/09/29/rollout-m.jsonl"
+        try write(path, [["type": "session_meta", "payload": ["id": "tm", "cwd": "/Users/u/capsule"]],
+                         tokenCount(input: 500, cached: 0, output: 50, reasoning: 0, time: "2026-09-29T10:00:00Z")])
+        var ledger = TokenLedger(); _ = ledger.scan(sources: sources, now: now)
+        XCTAssertEqual(codexTotal(ledger, "tm"), 550)
+        let archived = root.appendingPathComponent("codex/archived/rollout-m.jsonl")
+        try FileManager.default.createDirectory(at: archived.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: root.appendingPathComponent(path), to: archived)
+        _ = ledger.scan(sources: sources, now: now)
+        XCTAssertEqual(codexTotal(ledger, "tm"), 550)
+    }
+
+    /// Codex 0.159 writes no agent_message events: the reply comes from the turn's end or the assistant's message.
+    func testTheLastCodexReplyIsReadFromItsTurnEnd() {
+        XCTAssertEqual(SessionReply.reply(["type": "event_msg", "payload": ["type": "task_complete", "last_agent_message": " Completed 5 of 8. "]], provider: .codex),
+                       "Completed 5 of 8.")
+        XCTAssertEqual(SessionReply.reply(["type": "response_item", "payload": ["type": "message", "role": "assistant",
+                                                                               "content": [["type": "output_text", "text": "Done: x"]]]], provider: .codex), "Done: x")
+        XCTAssertNil(SessionReply.reply(["type": "response_item", "payload": ["type": "message", "role": "user",
+                                                                             "content": [["type": "input_text", "text": "hi"]]]], provider: .codex))
+    }
+
     /// Codex does not keep its error event; the limit travels with the turn's completion (codex-rs rollout policy).
     func testACodexTurnTheLimitEndedIsNotedAndTheLogsAreFound() throws {
         try write("codex/2026/09/29/rollout-a.jsonl", [

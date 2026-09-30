@@ -95,6 +95,9 @@ struct TokenFileCursor: Codable, Sendable, Equatable {
     var model: String?
     /// Codex: the last cumulative total; the next one adds only the difference.
     var total: TokenCounts?
+    /// Codex: this file continues a thread from another file (`history_base`) whose last total is not known:
+    /// its first total is the baseline.
+    var baselinePending: Bool?
     /// Claude repeats one response's usage on each of its lines: the last ids seen and their readings,
     /// dropped once the file has been quiet for an hour.
     var seen: [String: TokenCounts]?
@@ -108,7 +111,9 @@ public struct TokenLedger: Codable, Sendable, Equatable {
     /// 2: Claude transcripts' written-back copies of earlier responses are no longer counted twice.
     /// 3: nor the copies a resumed or forked session's new transcript starts with; the first pass
     /// no longer loses old days between its slices.
-    public static let currentVersion = 3
+    /// 4: a Codex thread continued in a new file, a rollout moved to the archive and a reset total
+    /// are no longer counted twice or lost (audit 30.09).
+    public static let currentVersion = 4
     public var version: Int? = TokenLedger.currentVersion
     public var sessions: [String: SessionTokens] = [:]
     /// Day key → entry key (provider, project, model, subagent) → tokens. The archive keeps them after pruning.
@@ -206,7 +211,14 @@ public struct TokenLedger: Codable, Sendable, Equatable {
             }
         }
         // A file that disappeared needs no cursor.
-        for path in cursors.keys where !present.contains(path) { cursors.removeValue(forKey: path) }
+        // A file that disappeared needs no cursor, unless it moved (Codex archives rollouts): the same file under a
+        // new path keeps its inode and continues from where it was read.
+        var moved: [UInt64: TokenFileCursor] = [:]
+        for path in cursors.keys where !present.contains(path) { if let cursor = cursors.removeValue(forKey: path) { moved[cursor.inode] = cursor } }
+        for index in files.indices where cursors[files[index].url.path] == nil {
+            if let cursor = moved.removeValue(forKey: files[index].inode), cursor.offset <= files[index].size { cursors[files[index].url.path] = cursor }
+        }
+        files.removeAll { file in cursors[file.url.path].map { $0.inode == file.inode && $0.offset >= file.size } ?? false }
         files.sort { $0.modified > $1.modified }
         for file in files {
             if monotonicNow() >= deadline || report.bytesRead >= maximumBytes { report.complete = false; break }
@@ -400,6 +412,12 @@ public struct TokenLedger: Codable, Sendable, Equatable {
         switch object["type"] as? String {
         case "session_meta":
             cursor.session = payload["id"] as? String ?? cursor.session
+            // A thread continued in a new file starts from its earlier file's total: the baseline is that
+            // file's last total when it was read, otherwise this file's first one.
+            if payload["history_base"] is [String: Any], cursor.total == nil, let thread = cursor.session {
+                let earlier = cursors.values.filter { $0.session == thread }.compactMap(\.total).max { $0.total < $1.total }
+                if let earlier { cursor.total = earlier } else { cursor.baselinePending = true }
+            }
             if let cwd = payload["cwd"] as? String { cursor.cwd = cwd }
             if let source = payload["source"] as? [String: Any], let subagent = source["subagent"] as? [String: Any],
                let spawn = subagent["thread_spawn"] as? [String: Any], let parent = spawn["parent_thread_id"] as? String { cursor.parent = parent }
@@ -421,7 +439,10 @@ public struct TokenLedger: Codable, Sendable, Equatable {
             let reading = TokenCounts(input: max(0, int(usage["input_tokens"]) - cached), cacheRead: cached,
                                       cacheWrite: int(usage["cache_write_input_tokens"]),
                                       output: max(0, int(usage["output_tokens"]) - reasoning), reasoning: reasoning)
-            let added = reading.adding(over: cursor.total ?? TokenCounts())
+            if cursor.baselinePending == true { cursor.baselinePending = nil; cursor.total = reading; return }
+            // A total that fell was reset: what it shows now was all spent since.
+            let previous = cursor.total ?? TokenCounts()
+            let added = reading.total < previous.total ? reading : reading.adding(over: previous)
             cursor.total = reading
             record(added, provider: .codex, session: session, cwd: cursor.cwd ?? "", model: cursor.model ?? "",
                    subagent: cursor.parent != nil, at: date, now: now, calendar: calendar)
