@@ -38,6 +38,12 @@ No. It measures intervals when sessions are observed working. Waiting for permis
 
 Two providers can work at the same time. Their individual durations may add up to more than the combined duration, which counts overlapping time once. See [how activity is counted](activity.md).
 
+Tokens are counted separately, from the local Claude and Codex logs: the Agent Monitor shows them per session, project and model, and Statistics shows where they went. Lunavect estimates a session's share of the weekly limit from them; the limit itself still comes from the client.
+
+## Can Lunavect stop an agent before it uses up my week?
+
+Yes. Choose **Limit Usage…** on a Claude Code or Codex session. Near your level the agent finishes its step and writes what is done and what is left; at the level its next action is refused through Lunavect's hooks. Nothing is killed, and your own message to the session lifts the stop. **Continue Later…** continues a session after the five-hour or weekly reset or at a set time. See [session limits](sessions.md#limit-usage-and-continue-later).
+
 ## Why does a desktop widget update later than the app?
 
 The app saves data and requests a refresh, but macOS schedules WidgetKit updates. The widget does not poll your accounts itself. Keep Lunavect running to collect new activity and usage data, and check the source timestamp when a value looks old.

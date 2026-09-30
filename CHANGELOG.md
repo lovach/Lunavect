@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.8 — Unreleased
+## 0.2.8 — 2026-09-30
 
 ### Limits for running sessions
 
