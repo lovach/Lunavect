@@ -188,6 +188,18 @@ private struct SelectionScopeChart: View {
     }
 }
 
+/// The clock card labels the weekdays in the order the summary counts them (the system calendar's
+/// first day), not the app language's: English on a Monday-first Mac (ru_AT) read Monday's hours as "Sun".
+final class ActivityDayClockWeekdayTests: XCTestCase {
+    func testWeekdayNamesFollowTheSystemFirstDayInTheAppLanguage() {
+        let english = Locale(identifier: "en")
+        XCTAssertEqual(ActivityDayClockCard.weekdayNames(firstWeekday: 2, locale: english).first, "Mon")
+        XCTAssertEqual(ActivityDayClockCard.weekdayNames(firstWeekday: 2, locale: english).last, "Sun")
+        XCTAssertEqual(ActivityDayClockCard.weekdayNames(firstWeekday: 1, locale: english).first, "Sun")
+        XCTAssertEqual(ActivityDayClockCard.weekdayNames(firstWeekday: 2, locale: Locale(identifier: "ru")).first?.lowercased(), "пн")
+    }
+}
+
 private struct SelectionScopeCapture: NSViewRepresentable {
     var capture: () -> Void
     func makeNSView(context: Context) -> NSView { NSView() }

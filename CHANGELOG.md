@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Statistics
+
+- **When you work** labels the weekdays in the order they are counted. With the app in English on a Mac whose region starts the week on Monday, the labels started a day early, so Monday's hours read "Sun".
+
 ## 0.2.8 — 2026-09-30
 
 ### Limits for running sessions
