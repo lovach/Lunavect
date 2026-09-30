@@ -356,10 +356,12 @@ public extension TerminalLocation {
     /// Finds the tab by its tty: types `text` while the agent runs there, `command` at a shell prompt.
     /// `false` when the tab is gone or runs something else.
     /// Codex reads fast input as a paste, where Return is a new line (live check 30.09): `submitAgain`
-    /// presses Return once more after a pause so the message is sent.
+    /// presses Return once more after a pause so the message is sent. Terminal ends `do script` with a
+    /// line feed, which Claude Code's fullscreen interface takes as a new line (live check 30.09): `carriageReturn`
+    /// ends the text with the carriage return a real Enter sends.
     /// `agentAllowed` false: the session's agent is gone from the device, so a program there is someone else's.
     static func typeScript(tty: String, app: String, text: String, command: String? = nil, agent: String? = nil, submitAgain: Bool = false,
-                           agentAllowed: Bool = true) -> String? {
+                           carriageReturn: Bool = false, agentAllowed: Bool = true) -> String? {
         guard valid(tty) else { return nil }
         let typed = typedText(text), resume = command.map(scriptLine)
         let names = agentAllowed ? agentProcesses + (agent.map { [scriptLine($0)] } ?? []) : []
@@ -384,7 +386,7 @@ public extension TerminalLocation {
                                 if \(versioned) then set agentRuns to true
                             end repeat
                             if agentRuns then
-                                do script "\(typed)" in t
+                                do script \(carriageReturn ? "(\"\(typed)\" & return)" : "\"\(typed)\"") in t
                                 \(submitAgain ? "delay 0.6\ndo script \"\" in t" : "")
                                 return true
                             end if
@@ -459,7 +461,7 @@ public extension TerminalLocation {
         let occupancy = occupancy(of: tty, provider: provider, runtimePID: agentPID)
         let agentAllowed = occupancy == .provider || occupancy == .unknown || (occupancy == .interpreter && provider == .claude)
         guard let source = typeScript(tty: tty, app: app, text: text, command: command, agent: agent, submitAgain: provider == .codex,
-                                      agentAllowed: agentAllowed) else {
+                                      carriageReturn: provider == .claude, agentAllowed: agentAllowed) else {
             throw SessionOpeningError.terminalFocusFailed(app)
         }
         return try await executeFocusScript(source, app: app, timeout: timeout)

@@ -110,6 +110,10 @@ final class SessionControlTests: XCTestCase {
         XCTAssertFalse(script.contains("delay 0.6"))
         XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", submitAgain: true)?.contains("delay 0.6\ndo script \"\" in t") == true)
         XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "iTerm2", text: "go", submitAgain: true)?.contains("tell s to write text \"\"") == true)
+        // Live check 30.09: Claude Code's fullscreen interface sends only on a carriage return; Terminal's own line feed is a new line.
+        XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", carriageReturn: true)?.contains("do script (\"go\" & return) in t") == true)
+        XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "", carriageReturn: true)?.contains("do script (\"\" & return) in t") == true,
+                      "Enter alone for a Claude Code waiting after the limit")
         // Live check 30.09: the native installer's process is named by its version, not "claude".
         XCTAssertTrue(script.contains(#""0123456789" contains (character 1 of pn)"#))
         XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", agent: "my \"agent\"")?.contains(#""my \"agent\"""#) == true)
