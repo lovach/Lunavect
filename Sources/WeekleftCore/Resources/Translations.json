@@ -6880,6 +6880,13 @@
     "fr": "Ouvrez la session et appuyez sur Entrée.",
     "zh-Hans": "打开会话并按 Enter。"
   },
+  "Claude Code мог показать своё меню лимита: откройте сессию и продолжите в ней.": {
+    "en": "Claude Code may be showing its usage-limit options: open the session and continue there.",
+    "de": "Claude Code zeigt möglicherweise seine Optionen zum Nutzungslimit: Öffnen Sie die Sitzung und setzen Sie sie dort fort.",
+    "es": "Puede que Claude Code muestre sus opciones del límite de uso: abre la sesión y continúa en ella.",
+    "fr": "Claude Code affiche peut-être ses options de limite d’utilisation : ouvrez la session et poursuivez-y.",
+    "zh-Hans": "Claude Code 可能正在显示用量上限选项：请打开会话并在其中继续。"
+  },
   "Поднять предел на 5 процентных пунктов и продолжить": {
     "de": "Limit um 5 Prozentpunkte erhöhen und fortsetzen",
     "en": "Raise the limit by 5 percentage points and continue",

@@ -203,9 +203,9 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
     /// Claude Code and Codex read the same shapes: PreToolUse denies with a reason the
     /// agent sees or adds context. The user's own message (UserPromptSubmit) is never
     /// blocked: in a stopped session it lifts the stop (owner 30.09), noted in `overridden`
-    /// until Lunavect removes the entry. A resting session is written as stopped: its
-    /// hooks answer the same way.
-    public func reply(payload: Data, now: Date = Date(), overridden: Set<String> = []) -> String {
+    /// until Lunavect removes the entry. Claude Code's own continuation after a usage limit
+    /// (`automatic`) is not the user's decision: a week's stop holds it back, a rest lets it go.
+    public func reply(payload: Data, now: Date = Date(), overridden: Set<String> = [], automatic: Bool = false) -> String {
         guard !entries.isEmpty, let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let event = object["hook_event_name"] as? String, let session = object["session_id"] as? String else { return "{}" }
         let provider: ProviderID? = entries[TokenLedger.sessionKey(.claude, session)] != nil ? .claude
@@ -219,6 +219,10 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
             reply = lifted ? nil : ["hookSpecificOutput": ["hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": entry.agent]]
         case ("PreToolUse", .wrappingUp):
             reply = ["hookSpecificOutput": ["hookEventName": "PreToolUse", "additionalContext": entry.agent]]
+        case ("UserPromptSubmit", .stopped) where automatic:
+            reply = ["decision": "block", "reason": entry.agent]
+        case ("UserPromptSubmit", .resting) where automatic:
+            reply = nil
         case ("UserPromptSubmit", .stopped), ("UserPromptSubmit", .resting):
             reply = entry.continued.map { ["hookSpecificOutput": ["hookEventName": "UserPromptSubmit", "additionalContext": $0]] }
         case ("UserPromptSubmit", .wrappingUp):
@@ -232,18 +236,40 @@ public struct SessionLimitFile: Codable, Equatable, Sendable {
 
 public extension SessionLimitFile {
     /// The hook's side of a limit: the reply, and a note when the user's message lifts a stop.
-    static func answer(payload: Data, limits: URL = fileURL, overrides: URL = SessionLimitOverrides.fileURL, now: Date = Date()) -> String {
+    /// `limitWait` reads the session's own record: Claude Code's last wait for a usage limit and when it ended.
+    static func answer(payload: Data, limits: URL = fileURL, overrides: URL = SessionLimitOverrides.fileURL, now: Date = Date(),
+                       limitWait: (String) -> (kind: String, at: Date)? = SessionLimitFile.recordedLimitWait) -> String {
         let file = load(from: limits)
         guard !file.entries.isEmpty, let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let event = object["hook_event_name"] as? String, let session = object["session_id"] as? String,
               let key = [TokenLedger.sessionKey(.claude, session), TokenLedger.sessionKey(.codex, session)].first(where: { file.entries[$0] != nil }),
               let entry = file.entries[key], [.stopped, .resting].contains(entry.state) else { return file.reply(payload: payload, now: now) }
+        let automatic = event == "UserPromptSubmit" && key.hasPrefix(ProviderID.claude.rawValue + ":")
+            && isAutomaticContinuation(object["prompt"] as? String, wait: limitWait(session), now: now)
         var noted = SessionLimitOverrides.load(from: overrides)
-        if event == "UserPromptSubmit", entry.until.map({ $0 > now }) ?? true {
+        if event == "UserPromptSubmit", !automatic, entry.until.map({ $0 > now }) ?? true {
             noted.sessions[key] = now
             try? noted.save(to: overrides)
         }
-        return file.reply(payload: payload, now: now, overridden: Set(noted.sessions.keys))
+        return file.reply(payload: payload, now: now, overridden: Set(noted.sessions.keys), automatic: automatic)
+    }
+    /// Claude Code's own continuation after a usage limit: it sends a fixed prompt through UserPromptSubmit, with
+    /// no field saying so (docs: interactive mode, "Wait for a usage limit to reset"; the texts are 2.1.283's).
+    /// Also any prompt within two minutes after Claude Code reported that wait ending (`quota_auto_resume_fired`
+    /// or `_stale`, recorded by the Notification hook).
+    static func isAutomaticContinuation(_ prompt: String?, wait: (kind: String, at: Date)?, now: Date) -> Bool {
+        let text = (prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("Your claude.ai usage limit has reset.") || text.hasPrefix("Your claude.ai usage is available again") { return true }
+        guard let wait, ["fired", "stale"].contains(wait.kind) else { return false }
+        let since = now.timeIntervalSince(wait.at)
+        return since >= 0 && since < 120
+    }
+    static func recordedLimitWait(_ session: String) -> (kind: String, at: Date)? {
+        let url = SessionHooks.directory.appendingPathComponent("claude-\(session).json")
+        guard SessionParser.validID(session), let data = try? Data(contentsOf: url), data.count < 65536,
+              let record = try? JSONDecoder().decode(SessionRecord.self, from: data),
+              let kind = record.session.limitWait, let at = record.session.limitWaitAt else { return nil }
+        return (kind, at)
     }
 }
 
@@ -312,10 +338,19 @@ public enum SessionReply {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? nil : text
         case .codex:
-            guard object["type"] as? String == "event_msg", let payload = object["payload"] as? [String: Any],
-                  payload["type"] as? String == "agent_message", let text = (payload["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !text.isEmpty else { return nil }
-            return text
+            guard let payload = object["payload"] as? [String: Any] else { return nil }
+            let text: String?
+            switch (object["type"] as? String, payload["type"] as? String) {
+            case ("event_msg", "agent_message"): text = payload["message"] as? String
+            // Codex 0.159 writes no agent_message events: the turn's end and the assistant's message carry the reply.
+            case ("event_msg", "task_complete"): text = payload["last_agent_message"] as? String
+            case ("response_item", "message") where payload["role"] as? String == "assistant":
+                text = (payload["content"] as? [[String: Any]])?.filter { $0["type"] as? String == "output_text" }
+                    .compactMap { $0["text"] as? String }.joined(separator: "\n")
+            default: text = nil
+            }
+            let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         default: return nil
         }
     }
@@ -360,9 +395,13 @@ public extension TerminalLocation {
     /// line feed, which Claude Code's fullscreen interface takes as a new line (live check 30.09): `carriageReturn`
     /// ends the text with the carriage return a real Enter sends.
     /// `agentAllowed` false: the session's agent is gone from the device, so a program there is someone else's.
+    /// `titleContains`: the tab was found only by the session's folder, so it must also carry the session's
+    /// name in its title (Codex titles its tab "<thread name> | <folder>").
     static func typeScript(tty: String, app: String, text: String, command: String? = nil, agent: String? = nil, submitAgain: Bool = false,
-                           carriageReturn: Bool = false, agentAllowed: Bool = true) -> String? {
+                           carriageReturn: Bool = false, agentAllowed: Bool = true, titleContains: String? = nil) -> String? {
         guard valid(tty) else { return nil }
+        let terminalTitle = titleContains.map { " and ((custom title of t) contains \"\(scriptLine($0))\")" } ?? ""
+        let itermTitle = titleContains.map { " and ((name of s) contains \"\(scriptLine($0))\")" } ?? ""
         let typed = typedText(text), resume = command.map(scriptLine)
         let names = agentAllowed ? agentProcesses + (agent.map { [scriptLine($0)] } ?? []) : []
         let agents = names.map { "\"\($0)\"" }.joined(separator: ", "), shells = shellProcesses.map { "\"\($0)\"" }.joined(separator: ", ")
@@ -377,7 +416,7 @@ public extension TerminalLocation {
             tell application "Terminal"
                 repeat with w in windows
                     repeat with t in tabs of w
-                        if tty of t is "\(tty)" and (count of processes of t) > 0 then
+                        if tty of t is "\(tty)"\(terminalTitle) and (count of processes of t) > 0 then
                             set names to processes of t
                             set agentRuns to false
                             repeat with p in names
@@ -406,13 +445,13 @@ public extension TerminalLocation {
                 repeat with w in windows
                     repeat with t in tabs of w
                         repeat with s in sessions of t
-                            if tty of s is "\(tty)" then
+                            if tty of s is "\(tty)"\(itermTitle) then
                                 set job to ""
                                 try
                                     tell s to set job to (variable named "jobName")
                                 end try
                                 if {\(agents)} contains job or \(versionedJob) then
-                                    tell s to write text "\(typed)"
+                                    tell s to write text \(carriageReturn ? "(\"\(typed)\" & return) newline no" : "\"\(typed)\"")
                                     \(submitAgain ? "delay 0.6\ntell s to write text \"\"" : "")
                                     return true
                                 end if
@@ -452,7 +491,7 @@ public extension TerminalLocation {
     }
     /// Types `text` and Return into the tab; false when the tab is gone.
     static func type(_ text: String, tty: String, app: String, command: String? = nil, agentPID: Int32? = nil, provider: ProviderID,
-                     timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
+                     titleContains: String? = nil, timeout: TimeInterval = Double(focusTimeout)) async throws -> Bool {
         // The session's own runtime names its process exactly, whatever the installer called the binary.
         let agent = agentPID.flatMap(SessionProcess.runtimeProcess).map { URL(fileURLWithPath: $0.executable).lastPathComponent }
         // macOS gives a closed tab's device to the next tab, and the user may have started another agent or
@@ -461,7 +500,7 @@ public extension TerminalLocation {
         let occupancy = occupancy(of: tty, provider: provider, runtimePID: agentPID)
         let agentAllowed = occupancy == .provider || occupancy == .unknown || (occupancy == .interpreter && provider == .claude)
         guard let source = typeScript(tty: tty, app: app, text: text, command: command, agent: agent, submitAgain: provider == .codex,
-                                      carriageReturn: provider == .claude, agentAllowed: agentAllowed) else {
+                                      carriageReturn: provider == .claude, agentAllowed: agentAllowed, titleContains: titleContains) else {
             throw SessionOpeningError.terminalFocusFailed(app)
         }
         return try await executeFocusScript(source, app: app, timeout: timeout)

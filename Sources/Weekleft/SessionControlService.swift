@@ -41,10 +41,12 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         var ledger: @MainActor () -> TokenLedger
         var snapshots: @MainActor () -> [UsageSnapshot]
         var sessions: @MainActor () -> [AgentSession]
-        /// Types into the session's tab (text, tty, app, resume command, agent pid, provider): the message while
-        /// the agent runs there, the resume command at a shell prompt.
-        var type: @Sendable (String, String, String, String?, Int32?, ProviderID) async throws -> Bool = { text, tty, app, command, pid, provider in
-            try await TerminalLocation.type(text, tty: tty, app: app, command: command, agentPID: pid, provider: provider)
+        /// The session list has been read at least once: before that every session looks gone.
+        var sessionsLoaded: @MainActor () -> Bool = { true }
+        /// Types into the session's tab (text, tty, app, resume command, agent pid, provider, title the tab must carry):
+        /// the message while the agent runs there, the resume command at a shell prompt.
+        var type: @Sendable (String, String, String, String?, Int32?, ProviderID, String?) async throws -> Bool = { text, tty, app, command, pid, provider, title in
+            try await TerminalLocation.type(text, tty: tty, app: app, command: command, agentPID: pid, provider: provider, titleContains: title)
         }
         /// The tab of a session whose hooks recorded no device: the one running process of its provider in its folder.
         var locate: @MainActor (AgentSession) -> (tty: String, app: String)? = { TerminalLocation.focusTarget(for: $0).map { ($0.tty, $0.app) } }
@@ -69,12 +71,24 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     private var declined: [String: Date] = [:]
     private var autoContinue: (value: Bool, at: Date)?
     private var writtenLimits: SessionLimitFile?
+    /// When the session list was first seen loaded after being seen unread; continuations then wait a little
+    /// longer for the hooks' records.
+    private var sessionsReadyAt: Date?
+    private var sawUnreadSessions = false
     private let logger = Logger(subsystem: "com.weekleft.app", category: "session-controls")
 
     init(url: URL? = SessionControlService.defaultURL, limitURL: URL? = SessionControlService.defaultLimitURL,
          overrideURL: URL? = SessionControlService.defaultOverrideURL, dependencies: Dependencies) {
         self.url = url; self.limitURL = limitURL; self.overrideURL = overrideURL; self.dependencies = dependencies
-        let list = url.flatMap { try? SessionControlList.load(from: $0) }
+        var list: SessionControlList?
+        do { list = try url.map { try SessionControlList.load(from: $0) } }
+        catch {
+            // An unreadable file is kept aside for diagnosis, not overwritten by the next save.
+            if let url, FileManager.default.fileExists(atPath: url.path), (try? LiveWriteGuard.check(url)) != nil {
+                try? FileManager.default.moveItem(at: url, to: url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + ".corrupt-" + UUID().uuidString))
+            }
+            logger.error("Session controls unreadable: \((error as NSError).code)")
+        }
         controls = list?.controls ?? []
         declined = list?.declined ?? [:]
     }
@@ -145,6 +159,8 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         case .at: control.resumeAt = date
         }
         control.pressEnter = nil
+        // The user's own plan answers a pending cut-off: it is not offered again.
+        if let cut = control.cutOffAt { declined[control.id] = max(declined[control.id] ?? cut, cut) }
         if [.continued, .needsYou, .offered].contains(control.state) { control.state = .watching }
         control.note = nil; control.updatedAt = now
         upsert(control)
@@ -157,7 +173,9 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     }
     /// Continues now: lifts the week's limit, or lets a resting session go until the next 5-hour window.
     func continueNow(_ id: String) {
-        guard var control = controls.first(where: { $0.id == id }) else { return }
+        // A notice outlives its state: a session already continued gets nothing typed twice.
+        guard var control = controls.first(where: { $0.id == id }),
+              [.stopped, .resting].contains(control.state) || control.resumeAt != nil else { return }
         let now = dependencies.clock()
         switch control.state {
         case .resting: control.guardOffUntil = snapshot(control.provider)?.fiveHour?.resetsAt ?? now.addingTimeInterval(5 * 3600)
@@ -170,12 +188,13 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     }
     /// Raises the week's limit by `points` and continues a session the old limit stopped.
     func raise(_ id: String, by points: Double = 5) {
-        guard var control = controls.first(where: { $0.id == id }) else { return }
+        // Only a session its limit stopped: a late notice must not set a limit the user lifted or changed.
+        guard var control = controls.first(where: { $0.id == id }), control.state == .stopped, control.stopAtWeek != nil else { return }
         let now = dependencies.clock(), level = weekLevel(control.provider)
-        let wasStopped = control.state == .stopped
         control.stopAtWeek = min(100, max(control.stopAtWeek ?? 0, (level ?? 0).rounded(.up)) + points)
         control.startLevel = level
-        if wasStopped { control.state = .watching; control.reason = nil; control.resumeAt = now }
+        // At the 100 % cap the week is still at the limit: the session stays stopped.
+        if control.stopAtWeek! > (level ?? 0) { control.state = .watching; control.reason = nil; control.resumeAt = now }
         control.updatedAt = now
         upsert(control)
         Task { await tick() }
@@ -188,7 +207,9 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     }
     /// No to it: the cut-off is not offered again; a limit the user set stays.
     func decline(_ id: String) {
-        guard var control = controls.first(where: { $0.id == id }) else { return }
+        // Only the continuation the cut-off brought: a late «No» must not drop a plan the user made since.
+        guard var control = controls.first(where: { $0.id == id }),
+              control.state == .offered || control.cutOffAt != nil && (control.resume == .afterLimitReset || control.pressEnter == true) else { return }
         declined[id] = control.cutOffAt ?? dependencies.clock()
         if control.stopAtWeek == nil && control.fiveHourGuard != true { remove(id); return }
         if control.state == .offered { control.state = .watching }
@@ -198,7 +219,7 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     /// Resumes the session in a new Terminal window when it could not be typed into.
     func openInTerminal(_ id: String) {
         // Claude Code waiting for Enter still runs: a second process would write the same transcript.
-        guard let control = controls.first(where: { $0.id == id }), control.pressEnter != true,
+        guard let control = controls.first(where: { $0.id == id }), control.state == .needsYou, control.pressEnter != true,
               let command = TerminalLocation.resumeCommand(provider: control.provider, sessionID: control.sessionID, text: control.text, cwd: control.cwd) else { return }
         let app = control.terminalApp == "iTerm2" ? "iTerm2" : "Terminal"
         Task {
@@ -230,6 +251,12 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty || trimmed == SessionControl.defaultMessage ? nil : trimmed
     }
+    /// The part of a Codex session's name its tab title must contain; nil when it has none to go by.
+    nonisolated static func titleBinding(_ session: AgentSession) -> String? {
+        let title = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard session.provider == .codex, title.count >= 3 else { return nil }
+        return String(title.prefix(24))
+    }
     /// A minute after the reset, so the provider has let the account go again.
     private static func afterReset(_ date: Date) -> Date { date.addingTimeInterval(60) }
     /// When a continuation chosen before its reset was known is due, once a reading shows it.
@@ -252,7 +279,12 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
     func tick() async {
         let now = dependencies.clock(), sessions = dependencies.sessions()
         liftOverriddenStops(now: now)
-        noticeCutOffs(sessions, now: now)
+        // Right after launch the list is empty until read, and the hooks' records come just after it:
+        // a session must not look gone (or cut off) before then.
+        let loaded = dependencies.sessionsLoaded()
+        if !loaded { sawUnreadSessions = true } else if sessionsReadyAt == nil { sessionsReadyAt = now }
+        let ready = loaded && (!sawUnreadSessions || sessionsReadyAt.map { now.timeIntervalSince($0) >= 5 } ?? false)
+        if ready { noticeCutOffs(sessions, now: now) }
         for id in controls.map(\.id) {
             guard var control = controls.first(where: { $0.id == id }) else { continue }
             let snapshot = snapshot(control.provider)
@@ -285,7 +317,14 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             }
             if [.stopped, .resting, .offered, .needsYou].contains(control.state) { readSummary(control, row: row, now: now) }
             // A continuation is due: typed into the session's own tab once it is idle.
-            if let at = control.resumeAt, at <= now, ![.stopped, .resting, .offered, .needsYou, .continued].contains(control.state),
+            // The user started a new turn after the cut-off: its offered continuation is moot.
+            if let cut = control.cutOffAt, let started = row?.turnStartedAt, started > cut.addingTimeInterval(5),
+               control.state == .offered || (control.resume == .afterLimitReset && control.resumeAt != nil) {
+                declined[id] = max(declined[id] ?? cut, cut)
+                if control.stopAtWeek == nil && control.fiveHourGuard != true { remove(id); continue }
+                control.state = .watching; control.resumeAt = nil; control.resume = nil; control.note = nil; upsert(control, write: false)
+            }
+            if ready, let at = control.resumeAt, at <= now, ![.stopped, .resting, .offered, .needsYou, .continued].contains(control.state),
                !delivering.contains(id) {
                 if let phase = row?.effectivePhase(now: now), phase == .running || phase == .permission { continue }
                 delivering.insert(id)
@@ -300,7 +339,8 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
 
     private func enter(_ state: SessionControl.State, reason: SessionControl.Reason?, control: inout SessionControl, snapshot: UsageSnapshot?, now: Date) {
         if state == .stopped, control.state != .stopped {
-            if control.continueAfterWeek == true { control.resumeAt = snapshot?.weekly?.resetsAt.map(Self.afterReset) }
+            // A continuation left from before (a raise, a plan) waits for the week too, and only if the user asked for it.
+            control.resumeAt = control.continueAfterWeek == true ? snapshot?.weekly?.resetsAt.map(Self.afterReset) : nil
             let when = control.resumeAt.map { L("Продолжит {0}.", Self.date($0)) } ?? L("Напишите в сессию или снимите ограничение в Lunavect, чтобы продолжить.")
             let level = PercentText.format(Int((control.stopAtWeek ?? 0).rounded()))
             dependencies.notify(Notice(title: L("Сессия остановлена на {0} недели", level), body: control.title + "\n" + when,
@@ -426,18 +466,27 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         guard let due = controls.first(where: { $0.id == id }) else { return }
         let text = due.text
         // Codex 0.159 runs its hooks from a shared daemon without a terminal (live check 30.09), so its
-        // sessions carry no device: the tab is found by the session's folder when that is unambiguous.
+        // sessions carry no device. The one Codex running in the session's folder may be another session
+        // of that folder: its tab gets the text only when its title names this session (Codex titles the
+        // tab "<thread name> | <folder>"); otherwise the user is asked.
         let located = row.flatMap { $0.terminalTTY == nil ? dependencies.locate($0) : nil }
-        let tty = row?.terminalTTY ?? located?.tty
-        let app = row?.terminalApp ?? located.flatMap { $0.app.isEmpty ? nil : $0.app } ?? due.terminalApp, client = row?.client ?? due.client
+        let binding = located == nil ? nil : row.flatMap(Self.titleBinding)
+        let tty = row?.terminalTTY ?? (binding == nil ? nil : located?.tty)
+        let app = row?.terminalApp ?? (binding == nil ? nil : located.flatMap { $0.app.isEmpty ? nil : $0.app }) ?? due.terminalApp
+        let client = row?.client ?? due.client
         // Enter alone belongs to the waiting Claude Code; a shell or a new window gets nothing.
         let enter = due.pressEnter == true
         // From the session's folder also in its tab: macOS may have given the tab's device to another project.
         let command = enter ? nil : TerminalLocation.resumeCommand(provider: due.provider, sessionID: due.sessionID, text: text, cwd: due.cwd)
+        // After a usage limit Claude Code may show its own limit options (its automatic continue off or given up):
+        // typed text and Enter would answer that dialog. Only its explicit wait for Enter is answered.
+        let limitDialog = due.provider == .claude && !enter && row.map { $0.phase == .failed && $0.failure == .limit } == true
         var typed = false, opened = false
-        if client == .terminal, let app, ["Terminal", "iTerm2"].contains(app) {
-            if let tty { typed = (try? await dependencies.type(text, tty, app, command, row?.runtimePID, due.provider)) == true }
-            if !typed, let command { opened = (try? await dependencies.open(command, app)) == true }
+        if !limitDialog, client == .terminal, let app, ["Terminal", "iTerm2"].contains(app) {
+            if let tty { typed = (try? await dependencies.type(text, tty, app, command, row?.runtimePID, due.provider, binding)) == true }
+            // A new window only when the session's own tab was known and no longer runs it: a session whose tab is
+            // unknown (or not listed: hidden, or not read yet) may still run, and a second process would share its conversation.
+            if !typed, row?.terminalTTY != nil, let command { opened = (try? await dependencies.open(command, app)) == true }
         }
         // The user may have removed or changed the control while the script ran.
         guard var control = controls.first(where: { $0.id == id }) else { return }
@@ -454,7 +503,9 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
                                        category: nil, controlID: id))
         } else {
             control.state = .needsYou
-            control.note = enter ? L("Откройте сессию и нажмите Enter.") : L("Напишите агенту: «{0}»", text)
+            control.note = enter ? L("Откройте сессию и нажмите Enter.")
+                : limitDialog ? L("Claude Code мог показать своё меню лимита: откройте сессию и продолжите в ней.")
+                : L("Напишите агенту: «{0}»", text)
             dependencies.notify(Notice(title: L("Лимит сброшен: сессию можно продолжить"),
                                        body: control.title + "\n" + (enter ? L("Откройте сессию и нажмите Enter.") : L("Откройте её и напишите агенту «{0}».", text)),
                                        category: command == nil ? nil : Self.Category.needsYou, controlID: id))
@@ -473,14 +524,16 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
             // The entry lapses five minutes after its window resets, also when Lunavect is not running then.
             let snapshot = snapshot(control.provider)
             let window = control.reason == .fiveHour || control.state == .resting ? snapshot?.fiveHour : snapshot?.weekly
-            let until = window?.resetsAt.map { $0.addingTimeInterval(300) }
+            // Without a known reset it still ends: after the longest window since the stop began.
+            let longest: TimeInterval = control.state == .resting || control.reason == .fiveHour ? 5 * 3600 : 7 * 86400
+            let until = window?.resetsAt.map { $0.addingTimeInterval(300) } ?? control.updatedAt.addingTimeInterval(longest + 300)
             switch (control.state, control.reason) {
             case (.stopped, _):
                 file.entries[control.id] = .init(state: .stopped,
                     agent: L("Lunavect: неделя дошла до {0}, эта сессия остановлена до сброса лимита. Не выполняй новых действий.", level) + " " + format,
                     continued: continued, until: until)
             case (.resting, _):
-                file.entries[control.id] = .init(state: .stopped,
+                file.entries[control.id] = .init(state: .resting,
                     agent: L("Lunavect: окно 5 часов почти исчерпано, эта сессия ждёт его сброса ({0}). Не выполняй новых действий: Lunavect сам попросит продолжить.", reset) + " " + format,
                     continued: continued, until: until)
             case (.wrappingUp, .fiveHour):
@@ -553,6 +606,9 @@ enum SessionCutOffAction: String, CaseIterable, Identifiable {
         content.title = notice.title; content.body = notice.body
         if let category = notice.category { content.categoryIdentifier = category }
         if let id = notice.controlID { content.userInfo = ["controlID": id, "sessionID": id]; content.threadIdentifier = id }
-        center.add(UNNotificationRequest(identifier: "lunavect-control-" + UUID().uuidString, content: content, trigger: nil))
+        center.add(UNNotificationRequest(identifier: "lunavect-control-" + UUID().uuidString, content: content, trigger: nil)) { error in
+            // Without permission macOS drops it; the Tasks tab still shows the same card.
+            if let error { Logger(subsystem: "com.weekleft.app", category: "session-controls").notice("Session notice not delivered: \((error as NSError).code)") }
+        }
     }
 }

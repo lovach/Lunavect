@@ -114,6 +114,8 @@ final class SessionControlTests: XCTestCase {
         XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", carriageReturn: true)?.contains("do script (\"go\" & return) in t") == true)
         XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "", carriageReturn: true)?.contains("do script (\"\" & return) in t") == true,
                       "Enter alone for a Claude Code waiting after the limit")
+        XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "iTerm2", text: "go", carriageReturn: true)?
+            .contains(#"tell s to write text ("go" & return) newline no"#) == true, "iTerm2 gets exactly the carriage return too")
         // Live check 30.09: the native installer's process is named by its version, not "claude".
         XCTAssertTrue(script.contains(#""0123456789" contains (character 1 of pn)"#))
         XCTAssertTrue(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", agent: "my \"agent\"")?.contains(#""my \"agent\"""#) == true)
@@ -136,6 +138,33 @@ final class SessionControlTests: XCTestCase {
         XCTAssertEqual(SessionLimitFile.answer(payload: try event("PreToolUse"), limits: limits, overrides: overrides, now: now), "{}")
     }
 
+    /// Claude Code's own continuation after a usage limit comes through UserPromptSubmit with a fixed text and no
+    /// marker: it is not the user's decision. A week's stop holds it back; a rest lets it go; neither is lifted by it.
+    func testClaudesOwnContinuationDoesNotLiftAStop() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let limits = folder.appendingPathComponent("limits.json"), overrides = folder.appendingPathComponent("o.json")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        try SessionLimitFile(entries: ["claude:A": .init(state: .stopped, agent: "agent-stop", continued: "agent-continued"),
+                                       "claude:B": .init(state: .resting, agent: "agent-rest", continued: "agent-continued")]).save(to: limits)
+        func prompt(_ session: String, _ text: String) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["hook_event_name": "UserPromptSubmit", "session_id": session, "prompt": text])
+        }
+        let auto = "Your claude.ai usage limit has reset. Continue the task you were working on when the limit was reached; do not repeat work that is already complete."
+        XCTAssertTrue(SessionLimitFile.answer(payload: try prompt("A", auto), limits: limits, overrides: overrides, now: now, limitWait: { _ in nil }).contains("\"block\""))
+        XCTAssertEqual(SessionLimitFile.answer(payload: try prompt("B", auto), limits: limits, overrides: overrides, now: now, limitWait: { _ in nil }), "{}")
+        XCTAssertTrue(SessionLimitOverrides.load(from: overrides).sessions.isEmpty, "no stop is lifted by it")
+        // Enter on Claude Code's "press enter to continue" after sleep sends the same kind of prompt, reported just before.
+        XCTAssertTrue(SessionLimitFile.answer(payload: try prompt("A", "continue"), limits: limits, overrides: overrides, now: now,
+                                              limitWait: { _ in ("stale", now.addingTimeInterval(-30)) }).contains("\"block\""))
+        XCTAssertTrue(SessionLimitOverrides.load(from: overrides).sessions.isEmpty)
+        // The user's own words lift it.
+        XCTAssertTrue(SessionLimitFile.answer(payload: try prompt("A", "дальше"), limits: limits, overrides: overrides, now: now,
+                                              limitWait: { _ in ("fired", now.addingTimeInterval(-600)) }).contains("agent-continued"))
+        XCTAssertNotNil(SessionLimitOverrides.load(from: overrides).sessions["claude:A"])
+    }
+
     /// A long message is cut before quoting: the command always closes its quotes.
     func testALongMessageKeepsTheResumeCommandWhole() throws {
         let text = String(repeating: "слово ", count: 90)
@@ -147,6 +176,15 @@ final class SessionControlTests: XCTestCase {
         XCTAssertTrue(TerminalLocation.openScript(app: "Terminal", command: command).contains(TerminalLocation.scriptLine(command)))
         XCTAssertEqual(TerminalLocation.resumeCommand(provider: .codex, sessionID: "019a0c0a-96ca", text: "-v please"), "codex resume 019a0c0a-96ca ' -v please'",
                        "a message is never read as an option")
+    }
+
+    /// A tab found only by its folder must carry the session's name in its title.
+    func testATabFoundByFolderMustNameTheSession() throws {
+        let terminal = try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go", titleContains: "Fix \"the\" bug"))
+        XCTAssertTrue(terminal.contains(#"if tty of t is "/dev/ttys012" and ((custom title of t) contains "Fix \"the\" bug") and"#))
+        let iterm = try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "iTerm2", text: "go", titleContains: "Fix"))
+        XCTAssertTrue(iterm.contains(#"if tty of s is "/dev/ttys012" and ((name of s) contains "Fix") then"#))
+        XCTAssertFalse(try XCTUnwrap(TerminalLocation.typeScript(tty: "/dev/ttys012", app: "Terminal", text: "go")).contains("custom title"))
     }
 
     /// The session's agent is gone from the device: a program there is someone else's and gets no text.

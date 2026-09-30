@@ -10,6 +10,7 @@ import WeekleftCore
         /// The limit file's entries when each text was typed: the hooks read it then.
         var limits: URL?
         var entriesAtTyping: [Int] = []
+        var titles: [String?] = []
         /// Runs while the text is typed, as a user acting meanwhile would.
         var during: (@MainActor () -> Void)?
     }
@@ -37,8 +38,8 @@ import WeekleftCore
                 UsageSnapshot(provider: .codex, fiveHour: try! QuotaWindow(usedPercent: 100, durationMinutes: 300, resetsAt: self.now.addingTimeInterval(self.fiveReset)),
                               fetchedAt: self.now)] },
             sessions: rows,
-            type: { text, tty, app, command, _, _ in
-                typed.calls.append((text, tty, app, command))
+            type: { text, tty, app, command, _, _, title in
+                typed.calls.append((text, tty, app, command)); typed.titles.append(title)
                 if let url = typed.limits { typed.entriesAtTyping.append(SessionLimitFile.load(from: url).entries.count) }
                 if let during = typed.during { await during() }
                 return typed.result
@@ -103,7 +104,7 @@ import WeekleftCore
         XCTAssertEqual(controls.controls.first?.reason, .fiveHour)
         fiveHour = 97; await controls.tick()
         XCTAssertEqual(controls.controls.first?.state, .resting)
-        XCTAssertEqual(SessionLimitFile.load(from: limits).entries.first?.value.state, .stopped, "a rest refuses actions like a stop")
+        XCTAssertEqual(SessionLimitFile.load(from: limits).entries.first?.value.state, .resting, "a rest refuses actions like a stop and lets Claude's own continuation go")
         XCTAssertEqual(titles.last, L("Сессия ждёт сброса окна 5 часов"))
         XCTAssertTrue(typed.calls.isEmpty)
 
@@ -279,7 +280,180 @@ import WeekleftCore
         await controls.tick()
         XCTAssertEqual(typed.calls.first?.tty, "/dev/ttys008")
         XCTAssertEqual(typed.calls.first?.app, "Terminal")
+        XCTAssertEqual(typed.titles.first, "Refactor", "a tab found by folder must name this session")
         XCTAssertEqual(controls.controls.first?.state, .continued)
+    }
+
+    /// The Codex in that folder is another session (its tab has another title): nothing is typed, no second
+    /// process is started for a session that may still run somewhere, and the user is asked.
+    func testAnotherSessionInTheSameFolderGetsNoTextAndNoWindowOpens() async throws {
+        let limits = limits(), typed = Typed(), id = "019a0c0a-96ca-7cf2-9f85-caba5f66eed7"
+        typed.result = false
+        var session = row(.codex, id: id); session.terminalTTY = nil; session.terminalApp = nil
+        located = ("/dev/ttys008", "Terminal")
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.continueLater(session, when: .at, at: now.addingTimeInterval(-1), message: "дальше")
+        await controls.tick()
+        XCTAssertEqual(typed.calls.count, 1)
+        XCTAssertTrue(typed.opened.isEmpty)
+        XCTAssertEqual(controls.controls.first?.state, .needsYou)
+    }
+
+    /// A Claude session without a recorded device is never typed into by folder, and no window opens.
+    func testAClaudeSessionWithoutADeviceIsNotGuessedByFolder() async throws {
+        let limits = limits(), typed = Typed()
+        var session = row(id: "0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21"); session.terminalTTY = nil; session.terminalApp = nil
+        located = ("/dev/ttys008", "Terminal")
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.continueLater(session, when: .at, at: now.addingTimeInterval(-1), message: "дальше")
+        await controls.tick()
+        XCTAssertTrue(typed.calls.isEmpty)
+        XCTAssertTrue(typed.opened.isEmpty)
+        XCTAssertEqual(controls.controls.first?.state, .needsYou)
+    }
+
+    /// The session is not listed (hidden in Lunavect, or not read yet): it may still run, so no second process
+    /// starts for it; the user is asked.
+    func testAnUnlistedSessionGetsNoNewWindow() async throws {
+        let limits = limits(), typed = Typed()
+        let session = row(id: "0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21")
+        var rows = [session]
+        let controls = service(typed, rows: { rows }, limits: limits)
+        controls.continueLater(session, when: .at, at: now.addingTimeInterval(-1), message: "дальше")
+        rows = []
+        await controls.tick()
+        XCTAssertTrue(typed.calls.isEmpty)
+        XCTAssertTrue(typed.opened.isEmpty)
+        XCTAssertEqual(controls.controls.first?.state, .needsYou)
+    }
+
+    /// Right after launch the session list is empty until read: nothing is continued or declared gone before then.
+    func testNothingIsContinuedBeforeTheSessionListIsRead() async throws {
+        let limits = limits(), typed = Typed(), session = row()
+        var loaded = false, rows: [AgentSession] = []
+        let controls = SessionControlService(url: nil, limitURL: limits, dependencies: .init(
+            ledger: { [unowned self] in self.ledger }, snapshots: { [] }, sessions: { rows }, sessionsLoaded: { loaded },
+            type: { text, tty, app, command, _, _, _ in typed.calls.append((text, tty, app, command)); return true },
+            locate: { _ in nil }, open: { command, app in typed.opened.append((command, app)); return true },
+            notify: { _ in }, clock: { [unowned self] in self.now }))
+        controls.continueLater(session, when: .at, at: now.addingTimeInterval(-1), message: "дальше")
+        await controls.tick()
+        XCTAssertTrue(typed.calls.isEmpty); XCTAssertTrue(typed.opened.isEmpty)
+        XCTAssertEqual(controls.controls.first?.state, .watching, "still waiting, not given up")
+        loaded = true; rows = [session]; await controls.tick()
+        XCTAssertTrue(typed.calls.isEmpty, "the hooks' records follow the list")
+        now = now.addingTimeInterval(6); await controls.tick()
+        XCTAssertEqual(typed.calls.first?.text, "дальше")
+    }
+
+    /// After a usage limit Claude Code may show its own limit options: nothing is typed into it.
+    func testAClaudeSessionCutOffByTheLimitIsNotTypedInto() async throws {
+        let limits = limits(), typed = Typed()
+        var failed = row(id: "0f3c2a51-5e2b-4d7e-9a57-7d7b0c1f9e21"); failed.phase = .failed; failed.failure = .limit
+        let controls = service(typed, rows: [failed], limits: limits)
+        controls.continueLater(failed, when: .at, at: now.addingTimeInterval(-1), message: "дальше")
+        await controls.tick()
+        XCTAssertTrue(typed.calls.isEmpty); XCTAssertTrue(typed.opened.isEmpty)
+        XCTAssertEqual(controls.controls.first?.state, .needsYou)
+        XCTAssertEqual(controls.controls.first?.note, L("Claude Code мог показать своё меню лимита: откройте сессию и продолжите в ней."))
+    }
+
+    /// Late notification buttons act only on the state they were posted for.
+    func testLateButtonsDoNothingOnAContinuedSession() async throws {
+        let limits = limits(), typed = Typed(), session = row()
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.setLimit(for: session, stopAtWeek: 80, continueAfterReset: false, message: nil)
+        level = 81; await controls.tick()
+        controls.handle(action: SessionControlService.Action.continueNow, controlID: "claude:S1")
+        await controls.tick()
+        XCTAssertEqual(typed.calls.count, 1)
+        // The same notice's buttons pressed again later.
+        controls.handle(action: SessionControlService.Action.continueNow, controlID: "claude:S1")
+        controls.handle(action: SessionControlService.Action.raise, controlID: "claude:S1")
+        controls.handle(action: SessionControlService.Action.terminal, controlID: "claude:S1")
+        await controls.tick()
+        XCTAssertEqual(typed.calls.count, 1, "no second continuation")
+        XCTAssertTrue(typed.opened.isEmpty)
+        XCTAssertNil(controls.controls.first?.stopAtWeek, "a lifted limit is not set again")
+    }
+
+    /// «+5 %» at the 100 % cap: the week is still at the limit, so the session stays stopped and nothing is left to type later.
+    func testRaiseAtTheCapKeepsTheStop() async throws {
+        let limits = limits(), typed = Typed(), session = row()
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.setLimit(for: session, stopAtWeek: 98, continueAfterReset: false, message: nil)
+        level = 100; await controls.tick()
+        XCTAssertEqual(controls.controls.first?.state, .stopped)
+        controls.raise("claude:S1")
+        await controls.tick()
+        XCTAssertEqual(controls.controls.first?.stopAtWeek, 100)
+        XCTAssertEqual(controls.controls.first?.state, .stopped)
+        XCTAssertNil(controls.controls.first?.resumeAt)
+        now = now.addingTimeInterval(86461); level = 2; reset = 7 * 86400
+        await controls.tick()
+        XCTAssertTrue(typed.calls.isEmpty, "continuing after the reset was not asked for")
+    }
+
+    /// The user continued the cut-off session by writing to it: the offered continuation is dropped.
+    func testAnOfferIsDroppedWhenTheUserContinuedByThemselves() async throws {
+        let limits = limits(), typed = Typed(), id = "019a0c0a-96ca-7cf2-9f85-caba5f66eed7"
+        var session = row(.codex, id: id)
+        ledger.limitHits = ["codex:" + id: now.addingTimeInterval(-600)]
+        var rows = [session]
+        let controls = service(typed, rows: { rows }, limits: limits)
+        await controls.tick()
+        XCTAssertEqual(controls.controls.first?.state, .offered)
+        session.phase = .running; session.turnStartedAt = now.addingTimeInterval(-60); rows = [session]
+        await controls.tick()
+        XCTAssertTrue(controls.controls.isEmpty)
+        controls.handle(action: SessionControlService.Action.accept, controlID: "codex:" + id)
+        now = now.addingTimeInterval(7200); session.phase = .ready; rows = [session]
+        await controls.tick()
+        XCTAssertTrue(typed.calls.isEmpty)
+    }
+
+    /// A late «No thanks» of a cut-off does not drop a plan the user made since.
+    func testALateNoKeepsTheUsersOwnPlan() async throws {
+        let limits = limits(), typed = Typed(), id = "019a0c0a-96ca-7cf2-9f85-caba5f66eed7", session = row(.codex, id: id)
+        ledger.limitHits = ["codex:" + id: now.addingTimeInterval(-30)]
+        let controls = service(typed, rows: [session], limits: limits)
+        await controls.tick()
+        controls.continueLater(session, when: .at, at: now.addingTimeInterval(3600), message: "позже")
+        controls.handle(action: SessionControlService.Action.decline, controlID: "codex:" + id)
+        XCTAssertEqual(controls.controls.first?.resume, .at)
+        XCTAssertEqual(controls.controls.first?.resumeAt, now.addingTimeInterval(3600))
+    }
+
+    /// A stop whose window reset is unknown still lapses when Lunavect is not running to lift it.
+    func testAStopWithoutAKnownResetStillHasAnEnd() async throws {
+        let limits = limits(), typed = Typed(), session = row()
+        let controls = service(typed, rows: [session], limits: limits)
+        controls.setLimit(for: session, stopAtWeek: 80, continueAfterReset: false, message: nil)
+        level = 81; await controls.tick()
+        XCTAssertEqual(SessionLimitFile.load(from: limits).entries["claude:S1"]?.until, now.addingTimeInterval(reset + 300))
+        let unknown = SessionControlService(url: nil, limitURL: limits, dependencies: .init(
+            ledger: { [unowned self] in self.ledger },
+            snapshots: { [unowned self] in [UsageSnapshot(provider: .claude, weekly: try! QuotaWindow(usedPercent: 81, durationMinutes: 10080, resetsAt: nil),
+                                                          fetchedAt: self.now)] },
+            sessions: { [session] }, notify: { _ in }, clock: { [unowned self] in self.now }))
+        unknown.setLimit(for: session, stopAtWeek: 80, continueAfterReset: false, message: nil)
+        await unknown.tick()
+        let until = try XCTUnwrap(SessionLimitFile.load(from: limits).entries["claude:S1"]?.until)
+        XCTAssertEqual(until.timeIntervalSince(now), 7 * 86400 + 300, accuracy: 1)
+    }
+
+    /// An unreadable controls file is kept aside, not overwritten by the next save.
+    func testAnUnreadableControlsFileIsKeptAside() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("session-controls.json")
+        try Data("{ not json".utf8).write(to: url)
+        let controls = SessionControlService(url: url, limitURL: nil, dependencies: .init(
+            ledger: { TokenLedger() }, snapshots: { [] }, sessions: { [] }, notify: { _ in }, clock: { [unowned self] in self.now }))
+        XCTAssertTrue(controls.controls.isEmpty)
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        XCTAssertTrue(names.contains { $0.hasPrefix("session-controls.json.corrupt-") })
     }
 
     /// The user removes the control while its text is typed: it does not come back.

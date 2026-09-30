@@ -254,6 +254,42 @@ final class QuotaProbeExclusionTests: XCTestCase {
                                  isInternal: { _ in false })
         XCTAssertEqual(SessionHooks.load(at: directory).first?.isBackgroundRun, true)
     }
+
+    /// Audit 30.09: `claude -p --resume <id>` (or `--continue`) from a script on a session still open in Terminal
+    /// shares its id. The print run must not take the session's tab, runtime or client, nor end it; and an
+    /// interactive runtime reporting later clears a print run's mark.
+    func testAPrintRunOnALiveInteractiveSessionKeepsItsTab() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let id = "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d78"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func event(_ name: String) -> Data { Data(#"{"session_id":"\#(id)","hook_event_name":"\#(name)","cwd":"/Users/fixture"}"#.utf8) }
+        let alive: (Int32) -> Bool = { $0 == 4100 }
+        try SessionHooks.capture(event("UserPromptSubmit"), provider: .claude, at: directory, now: now, client: .terminal,
+                                 terminal: (tty: "/dev/ttys004", app: "Terminal"), runtimePID: 4100, isInternal: { _ in false }, isAlive: alive)
+        try SessionHooks.capture(event("Stop"), provider: .claude, at: directory, now: now.addingTimeInterval(5), client: .terminal,
+                                 terminal: (tty: "/dev/ttys004", app: "Terminal"), runtimePID: 4100, isInternal: { _ in false }, isAlive: alive)
+        for (offset, name) in [(10.0, "SessionStart"), (11, "UserPromptSubmit"), (20, "Stop"), (21, "SessionEnd")] {
+            try SessionHooks.capture(event(name), provider: .claude, at: directory, now: now.addingTimeInterval(offset), client: .background,
+                                     runtimePID: 5200, backgroundRun: true, isInternal: { _ in false }, isAlive: alive)
+        }
+        var session = try XCTUnwrap(SessionHooks.load(at: directory).first)
+        XCTAssertEqual(session.terminalTTY, "/dev/ttys004")
+        XCTAssertEqual(session.client, .terminal)
+        XCTAssertEqual(session.runtimePID, 4100)
+        XCTAssertNotEqual(session.isBackgroundRun, true)
+        XCTAssertNotEqual(session.phase, .finished, "the print run's end is not the session's end")
+        // A print run first, then the interactive process: the interactive runtime decides again.
+        let other = "2f0c7c52-6a55-4f0e-9d1b-3a1f0c9e2d79"
+        func otherEvent(_ name: String) -> Data { Data(#"{"session_id":"\#(other)","hook_event_name":"\#(name)","cwd":"/Users/fixture"}"#.utf8) }
+        try SessionHooks.capture(otherEvent("UserPromptSubmit"), provider: .claude, at: directory, now: now, client: .background,
+                                 runtimePID: 5300, backgroundRun: true, isInternal: { _ in false }, isAlive: { _ in false })
+        try SessionHooks.capture(otherEvent("UserPromptSubmit"), provider: .claude, at: directory, now: now.addingTimeInterval(60), client: .terminal,
+                                 terminal: (tty: "/dev/ttys005", app: "Terminal"), runtimePID: 5400, isInternal: { _ in false }, isAlive: { _ in true })
+        session = try XCTUnwrap(SessionHooks.load(at: directory).first { $0.sessionID == other })
+        XCTAssertNil(session.isBackgroundRun)
+        XCTAssertEqual(session.terminalTTY, "/dev/ttys005")
+    }
 }
 
 private extension AgentSession {

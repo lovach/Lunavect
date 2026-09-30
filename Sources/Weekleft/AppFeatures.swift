@@ -503,11 +503,14 @@ struct PanelShortcut: Codable, Equatable {
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let hasSound = notification.request.content.sound != nil
-        return await notificationPresentationOptions(hasSound: hasSound)
+        let control = notification.request.content.categoryIdentifier.hasPrefix("lunavect.control.")
+        return await notificationPresentationOptions(hasSound: hasSound, sessionControl: control)
     }
-    func notificationPresentationOptions(hasSound: Bool) -> UNNotificationPresentationOptions {
+    /// Session-limit notices follow the user's limits, not the banner switch (docs/notifications.md): they show
+    /// while Lunavect is active too.
+    func notificationPresentationOptions(hasSound: Bool, sessionControl: Bool = false) -> UNNotificationPresentationOptions {
         guard !stopped, !isolated else { return [] }
-        var options: UNNotificationPresentationOptions = banners ? [.banner, .list] : []
+        var options: UNNotificationPresentationOptions = banners || sessionControl ? [.banner, .list] : []
         if sounds && hasSound { options.insert(.sound) }
         return options
     }

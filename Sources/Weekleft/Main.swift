@@ -1,4 +1,5 @@
 import AppKit
+import UserNotifications
 import SwiftUI
 import Combine
 import Carbon
@@ -79,6 +80,7 @@ enum StatusItemClick {
         return SessionControlService(url: environment.isPreview ? nil : SessionControlService.defaultURL,
                                      limitURL: environment.isPreview ? nil : SessionControlService.defaultLimitURL,
                                      dependencies: .init(ledger: { store.tokenService.ledger }, snapshots: { store.snapshots }, sessions: { sessions.sessions },
+                                                         sessionsLoaded: { sessions.updatedAt != nil },
                                                          cutOff: { [defaults = environment.defaults] in
                                                              SessionCutOffAction(rawValue: defaults.string(forKey: SessionCutOffAction.key) ?? "") ?? .ask
                                                          }))
@@ -221,6 +223,10 @@ enum StatusItemClick {
             store.start()
             sessions.start(clientResolver: { [weak self] in self?.store.clientResolver ?? ClientExecutableResolver() })
             controls.start()
+            // Buttons of a notice delivered before this launch work before a new notice is posted.
+            if !LiveProcessGuard.refuses("notification") {
+                UNUserNotificationCenter.current().setNotificationCategories(SessionControlService.categories)
+            }
         }
         // Launch and reopen use the same small panel as a click on the menu-bar icon.
         let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
