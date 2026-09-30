@@ -914,7 +914,9 @@ public extension SessionHooks {
         // Hooks carry no event time: the helper's start orders concurrent events,
         // not the end of the process inspection below (S-I3).
         let now = Date()
-        // Lifecycle tools must never block, approve, or inject context into the source session.
+        // Lifecycle tools never block, approve or inject context, except in a session the
+        // user limited in Lunavect (owner decisions 30.09): there, near the limit the agent is
+        // asked to wrap up and at the limit its next action or prompt is refused, with the reason.
         guard let data = readHookPayload(from: .standardInput) else { print("{}"); return }
         let env = ProcessInfo.processInfo.environment
         let ide = IDEProcessLocation.locate(parentPID: getppid(), provider: provider)
@@ -925,7 +927,7 @@ public extension SessionHooks {
         let backgroundRun = runtimePID.map { SessionProcess.isPrintRun(pid: $0) } ?? false
         try? capture(data, provider: provider, now: now, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide,
                      runtimePID: runtimePID, backgroundRun: backgroundRun)
-        print("{}")
+        print(SessionLimitFile.load().reply(payload: data))
     }
 }
 

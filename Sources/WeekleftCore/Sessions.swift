@@ -126,8 +126,6 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// activity, and there is nothing to open (owner report 29.09: the
     /// autoharness plugin's reflector after every reply).
     public var isBackgroundRun: Bool?
-    /// The title of the Lunavect task this session runs, set by the app, never read from a client.
-    public var lunavectTask: String?
     /// The application a catalog runtime runs in when Lunavect has no route to it
     /// (the embedded terminal of Claude or Codex, a VS Code fork…): opening it then
     /// names that place instead of a generic failure.

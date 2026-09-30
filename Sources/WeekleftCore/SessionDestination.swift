@@ -110,11 +110,9 @@ public enum SessionOpeningError: LocalizedError, Equatable {
     case ideBridgeMissing(String), ideSessionUnavailable(String), ideUnsupported(String), ideAmbiguous(String), ideTimedOut(String)
     case ideBridgeUnresponsive(String), ideCompanionIncompatible(String), ideActivationFailed(String)
     case missingCLI(ProviderID), missingProject, missingTerminal, invalidID, missingDesktopLink, missingClient(String), launchFailed(SessionClient)
-    case limitsCheck, backgroundRun(String?), embeddedTerminal(String), hostUnsupported(String), lunavectTask
+    case limitsCheck, backgroundRun(String?), embeddedTerminal(String), hostUnsupported(String)
     public var errorDescription: String? {
         switch self {
-        case .lunavectTask:
-            return L("Это задача Lunavect. Она работает без окна; следить за ней, ставить на паузу и открыть её в Терминале можно во вкладке «Задачи».")
         case .limitsCheck:
             return L("Это служебная проверка лимитов Claude (команда /usage), а не рабочая сессия. Открывать её не нужно: завершите её в окне, где она запущена, клавишей Esc, затем дважды Ctrl+C.")
         case .backgroundRun(let host?):

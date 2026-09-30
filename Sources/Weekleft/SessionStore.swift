@@ -318,16 +318,9 @@ import WeekleftCore
         catch { connectionMessage = error.localizedDescription; throw error }
     }
     private var publishedPhases: [SessionPhase] = []
-    /// Sessions of Lunavect tasks by provider and session id, with the task's title. They run
-    /// `claude -p` or a Codex app-server, yet they are the user's work, not a background run.
-    var taskSessions: () -> [String: String] = { [:] }
     private func publishVisible(now: Date? = nil) {
         let now = now ?? self.now()
-        let tasks = taskSessions()
-        let visible = (visibility?.visible(allSessions) ?? allSessions).filter { providers.contains($0.provider) }.map { row in
-            guard let title = tasks[TokenLedger.sessionKey(row.provider, row.sessionID)] else { return row }
-            var value = row; value.isBackgroundRun = nil; value.lunavectTask = title; return value
-        }
+        let visible = (visibility?.visible(allSessions) ?? allSessions).filter { providers.contains($0.provider) }
         let phases = visible.map { $0.effectivePhase(now: now) }
         if sessions != visible || publishedPhases != phases { publishedPhases = phases; sessions = visible }
         let hidden = (visibility?.summaries ?? []).filter { $0.provider.map(providers.contains) ?? false }
@@ -912,7 +905,6 @@ enum SessionNavigation {
         try Task.checkCancellation()
         // A limits check run by hand is explained, never opened (decision 28.09).
         if let refusal = session.limitsCheckRefusal ?? session.backgroundRunRefusal { throw refusal }
-        if session.lunavectTask != nil { throw SessionOpeningError.lunavectTask }
         if session.ideLocation != nil || session.client == .vscode || session.client == .jetbrains {
             try await openIDE(session)
             return
