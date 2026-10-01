@@ -40,7 +40,7 @@ Every Claude Code and Codex task on your Mac in one panel, with its live state:<
 working, thinking, waiting for permission or input, or done.<br>
 Search, filter, pin and hide sessions. Live Terminal and iTerm2 sessions open in their own tab.
 
-<img src="docs/images/showcase/sessions.webp" width="760" alt="Three Lunavect session panels: all nine tasks, a search for “bill” showing one Claude task, and the waiting filter showing the task that needs permission">
+<img src="docs/images/showcase/sessions.webp" width="760" alt="Three Lunavect session panels with Sessions and Tasks tabs: all nine tasks, a search for “bill” showing one Claude task, and the waiting filter showing the task that needs permission">
 
 ### Background work, told once
 
@@ -61,6 +61,14 @@ Show them in the menu bar as bars, percentages or rings. Unknown values stay unk
 
 <img src="docs/images/showcase/limits.webp" width="880" alt="Claude 68% and Codex 54% of weekly usage left, shown in the menu bar as bars, percentages and rings, in the Remaining popover with reset dates and in a small desktop widget">
 
+### Stop a session at your share of the week
+
+Two-finger click a Claude Code or Codex session and choose **Limit Usage…**. Near your level the agent finishes its step<br>
+and writes what is done and what is left; at the level its next action is refused. Nothing is killed, and your own message lifts the stop.<br>
+Lunavect continues the session after the reset in its own Terminal or iTerm2 tab, or at a time you choose with **Continue Later…**.
+
+<img src="docs/images/showcase/session-limits.webp" width="880" alt="The Lunavect Tasks tab with a Claude session stopped at its 30% limit while the week is at 32% and the agent's summary of what is done and what is left, beside the Limit Usage window setting a 55% limit for another session">
+
 ### Desktop widgets
 
 Limits, activity or both, in small, medium and large sizes.<br>
@@ -74,7 +82,7 @@ Working time by day, week, month, year and all time for each provider, with a ca
 the hours you work, projects and sessions. The Agent Monitor shows tokens per session, project and model.<br>
 Recovered history is marked as approximate.
 
-<img src="docs/images/showcase/activity.webp" width="820" alt="Lunavect Statistics settings: a week of Claude and Codex working time with a daily chart">
+<img src="docs/images/showcase/activity.webp" width="820" alt="Lunavect Statistics for a year: weekly Claude and Codex working time, period totals, the busiest week and peak hour, and a calendar of days with work">
 
 ### Make it yours
 
