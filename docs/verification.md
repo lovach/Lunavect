@@ -1,8 +1,25 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.2.7 (194)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.2.8 (219)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.7)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.8)
+
+## 0.2.8 release checks — September 30, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `d7f174e4aa22b831553f7c205d4843c8af789171`, tagged `v0.2.8`, merged through [PR #50](https://github.com/lovach/Lunavect/pull/50). Merge `f342daa1977f1517e51d2af1bba446888a647807` has exactly the archived source tree. Archive, signed export and provenance checks passed; no application code changed during release packaging. |
+| Automated checks | The local check for this exact clean source passed: 1,265 Swift tests passed, 79 skipped and zero failures (1,344 total); 169 Python tests passed, one skipped and zero failures (170 total). Unsigned universal app/widget/helpers, the hook helper, resources and the built intent-resource test passed. [PR source CI](https://github.com/lovach/Lunavect/actions/runs/36775466994) passed; optional native-render, thread-sanitizer and synthetic-performance jobs were skipped. |
+| Pre-release audit | An independent audit of the release candidate found 27 issues. Every confirmed defect was fixed with a test that fails on the old code, including text typed into the wrong Codex session of the same folder, a second process for a session missing from the list, Claude Code's own continuation lifting a weekly stop, Codex tokens counted twice across continued threads, and a crash when switching Sessions and Tasks with the panel open. |
+| Live checks | On installed signed candidate builds: weekly stops and hook refusals for Claude Code 2.1.283 and Codex 0.159.2, the agent's summary on the card, the user's own message lifting a stop, +5 %, Continue now typed into the session's own Terminal tab (Claude with a carriage return; Codex found by folder and tab title), nothing typed when two Codex sessions share a folder, `claude -p --resume` keeping the session's row, and 200 panel tab switches without a crash. Claude token totals matched an independent recount of the local logs over 30 days. |
+| Distribution | Developer ID signed and Apple notarized, build 219. Anonymous downloads of all four release assets match packaged bytes, sizes and SHA-256 digests. The downloaded DMG app passed strict codesign, Gatekeeper and stapler checks; universal arm64/x86_64 app and widget slices were verified. |
+| Update signatures | ZIP and appcast signatures verify with the public key of the installed app. A deliberately damaged ZIP is rejected. The latest public feed points to build 219 and the exact `v0.2.8` ZIP URL. |
+| Sparkle update | The installed app updated itself through Sparkle to 0.2.8 (219) without manual replacement; its executable matches the notarized export. The hook helper link points to the helper inside the installed copy. |
+| Editor companions | The exported app bundles VS Code companion 0.1.3 and JetBrains companion 0.1.2, unchanged since 0.2.7. |
+| Existing downloads | All 18 previous releases retain their 74 asset identities, URLs, sizes and digests. |
+| Not checked live | A real five-hour cut-off, a real Codex usage-limit cut-off, Claude Code's limit menu, iTerm2 and system notification banners. These are covered by unit tests only. No provider sign-in was changed for publication. |
+
+The 0.2.8 DMG SHA-256 is `5697072eea04d64fc0591b18731d98fb60c8348979758d6f60a6edfe037fee60`.
 
 ## 0.2.7 release checks — September 28, 2026
 

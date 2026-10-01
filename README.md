@@ -8,9 +8,9 @@
 Every agent session on your Mac with its live state, right in the menu bar,<br>
 next to both tools' weekly and five-hour limits with reset times.
 
-<a href="https://github.com/lovach/Lunavect/releases/download/v0.2.7/Lunavect-0.2.7.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
+<a href="https://github.com/lovach/Lunavect/releases/download/v0.2.8/Lunavect-0.2.8.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
 
-<sub>Version 0.2.7 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
+<sub>Version 0.2.8 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
 
 <br>
 
@@ -70,8 +70,9 @@ Choose a solid background or adjustable glass.
 
 ### See where your time goes
 
-Working time by day, week and month for each provider,<br>
-with project and session breakdowns. Recovered history is marked as approximate.
+Working time by day, week, month, year and all time for each provider, with a calendar of working days,<br>
+the hours you work, projects and sessions. The Agent Monitor shows tokens per session, project and model.<br>
+Recovered history is marked as approximate.
 
 <img src="docs/images/showcase/activity.webp" width="820" alt="Lunavect Statistics settings: a week of Claude and Codex working time with a daily chart">
 
@@ -96,7 +97,7 @@ brew tap lovach/lunavect https://github.com/lovach/Lunavect
 brew install --cask lovach/lunavect/lunavect
 ```
 
-**Or download** [Lunavect-0.2.7.dmg](https://github.com/lovach/Lunavect/releases/download/v0.2.7/Lunavect-0.2.7.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
+**Or download** [Lunavect-0.2.8.dmg](https://github.com/lovach/Lunavect/releases/download/v0.2.8/Lunavect-0.2.8.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
 
 Then choose **Connect Claude** or **Connect Codex**. Claude needs Claude Code CLI; Claude Desktop alone is not enough. Codex needs the official Codex app or CLI. Connect one provider or both. Sign-in stays with the official clients.
 
@@ -127,7 +128,13 @@ Limits need fresh data from the client, and missing or expired values are shown 
 <details>
 <summary><b>Is activity the same as token usage?</b></summary>
 <br>
-No. It measures working intervals. Recovered history is marked <code>≈</code>, and overlapping sessions are counted once in the combined total.
+No. Activity measures working intervals. Tokens are counted separately from the local Claude and Codex logs, in the Agent Monitor and under Where tokens went in Statistics. Recovered history is marked <code>≈</code>, and overlapping sessions are counted once in the combined total.
+</details>
+
+<details>
+<summary><b>Can Lunavect stop an agent before it uses up my week?</b></summary>
+<br>
+Yes. Choose <b>Limit Usage…</b> on a Claude Code or Codex session: near your level the agent finishes its step and writes what is done and what is left, and at the level its next action is refused through Lunavect's hooks. Nothing is killed, and your own message to the session lifts the stop. <b>Continue Later…</b> continues a session after the reset or at a set time.
 </details>
 
 <details>

@@ -10,7 +10,7 @@ Lunavect checks for updates once a day (Sparkle's default interval, 86,400 secon
 
 Update requests go to GitHub and its download infrastructure. Session data and activity history are not attached. Builds without a valid update feed and public key do not start the updater. See [Privacy and permissions](privacy.md#network-requests).
 
-The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.7) is 0.2.7 (194). It aligns limit freshness with the refresh schedule, repairs stale widget processes after updates, adds optional Fable limits in widgets and notifications, and supports Cursor and other editors built on VS Code. It bundles VS Code companion 0.1.3 and JetBrains companion 0.1.2. Reinstall the VS Code companion from Settings → Connections in VS Code or Cursor, then reload the editor. See [IDE setup and compatibility](ide-sessions.md) for supported surfaces and verification limits. Settings and client connections are retained.
+The current [public release](https://github.com/lovach/Lunavect/releases/tag/v0.2.8) is 0.2.8 (219). It adds limits for running Claude and Codex sessions (Limit Usage… and Continue Later…), the Agent Monitor with tokens per session, project and model, Year and All time statistics with a daily archive, a calendar and a working-hours clock, and the plan end date in widgets. It bundles VS Code companion 0.1.3 and JetBrains companion 0.1.2, unchanged since 0.2.7. See [IDE setup and compatibility](ide-sessions.md) for supported surfaces and verification limits. Settings and client connections are retained.
 
 ## Preparing a release
 
@@ -32,10 +32,10 @@ Public build configuration is in `Config/Distribution.xcconfig` and `Config/Upda
 First refresh release tags and download the currently published appcast into a private evidence directory. Review that baseline; the tools do not fetch it automatically. Use a new version/tag and a build and marketing version above every published entry. For example, after replacing these illustrative values with the intended release:
 
 ```sh
-./scripts/distribute.sh archive 0.2.7 194 /path/to/published-appcast.xml
-./scripts/distribute.sh submit 0.2.7 194
+./scripts/distribute.sh archive 0.2.8 219 /path/to/published-appcast.xml
+./scripts/distribute.sh submit 0.2.8 219
 # After Apple's notarization completes:
-./scripts/distribute.sh export 0.2.7 194
+./scripts/distribute.sh export 0.2.8 219
 ```
 
 Run these from a shell without `LUNAVECT_INSTALLED_APPS`, `LUNAVECT_LSREGISTER` or `LUNAVECT_PLUGINKIT`: they exist for script tests, and `distribute.sh` refuses to run while one is set (`Release refused: …`).
@@ -86,8 +86,8 @@ Keep packaging dependencies and output outside the repository:
 python3 -m venv /path/outside-repository/dmg-venv
 /path/outside-repository/dmg-venv/bin/pip install -r scripts/dmg/requirements.txt
 /path/outside-repository/dmg-venv/bin/python scripts/package-dmg.py \
-  --app '/path/to/Notarized-194/Lunavect.app' \
-  --output '/path/to/release-assets/Lunavect-0.2.7.dmg'
+  --app '/path/to/Notarized-219/Lunavect.app' \
+  --output '/path/to/release-assets/Lunavect-0.2.8.dmg'
 ```
 
 Replace these paths and version numbers with your exported app and intended output. The DMG is a read-only image containing the app and an Applications link. Its Finder layout uses `scripts/dmg/layout.json`; the AppKit background renderer provides 1× and 2× artwork. The pinned `dmgbuild` dependencies write the layout metadata without automating Finder. See the [installer screenshot](images/installer.jpg).
