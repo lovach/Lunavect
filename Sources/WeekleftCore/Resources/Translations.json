@@ -7047,5 +7047,33 @@
     "es": "Codex no ejecuta los hooks de Lunavect: sin ellos no se puede detener la sesión. En Ajustes → Conexiones se explica cómo arreglarlo.",
     "fr": "Codex n’exécute pas les hooks de Lunavect : sans eux, la session ne peut pas être arrêtée. Réglages → Connexions explique comment corriger cela.",
     "zh-Hans": "Codex 未运行 Lunavect 的钩子：没有它们就无法停止会话。修复方法见“设置 → 连接”。"
+  },
+  "5 часов": {
+    "de": "5 Stunden",
+    "en": "5 hours",
+    "es": "5 horas",
+    "fr": "5 heures",
+    "zh-Hans": "5 小时"
+  },
+  "Подписка": {
+    "de": "Abo",
+    "en": "Plan",
+    "es": "Plan",
+    "fr": "Abonnement",
+    "zh-Hans": "订阅"
+  },
+  "Сброс": {
+    "de": "Reset",
+    "en": "Reset",
+    "es": "Reinicio",
+    "fr": "Réinit.",
+    "zh-Hans": "重置"
+  },
+  "недели осталось": {
+    "de": "der Woche übrig",
+    "en": "of the week left",
+    "es": "de la semana",
+    "fr": "de la semaine",
+    "zh-Hans": "本周剩余"
   }
 }

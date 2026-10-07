@@ -4,6 +4,8 @@
 
 ### Widgets
 
+- The medium limits widget with one provider has its own layout: the week as a large figure with its bar, and the five-hour window, model limit and plan end as tiles with small meters under it. Before, it stretched the small widget's rows across the width, with faint text on desktop glass and a bare calendar icon for the plan.
+- The small one-provider widget draws its secondary lines in the widget's own ink, which stays readable on glass.
 - Settings → Widgets no longer lists Xcode archives, exports and build folders, or the `__MACOSX` leftovers of an unpacked ZIP, as "another copy of Lunavect". After a macOS upgrade the system registers all of them again; they are not installed copies, and Lunavect keeps confirming its own widget registration.
 
 ### Statistics
