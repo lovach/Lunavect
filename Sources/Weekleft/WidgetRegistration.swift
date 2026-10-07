@@ -43,7 +43,7 @@ struct WidgetRegistrationTarget: Equatable, Sendable {
 /// PlugInKit uses that copy's widget (or cannot say which), a registration change
 /// here would be the trigger of that loss: repair and checks leave it alone.
 /// Otherwise this copy still repairs and confirms its own registration. Copies
-/// in the Trash, on a mounted disk image or no longer on disk are not duplicates,
+/// in the Trash, on a mounted disk image, among Xcode's build products or no longer on disk are not duplicates,
 /// and each check looks again, so an ejected installer does not block the next one.
 @MainActor final class WidgetRegistration {
     static let stampKey = "widgetRegistrationStamp"
@@ -300,10 +300,20 @@ enum WidgetRegistrationSystem {
         for copy in copies {
             let url = copy.resolvingSymlinksInPath().standardizedFileURL, path = url.path
             guard path != installed, seen.insert(path).inserted, !path.hasPrefix("/Volumes/"),
-                  !url.pathComponents.contains(".Trash"), exists(path) else { continue }
+                  !url.pathComponents.contains(".Trash"), !isBuildProduct(url), exists(path) else { continue }
             result.append(url)
         }
         return result.sorted { $0.path < $1.path }
+    }
+
+    /// Xcode's archives, exports and build folders, and the `__MACOSX` leftovers of an unpacked ZIP,
+    /// are not installed copies: nobody runs them, and "move it to the Trash" is the wrong advice.
+    /// After a macOS upgrade LaunchServices registered every one of them again (76 on the owner's Mac,
+    /// 07.10.2026). This copy keeps confirming its own registration instead.
+    static func isBuildProduct(_ url: URL) -> Bool {
+        let parts = url.pathComponents
+        if parts.contains("__MACOSX") || parts.contains("DerivedData") || parts.contains(where: { $0.hasSuffix(".xcarchive") }) { return true }
+        return url.path.contains("/Library/Developer/Xcode/")
     }
 
     /// With another copy installed, a registration change is safe only while that

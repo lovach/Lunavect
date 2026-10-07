@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Widgets
+
+- Settings → Widgets no longer lists Xcode archives, exports and build folders, or the `__MACOSX` leftovers of an unpacked ZIP, as "another copy of Lunavect". After a macOS upgrade the system registers all of them again; they are not installed copies, and Lunavect keeps confirming its own widget registration.
+
 ### Statistics
 
 - **When you work** labels the weekdays in the order they are counted. With the app in English on a Mac whose region starts the week on Monday, the labels started a day early, so Monday's hours read "Sun".
