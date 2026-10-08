@@ -11,6 +11,7 @@
 ### Statistics
 
 - **When you work** labels the weekdays in the order they are counted. With the app in English on a Mac whose region starts the week on Monday, the labels started a day early, so Monday's hours read "Sun".
+- With one provider connected, the chart card counts **Days with work** (for example 4 / 7) instead of "Days with records". The old count included days Lunavect only watched and left out a day off with no session open, so an ordinary day without work read as a lost day.
 
 ## 0.2.8 — 2026-09-30
 

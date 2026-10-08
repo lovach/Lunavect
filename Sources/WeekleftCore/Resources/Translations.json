@@ -937,12 +937,12 @@
     "fr": "Autorisez Lunavect dans les réglages macOS pour travailler avec le capot fermé.",
     "zh-Hans": "请在macOS设置中允许Lunavect，以在合盖后继续运行。"
   },
-  "Дней с записями": {
-    "de": "Tage mit Einträgen",
-    "en": "Days with records",
-    "es": "Días con registros",
-    "fr": "Jours avec des données",
-    "zh-Hans": "有记录的天数"
+  "Дней с работой": {
+    "de": "Tage mit Arbeit",
+    "en": "Days with work",
+    "es": "Días con trabajo",
+    "fr": "Jours travaillés",
+    "zh-Hans": "有工作的天数"
   },
   "Дней с записями: {0}": {
     "de": "Tage mit Einträgen: {0}",

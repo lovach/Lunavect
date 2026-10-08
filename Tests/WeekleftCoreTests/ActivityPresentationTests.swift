@@ -83,6 +83,19 @@ final class ActivityPresentationTests: XCTestCase {
         onlyCodex.observe([rows[1]], now: now); onlyCodex.observe([rows[1]], now: now.addingTimeInterval(5))
         XCTAssertFalse(onlyCodex.history.summary(now: now.addingTimeInterval(5), providers: [.claude]).hasObservations)
     }
+    func testWorkedDaysCountOnlyDaysWithWork() throws {
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "UTC")!
+        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_800_000_000)), now = today.addingTimeInterval(20 * 3600)
+        func day(_ offset: Int) -> Date { today.addingTimeInterval(Double(offset) * 86400 + 9 * 3600) }
+        var history = ActivityHistory()
+        // Two days back: watched, no work. Yesterday: no record at all.
+        history.append(start: day(-3), end: day(-3).addingTimeInterval(3600), providers: 1, observedProviders: 1)
+        history.append(start: day(-2), end: day(-2).addingTimeInterval(3600), providers: 0, observedProviders: 1)
+        history.append(start: day(0), end: day(0).addingTimeInterval(1800), providers: 1, observedProviders: 1)
+        let summary = history.summary(now: now, calendar: calendar, period: .week, providers: [.claude])
+        XCTAssertEqual(summary.days.filter { $0.totals.observed > 0 }.count, 3)
+        XCTAssertEqual(ActivityChartText.workedDays(summary), "2 / 7")
+    }
     func testLegacyIdleAndImportedOtherProviderDoNotInventZeros() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         var history = ActivityHistory()

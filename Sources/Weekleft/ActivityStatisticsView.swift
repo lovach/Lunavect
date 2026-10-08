@@ -287,7 +287,7 @@ struct ActivityDetailChart: View {
             HStack(alignment: .top, spacing: 24) {
                 metric(L("Пиковый час"), data.summary.peakLabel)
                 if data.series.count > 1 { metric(L("Вместе, без пересечений"), ActivityChartText.value(data.summary.totals)) }
-                else { metric(L("Дней с записями"), "\(data.summary.days.filter { $0.totals.observed > 0 }.count) / \(data.summary.days.count)") }
+                else { metric(L("Дней с работой"), ActivityChartText.workedDays(data.summary)) }
             }
             if data.stale || data.limited {
                 Label(L(data.stale ? "Данные устарели" : "По доступным записям"), systemImage: data.stale ? "clock.badge.exclamationmark" : "info.circle")
