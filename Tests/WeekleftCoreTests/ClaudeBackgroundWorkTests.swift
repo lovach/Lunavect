@@ -184,6 +184,64 @@ final class ClaudeBackgroundWorkTests: XCTestCase {
         XCTAssertEqual(rendering.effectivePhase(now: start.addingTimeInterval(5 + 45 * 60)), .running, "A command has no deadline")
     }
 
+    /// A pause for timers alone says when Claude wakes and lasts until then, five minutes
+    /// more for a late wake, even past the usual hour. Claude Code 2.1.327 gives the same
+    /// task id at launch (`backgroundTaskId`) and in Stop's `background_tasks`.
+    func testPauseForATimerShowsWhenClaudeWakes() throws {
+        let command = "sleep 7200 && gh run view 42 --log-failed | tail -50"
+        func launch(after previous: SessionRecord?) throws -> SessionRecord {
+            try hook("PostToolUse", ["tool_name": "Bash", "tool_use_id": "s1", "tool_input": ["command": command, "run_in_background": true],
+                                     "tool_response": ["backgroundTaskId": "bqezywnnc", "stdout": ""]], after: previous, at: 10)
+        }
+        let launched = try launch(after: try hook("UserPromptSubmit", after: nil, at: 0))
+        let timer: [String: Any] = ["id": "bqezywnnc", "type": "shell", "status": "running", "description": "Wait for CI", "command": command]
+        let paused = try hook("Stop", ["background_tasks": [timer, server], "session_crons": []], after: launched, at: 20)
+        let wake = start.addingTimeInterval(10 + 7200)
+        XCTAssertEqual(paused.session.wakesAt, wake, "A dev server never wakes Claude")
+        let clock = DateFormatter()
+        clock.locale = Locale(identifier: "en_US_POSIX"); clock.dateFormat = "HH:mm"
+        XCTAssertEqual(paused.session.wakeTitle(now: start.addingTimeInterval(30)), L("Проснётся в {0}", clock.string(from: wake)))
+        XCTAssertEqual(paused.session.effectivePhase(now: wake.addingTimeInterval(4 * 60)), .running)
+        XCTAssertEqual(paused.session.effectivePhase(now: wake.addingTimeInterval(6 * 60)), .unknown)
+        XCTAssertNil(paused.session.wakeTitle(now: wake.addingTimeInterval(2 * 60)), "Past the wake the row says In background again")
+        XCTAssertEqual(paused.timers, ["bqezywnnc": wake])
+        // A short timer ends its pause soon after it rings instead of an hour later.
+        let short = try hook("PostToolUse", ["tool_name": "Bash", "tool_use_id": "s2", "tool_input": ["command": "sleep 60", "run_in_background": true],
+                                             "tool_response": ["backgroundTaskId": "b60"]], after: try hook("UserPromptSubmit", after: nil, at: 0), at: 0)
+        let minute = try hook("Stop", ["background_tasks": [["id": "b60", "type": "shell", "status": "running", "command": "sleep 60"]]], after: short, at: 1).session
+        XCTAssertEqual(minute.effectivePhase(now: start.addingTimeInterval(60 + 6 * 60)), .unknown)
+        // Other work may wake Claude sooner, and a timer not seen starting has no known end.
+        XCTAssertNil(try hook("Stop", ["background_tasks": [timer, render]], after: launched, at: 20).session.wakesAt)
+        XCTAssertNil(try hook("Stop", ["background_tasks": [timer, monitor]], after: launched, at: 20).session.wakesAt)
+        XCTAssertNil(try hook("Stop", ["background_tasks": [timer]], after: try hook("UserPromptSubmit", after: nil, at: 0), at: 20).session.wakesAt)
+        // The wake ends the pause and its time; a finished timer is forgotten.
+        let woken = try hook("PreToolUse", ["tool_name": "Bash", "tool_use_id": "t9"], after: paused, at: 7215)
+        XCTAssertNil(woken.session.wakesAt)
+        XCTAssertNil(woken.session.awaitingBackground)
+        XCTAssertNil(try hook("Stop", ["background_tasks": []], after: woken, at: 7230).timers)
+        // The panel keeps the time when the session list reports the pause as idle.
+        let row = try XCTUnwrap(SessionList.merge(catalog: [AgentSession(provider: .claude, sessionID: "luna", title: "Luna", cwd: "/tmp/luna", client: .desktop,
+                                                                       phase: .idle, updatedAt: start.addingTimeInterval(25), observedAt: start.addingTimeInterval(25),
+                                                                       evidence: .catalog, runtimeConfirmed: true)],
+                                                    events: [paused.session], now: start.addingTimeInterval(26)).first)
+        XCTAssertEqual(row.wakesAt, wake)
+    }
+
+    func testTimerCommands() {
+        XCTAssertEqual(ClaudeBackgroundWork.timer("sleep 300"), 300)
+        XCTAssertEqual(ClaudeBackgroundWork.timer("sleep 25 && echo done"), 25)
+        XCTAssertEqual(ClaudeBackgroundWork.timer("cd ~/Projects/shop && sleep 90; npm test"), 90)
+        XCTAssertEqual(ClaudeBackgroundWork.timer("sleep 1.5m"), 90)
+        XCTAssertEqual(ClaudeBackgroundWork.timer("(sleep 2h)"), 7200)
+        for command in ["sleep infinity", "until gh run view 42 | grep -q completed; do sleep 30; done", "sleep 60 && sleep 60",
+                        "sleep $((5 * 60))", "npm test && sleep 5", "sleep 0", "sleep 90000", "swift build", "sleepy 5"] {
+            XCTAssertNil(ClaudeBackgroundWork.timer(command), command)
+        }
+        // Only a command started in the background counts; one moved there later started earlier.
+        let moved: [String: Any] = ["tool_input": ["command": "sleep 300"], "tool_response": ["backgroundTaskId": "b1"]]
+        XCTAssertNil(ClaudeBackgroundWork.timer(tool: "Bash", payload: moved))
+    }
+
     /// While Claude still works, launched background tasks are counted as they start.
     func testLaunchesDuringTheTurnAreCounted() throws {
         var record = try hook("UserPromptSubmit", after: nil, at: 0)

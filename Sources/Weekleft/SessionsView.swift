@@ -653,7 +653,7 @@ struct SessionRow: View {
         guard phase == .running else { return phase == .failed ? session.failure?.title ?? phase.title : phase.title }
         if offline { return L("Нет сети") }
         if session.compactionTrigger != nil { return session.activityTitle }
-        if session.awaitingBackground == true, session.tool?.isEmpty != false { return L("В фоне") }
+        if session.awaitingBackground == true, session.tool?.isEmpty != false { return session.wakeTitle() ?? L("В фоне") }
         return L(session.tool?.isEmpty == false ? "Работает" : "Думает")
     }
     private var providerImage: some View {

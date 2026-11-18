@@ -98,6 +98,9 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// Claude finished its reply while those tasks run; they will wake it. Set
     /// only by Stop and cleared by any later event of the session.
     public var awaitingBackground: Bool?
+    /// When a pause that waits only for background timers (`sleep 300`) ends: the
+    /// earliest of them. Set by Stop with the pause and cleared with it.
+    public var wakesAt: Date?
     /// Why Claude's last turn ended with an API error. The error text is not kept.
     public var failure: SessionFailure?
     /// The latest fact the hook helper could not report to the app directly.
@@ -155,9 +158,16 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         case "bash", "shell", "exec_command": return L("Выполняет команду")
         case "read", "readfile": return L("Читает файл")
         case "edit", "write", "apply_patch": return L("Изменяет файлы")
-        case nil, "": return awaitingBackground == true ? L("В фоне") : L("Думает")
+        case nil, "": return awaitingBackground == true ? wakeTitle() ?? L("В фоне") : L("Думает")
         default: return L("Выполняет {0}", tool!)
         }
+    }
+    /// «Проснётся в 15:42» during a pause for timers alone, until a minute past the wake.
+    public func wakeTitle(now: Date = Date()) -> String? {
+        guard awaitingBackground == true, let wakesAt, wakesAt > now.addingTimeInterval(-60) else { return nil }
+        let clock = DateFormatter()
+        clock.locale = Locale(identifier: "en_US_POSIX"); clock.dateFormat = "HH:mm"
+        return L("Проснётся в {0}", clock.string(from: wakesAt))
     }
     public init(
         provider: ProviderID, sessionID: String, title: String, cwd: String, client: SessionClient = .unknown,
@@ -193,8 +203,10 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
     /// How long a pause for background work may last without an event. Claude Code stops
     /// a monitor at its deadline, 30 minutes at most, so a pause for monitors alone ends
     /// by then even when no notice wakes the session (owner's report R1521, 18.11.2026).
-    /// Commands and agents have no such bound.
+    /// Commands and agents have no such bound. Timers alone wake Claude when the first
+    /// of them ends: the pause lasts until then and five minutes more for a late wake.
     var backgroundPauseLifetime: TimeInterval {
+        if let wakesAt { return max(0, wakesAt.timeIntervalSince(observedAt)) + 5 * 60 }
         guard let work = backgroundWork, work.monitors > 0, work.commands == 0, work.agents == 0, work.other == 0 else { return 3600 }
         return 31 * 60
     }
@@ -401,6 +413,7 @@ public enum SessionList {
                     row.compactionTrigger = event.compactionTrigger
                     row.backgroundWork = event.backgroundWork
                     row.awaitingBackground = event.awaitingBackground
+                    row.wakesAt = event.wakesAt
                     row.failure = event.failure
                     row.replyFinished = event.replyFinished
                     row.updatedAt = max(row.updatedAt, event.updatedAt)
@@ -419,6 +432,7 @@ public enum SessionList {
                         if fresh {
                             row.compactionTrigger = event.compactionTrigger
                             row.backgroundWork = event.backgroundWork; row.awaitingBackground = event.awaitingBackground
+                            row.wakesAt = event.wakesAt
                         }
                     }
                 }
@@ -472,7 +486,7 @@ public enum SessionList {
             // Not a completion (no Stop): the turn stopped with its client.
             var row = row
             row.phase = .interrupted; row.tool = nil
-            row.awaitingBackground = nil; row.backgroundWork = nil
+            row.awaitingBackground = nil; row.backgroundWork = nil; row.wakesAt = nil
             return row
         }
         stopped = decided
@@ -525,7 +539,10 @@ public struct SessionRecord: Codable, Sendable {
     /// Tool calls whose PreToolUse was seen and whose result was not, oldest first.
     /// Such a call finishing while a request is open ran alongside it: not an answer.
     public var runningTools: [String]?
-    static let approvalLimit = 32, runningToolLimit = 32
+    /// Background timers seen starting (`sleep 300` with `run_in_background`): Claude's
+    /// opaque task id and when the timer ends. Never the command; Stop keeps only those in flight.
+    public var timers: [String: Date]?
+    static let approvalLimit = 32, runningToolLimit = 32, timerLimit = 16
     /// Remembers a call whose PreToolUse was seen; the oldest are forgotten first.
     mutating func noteRunning(_ id: String) {
         guard !id.isEmpty else { return }
@@ -554,7 +571,8 @@ public struct SessionRecord: Codable, Sendable {
         record.approvals = []; record.runningTools = nil
         record.session.phase = .interrupted; record.session.tool = nil
         record.session.turnStartedAt = nil
-        record.session.backgroundWork = nil; record.session.awaitingBackground = nil
+        record.session.backgroundWork = nil; record.session.awaitingBackground = nil; record.session.wakesAt = nil
+        record.timers = nil
         record.session.responseRequestsInput = nil; record.session.replyFinished = nil
         return record
     }
@@ -697,6 +715,12 @@ public struct SessionRecord: Codable, Sendable {
                 var work = record.session.backgroundWork ?? BackgroundWork()
                 work.add(launched)
                 record.session.backgroundWork = work
+                if let timer = ClaudeBackgroundWork.timer(tool: tool, payload: payload) {
+                    var timers = record.timers ?? [:]
+                    timers[timer.id] = now.addingTimeInterval(timer.seconds)
+                    while timers.count > SessionRecord.timerLimit, let first = timers.min(by: { $0.value < $1.value }) { timers[first.key] = nil }
+                    record.timers = timers
+                }
             }
         case "SubagentStop":
             // Not a turn boundary: phase, tool and freshness stay as they are, unless
@@ -738,6 +762,11 @@ public struct SessionRecord: Codable, Sendable {
             record.session.responseRequestsInput = asksForReply ? true : nil
             record.session.backgroundWork = work
             record.session.awaitingBackground = waiting ? true : nil
+            if provider == .claude {
+                let wake = ClaudeBackgroundWork.wake(payload["background_tasks"], timers: record.timers ?? [:])
+                record.timers = wake.timers.isEmpty ? nil : wake.timers
+                record.session.wakesAt = waiting ? wake.at : nil
+            }
             record.session.phase = asksForReply ? .input : waiting ? .running : .ready
             // A pause for background work has not answered the turn yet.
             record.session.replyFinished = waiting ? nil : true
@@ -762,7 +791,7 @@ public struct SessionRecord: Codable, Sendable {
         // Background tasks outlive prompts and tool calls; only a new or ended
         // session starts without them (compaction keeps them running).
         if name == "SessionEnd" || name == "Interrupt" || (name == "SessionStart" && payload["source"] as? String != "compact") {
-            record.session.backgroundWork = nil
+            record.session.backgroundWork = nil; record.timers = nil
         }
         // A pause for background work ends with the main conversation's own events.
         // A background or workflow agent's events (its own agent_id) and dialog
@@ -771,7 +800,7 @@ public struct SessionRecord: Codable, Sendable {
         let continuesBackgroundWait = previous?.session.awaitingBackground == true
             && ((provider == .claude && !context.isEmpty && ["PreToolUse", "PostToolUse", "PostToolUseFailure"].contains(name))
                 || name == "Notification")
-        if name != "Stop" && !continuesBackgroundWait { record.session.awaitingBackground = nil }
+        if name != "Stop" && !continuesBackgroundWait { record.session.awaitingBackground = nil; record.session.wakesAt = nil }
         if name != "PreCompact" { record.session.compactionTrigger = nil }
         // Resuming or forking opens an existing task (decision 13): ready for work
         // before its first prompt. Only startup and /clear wait for real work.
@@ -938,6 +967,46 @@ enum ClaudeBackgroundWork {
         case "Workflow": return BackgroundWork(agents: 1)
         default: return nil
         }
+    }
+    /// A background command that only waits, `sleep 300` or `sleep 300 && gh run view`:
+    /// Claude wakes when it ends. Its task id and length, never the command. A command
+    /// moved to the background later started earlier, so its end is unknown.
+    static func timer(tool: String, payload: [String: Any]) -> (id: String, seconds: TimeInterval)? {
+        let input = payload["tool_input"] as? [String: Any] ?? [:]
+        let response = payload["tool_response"] as? [String: Any] ?? [:]
+        guard tool == "Bash", input["run_in_background"] as? Bool == true,
+              let id = (response["backgroundTaskId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty,
+              let command = input["command"] as? String, let seconds = timer(command) else { return nil }
+        return (id, seconds)
+    }
+    /// The length of a command that starts with its only `sleep N` (seconds, or with s,
+    /// m or h), up to a day. Loops, several waits and computed lengths have no known end.
+    static func timer(_ command: String) -> TimeInterval? {
+        let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let range = NSRange(text.startIndex..., in: text)
+        guard sleepWord.numberOfMatches(in: text, range: range) == 1,
+              let match = timerPattern.firstMatch(in: text, range: range),
+              let number = Range(match.range(at: 1), in: text).flatMap({ Double(text[$0]) }) else { return nil }
+        let unit = Range(match.range(at: 2), in: text).map { text[$0].lowercased() } ?? ""
+        let seconds = number * (["m": 60, "h": 3600][unit] ?? 1)
+        return seconds >= 1 && seconds <= 86400 ? seconds : nil
+    }
+    private static let timerPattern = try! NSRegularExpression(
+        pattern: #"^\(?\s*(?:cd\s+[^;&|()]+&&\s*)?sleep\s+(\d+(?:\.\d+)?)([smh]?)\s*(?:$|&&|\|\||;|\))"#, options: [.caseInsensitive])
+    private static let sleepWord = try! NSRegularExpression(pattern: #"\bsleep\b"#)
+    /// When Claude wakes from a pause, if every task it waits for is a timer seen
+    /// starting (services never wake it); and the timers still in flight, to keep.
+    static func wake(_ value: Any?, timers: [String: Date]) -> (at: Date?, timers: [String: Date]) {
+        let tasks = (value as? [[String: Any]] ?? []).prefix(500).filter { task in
+            let type = (task["type"] as? String ?? "").lowercased()
+            return inFlight.contains((task["status"] as? String ?? "").lowercased())
+                && !(task["id"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !(type == "shell" && (task["command"] as? String).map(isService) == true)
+        }
+        let ids = Set(tasks.compactMap { $0["id"] as? String })
+        let kept = timers.filter { ids.contains($0.key) }
+        let onlyTimers = !tasks.isEmpty && kept.count == ids.count && tasks.allSatisfy { ($0["type"] as? String ?? "").lowercased() == "shell" }
+        return (onlyTimers ? kept.values.min() : nil, kept)
     }
     static func isService(_ command: String) -> Bool {
         let range = NSRange(command.startIndex..., in: command)

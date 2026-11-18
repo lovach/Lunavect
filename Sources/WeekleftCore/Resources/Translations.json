@@ -7180,5 +7180,12 @@
     "es": "Pregunta",
     "fr": "Question",
     "zh-Hans": "问题"
+  },
+  "Проснётся в {0}": {
+    "de": "Wacht um {0} auf",
+    "en": "Wakes at {0}",
+    "es": "Despierta a las {0}",
+    "fr": "Se réveille à {0}",
+    "zh-Hans": "{0} 唤醒"
   }
 }
