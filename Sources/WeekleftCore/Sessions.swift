@@ -184,11 +184,19 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
         // A background pause has no events until a task finishes; allow long
         // renders, but still expire it if Claude never wakes (crash, lost hook).
         let lifetime: TimeInterval = evidence == .catalog ? Self.catalogLifetime : evidence == .localEvent && phase.isActive ? 120
-            : phase == .running && awaitingBackground == true ? 3600 : 600
+            : phase == .running && awaitingBackground == true ? backgroundPauseLifetime : 600
         guard age >= -60, age < lifetime else { return .unknown }
         // The check waits at its /usage screen; that is not a session waiting for the user.
         if isLimitsCheck == true || isBackgroundRun == true, phase.isActive { return .idle }
         return phase
+    }
+    /// How long a pause for background work may last without an event. Claude Code stops
+    /// a monitor at its deadline, 30 minutes at most, so a pause for monitors alone ends
+    /// by then even when no notice wakes the session (owner's report R1521, 18.11.2026).
+    /// Commands and agents have no such bound.
+    var backgroundPauseLifetime: TimeInterval {
+        guard let work = backgroundWork, work.monitors > 0, work.commands == 0, work.agents == 0, work.other == 0 else { return 3600 }
+        return 31 * 60
     }
     public func isCurrent(now: Date = Date()) -> Bool {
         let phase = effectivePhase(now: now)

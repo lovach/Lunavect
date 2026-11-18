@@ -173,6 +173,16 @@ final class ClaudeBackgroundWorkTests: XCTestCase {
         let ordinary = try hook("PreToolUse", ["tool_name": "Bash", "tool_use_id": "t"], after: nil, at: 0).session
         XCTAssertEqual(ordinary.effectivePhase(now: start.addingTimeInterval(601)), .unknown)
     }
+    /// Owner's report R1521, 18.11.2026: a session stayed «В фоне» for 40 minutes after its
+    /// only monitor had expired (Claude Code stops a monitor within 30 minutes).
+    func testPauseForMonitorsAloneEndsWithTheirDeadline() throws {
+        let prompt = try hook("UserPromptSubmit", after: nil, at: 0)
+        let watching = try hook("Stop", ["background_tasks": [monitor]], after: prompt, at: 5).session
+        XCTAssertEqual(watching.effectivePhase(now: start.addingTimeInterval(5 + 29 * 60)), .running)
+        XCTAssertEqual(watching.effectivePhase(now: start.addingTimeInterval(5 + 32 * 60)), .unknown)
+        let rendering = try hook("Stop", ["background_tasks": [render, monitor]], after: prompt, at: 5).session
+        XCTAssertEqual(rendering.effectivePhase(now: start.addingTimeInterval(5 + 45 * 60)), .running, "A command has no deadline")
+    }
 
     /// While Claude still works, launched background tasks are counted as they start.
     func testLaunchesDuringTheTurnAreCounted() throws {
