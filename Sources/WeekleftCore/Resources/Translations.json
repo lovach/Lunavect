@@ -7103,5 +7103,12 @@
     "es": "{0} más en el panel",
     "fr": "{0} de plus dans le panneau",
     "zh-Hans": "面板中还有 {0} 个"
+  },
+  "У выреза уже работает {0}: при наведении его окно и остров наложатся. Закройте это приложение или выключите остров здесь.": {
+    "de": "An der Aussparung läuft bereits {0}: Beim Darüberfahren überlagern sich sein Fenster und die Insel. Beenden Sie diese App oder schalten Sie die Insel hier aus.",
+    "en": "{0} is already running at the notch: on hover, its window and the island overlap. Quit that app or turn the island off here.",
+    "es": "{0} ya funciona en la muesca: al pasar el puntero, su ventana y la isla se superponen. Cierra esa app o desactiva la isla aquí.",
+    "fr": "{0} fonctionne déjà à l’encoche : au survol, sa fenêtre et l’îlot se chevauchent. Quittez cette app ou désactivez l’îlot ici.",
+    "zh-Hans": "刘海处已在运行 {0}：指针悬停时，它的窗口会与岛重叠。请退出该应用，或在此关闭岛。"
   }
 }

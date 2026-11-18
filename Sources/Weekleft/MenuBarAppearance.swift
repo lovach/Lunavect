@@ -793,6 +793,8 @@ struct MenuBarAppearanceView: View {
     var providers: [ProviderID] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var previewStartedAt = Date.now
+    /// Another app drawing over the camera housing, read when the settings open.
+    @State private var notchNeighbor: String?
     var body: some View {
         VStack(alignment: .leading, spacing: InterfaceMetrics.settingsSectionSpacing) {
             sessionSettings
@@ -818,6 +820,12 @@ struct MenuBarAppearanceView: View {
                 SettingsToggleRow(title: L("Остров у выреза экрана"), isOn: $appearance.showsNotchIsland,
                                   detail: L("Работающие и ждущие вас сессии видны у выреза. Наведите курсор, чтобы раскрыть список; щелчок открывает сессию. На экране без выреза остров появляется, только пока есть работа."))
                     .accessibilityIdentifier("menu-bar-notch-island")
+                    .onAppear { notchNeighbor = NotchGeometry.otherOwner() }
+                if appearance.showsNotchIsland, let notchNeighbor {
+                    Text(L("У выреза уже работает {0}: при наведении его окно и остров наложатся. Закройте это приложение или выключите остров здесь.", notchNeighbor))
+                        .font(.system(size: 12)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("menu-bar-notch-neighbor")
+                }
                 if appearance.showsSessionStatus {
                     SettingsChoiceRow(L("Статус сессий")) {
                         Picker(L("Статус сессий"), selection: $appearance.statusStyle) {

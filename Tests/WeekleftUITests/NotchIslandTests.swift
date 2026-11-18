@@ -31,11 +31,28 @@ final class NotchIslandTests: XCTestCase {
         }
         let summary = IslandSummary.make([row("run", .running, 5), row("idle", .idle, 5), row("ask", .permission, 30),
                                           row("done", .ready, 2), row("run2", .running, 1)], now: now)
-        XCTAssertEqual(summary.rows.map(\.id), ["claude:ask", "claude:run2", "claude:run", "claude:done"])
+        XCTAssertEqual(summary.rows.map(\.id), ["claude:ask", "claude:run", "claude:run2", "claude:done"])
         XCTAssertEqual([summary.working, summary.waiting, summary.ready], [2, 1, 1])
         XCTAssertEqual(summary.rows.first?.since, now - 30, "A waiting row counts from the request")
-        XCTAssertEqual(summary.rows[1].since, now - 61, "A working row counts from the turn")
+        XCTAssertEqual(summary.rows[1].since, now - 65, "A working row counts from the turn")
         XCTAssertNil(summary.rows.last?.since)
+    }
+
+    /// Owner's check, 18.11.2026: rows sorted by their last event swapped places
+    /// while the pointer was on the open island, so a click could open another session.
+    func testRowsKeepTheirPlaceWhenSessionsReportEvents() {
+        let now = Date()
+        func row(_ id: String, updated age: TimeInterval) -> AgentSession {
+            var session = AgentSession(provider: .claude, sessionID: id, title: id, cwd: "/Users/fixture/project", client: .desktop,
+                                       phase: .running, updatedAt: now - age, observedAt: now - age, evidence: .hook)
+            session.turnStartedAt = now - 300
+            return session
+        }
+        let order = ["claude:a", "claude:b"]
+        let before = IslandSummary.make([row("a", updated: 1), row("b", updated: 9)], order: order, now: now)
+        let after = IslandSummary.make([row("b", updated: 0), row("a", updated: 20)], order: order, now: now)
+        XCTAssertEqual(before.rows.map(\.id), order)
+        XCTAssertEqual(after.rows.map(\.id), order)
     }
 
     func testClosedIslandHasEarsOnlyWithSomethingToShow() {

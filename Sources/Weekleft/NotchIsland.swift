@@ -29,6 +29,29 @@ struct NotchGeometry: Equatable {
              rightArea: screen.auxiliaryTopRightArea, menuBarHeight: NSStatusBar.system.thickness)
     }
 
+    /// The app whose window is drawn over the housing above the menu bar, such
+    /// as another notch app: both would open under the pointer at once. Window
+    /// bounds and owners need no screen-recording permission.
+    @MainActor static func otherOwner() -> String? {
+        guard let screen = preferredScreen else { return nil }
+        let notch = make(screen).notch
+        // Window bounds count from the top-left corner of the primary screen.
+        let top = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+        let target = CGRect(x: notch.minX, y: top - notch.maxY, width: notch.width, height: notch.height)
+        let own = ProcessInfo.processInfo.processIdentifier
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for window in windows {
+            guard let pid = window[kCGWindowOwnerPID as String] as? pid_t, pid != own,
+                  let layer = window[kCGWindowLayer as String] as? Int,
+                  layer > Int(CGWindowLevelForKey(.statusWindow)), layer < Int(CGWindowLevelForKey(.screenSaverWindow)),
+                  let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: bounds), rect.width < screen.frame.width, rect.intersects(target)
+            else { continue }
+            return NSRunningApplication(processIdentifier: pid)?.localizedName ?? window[kCGWindowOwnerName as String] as? String
+        }
+        return nil
+    }
+
     /// The screen with a housing, otherwise the screen with the menu bar.
     @MainActor static var preferredScreen: NSScreen? {
         NSScreen.screens.first { $0.safeAreaInsets.top > 0 && $0.auxiliaryTopLeftArea != nil } ?? NSScreen.screens.first
@@ -48,6 +71,8 @@ struct IslandRow: Identifiable, Equatable {
 
 /// What the island shows: sessions waiting for the owner first, then working
 /// ones, then finished answers. Idle and stale sessions stay in the panel only.
+/// Within a group rows keep the order they first appeared in, so a row does not
+/// move under the pointer each time its session reports an event.
 struct IslandSummary: Equatable {
     var rows: [IslandRow] = []
     var working = 0, waiting = 0, ready = 0
@@ -55,11 +80,16 @@ struct IslandSummary: Equatable {
     var hasSignal: Bool { working + waiting + ready > 0 }
     static let shownPhases: Set<SessionPhase> = [.permission, .input, .running, .failed, .ready]
 
-    static func make(_ sessions: [AgentSession], now: Date = Date()) -> IslandSummary {
+    static func make(_ sessions: [AgentSession], order: [String] = [], now: Date = Date()) -> IslandSummary {
+        let rank = Dictionary(order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
         let current = sessions.filter { $0.isCurrent(now: now) }
             .map { ($0, $0.effectivePhase(now: now)) }
             .filter { shownPhases.contains($0.1) }
-            .sorted { ($0.1.priority, $1.0.updatedAt) < ($1.1.priority, $0.0.updatedAt) }
+            .enumerated()
+            .sorted { a, b in
+                (a.element.1.priority, rank[a.element.0.id] ?? Int.max, a.offset)
+                    < (b.element.1.priority, rank[b.element.0.id] ?? Int.max, b.offset)
+            }.map(\.element)
         var summary = IslandSummary()
         summary.rows = current.map { session, phase in
             let waiting = phase == .permission || phase == .input
@@ -359,6 +389,8 @@ final class IslandHostingView: NSHostingView<IslandView> {
     private var screenTop: CGFloat = 0
     private var enabled = false
     private var rows: [AgentSession] = []
+    /// Session ids in the order the island first saw them.
+    private var order: [String] = []
 
     init(onOpen: @escaping (String) -> Void, onOpenPanel: @escaping () -> Void) {
         self.onOpen = onOpen; self.onOpenPanel = onOpenPanel
@@ -401,7 +433,11 @@ final class IslandHostingView: NSHostingView<IslandView> {
     }
 
     private func update() {
-        let summary = IslandSummary.make(rows)
+        let present = Set(rows.map(\.id))
+        order.removeAll { !present.contains($0) }
+        let known = Set(order)
+        order += rows.map(\.id).filter { !known.contains($0) }
+        let summary = IslandSummary.make(rows, order: order)
         if summary != state.summary { state.summary = summary }
         layout()
     }
