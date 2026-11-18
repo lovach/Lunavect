@@ -17,16 +17,43 @@ public enum PermissionBridge {
         case allow, always, deny, ask
     }
 
+    /// The owner's reply: an answer and, for a question of the agent, the chosen
+    /// option labels by question text (owner's yes 18.11.2026, R1539).
+    public struct Reply: Equatable, Sendable {
+        public var answer: Answer
+        public var answers: [String: String]?
+        public init(_ answer: Answer, answers: [String: String]? = nil) { self.answer = answer; self.answers = answers }
+        public static let allow = Reply(.allow), always = Reply(.always), deny = Reply(.deny), ask = Reply(.ask)
+        /// One line on the socket: the bare answer, or JSON when answers come with it.
+        var line: String {
+            guard let answers,
+                  let data = try? JSONSerialization.data(withJSONObject: ["answer": answer.rawValue, "answers": answers], options: [.sortedKeys])
+            else { return answer.rawValue }
+            return String(decoding: data, as: UTF8.self)
+        }
+        init?(line: String) {
+            let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.hasPrefix("{") else {
+                guard let answer = Answer(rawValue: text) else { return nil }
+                self.init(answer); return
+            }
+            guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+                  let answer = (object["answer"] as? String).flatMap(Answer.init(rawValue:)),
+                  let answers = object["answers"] as? [String: String] else { return nil }
+            self.init(answer, answers: answers)
+        }
+    }
+
     public static var socketURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Weekleft/permission.sock")
     }
 
-    /// A request the island can answer with allow or deny. A question to the
-    /// owner (AskUserQuestion) needs its answers typed, so it stays in the session.
+    /// A request the island can answer: a tool to allow or deny, or a question of
+    /// the agent whose options fit the island. Other questions stay in the session.
     public static func waits(for object: [String: Any]) -> Bool {
         guard object["hook_event_name"] as? String == "PermissionRequest", object["session_id"] is String,
               let tool = object["tool_name"] as? String, !tool.isEmpty else { return false }
-        return tool != "AskUserQuestion"
+        return tool != "AskUserQuestion" || PermissionQuestion.parse(object["tool_input"]) != nil
     }
 
     /// Claude Code reads its hooks when a session starts. A session started before
@@ -40,8 +67,24 @@ public enum PermissionBridge {
 
     /// The hook's output for an answer, or nil when Claude Code should ask in its dialog.
     public static func output(for answer: Answer, payload: [String: Any]) -> String? {
+        output(for: Reply(answer), payload: payload)
+    }
+    /// Answers to a question go back as the tool's input with `answers` by question
+    /// text, the way Claude Code reads them; `questions` must stay (it maps over them).
+    public static func output(for reply: Reply, payload: [String: Any]) -> String? {
         var decision: [String: Any]
-        switch answer {
+        if let answers = reply.answers, reply.answer == .allow, payload["tool_name"] as? String == "AskUserQuestion" {
+            var input = payload["tool_input"] as? [String: Any] ?? [:]
+            input["questions"] = input["questions"] ?? [Any]()
+            input["answers"] = answers
+            decision = ["behavior": "allow", "updatedInput": input]
+            let object: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": decision]]
+            guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        // A question is answered only with its options: any other reply leaves it to the session.
+        if payload["tool_name"] as? String == "AskUserQuestion" { return nil }
+        switch reply.answer {
         case .ask: return nil
         case .allow: decision = ["behavior": "allow"]
         case .always:
@@ -58,7 +101,7 @@ public enum PermissionBridge {
 
     /// Helper side: sends the request and waits for the owner's answer. Any
     /// failure (no app, another user's socket, timeout) is `ask`.
-    public static func ask(payload object: [String: Any], socket url: URL = socketURL, wait: TimeInterval = helperWait) -> Answer {
+    public static func ask(payload object: [String: Any], socket url: URL = socketURL, wait: TimeInterval = helperWait) -> Reply {
         guard waits(for: object), var message = try? JSONSerialization.data(withJSONObject: object) else { return .ask }
         message.append(0x0A)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -66,8 +109,8 @@ public enum PermissionBridge {
         defer { close(fd) }
         configure(fd, receiveTimeout: wait)
         guard withAddress(url, { Darwin.connect(fd, $0, $1) }) == 0, sameUser(fd), writeAll(fd, message),
-              let line = readLine(fd, limit: 64) else { return .ask }
-        return Answer(rawValue: line.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .ask
+              let line = readLine(fd, limit: 64 << 10) else { return .ask }
+        return Reply(line: line) ?? .ask
     }
 
     // MARK: Socket helpers
@@ -138,6 +181,8 @@ public struct PermissionPrompt: Identifiable, Equatable, Sendable {
     /// Claude Code offered a rule ("don't ask again") the answer can keep.
     public let canAlways: Bool
     public let receivedAt: Date
+    /// The agent's questions (AskUserQuestion), answered with their options; nil for a tool.
+    public let questions: [PermissionQuestion]?
     /// The island row of this request's session.
     public var rowID: String { ProviderID.claude.rawValue + ":" + sessionID }
 
@@ -145,15 +190,54 @@ public struct PermissionPrompt: Identifiable, Equatable, Sendable {
         guard PermissionBridge.waits(for: object), let session = object["session_id"] as? String,
               let tool = object["tool_name"] as? String else { return nil }
         let input = object["tool_input"] as? [String: Any] ?? [:]
+        questions = tool == "AskUserQuestion" ? PermissionQuestion.parse(input) : nil
         let named = ["command", "file_path", "notebook_path", "url", "path", "pattern", "description", "prompt"]
             .lazy.compactMap { input[$0] as? String }.first { !$0.isEmpty }
-        let text = named ?? input.values.lazy.compactMap { $0 as? String }.first ?? ""
+        let text = questions?.first?.text ?? named ?? input.values.lazy.compactMap { $0 as? String }.first ?? ""
         let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         self.id = id; self.sessionID = session; self.tool = tool
         detail = line.count > 240 ? String(line.prefix(239)) + "…" : line
         cwd = object["cwd"] as? String ?? ""
         canAlways = (object["permission_suggestions"] as? [Any])?.isEmpty == false
         receivedAt = now
+    }
+}
+
+/// One question of the agent (AskUserQuestion) as the island offers it: the
+/// question, its short header and 2 to 4 options, one or several to pick.
+public struct PermissionQuestion: Equatable, Sendable {
+    public struct Option: Equatable, Sendable {
+        public let label: String
+        public let detail: String
+    }
+    /// Claude Code finds the answer by this text.
+    public let text: String
+    public let header: String
+    public let options: [Option]
+    public let multiSelect: Bool
+
+    /// The answer Claude Code reads: the chosen labels, several joined as its own dialog joins them.
+    public static func answer(_ labels: [String]) -> String { labels.joined(separator: ", ") }
+
+    /// 1 to 4 questions with distinct texts and 2 to 4 labelled options each, as
+    /// the tool defines them; anything else is answered in the session.
+    static func parse(_ value: Any?) -> [PermissionQuestion]? {
+        guard let items = (value as? [String: Any])?["questions"] as? [[String: Any]], (1...4).contains(items.count) else { return nil }
+        var questions: [PermissionQuestion] = []
+        for item in items {
+            guard let text = (item["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
+                  text.count <= 1000, !questions.contains(where: { $0.text == text }),
+                  let raw = item["options"] as? [[String: Any]], (2...4).contains(raw.count) else { return nil }
+            var options: [Option] = []
+            for option in raw {
+                guard let label = option["label"] as? String, !label.isEmpty, label.count <= 200,
+                      !options.contains(where: { $0.label == label }) else { return nil }
+                options.append(Option(label: label, detail: (option["description"] as? String) ?? ""))
+            }
+            questions.append(PermissionQuestion(text: text, header: (item["header"] as? String) ?? "", options: options,
+                                                multiSelect: item["multiSelect"] as? Bool ?? false))
+        }
+        return questions
     }
 }
 
@@ -203,7 +287,7 @@ public final class PermissionBridgeServer: @unchecked Sendable {
     }
 
     /// `delivered` (on the main queue) says whether the helper was still waiting.
-    public func answer(_ id: UUID, _ answer: PermissionBridge.Answer, delivered: @escaping (Bool) -> Void = { _ in }) {
+    public func answer(_ id: UUID, _ answer: PermissionBridge.Reply, delivered: @escaping (Bool) -> Void = { _ in }) {
         queue.async { [weak self] in
             let done = self?.finish(id, reply: answer, notify: false) ?? false
             DispatchQueue.main.async { delivered(done) }
@@ -236,9 +320,9 @@ public final class PermissionBridgeServer: @unchecked Sendable {
         }
     }
 
-    @discardableResult private func finish(_ id: UUID, reply: PermissionBridge.Answer?, notify: Bool) -> Bool {
+    @discardableResult private func finish(_ id: UUID, reply: PermissionBridge.Reply?, notify: Bool) -> Bool {
         guard let request = pending.removeValue(forKey: id) else { return false }
-        let written = reply.map { PermissionBridge.writeAll(request.fd, Data(($0.rawValue + "\n").utf8)) } ?? false
+        let written = reply.map { PermissionBridge.writeAll(request.fd, Data(($0.line + "\n").utf8)) } ?? false
         request.source.cancel()
         if notify { let onEnd = self.onEnd; DispatchQueue.main.async { onEnd(id) } }
         return written

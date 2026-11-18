@@ -5,7 +5,7 @@ import Darwin
 /// Owner's yes, 18.11.2026 (R1537): a Claude permission request waits up to a
 /// minute for her answer in the island; without the app Claude Code asks as before.
 final class PermissionBridgeTests: XCTestCase {
-    private final class Box: @unchecked Sendable { var answer: PermissionBridge.Answer? }
+    private final class Box: @unchecked Sendable { var answer: PermissionBridge.Reply? }
 
     private func payload(_ tool: String = "Bash", suggestions: [Any]? = nil) -> [String: Any] {
         var object: [String: Any] = ["session_id": "perm", "cwd": "/Users/fixture/Projects/lunavect", "hook_event_name": "PermissionRequest",
@@ -42,7 +42,70 @@ final class PermissionBridgeTests: XCTestCase {
         XCTAssertEqual(prompt.rowID, "claude:perm")
         XCTAssertFalse(prompt.canAlways)
         XCTAssertTrue(try XCTUnwrap(PermissionPrompt(payload: payload(suggestions: [["type": "addRules"]]))).canAlways)
-        XCTAssertNil(PermissionPrompt(payload: payload("AskUserQuestion")), "A question needs typed answers in the session")
+        XCTAssertNil(PermissionPrompt(payload: payload("AskUserQuestion")), "A question without options stays in the session")
+    }
+
+    private func question(_ questions: [[String: Any]]) -> [String: Any] {
+        ["session_id": "ask", "cwd": "/Users/fixture/Projects/lunavect", "hook_event_name": "PermissionRequest",
+         "tool_name": "AskUserQuestion", "tool_input": ["questions": questions]]
+    }
+    private let colour: [String: Any] = ["question": "Which colour?", "header": "Colour", "multiSelect": false,
+                                         "options": [["label": "Red", "description": "Warmer"], ["label": "Blue", "description": ""]]]
+    private let sizes: [String: Any] = ["question": "Which sizes?", "header": "Size", "multiSelect": true,
+                                        "options": [["label": "S"], ["label": "M"], ["label": "L"]]]
+
+    /// Owner's yes 18.11.2026 (R1539): the agent's questions are answered from the island. Claude
+    /// Code reads the answers by question text and maps over `questions`, so both go back.
+    func testAgentQuestionsBecomeChoicesAndAnswersByQuestionText() throws {
+        let object = question([colour, sizes])
+        let prompt = try XCTUnwrap(PermissionPrompt(payload: object))
+        XCTAssertEqual(prompt.questions?.map(\.text), ["Which colour?", "Which sizes?"])
+        XCTAssertEqual(prompt.questions?.first?.options.map(\.label), ["Red", "Blue"])
+        XCTAssertEqual(prompt.questions?.first?.options.first?.detail, "Warmer")
+        XCTAssertEqual(prompt.questions?.map(\.multiSelect), [false, true])
+        XCTAssertEqual(prompt.detail, "Which colour?")
+        let reply = PermissionBridge.Reply(.allow, answers: ["Which colour?": "Red", "Which sizes?": PermissionQuestion.answer(["S", "L"])])
+        let text = try XCTUnwrap(PermissionBridge.output(for: reply, payload: object))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let decision = try XCTUnwrap((root["hookSpecificOutput"] as? [String: Any])?["decision"] as? [String: Any])
+        XCTAssertEqual(decision["behavior"] as? String, "allow")
+        let input = try XCTUnwrap(decision["updatedInput"] as? [String: Any])
+        XCTAssertEqual((input["questions"] as? [[String: Any]])?.count, 2)
+        XCTAssertEqual(input["answers"] as? [String: String], ["Which colour?": "Red", "Which sizes?": "S, L"])
+        for plain in [PermissionBridge.Reply.allow, .always, .deny, .ask] {
+            XCTAssertNil(PermissionBridge.output(for: plain, payload: object), "Without its options a question stays in the session")
+        }
+        // The line on the socket keeps the answers.
+        XCTAssertEqual(PermissionBridge.Reply(line: reply.line), reply)
+        XCTAssertEqual(PermissionBridge.Reply(line: "deny\n"), .deny)
+        XCTAssertNil(PermissionBridge.Reply(line: "{\"answer\":\"allow\"}"))
+    }
+
+    func testQuestionsTheIslandCannotOfferStayInTheSession() {
+        var one = colour; one["options"] = [["label": "Only"]]
+        var unlabelled = colour; unlabelled["options"] = [["label": "Red"], ["description": "no label"]]
+        for object in [question([one]), question([unlabelled]), question([colour, colour]), question(Array(repeating: sizes, count: 5)), question([])] {
+            XCTAssertFalse(PermissionBridge.waits(for: object))
+            XCTAssertNil(PermissionPrompt(payload: object))
+        }
+    }
+
+    func testChosenOptionsReachTheWaitingHelper() throws {
+        let url = socketURL()
+        var server: PermissionBridgeServer!
+        server = PermissionBridgeServer(url: url, wait: 5, onPrompt: { prompt in
+            server.answer(prompt.id, PermissionBridge.Reply(.allow, answers: ["Which colour?": "Blue"]))
+        }, onEnd: { _ in })
+        try server.start()
+        defer { server.stop() }
+        let box = Box(), answered = expectation(description: "helper answered")
+        let object = question([colour])
+        DispatchQueue.global().async {
+            box.answer = PermissionBridge.ask(payload: object, socket: url, wait: 5)
+            answered.fulfill()
+        }
+        wait(for: [answered], timeout: 5)
+        XCTAssertEqual(box.answer, PermissionBridge.Reply(.allow, answers: ["Which colour?": "Blue"]))
     }
 
     /// Owner's report 18.11.2026 (R1538): sessions opened before the change keep the

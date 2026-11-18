@@ -74,6 +74,43 @@ final class NotchIslandTests: XCTestCase {
         XCTAssertEqual(asking.height - plain.height, IslandLayout.rowHeight + 2 * IslandLayout.promptHeight)
     }
 
+    /// Owner's yes 18.11.2026 (R1539): the agent's question waits for an answer in the island,
+    /// on a card tall enough for its options.
+    func testQuestionOfTheAgentWaitsForAnAnswerOnATallerCard() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let question = try XCTUnwrap(PermissionPrompt(payload: [
+            "session_id": "ask", "cwd": "/Users/fixture/Projects/shop", "hook_event_name": "PermissionRequest", "tool_name": "AskUserQuestion",
+            "tool_input": ["questions": [["question": "Which colour should the button be?", "header": "Colour", "multiSelect": false,
+                                          "options": [["label": "Red", "description": "Warmer"], ["label": "Blue", "description": ""]]]]]], now: now))
+        let summary = IslandSummary.make([], prompts: [question], now: now)
+        XCTAssertEqual(summary.rows.first?.phase, .input)
+        XCTAssertEqual(summary.rows.first?.activity, SessionPhase.input.title)
+        XCTAssertEqual(summary.waiting, 1)
+        XCTAssertGreaterThan(IslandLayout.promptHeight(question), IslandLayout.promptHeight + IslandLayout.optionHeight)
+        // The card fits the question it shows: the island grows for the second, longer one.
+        let two = try XCTUnwrap(PermissionPrompt(payload: [
+            "session_id": "ask", "cwd": "/Users/fixture/Projects/shop", "hook_event_name": "PermissionRequest", "tool_name": "AskUserQuestion",
+            "tool_input": ["questions": [["question": "Which colour?", "header": "Colour", "multiSelect": false,
+                                          "options": [["label": "Red"], ["label": "Blue"]]],
+                                         ["question": "Which sizes?", "header": "Sizes", "multiSelect": true,
+                                          "options": [["label": "S", "description": "Small"], ["label": "M", "description": "Medium"],
+                                                      ["label": "L", "description": "Large"]]]]]], now: now))
+        let first = IslandSummary.make([], prompts: [two], now: now), second = IslandSummary.make([], prompts: [two], steps: [two.id: 1], now: now)
+        XCTAssertEqual([first.rows.first?.step, second.rows.first?.step], [0, 1])
+        XCTAssertEqual(IslandSummary.make([], prompts: [two], steps: [two.id: 7], now: now).rows.first?.step, 1)
+        let notch = CGSize(width: 185, height: 32)
+        XCTAssertEqual(IslandLayout.expanded(notch: notch, summary: second, limits: 1).height
+                       - IslandLayout.expanded(notch: notch, summary: first, limits: 1).height,
+                       IslandLayout.promptHeight(two, step: 1) - IslandLayout.promptHeight(two, step: 0))
+        XCTAssertEqual(IslandLayout.promptHeight(two, step: 1) - IslandLayout.promptHeight(two, step: 0),
+                       IslandLayout.optionHeight + 3 * 13 + 5)
+        // A long question takes more lines, up to three; Chinese needs them sooner than Latin text.
+        XCTAssertEqual(IslandLayout.questionLines("Which colour?"), 1)
+        XCTAssertEqual(IslandLayout.questionLines(String(repeating: "Which colour should it be? ", count: 30)), 3)
+        XCTAssertGreaterThan(IslandLayout.questionLines(String(repeating: "按钮应该是什么颜色", count: 4)),
+                             IslandLayout.questionLines(String(repeating: "Which colour?", count: 3)))
+    }
+
     func testClosedIslandHasEarsOnlyWithSomethingToShow() {
         let notch = CGSize(width: 185, height: 32)
         XCTAssertEqual(IslandLayout.compact(notch: notch, summary: IslandSummary()), notch)

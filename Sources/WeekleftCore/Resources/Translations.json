@@ -7159,5 +7159,26 @@
     "es": "La solicitud ya se cerró: responde en la sesión",
     "fr": "La demande est déjà fermée : répondez dans la session",
     "zh-Hans": "请求已关闭：请在会话中回答"
+  },
+  "В сессии": {
+    "de": "In der Sitzung",
+    "en": "In session",
+    "es": "En la sesión",
+    "fr": "Dans la session",
+    "zh-Hans": "在会话中"
+  },
+  "Ответ отправлен": {
+    "de": "Antwort gesendet",
+    "en": "Answer sent",
+    "es": "Respuesta enviada",
+    "fr": "Réponse envoyée",
+    "zh-Hans": "已发送回答"
+  },
+  "Вопрос": {
+    "de": "Frage",
+    "en": "Question",
+    "es": "Pregunta",
+    "fr": "Question",
+    "zh-Hans": "问题"
   }
 }

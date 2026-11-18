@@ -68,6 +68,8 @@ struct IslandRow: Identifiable, Equatable {
     let since: Date?
     /// A permission request the owner can answer from the island.
     var prompt: PermissionPrompt? = nil
+    /// The question of the request its card shows: the agent may ask several in turn.
+    var step = 0
     var waiting: Bool { phase == .permission || phase == .input }
 }
 
@@ -83,7 +85,7 @@ struct IslandSummary: Equatable {
     static let shownPhases: Set<SessionPhase> = [.permission, .input, .running, .failed, .ready]
 
     static func make(_ sessions: [AgentSession], order: [String] = [], prompts: [PermissionPrompt] = [],
-                     now: Date = Date()) -> IslandSummary {
+                     steps: [UUID: Int] = [:], now: Date = Date()) -> IslandSummary {
         let rank = Dictionary(order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
         let current = sessions.filter { $0.isCurrent(now: now) }
             .map { ($0, $0.effectivePhase(now: now)) }
@@ -107,8 +109,10 @@ struct IslandSummary: Equatable {
             let existing = summary.rows.firstIndex { $0.id == prompt.rowID }
             let title = existing.map { summary.rows[$0].title }
                 ?? (prompt.cwd.isEmpty ? L("Сессия Claude") : URL(fileURLWithPath: prompt.cwd).lastPathComponent)
-            let row = IslandRow(id: prompt.rowID, title: title, activity: SessionPhase.permission.title, phase: .permission,
+            let phase: SessionPhase = prompt.questions == nil ? .permission : .input
+            var row = IslandRow(id: prompt.rowID, title: title, activity: phase.title, phase: phase,
                                 provider: .claude, since: prompt.receivedAt, prompt: prompt)
+            row.step = min(max(0, steps[prompt.id] ?? 0), max(0, (prompt.questions?.count ?? 1) - 1))
             if let existing { summary.rows[existing] = row } else { summary.rows.append(row) }
         }
         summary.rows = summary.rows.filter { $0.prompt != nil } + summary.rows.filter { $0.prompt == nil }
@@ -157,9 +161,28 @@ enum IslandLayout {
     static func expanded(notch: CGSize, summary: IslandSummary, limits: Int) -> CGSize {
         let rows = CGFloat(max(1, min(maxRows, summary.rows.count)))
         let more: CGFloat = summary.rows.count > maxRows ? moreHeight : 0
-        let prompts = CGFloat(summary.rows.prefix(maxRows).filter { $0.prompt != nil }.count)
+        let prompts = summary.rows.prefix(maxRows).compactMap { row in row.prompt.map { promptHeight($0, step: row.step) } }.reduce(0, +)
         return CGSize(width: max(width, notch.width + 2 * ear),
-                      height: notch.height + 6 + (limits > 0 ? limitsHeight : 0) + rows * rowHeight + prompts * promptHeight + more + 10)
+                      height: notch.height + 6 + (limits > 0 ? limitsHeight : 0) + rows * rowHeight + prompts + more + 10)
+    }
+    /// A permission card has one line and its buttons. A question card fits the
+    /// question it shows, so the island follows the agent's questions one by one.
+    static func promptHeight(_ prompt: PermissionPrompt, step: Int = 0) -> CGFloat {
+        guard let questions = prompt.questions, !questions.isEmpty else { return promptHeight }
+        let question = questions[min(max(0, step), questions.count - 1)]
+        let options = question.options.map { $0.detail.isEmpty ? optionHeight : optionHeight + 13 }.reduce(0, +)
+        return 16 + questionLines(question.text) * 16 + 8 + options + CGFloat(question.options.count - 1) * 5 + 8 + 24 + 12
+    }
+    static let optionHeight: CGFloat = 28
+    /// Lines of the question (at most 3) at the card's narrowest width, measured
+    /// with its font, so a long or Chinese question never pushes the buttons out.
+    static func questionLines(_ text: String) -> CGFloat {
+        let measure = { (text: String) in
+            (text as NSString).boundingRect(with: NSSize(width: width - 16 - 38, height: .greatestFiniteMagnitude),
+                                            options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                            attributes: [.font: NSFont.systemFont(ofSize: 12)]).height
+        }
+        return min(3, max(1, (measure(text) / measure("Ag")).rounded()))
     }
 }
 
@@ -208,7 +231,8 @@ struct IslandView: View {
     @ObservedObject var state: IslandState
     var onOpen: (String) -> Void
     var onOpenPanel: () -> Void
-    var onAnswer: (UUID, PermissionBridge.Answer) -> Void = { _, _ in }
+    var onAnswer: (UUID, PermissionBridge.Reply) -> Void = { _, _ in }
+    var onStep: (UUID, Int) -> Void = { _, _ in }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -283,7 +307,7 @@ struct IslandView: View {
                     VStack(spacing: 0) {
                         ForEach(Array(rows.prefix(IslandLayout.maxRows))) { row in
                             IslandRowView(row: row, now: context.date, open: { onOpen(row.id) }, answer: onAnswer,
-                                          outcome: row.prompt.flatMap { state.outcomes[$0.id] })
+                                          outcome: row.prompt.flatMap { state.outcomes[$0.id] }, next: onStep)
                         }
                     }
                 }
@@ -304,13 +328,20 @@ struct IslandRowView: View {
     let row: IslandRow
     let now: Date
     let open: () -> Void
-    var answer: (UUID, PermissionBridge.Answer) -> Void = { _, _ in }
+    var answer: (UUID, PermissionBridge.Reply) -> Void = { _, _ in }
     var outcome: IslandOutcome? = nil
+    var next: (UUID, Int) -> Void = { _, _ in }
     @State private var hovering = false
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            if let prompt = row.prompt { request(prompt) }
+            if let prompt = row.prompt {
+                if let questions = prompt.questions {
+                    IslandQuestionCard(prompt: prompt, questions: questions, step: row.step, outcome: outcome, open: open,
+                                       answer: answer, next: { next(prompt.id, $0) })
+                        .frame(height: IslandLayout.promptHeight(prompt, step: row.step), alignment: .top)
+                } else { request(prompt) }
+            }
         }
     }
     /// The tool and what it touches, then the three answers. The row above opens
@@ -391,6 +422,105 @@ struct IslandActionButton: View {
     }
 }
 
+/// The agent's questions (AskUserQuestion), one at a time: options as buttons, several
+/// to tick when the question allows it (owner's yes 18.11.2026, R1539). «В сессии»
+/// opens the session, where Claude Code asks in its own dialog (for typed text, say).
+struct IslandQuestionCard: View {
+    let prompt: PermissionPrompt
+    let questions: [PermissionQuestion]
+    let step: Int
+    let outcome: IslandOutcome?
+    let open: () -> Void
+    let answer: (UUID, PermissionBridge.Reply) -> Void
+    /// Shows the next question; the controller resizes the island for it.
+    let next: (Int) -> Void
+    @State private var chosen: [String: String] = [:]
+    @State private var ticked: Set<String> = []
+
+    var body: some View {
+        let question = questions[min(step, questions.count - 1)]
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text(question.header.isEmpty ? L("Вопрос") : question.header)
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.orange).lineLimit(1)
+                if questions.count > 1 {
+                    Text(L("{0} из {1}", String(step + 1), String(questions.count)))
+                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .frame(height: 16)
+            Text(question.text).font(.system(size: 12)).foregroundStyle(.white.opacity(0.9))
+                .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 8)
+            // After the answer the chosen options stay in view, with the outcome under them.
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(question.options, id: \.label) { option in
+                    optionButton(option, in: question)
+                }
+            }
+            .disabled(outcome != nil)
+            Group {
+                if let outcome {
+                    Label(outcome.text, systemImage: outcome.delivered ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(outcome.delivered ? Color.green : Color.orange)
+                        .lineLimit(1).frame(height: 24)
+                } else {
+                    HStack(spacing: 6) {
+                        if question.multiSelect {
+                            IslandActionButton(title: L("Готово"), style: .primary) { finish(question) }
+                                .disabled(ticked.isEmpty).opacity(ticked.isEmpty ? 0.45 : 1)
+                        }
+                        IslandActionButton(title: L("В сессии"), style: .secondary, action: open)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            .padding(.top, 8)
+        }
+        .padding(.leading, 28).padding(.trailing, 10)
+        .id(prompt.id)
+    }
+    private func optionButton(_ option: PermissionQuestion.Option, in question: PermissionQuestion) -> some View {
+        let on = question.multiSelect ? ticked.contains(option.label) : chosen[question.text] == option.label
+        return Button {
+            if question.multiSelect {
+                if on { ticked.remove(option.label) } else { ticked.insert(option.label) }
+            } else {
+                chosen[question.text] = option.label
+                advance()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if question.multiSelect {
+                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 12)).foregroundStyle(on ? Color.orange : Color.white.opacity(0.5))
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(option.label).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    if !option.detail.isEmpty {
+                        Text(option.detail).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: option.detail.isEmpty ? IslandLayout.optionHeight : IslandLayout.optionHeight + 13)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(on ? 0.2 : 0.1)))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(option.detail.isEmpty ? option.label : option.label + ", " + option.detail)
+    }
+    private func finish(_ question: PermissionQuestion) {
+        guard !ticked.isEmpty else { return }
+        chosen[question.text] = PermissionQuestion.answer(question.options.map(\.label).filter(ticked.contains))
+        advance()
+    }
+    private func advance() {
+        if step + 1 < questions.count { ticked = []; next(step + 1) } else { answer(prompt.id, PermissionBridge.Reply(.allow, answers: chosen)) }
+    }
+}
+
 struct IslandLimitsLine: View {
     let limits: [IslandLimit]
     var body: some View {
@@ -466,6 +596,8 @@ final class IslandHostingView: NSHostingView<IslandView> {
     private var order: [String] = []
     private var server: PermissionBridgeServer?
     private var prompts: [PermissionPrompt] = []
+    /// The question each waiting request shows on its card.
+    private var steps: [UUID: Int] = [:]
     /// A new request opens the island for a moment without the pointer.
     private var peekUntil: Date?
 
@@ -505,7 +637,7 @@ final class IslandHostingView: NSHostingView<IslandView> {
         } else {
             collapse()
             removeMonitors()
-            server?.stop(); server = nil; prompts = []
+            server?.stop(); server = nil; prompts = []; steps = [:]
             refreshTimer?.invalidate(); refreshTimer = nil
             panel?.orderOut(nil)
         }
@@ -516,7 +648,7 @@ final class IslandHostingView: NSHostingView<IslandView> {
         order.removeAll { !present.contains($0) }
         let known = Set(order)
         order += rows.map(\.id).filter { !known.contains($0) }
-        let summary = IslandSummary.make(rows, order: order, prompts: prompts)
+        let summary = IslandSummary.make(rows, order: order, prompts: prompts, steps: steps)
         if summary != state.summary { state.summary = summary }
         layout()
     }
@@ -537,7 +669,8 @@ final class IslandHostingView: NSHostingView<IslandView> {
         let view = IslandView(state: state,
                               onOpen: { [weak self] id in self?.open(rowID: id) },
                               onOpenPanel: { [weak self] in self?.collapse(); self?.onOpenPanel() },
-                              onAnswer: { [weak self] id, answer in self?.answer(id, answer) })
+                              onAnswer: { [weak self] id, answer in self?.answer(id, answer) },
+                              onStep: { [weak self] id, step in self?.step(id, to: step) })
         panel.contentView = IslandHostingView(rootView: view)
         self.panel = panel
     }
@@ -561,12 +694,19 @@ final class IslandHostingView: NSHostingView<IslandView> {
         // An answer's outcome stays on the card until its own timer removes it.
         guard state.outcomes[id] == nil else { return }
         prompts.removeAll { $0.id == id }
+        steps[id] = nil
         update()
     }
-    func answer(_ id: UUID, _ answer: PermissionBridge.Answer) {
+    func step(_ id: UUID, to step: Int) {
         guard prompts.contains(where: { $0.id == id }), state.outcomes[id] == nil else { return }
-        guard answer != .ask else { server?.answer(id, .ask); ended(id); return }
-        let text = answer == .deny ? L("Запрещено") : answer == .always ? L("Разрешено всегда") : L("Разрешено")
+        steps[id] = step
+        update()
+    }
+    func answer(_ id: UUID, _ answer: PermissionBridge.Reply) {
+        guard prompts.contains(where: { $0.id == id }), state.outcomes[id] == nil else { return }
+        guard answer.answer != .ask else { server?.answer(id, .ask); ended(id); return }
+        let text = answer.answers != nil ? L("Ответ отправлен")
+            : answer == .deny ? L("Запрещено") : answer == .always ? L("Разрешено всегда") : L("Разрешено")
         server?.answer(id, answer) { [weak self] delivered in
             MainActor.assumeIsolated {
                 guard let self else { return }
