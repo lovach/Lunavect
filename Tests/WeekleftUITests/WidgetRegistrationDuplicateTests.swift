@@ -88,6 +88,26 @@ private let otherExtensionFixture = otherFixture.appendingPathComponent("Content
         XCTAssertFalse(status.confirmationSkipped)
     }
 
+    /// Owner's Mac after the macOS 27 upgrade (07.10.2026): LaunchServices registered every Xcode archive and
+    /// export again and Settings listed dozens of "other copies". Build products are not installed copies.
+    func testXcodeBuildProductsAndZipLeftoversAreNotDuplicates() async {
+        let log = RegistrationLog(), status = WidgetRegistrationStatus()
+        let research = URL(fileURLWithPath: "/Users/fixture/Documents/research/unpacked-v0.2.7-194/Lunavect.app")
+        let copies = [own.app, research,
+                      URL(fileURLWithPath: "/Users/fixture/Library/Developer/Xcode/Archives/Lunavect/Lunavect-0.2.4-191.xcarchive/Products/Applications/Lunavect.app"),
+                      URL(fileURLWithPath: "/Users/fixture/Library/Developer/Xcode/Archives/Lunavect/Notarized-219/Lunavect.app"),
+                      URL(fileURLWithPath: "/Users/fixture/Library/Developer/Xcode/DerivedData/Weekleft.noindex/Build/Products/Release/Lunavect.app"),
+                      URL(fileURLWithPath: "/Users/fixture/Desktop/Lunavect-0.2.8.xcarchive/Products/Applications/Lunavect.app"),
+                      URL(fileURLWithPath: "/Users/fixture/Documents/research/unpacked-clean/__MACOSX/Lunavect.app")]
+        let ownExtension = ownFixture.extensionURL.path
+        let registration = service(defaults: defaults(stamp: own.stamp), log: log, status: status, copies: { copies },
+                                   host: { .extensions([ownExtension]) })
+        registration.start(); await registration.waitUntilFinished()
+        XCTAssertEqual(status.otherCopies, [research], "only a copy someone could run is named")
+        XCTAssertFalse(status.confirmationSkipped)
+        XCTAssertEqual(log.events.filter { $0 != "host" }, ["reassert", "reload", "reassert", "reload"])
+    }
+
     /// The first check may still see a copy that is gone by the second (an ejected
     /// installer image, a copy moved to the Trash): the second check still runs.
     func testALaterCheckRunsAfterTheDuplicateIsGone() async {

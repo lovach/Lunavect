@@ -358,6 +358,34 @@ class CheckRunnerTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertEqual(json.loads(report.read_text())['checks']['intent_resources']['status'], 'failed')
 
+    def test_counts_add_up_test_bundles_that_run_on_their_own(self):
+        # SwiftPM 6.3 runs each bundle separately; the filtered test is in the first one.
+        output = '\n'.join([
+            "Test Case '-[UITests.IntentTests testMetadata]' passed (0.010 seconds).",
+            "Test Suite 'Selected tests' passed at 2026-11-18 4:38:34.609 PM.",
+            '\t Executed 1 test, with 0 failures (0 unexpected) in 0.010 (0.012) seconds',
+            "Test Suite 'Selected tests' passed at 2026-11-18 4:38:34.680 PM.",
+            '\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds',
+            "Test Suite 'Selected tests' passed at 2026-11-18 4:38:34.750 PM.",
+            '\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds'])
+        report = self.base / 'bundled-intents.json'
+        self.assertEqual(self.run_reporter('init', report).returncode, 0)
+        result = self.run_reporter('run', report, 'intent_resources', sys.executable, '-c', 'print(' + repr(output) + ')')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        record = json.loads(report.read_text())['checks']['intent_resources']
+        self.assertEqual(record['counts'], dict(total=1, passed=1, skipped=0, failures=0))
+        # A full run: each bundle's own total, skips and failures add up.
+        output = '\n'.join([
+            "Test Suite 'All tests' passed at 2026-11-18 4:28:27.244 PM.",
+            '\t Executed 607 tests, with 68 tests skipped and 0 failures (0 unexpected) in 30.6 (30.7) seconds',
+            "Test Suite 'All tests' passed at 2026-11-18 4:29:55.114 PM.",
+            '\t Executed 746 tests, with 13 tests skipped and 0 failures (0 unexpected) in 87.5 (87.7) seconds'])
+        report = self.base / 'bundled-swift.json'
+        self.assertEqual(self.run_reporter('init', report).returncode, 0)
+        self.assertEqual(self.run_reporter('run', report, 'swift_tests', sys.executable, '-c', 'print(' + repr(output) + ')').returncode, 0)
+        self.assertEqual(json.loads(report.read_text())['checks']['swift_tests']['counts'],
+                         dict(total=1353, passed=1272, skipped=81, failures=0))
+
     def test_unavailable_results_parent_does_not_leak_an_allocated_run(self):
         repo = self.fixture('results-parent-failure')
         blocked = self.base / 'results-is-a-file'

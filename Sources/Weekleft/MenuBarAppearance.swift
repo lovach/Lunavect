@@ -124,6 +124,10 @@ struct ThinkingPhraseCycle {
     @Published var showsSessionStatus: Bool {
         didSet { defaults.set(showsSessionStatus, forKey: "menuBarShowsSessionStatus") }
     }
+    /// The island around the camera housing; on by default.
+    @Published var showsNotchIsland: Bool {
+        didSet { defaults.set(showsNotchIsland, forKey: "notchIsland") }
+    }
     @Published var limits: MenuBarLimitsPreferences {
         didSet { if let data = try? JSONEncoder().encode(limits) { defaults.set(data, forKey: "menuBarLimits") } }
     }
@@ -151,6 +155,7 @@ struct ThinkingPhraseCycle {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         showsSessionStatus = defaults.object(forKey: "menuBarShowsSessionStatus") as? Bool ?? true
+        showsNotchIsland = defaults.object(forKey: "notchIsland") as? Bool ?? true
         limits = defaults.data(forKey: "menuBarLimits").flatMap { try? JSONDecoder().decode(MenuBarLimitsPreferences.self, from: $0) } ?? .init()
         thinkingPhrases = defaults.object(forKey: "menuBarThinkingPhrases") as? Bool ?? true
         statusStyle = MenuBarStatusStyle(rawValue: defaults.string(forKey: "menuBarStatusStyle") ?? "") ?? .summary
@@ -181,7 +186,7 @@ struct ThinkingPhraseCycle {
         automaticIcon = false
     }
     func restoreDefaults() {
-        showsSessionStatus = true; limits = .init()
+        showsSessionStatus = true; showsNotchIsland = true; limits = .init()
         thinkingPhrases = false; statusStyle = .summary
         automaticIcon = false; icon = AppDefaultSettings.icon
         onlyWhileWorking = true; systemColor = false
@@ -788,6 +793,8 @@ struct MenuBarAppearanceView: View {
     var providers: [ProviderID] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var previewStartedAt = Date.now
+    /// Another app drawing over the camera housing, read when the settings open.
+    @State private var notchNeighbor: String?
     var body: some View {
         VStack(alignment: .leading, spacing: InterfaceMetrics.settingsSectionSpacing) {
             sessionSettings
@@ -810,6 +817,15 @@ struct MenuBarAppearanceView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }.toggleStyle(.switch).controlSize(.small)
                     .accessibilityIdentifier("menu-bar-sessions-enabled")
+                SettingsToggleRow(title: L("Остров у выреза экрана"), isOn: $appearance.showsNotchIsland,
+                                  detail: L("Работающие и ждущие вас сессии видны у выреза. Наведите курсор, чтобы раскрыть список; щелчок открывает сессию. На экране без выреза остров появляется, только пока есть работа."))
+                    .accessibilityIdentifier("menu-bar-notch-island")
+                    .onAppear { notchNeighbor = NotchGeometry.otherOwner() }
+                if appearance.showsNotchIsland, let notchNeighbor {
+                    Text(L("У выреза уже работает {0}: при наведении его окно и остров наложатся. Закройте это приложение или выключите остров здесь.", notchNeighbor))
+                        .font(.system(size: 12)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("menu-bar-notch-neighbor")
+                }
                 if appearance.showsSessionStatus {
                     SettingsChoiceRow(L("Статус сессий")) {
                         Picker(L("Статус сессий"), selection: $appearance.statusStyle) {

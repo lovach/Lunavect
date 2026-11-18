@@ -287,7 +287,7 @@ struct ActivityDetailChart: View {
             HStack(alignment: .top, spacing: 24) {
                 metric(L("Пиковый час"), data.summary.peakLabel)
                 if data.series.count > 1 { metric(L("Вместе, без пересечений"), ActivityChartText.value(data.summary.totals)) }
-                else { metric(L("Дней с записями"), "\(data.summary.days.filter { $0.totals.observed > 0 }.count) / \(data.summary.days.count)") }
+                else { metric(L("Дней с работой"), ActivityChartText.workedDays(data.summary)) }
             }
             if data.stale || data.limited {
                 Label(L(data.stale ? "Данные устарели" : "По доступным записям"), systemImage: data.stale ? "clock.badge.exclamationmark" : "info.circle")
@@ -837,6 +837,15 @@ struct ActivityDayClockCard: View {
         (L("Ночью"), 0, "moon.stars.fill"), (L("Утром"), 6, "sunrise.fill"), (L("Днём"), 12, "sun.max.fill"), (L("Вечером"), 18, "sunset.fill")]
     private static let ring: CGFloat = 18, labelGap: CGFloat = 12
 
+    /// Weekday names in the order the summary counts them: from the system calendar's first day,
+    /// in the app's language. The language's own first day differs (English with a Monday region
+    /// started the labels a day early, so Monday's hours read "Sun").
+    static func weekdayNames(firstWeekday: Int, locale: Locale) -> [String] {
+        var calendar = Calendar.current; calendar.locale = locale
+        let symbols = calendar.shortWeekdaySymbols
+        return (0..<7).map { symbols[(firstWeekday - 1 + $0) % 7] }
+    }
+
     var body: some View {
         let hours = (0..<24).map { hour in weekdayHours.reduce(0) { $0 + ($1.indices.contains(hour) ? $1[hour] : 0) } }
         let total = hours.reduce(0, +)
@@ -844,9 +853,7 @@ struct ActivityDayClockCard: View {
         let top = values.indices.max { values[$0] < values[$1] } ?? 0
         let days = weekdayHours.map { $0.reduce(0, +) }
         let busiestDay = days.indices.max { days[$0] < days[$1] } ?? 0
-        var calendar = Calendar.current; calendar.locale = L10n.locale
-        let symbols = calendar.shortWeekdaySymbols
-        let names = (0..<7).map { symbols[(calendar.firstWeekday - 1 + $0) % 7] }
+        let names = Self.weekdayNames(firstWeekday: Calendar.current.firstWeekday, locale: L10n.locale)
         let trailing: String? = total <= 0 ? nil : hoveredHour.map { String(format: "%02d:00–%02d:00", $0, $0 + 1) + " · " + Self.hours(hours[$0]) }
             ?? L("Чаще всего: {0}, {1}", Self.parts[top].title.lowercased(with: L10n.locale), names.indices.contains(busiestDay) ? names[busiestDay] : "")
         return StatisticsCard(title: L("Когда вы работаете"), trailing: trailing) {

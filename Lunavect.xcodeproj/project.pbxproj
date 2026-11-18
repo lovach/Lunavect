@@ -34,6 +34,7 @@
 		24E8812F2CAA22D78CDC4BDE /* SessionControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2DC823A41EEFC0265F4D7DE /* SessionControls.swift */; };
 		26A372025F10E010911E5D3E /* SessionHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE4CC4099BDA102E5832C389 /* SessionHooks.swift */; };
 		28A1D895A8D2118FC39A1DCB /* WidgetRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0F30F7ED6A14689FEFEC43 /* WidgetRegistration.swift */; };
+		2976C59C0DA3999D038D1FFA /* PermissionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71B711F1567F01842E5EC81 /* PermissionBridge.swift */; };
 		2CF1CB795986898BC446C4FE /* Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2D1B56138FBA499694CA18 /* Providers.swift */; };
 		2DD177E0604CF04A0CF49A6F /* ActivityHistoryImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C70FEFEF51BBA2434DAB68B /* ActivityHistoryImporter.swift */; };
 		2F118106D096AABB0FCC5A6D /* ClaudeUsageProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A021989DCABAC6C5DA1D7DBA /* ClaudeUsageProbe.swift */; };
@@ -48,6 +49,7 @@
 		41921077DE2B9A8FE70A1B63 /* WidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEBE743BD96448FC267743F /* WidgetView.swift */; };
 		42A477FCE0298DFDC2F49803 /* TokenLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C6BB3418216A825608B012 /* TokenLedger.swift */; };
 		47E4BCD5B66B7CF98E7A2B03 /* SystemSleepSetting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8C05325F14D50D9315D1122 /* SystemSleepSetting.swift */; };
+		4956E9B92E80136265807313 /* PermissionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71B711F1567F01842E5EC81 /* PermissionBridge.swift */; };
 		4DFA165D0208B8136C78A081 /* CodexAnimation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F73CE91878580448FE361E /* CodexAnimation.swift */; };
 		503121D1FEAEF29EC3402513 /* TokenLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C6BB3418216A825608B012 /* TokenLedger.swift */; };
 		509C437D25DE9D059FA547EC /* SessionDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EDF1B51088BF74AB06D347B /* SessionDestination.swift */; };
@@ -68,6 +70,7 @@
 		5E37DE0B55C3A1D6D3724602 /* Sessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F36C69FDA21D980CF78E95A /* Sessions.swift */; };
 		5E58321E4E045F3D9A977006 /* SubscriptionDatePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DBDBF6B699906DDE77585B /* SubscriptionDatePicker.swift */; };
 		5F4965034E44FD36CCC504AC /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00DE3C3478A69C3E7F7DF1C /* Models.swift */; };
+		60072E47C69D4980E3114690 /* NotchIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B25833EE70D59253473D1C4 /* NotchIsland.swift */; };
 		6184F66F91D8F4A65E8A1093 /* ActivityStatisticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36F2B5C53BA780AD42975FB /* ActivityStatisticsView.swift */; };
 		6323F319A0C94A1DBE9375DE /* SessionDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EDF1B51088BF74AB06D347B /* SessionDestination.swift */; };
 		65AA4A6F6C5C57D25F265900 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6B2023A56E83F9F127F00A /* Localization.swift */; };
@@ -244,6 +247,7 @@
 		739640887B16506C6A5B8688 /* AppFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFeatures.swift; sourceTree = "<group>"; };
 		780039D8CA11672F3EB534B7 /* clawd-waving.gif */ = {isa = PBXFileReference; lastKnownFileType = image.gif; path = "clawd-waving.gif"; sourceTree = "<group>"; };
 		788A00B2932286D4969B2DAF /* LocalFileCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileCache.swift; sourceTree = "<group>"; };
+		7B25833EE70D59253473D1C4 /* NotchIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchIsland.swift; sourceTree = "<group>"; };
 		83BAADC66DA4CEA79BD50CFE /* HiddenSessionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenSessionsView.swift; sourceTree = "<group>"; };
 		83E87BA66A5F22FB4A99240D /* WeekleftWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekleftWidget.swift; sourceTree = "<group>"; };
 		8575633272066B60FA5691B1 /* SubscriptionCalendar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionCalendar.swift; sourceTree = "<group>"; };
@@ -263,6 +267,7 @@
 		9F743D8112622A1BF43DDD4F /* codex-companion.webp */ = {isa = PBXFileReference; path = "codex-companion.webp"; sourceTree = "<group>"; };
 		A021989DCABAC6C5DA1D7DBA /* ClaudeUsageProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsageProbe.swift; sourceTree = "<group>"; };
 		A2F73CE91878580448FE361E /* CodexAnimation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAnimation.swift; sourceTree = "<group>"; };
+		A71B711F1567F01842E5EC81 /* PermissionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionBridge.swift; sourceTree = "<group>"; };
 		ADDD774C71802AD7B92B4B7D /* LunavectMark.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = LunavectMark.png; sourceTree = "<group>"; };
 		B00DE3C3478A69C3E7F7DF1C /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		B061050135D7E2DA0DA7E9A3 /* SessionInteractions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionInteractions.swift; sourceTree = "<group>"; };
@@ -450,6 +455,7 @@
 				0219A08FBDA0BC2CE1AA753D /* MenuBarAppearance.swift */,
 				ECAC781EC4BD9E685A603326 /* MenuBarLimits.swift */,
 				0359C5E77621B5ABEB05B9ED /* MenuBarScenes.swift */,
+				7B25833EE70D59253473D1C4 /* NotchIsland.swift */,
 				857A17CC8EF387BE4949E7A3 /* SessionControlService.swift */,
 				19AA01C46FAF93C7DBD5944B /* SessionControlViews.swift */,
 				B061050135D7E2DA0DA7E9A3 /* SessionInteractions.swift */,
@@ -500,6 +506,7 @@
 				788A00B2932286D4969B2DAF /* LocalFileCache.swift */,
 				CA6B2023A56E83F9F127F00A /* Localization.swift */,
 				B00DE3C3478A69C3E7F7DF1C /* Models.swift */,
+				A71B711F1567F01842E5EC81 /* PermissionBridge.swift */,
 				CF2D1B56138FBA499694CA18 /* Providers.swift */,
 				F87FC6C4BFE71F1B9F0CC485 /* ReleaseConfiguration.swift */,
 				DD935DC8B8F653A6CFB0E46B /* SessionArrangement.swift */,
@@ -809,6 +816,7 @@
 				7411719BDEDF562C0E8CAF37 /* LocalFileCache.swift in Sources */,
 				65AA4A6F6C5C57D25F265900 /* Localization.swift in Sources */,
 				362AC6E279A42BEB9AF7B9B4 /* Models.swift in Sources */,
+				2976C59C0DA3999D038D1FFA /* PermissionBridge.swift in Sources */,
 				C36949D553184EBC3727DB85 /* Providers.swift in Sources */,
 				B9BA2A0C1715B50894F2E2B7 /* ReleaseConfiguration.swift in Sources */,
 				6EE60DB965DBF2EC152CF13C /* SessionArrangement.swift in Sources */,
@@ -887,6 +895,8 @@
 				559F689E384DD80303DB5031 /* MenuBarLimits.swift in Sources */,
 				5B9C99F54EE0C2AA3E637D65 /* MenuBarScenes.swift in Sources */,
 				EA166D92853F3D1040A15B16 /* Models.swift in Sources */,
+				60072E47C69D4980E3114690 /* NotchIsland.swift in Sources */,
+				4956E9B92E80136265807313 /* PermissionBridge.swift in Sources */,
 				2CF1CB795986898BC446C4FE /* Providers.swift in Sources */,
 				7BD77CECC31DCD7C3A8A9968 /* ReleaseConfiguration.swift in Sources */,
 				FC2052471D5D9C9DFCF07900 /* SessionArrangement.swift in Sources */,
@@ -1055,7 +1065,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 219;
+				CURRENT_PROJECT_VERSION = 235;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -1070,7 +1080,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.8;
+				MARKETING_VERSION = 0.3.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1160,7 +1170,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 219;
+				CURRENT_PROJECT_VERSION = 235;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1181,7 +1191,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.8;
+				MARKETING_VERSION = 0.3.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

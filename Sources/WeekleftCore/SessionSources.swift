@@ -526,6 +526,13 @@ enum SessionProcess {
         let parentPID: Int32
         let executable: String
     }
+    static func startDate(_ pid: Int32) -> Date? {
+        guard pid > 1 else { return nil }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout.size(ofValue: info))
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return Date(timeIntervalSince1970: Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000)
+    }
     static func runtimeProcess(_ pid: Int32) -> RuntimeProcess? {
         guard pid > 1 else { return nil }
         var info = proc_bsdinfo()
@@ -809,7 +816,9 @@ enum SessionProcess {
             // A CLI binary bundled in an app's Resources (for example ChatGPT.app's
             // codex) says nothing about the host; its parent decides.
             let bundledCLI = name.contains("/Contents/Resources/")
-            if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
+            // The terminal built into Claude or Codex hosts a CLI on its own device: a terminal
+            // session that lives as long as its tab, not the app's task (owner's report 18.11.2026).
+            if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return outsideSession ? .terminal : .desktop }
             if !bundledCLI, let range = name.range(of: ".app/Contents/"),
                case let app = String(name[..<range.lowerBound]) + ".app", let identifier = bundle(app),
                let editor = SessionIDE.identify(bundleIdentifier: identifier, appPath: app, product: product) { return editor.client }
@@ -917,7 +926,8 @@ public extension SessionHooks {
         // Lifecycle tools never block, approve or inject context, except in a session the
         // user limited in Lunavect (owner decisions 30.09): there, near the limit the agent is
         // asked to wrap up and at the limit its next action is refused, with the reason; the
-        // user's own message lifts the stop.
+        // user's own message lifts the stop. A Claude permission request otherwise waits for
+        // the owner's answer in the island (owner's yes 18.11.2026); without one Claude Code asks.
         guard let data = readHookPayload(from: .standardInput) else { print("{}"); return }
         let env = ProcessInfo.processInfo.environment
         let ide = IDEProcessLocation.locate(parentPID: getppid(), provider: provider)
@@ -926,9 +936,22 @@ public extension SessionHooks {
         let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
         let runtimePID = provider == .claude ? SessionProcess.hookClientPID(startPID: getppid()) : nil
         let backgroundRun = runtimePID.map { SessionProcess.isPrintRun(pid: $0) } ?? false
+        // A terminal without a tab route (the one built into Claude or Codex, another app's)
+        // is named, so a click goes to that app instead of searching Terminal tabs.
+        let host = client == .terminal && terminal == nil && ide == nil ? runtimePID.flatMap { SessionProcess.launchHost(runtimePID: $0) } : nil
         try? capture(data, provider: provider, now: now, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide,
-                     runtimePID: runtimePID, backgroundRun: backgroundRun)
-        print(SessionLimitFile.answer(payload: data))
+                     launchHost: host, runtimePID: runtimePID, backgroundRun: backgroundRun)
+        let answer = SessionLimitFile.answer(payload: data)
+        let settingsChanged = provider == .claude ? (try? SessionHooks.configURL(.claude).resolvingSymlinksInPath()
+            .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate : nil
+        if provider == .claude, answer == "{}",
+           PermissionBridge.sessionSeesWait(processStart: runtimePID.flatMap(SessionProcess.startDate), settingsChanged: settingsChanged),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], PermissionBridge.waits(for: object),
+           let output = PermissionBridge.output(for: PermissionBridge.ask(payload: object), payload: object) {
+            print(output)
+            return
+        }
+        print(answer)
     }
 }
 

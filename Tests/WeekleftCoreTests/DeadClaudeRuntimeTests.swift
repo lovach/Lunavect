@@ -69,6 +69,29 @@ final class DeadClaudeRuntimeTests: XCTestCase {
         XCTAssertNil(SessionProcess.hookClientPID(startPID: 1, read: tree([1: (0, "/sbin/launchd")])))
     }
 
+    /// Owner's report 18.11.2026: a session in Claude's built-in terminal stayed "Permission needed"
+    /// after its tab closed. Recorded as a terminal session, it ends with its process.
+    func testSessionInClaudesBuiltInTerminalEndsWithItsTab() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("DeadRuntime-" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = SessionLaunchHost(kind: .embeddedTerminal, name: "Claude")
+        let data = try JSONSerialization.data(withJSONObject: ["session_id": "built-in", "hook_event_name": "PermissionRequest",
+                                                               "tool_name": "Bash", "cwd": "/Users/fixture"])
+        try SessionHooks.capture(data, provider: .claude, at: directory, client: .terminal, launchHost: host, runtimePID: 4242,
+                                 isInternal: { _ in false }, isAlive: { _ in true })
+        let row = try XCTUnwrap(SessionHooks.load(at: directory).first)
+        XCTAssertEqual(row.launchHost, host)
+        XCTAssertTrue(row.phase.isActive)
+        XCTAssertFalse(row.terminalFocusCandidate, "No Terminal or iTerm2 tab is searched for it")
+        XCTAssertEqual(row.launchHostRefusal, .embeddedTerminal("Claude"))
+        let ended = SessionList.endingDeadClaudeRuntimes([row], completeCatalog: [], isAlive: { _ in false })
+        XCTAssertEqual(ended.first?.phase, .interrupted)
+        // The next event from a Terminal tab replaces the place.
+        try SessionHooks.capture(data, provider: .claude, at: directory, client: .terminal, terminal: ("/dev/ttys004", "Terminal"),
+                                 launchHost: nil, runtimePID: 4242, isInternal: { _ in false }, isAlive: { _ in true })
+        XCTAssertNil(SessionHooks.load(at: directory).first?.launchHost)
+    }
+
     func testCaptureStoresOnlyTheRuntimePIDAndProcessLivenessUsesESRCH() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("DeadRuntime-" + UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }

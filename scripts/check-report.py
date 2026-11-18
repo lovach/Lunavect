@@ -51,6 +51,14 @@ def test_counts(stage, output):
     if stage in ('swift_tests', 'intent_resources'):
         matches = re.findall(
             r'Executed (\d+) tests?, with (?:(\d+) tests? skipped and )?(\d+) failures?', output)
+        # Newer SwiftPM runs each test bundle on its own, and every bundle ends with its
+        # own top-level suite ('All tests', or 'Selected tests' under a filter): the last
+        # line alone is one bundle, often an empty one. Sum the top-level suites.
+        bundles = re.findall(
+            r"Test Suite '(?:All tests|Selected tests)' (?:passed|failed) at [^\n]*\n\s*"
+            r'Executed (\d+) tests?, with (?:(\d+) tests? skipped and )?(\d+) failures?', output)
+        if bundles:
+            matches = [tuple(str(sum(int(x or 0) for x in column)) for column in zip(*bundles))]
         if matches:
             total, skipped, failures = (int(x or 0) for x in matches[-1])
             # XCTest's failure count is assertions, not failed test cases.

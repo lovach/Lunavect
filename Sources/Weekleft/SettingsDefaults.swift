@@ -13,7 +13,7 @@ enum AppDefaultSettings {
     static let awakeIdleGrace = 60
     static let soundCooldown = 5
     static var values: [String: Any] {
-        ["interfaceAppearance": appearance.rawValue, "menuBarShowsSessionStatus": true,
+        ["interfaceAppearance": appearance.rawValue, "menuBarShowsSessionStatus": true, "notchIsland": true,
          "menuBarIcon": icon.rawValue, "menuBarAutomaticIcon": false,
          "menuBarThinkingPhrases": false, "menuBarStatusStyle": MenuBarStatusStyle.summary.rawValue,
          "menuBarAnimationOnlyWhileWorking": true, "menuBarSystemColor": false,

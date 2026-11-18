@@ -94,6 +94,11 @@ public enum SessionHooks {
         }
     }
     static func marker(_ provider: ProviderID) -> String { "# lunavect-session-monitor:\(provider.rawValue)" }
+    /// Seconds Claude Code gives the helper. Events return at once; a Claude
+    /// permission request waits for the owner's answer in the island (owner's yes 18.11.2026).
+    public static func timeout(_ provider: ProviderID, event: String) -> Int {
+        provider == .claude && event == "PermissionRequest" ? PermissionBridge.hookTimeout : 3
+    }
     static func events(_ provider: ProviderID) -> [String] {
         ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd"] +
         (provider == .claude ? ["Notification", "PostToolUseFailure", "StopFailure", "PreCompact", "PostCompact", "SubagentStop"] : ["Interrupt"])
@@ -240,14 +245,15 @@ public enum SessionHooks {
         if let executable {
             let command = "\(quote(executable)) --session-hook \(provider.rawValue) \(marker(provider))"
             for event in events(provider) {
-                hooks[event, default: []].append(["hooks": [["type": "command", "command": command, "timeout": 3]]])
+                hooks[event, default: []].append(["hooks": [["type": "command", "command": command, "timeout": timeout(provider, event: event)]]])
             }
         }
         if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
         return root
     }
     /// Launch repair (owner decision 17): each Lunavect handler that names another
-    /// path is rewritten in place to `executable`. Events without a Lunavect handler
+    /// path is rewritten in place to `executable`, and a permission request's handler
+    /// gets the time to wait for the island (owner's yes 18.11.2026). Events without a Lunavect handler
     /// stay without one, foreign handlers and their order are untouched, and a
     /// duplicate Lunavect handler within one event is dropped.
     /// - Returns: whether the configuration changed.
@@ -272,6 +278,7 @@ public enum SessionHooks {
                         guard !seen else { continue }
                         seen = true
                         handler["command"] = desired; handler["type"] = "command"
+                        if event == "PermissionRequest" { handler["timeout"] = timeout(provider, event: event) }
                         updated.append(handler)
                     }
                     if !updated.isEmpty || handlers.isEmpty { group["hooks"] = updated; kept.append(group) }
@@ -432,7 +439,7 @@ public enum SessionHooks {
     /// currently disables hooks there; this keeps a future client from recording it.
     /// `now` is the event's time: the hook helper passes the moment it started.
     public static func capture(_ data: Data, provider: ProviderID, at directory: URL = directory, now: Date = Date(), client: SessionClient = .unknown, nestedClaudeRuntime: Bool? = nil, terminal: (tty: String, app: String)? = nil, ide: IDESessionLocation? = nil,
-                               runtimePID: Int32? = nil, backgroundRun: Bool = false,
+                               launchHost: SessionLaunchHost? = nil, runtimePID: Int32? = nil, backgroundRun: Bool = false,
                                isInternal: (String) -> Bool = { ClaudeUsageProbe.isProbeSession(cwd: $0, pid: nil) },
                                isAlive: (Int32) -> Bool = SessionSources.isProcessAlive) throws {
         try LiveWriteGuard.check(directory)
@@ -469,6 +476,7 @@ public enum SessionHooks {
         if secondary, let old = previous?.session {
             record.session.runtimePID = old.runtimePID; record.session.client = old.client
             record.session.terminalTTY = old.terminalTTY; record.session.terminalApp = old.terminalApp; record.session.ideLocation = old.ideLocation
+            record.session.launchHost = old.launchHost
             // Started from inside another Claude session, the print run is nested; the session it resumed is not.
             record.session.isNestedClaudeSession = old.isNestedClaudeSession
             try secureWrite(JSONEncoder().encode(record), to: file)
@@ -480,6 +488,8 @@ public enum SessionHooks {
         if provider == .claude, backgroundRun { record.session.isBackgroundRun = true }
         else if provider == .claude, runtimePID != nil { record.session.isBackgroundRun = nil }
         if let terminal { record.session.terminalTTY = terminal.tty; record.session.terminalApp = terminal.app }
+        // Like the runtime, the place it runs in is the latest event's.
+        record.session.launchHost = ide == nil && terminal == nil ? launchHost : nil
         if let ide {
             record.session.ideLocation = ide; record.session.client = ide.editor.client
             record.session.terminalTTY = nil; record.session.terminalApp = nil

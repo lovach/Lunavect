@@ -926,7 +926,8 @@ enum SessionNavigation {
     /// `focus` is the only step that scripts another application; tests replace it.
     @MainActor static func open(_ session: AgentSession, resolver: ClientExecutableResolver = ClientExecutableResolver(),
                                 focus: @MainActor (AgentSession) async throws -> Bool = { try await focusTerminal($0) },
-                                openIDE: @MainActor (AgentSession) async throws -> Void = { try await focusIDE($0) }) async throws {
+                                openIDE: @MainActor (AgentSession) async throws -> Void = { try await focusIDE($0) },
+                                activateHost: @MainActor (String) -> Bool = { activateApplication(named: $0) }) async throws {
         try Task.checkCancellation()
         // A limits check run by hand is explained, never opened (decision 28.09).
         if let refusal = session.limitsCheckRefusal ?? session.backgroundRunRefusal { throw refusal }
@@ -941,7 +942,11 @@ enum SessionNavigation {
         }
         // A runtime in the embedded terminal of Claude or Codex, or in an application
         // without a route: name that place instead of a generic failure.
-        if let refusal = session.launchHostRefusal { throw refusal }
+        if let refusal = session.launchHostRefusal {
+            // Its tab cannot be selected from outside, but its window can come forward.
+            if case .embeddedTerminal(let app) = refusal, activateHost(app) { return }
+            throw refusal
+        }
         if session.client == .terminal || session.client == .background {
             let script = try session.terminalScript(resolver: resolver)
             var directoryExists: ObjCBool = false
@@ -988,6 +993,14 @@ enum SessionNavigation {
     /// Activation is cooperative on macOS 14 and later: yield to the editor first.
     /// From a notification Lunavect itself may not be active, so the first request
     /// can be refused; a request on behalf of the current app is the second try.
+    /// The running app (Claude, Codex) whose built-in terminal hosts a session, by its bundle folder.
+    @MainActor static func activateApplication(named name: String) -> Bool {
+        guard (try? checkLiveSystem("host activation")) != nil else { return false }
+        guard let app = NSWorkspace.shared.runningApplications.first(where: {
+            $0.activationPolicy == .regular && $0.bundleURL?.lastPathComponent == name + ".app"
+        }) else { return false }
+        return activateEditor(app.processIdentifier)
+    }
     @MainActor static func activateEditor(_ pid: Int32) -> Bool {
         guard let editor = NSRunningApplication(processIdentifier: pid) else { return false }
         NSApp.yieldActivation(to: editor)

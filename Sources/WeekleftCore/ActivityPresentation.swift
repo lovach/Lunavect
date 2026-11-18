@@ -147,6 +147,11 @@ public enum ActivityChartText {
         let prefix = totals.recovered > 0 ? "≈ " : ""
         return prefix + DurationText.activity(totals.active)
     }
+    /// Days with work out of the days in the period. A day watched without work
+    /// and a day without a record both count as no work: neither is a lost day.
+    public static func workedDays(_ summary: ActivitySummary) -> String {
+        "\(summary.days.filter { $0.totals.active > 0 }.count) / \(summary.days.count)"
+    }
 
     public static func range(_ summary: ActivitySummary, compact: Bool = false) -> String {
         guard let first = summary.points.first?.date, let last = summary.days.last?.date else { return "—" }

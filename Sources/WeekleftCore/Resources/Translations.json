@@ -937,12 +937,12 @@
     "fr": "Autorisez Lunavect dans les réglages macOS pour travailler avec le capot fermé.",
     "zh-Hans": "请在macOS设置中允许Lunavect，以在合盖后继续运行。"
   },
-  "Дней с записями": {
-    "de": "Tage mit Einträgen",
-    "en": "Days with records",
-    "es": "Días con registros",
-    "fr": "Jours avec des données",
-    "zh-Hans": "有记录的天数"
+  "Дней с работой": {
+    "de": "Tage mit Arbeit",
+    "en": "Days with work",
+    "es": "Días con trabajo",
+    "fr": "Jours travaillés",
+    "zh-Hans": "有工作的天数"
   },
   "Дней с записями: {0}": {
     "de": "Tage mit Einträgen: {0}",
@@ -7047,5 +7047,145 @@
     "es": "Codex no ejecuta los hooks de Lunavect: sin ellos no se puede detener la sesión. En Ajustes → Conexiones se explica cómo arreglarlo.",
     "fr": "Codex n’exécute pas les hooks de Lunavect : sans eux, la session ne peut pas être arrêtée. Réglages → Connexions explique comment corriger cela.",
     "zh-Hans": "Codex 未运行 Lunavect 的钩子：没有它们就无法停止会话。修复方法见“设置 → 连接”。"
+  },
+  "5 часов": {
+    "de": "5 Stunden",
+    "en": "5 hours",
+    "es": "5 horas",
+    "fr": "5 heures",
+    "zh-Hans": "5 小时"
+  },
+  "Подписка": {
+    "de": "Abo",
+    "en": "Plan",
+    "es": "Plan",
+    "fr": "Abonnement",
+    "zh-Hans": "订阅"
+  },
+  "Сброс": {
+    "de": "Reset",
+    "en": "Reset",
+    "es": "Reinicio",
+    "fr": "Réinit.",
+    "zh-Hans": "重置"
+  },
+  "недели осталось": {
+    "de": "der Woche übrig",
+    "en": "of the week left",
+    "es": "de la semana",
+    "fr": "de la semaine",
+    "zh-Hans": "本周剩余"
+  },
+  "Остров у выреза экрана": {
+    "de": "Insel an der Display-Aussparung",
+    "en": "Island at the screen notch",
+    "es": "Isla en la muesca de la pantalla",
+    "fr": "Îlot à l’encoche de l’écran",
+    "zh-Hans": "屏幕刘海处的岛"
+  },
+  "Работающие и ждущие вас сессии видны у выреза. Наведите курсор, чтобы раскрыть список; щелчок открывает сессию. На экране без выреза остров появляется, только пока есть работа.": {
+    "de": "Sitzungen, die arbeiten oder auf Sie warten, erscheinen an der Aussparung. Bewegen Sie den Zeiger darauf, um die Liste zu öffnen; ein Klick öffnet die Sitzung. Auf einem Bildschirm ohne Aussparung erscheint die Insel nur, solange gearbeitet wird.",
+    "en": "Sessions that are working or waiting for you show at the notch. Hover to open the list; click a session to open it. On a screen without a notch, the island appears only while there is work.",
+    "es": "Las sesiones que trabajan o te esperan aparecen junto a la muesca. Pasa el puntero para abrir la lista; haz clic en una sesión para abrirla. En una pantalla sin muesca, la isla solo aparece mientras hay trabajo.",
+    "fr": "Les sessions qui travaillent ou vous attendent apparaissent près de l’encoche. Survolez-la pour ouvrir la liste ; cliquez sur une session pour l’ouvrir. Sur un écran sans encoche, l’îlot n’apparaît que pendant le travail.",
+    "zh-Hans": "正在工作或等待你的会话会显示在刘海旁。将指针移到上面可展开列表；点击会话即可打开。在没有刘海的屏幕上，只有在有工作时才会显示岛。"
+  },
+  "Нет сессий, которые работают или ждут вас": {
+    "de": "Keine Sitzung arbeitet oder wartet auf Sie",
+    "en": "No sessions are working or waiting for you",
+    "es": "Ninguna sesión trabaja ni te espera",
+    "fr": "Aucune session ne travaille ni ne vous attend",
+    "zh-Hans": "没有正在工作或等待你的会话"
+  },
+  "Ещё {0} в панели": {
+    "de": "{0} weitere im Panel",
+    "en": "{0} more in the panel",
+    "es": "{0} más en el panel",
+    "fr": "{0} de plus dans le panneau",
+    "zh-Hans": "面板中还有 {0} 个"
+  },
+  "У выреза уже работает {0}: при наведении его окно и остров наложатся. Закройте это приложение или выключите остров здесь.": {
+    "de": "An der Aussparung läuft bereits {0}: Beim Darüberfahren überlagern sich sein Fenster und die Insel. Beenden Sie diese App oder schalten Sie die Insel hier aus.",
+    "en": "{0} is already running at the notch: on hover, its window and the island overlap. Quit that app or turn the island off here.",
+    "es": "{0} ya funciona en la muesca: al pasar el puntero, su ventana y la isla se superponen. Cierra esa app o desactiva la isla aquí.",
+    "fr": "{0} fonctionne déjà à l’encoche : au survol, sa fenêtre et l’îlot se chevauchent. Quittez cette app ou désactivez l’îlot ici.",
+    "zh-Hans": "刘海处已在运行 {0}：指针悬停时，它的窗口会与岛重叠。请退出该应用，或在此关闭岛。"
+  },
+  "Разрешить": {
+    "de": "Erlauben",
+    "en": "Allow",
+    "es": "Permitir",
+    "fr": "Autoriser",
+    "zh-Hans": "允许"
+  },
+  "Всегда": {
+    "de": "Immer",
+    "en": "Always",
+    "es": "Siempre",
+    "fr": "Toujours",
+    "zh-Hans": "始终允许"
+  },
+  "Запретить": {
+    "de": "Ablehnen",
+    "en": "Deny",
+    "es": "Denegar",
+    "fr": "Refuser",
+    "zh-Hans": "拒绝"
+  },
+  "Разрешено": {
+    "de": "Erlaubt",
+    "en": "Allowed",
+    "es": "Permitido",
+    "fr": "Autorisé",
+    "zh-Hans": "已允许"
+  },
+  "Разрешено всегда": {
+    "de": "Immer erlaubt",
+    "en": "Always allowed",
+    "es": "Permitido siempre",
+    "fr": "Toujours autorisé",
+    "zh-Hans": "已始终允许"
+  },
+  "Запрещено": {
+    "de": "Abgelehnt",
+    "en": "Denied",
+    "es": "Denegado",
+    "fr": "Refusé",
+    "zh-Hans": "已拒绝"
+  },
+  "Запрос уже закрыт: ответьте в сессии": {
+    "de": "Die Anfrage ist bereits beendet: Antworten Sie in der Sitzung",
+    "en": "The request already closed: answer in the session",
+    "es": "La solicitud ya se cerró: responde en la sesión",
+    "fr": "La demande est déjà fermée : répondez dans la session",
+    "zh-Hans": "请求已关闭：请在会话中回答"
+  },
+  "В сессии": {
+    "de": "In der Sitzung",
+    "en": "In session",
+    "es": "En la sesión",
+    "fr": "Dans la session",
+    "zh-Hans": "在会话中"
+  },
+  "Ответ отправлен": {
+    "de": "Antwort gesendet",
+    "en": "Answer sent",
+    "es": "Respuesta enviada",
+    "fr": "Réponse envoyée",
+    "zh-Hans": "已发送回答"
+  },
+  "Вопрос": {
+    "de": "Frage",
+    "en": "Question",
+    "es": "Pregunta",
+    "fr": "Question",
+    "zh-Hans": "问题"
+  },
+  "Проснётся в {0}": {
+    "de": "Wacht um {0} auf",
+    "en": "Wakes at {0}",
+    "es": "Despierta a las {0}",
+    "fr": "Se réveille à {0}",
+    "zh-Hans": "{0} 唤醒"
   }
 }

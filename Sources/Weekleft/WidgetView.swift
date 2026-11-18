@@ -159,6 +159,9 @@ struct WidgetConnectionPrompt: View {
     }
 }
 
+/// One provider's limits. The small widget lists them as rows; the medium one has the room for the
+/// week as a large figure and the other limits as tiles under its bar (owner's pick 07.10.2026: the
+/// rows of the small widget stretched over the medium one read as weak next to the two-provider card).
 struct SingleProviderLimitsCard: View {
     let snapshot: UsageSnapshot
     let preferences: WidgetPreferences
@@ -167,43 +170,122 @@ struct SingleProviderLimitsCard: View {
     var display: WidgetQuotaDisplay { WidgetQuotaDisplay(weekly: snapshot, now: now) }
     private var weekly: QuotaWindow? { display.window }
     private var five: QuotaWindow? { snapshot.status(of: snapshot.fiveHour, now: now).remaining(of: snapshot.fiveHour) == nil ? nil : snapshot.fiveHour }
+    private var accent: Color { activityAccent(snapshot.provider) }
+    /// Secondary text in the widget's own ink: the system's secondary style fades on desktop glass.
+    private var ink: WidgetInk { WidgetInk(0.78) }
     var body: some View {
+        Group { if compact { rows } else { tiles } }
+            .foregroundStyle(.white).help(widgetQuotaExplanation(snapshot, now: now))
+    }
+
+    /// A limit under the week's bar: its name, its value and, for a share, a small meter.
+    struct Tile: Equatable {
+        var title: String, value: String
+        var remaining: Double? = nil
+        var color: AnyShapeStyle? = nil
+        var help: String? = nil
+        static func == (a: Tile, b: Tile) -> Bool { a.title == b.title && a.value == b.value && a.remaining == b.remaining && a.help == b.help }
+    }
+    /// The five-hour window, the model limits and the plan's end, as the settings allow; with room left,
+    /// the day and time of the weekly reset beside the countdown in the header.
+    static func tiles(_ snapshot: UsageSnapshot, preferences: WidgetPreferences, now: Date) -> [Tile] {
+        var result: [Tile] = []
+        if preferences.showFiveHour {
+            let window = snapshot.status(of: snapshot.fiveHour, now: now).remaining(of: snapshot.fiveHour) == nil ? nil : snapshot.fiveHour
+            result.append(Tile(title: L("5 часов"), value: window.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—", remaining: window?.remaining))
+        }
+        for limit in WidgetModelLimit.lines(snapshot, preferences: preferences, now: now) {
+            result.append(Tile(title: limit.name, value: limit.value, remaining: limit.remaining))
+        }
+        if preferences.showPlanEnd, let plan = PlanEndState.of(preferences, provider: snapshot.provider, now: now) {
+            result.append(Tile(title: L("Подписка"), value: plan.short, color: plan.isNormal ? nil : plan.widgetColor, help: plan.full))
+        }
+        let display = WidgetQuotaDisplay(weekly: snapshot, now: now)
+        if result.count < 3, !display.showsStatus, let reset = display.window?.resetsAt {
+            result.insert(Tile(title: L("Сброс"), value: reset.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(L10n.locale))), at: 0)
+        }
+        return result
+    }
+
+    private var tiles: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                ProviderLogo(id: snapshot.provider).foregroundStyle(accent).scaleEffect(0.62).frame(width: 18, height: 18)
+                Text(snapshot.provider.title).font(.system(size: 12, weight: .semibold))
+                Spacer(minLength: 6)
+                if display.needsAttention { Image(systemName: "exclamationmark.circle").font(.system(size: 10)).foregroundStyle(ink) }
+                if display.dimmed, let fetched = snapshot.fetchedAt {
+                    Text(widgetQuotaDate(fetched, now: now)).font(.system(size: 10)).monospacedDigit().foregroundStyle(WidgetInk(0.65))
+                } else if !display.showsStatus, let weekly, weekly.resetsAt != nil {
+                    HStack(spacing: 4) {
+                        Image(systemName: "timer").font(.system(size: 9))
+                        Text(weekly.countdown(now: now)).font(.system(size: 11)).monospacedDigit()
+                    }.foregroundStyle(WidgetInk(0.84)).accessibilityElement(children: .ignore)
+                        .accessibilityLabel(L("Сброс через {0}", weekly.countdown(now: now)))
+                }
+            }.frame(height: 18).lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 1) {
+                    Text(display.number).font(.system(size: 40, weight: .semibold)).monospacedDigit()
+                    if weekly != nil { Text(PercentText.sign()).font(.system(size: 17, weight: .medium)) }
+                }.opacity(display.dimmed ? 0.6 : 1).fixedSize()
+                Text(display.showsStatus ? widgetQuotaStatus(snapshot, now: now) : L("недели осталось"))
+                    .font(.system(size: 11)).foregroundStyle(ink).lineLimit(2).minimumScaleFactor(0.75)
+            }.frame(height: 42).padding(.top, 4)
+            meter(weekly?.remaining, height: 6, fill: AnyShapeStyle(accent)).opacity(display.dimmed ? 0.5 : 1).padding(.top, 6)
+                .accessibilityLabel(L("Осталось")).accessibilityValue(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? L("Нет данных"))
+            HStack(alignment: .top, spacing: 10) {
+                ForEach(Array(Self.tiles(snapshot, preferences: preferences, now: now).enumerated()), id: \.offset) { _, tile in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(tile.title).font(.system(size: 9)).foregroundStyle(WidgetInk(0.72))
+                        Text(tile.value).font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                            .foregroundStyle(tile.color ?? AnyShapeStyle(Color.white))
+                        if tile.remaining != nil { meter(tile.remaining, height: 3, fill: AnyShapeStyle(WidgetInk(0.75))) }
+                    }.lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .leading)
+                        .help(tile.help ?? "").accessibilityElement(children: .ignore)
+                        .accessibilityLabel(tile.help ?? tile.title + ": " + tile.value)
+                }
+            }.padding(.top, 14)
+            Spacer(minLength: 0)
+        }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 12)
+    }
+    private func meter(_ remaining: Double?, height: CGFloat, fill: AnyShapeStyle) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(WidgetInk(0.12, increased: 0.3))
+                if let remaining { Capsule().fill(fill).frame(width: geometry.size.width * min(100, max(0, remaining)) / 100) }
+            }
+        }.frame(height: height)
+    }
+
+    private var rows: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(snapshot.provider.title).font(.system(size: compact ? 13 : 15, weight: .semibold))
+                Text(snapshot.provider.title).font(.system(size: 13, weight: .semibold))
                 Spacer(minLength: 4)
                 if display.needsAttention {
-                    Image(systemName: "exclamationmark.circle").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Image(systemName: "exclamationmark.circle").font(.system(size: 10)).foregroundStyle(ink)
                 }
-                ProviderLogo(id: snapshot.provider).foregroundStyle(activityAccent(snapshot.provider)).scaleEffect(0.75).frame(width: 24, height: 24)
+                ProviderLogo(id: snapshot.provider).foregroundStyle(accent).scaleEffect(0.75).frame(width: 24, height: 24)
             }.frame(height: 24)
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(display.value)
-                    .font(.system(size: compact ? 28 : 36, weight: .semibold)).monospacedDigit()
-                    .opacity(display.dimmed ? 0.6 : 1)
-                if !compact { Text(L("Недельный остаток")).font(.system(size: 11)).foregroundStyle(.secondary) }
-            }.lineLimit(1).minimumScaleFactor(0.8)
-            if compact { Text(L("Недельный остаток")).font(.system(size: 9)).foregroundStyle(.secondary) }
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(WidgetInk(0.12, increased: 0.3))
-                    if let weekly { Capsule().fill(activityAccent(snapshot.provider)).frame(width: geometry.size.width * weekly.remaining / 100) }
-                }
-            }.frame(height: 5).opacity(display.dimmed ? 0.5 : 1).accessibilityLabel(L("Осталось"))
+            Text(display.value).font(.system(size: 28, weight: .semibold)).monospacedDigit()
+                .opacity(display.dimmed ? 0.6 : 1).lineLimit(1).minimumScaleFactor(0.8)
+            Text(L("Недельный остаток")).font(.system(size: 9)).foregroundStyle(ink)
+            meter(weekly?.remaining, height: 5, fill: AnyShapeStyle(accent)).opacity(display.dimmed ? 0.5 : 1).accessibilityLabel(L("Осталось"))
                 .accessibilityValue(weekly.map { PercentText.format(Int($0.remaining.rounded())) } ?? L("Нет данных"))
             if preferences.showFiveHour {
                 HStack {
                     Text(L("5 ч"))
                     Spacer()
                     Text(five.map { PercentText.format(Int($0.remaining.rounded())) } ?? "—").monospacedDigit()
-                }.font(.system(size: 10)).foregroundStyle(.secondary)
+                }.font(.system(size: 10)).foregroundStyle(ink)
             }
             if preferences.showPlanEnd, let plan = PlanEndState.of(preferences, provider: snapshot.provider, now: now) {
                 HStack {
                     Image(systemName: plan.symbol)
                     Spacer()
                     Text(plan.short).monospacedDigit()
-                }.font(.system(size: 10)).foregroundStyle(plan.isNormal ? AnyShapeStyle(.secondary) : plan.widgetColor)
+                }.font(.system(size: 10)).foregroundStyle(plan.isNormal ? AnyShapeStyle(ink) : plan.widgetColor)
                     .help(plan.full).accessibilityElement(children: .ignore).accessibilityLabel(plan.full)
             }
             ForEach(WidgetModelLimit.lines(snapshot, preferences: preferences, now: now).prefix(1), id: \.name) { limit in
@@ -211,7 +293,7 @@ struct SingleProviderLimitsCard: View {
                     Text(limit.name).lineLimit(1)
                     Spacer()
                     Text(limit.value).monospacedDigit()
-                }.font(.system(size: 10)).foregroundStyle(.secondary)
+                }.font(.system(size: 10)).foregroundStyle(ink)
             }
             Spacer(minLength: 0)
             Text(
@@ -219,20 +301,13 @@ struct SingleProviderLimitsCard: View {
                     ? widgetQuotaStatus(snapshot, now: now)
                     : weekly.map { L("Сброс через {0}", $0.countdown(now: now)) } ?? L("Ждём лимиты")
             )
-            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2).minimumScaleFactor(0.7)
+            .font(.system(size: 10)).foregroundStyle(ink).lineLimit(2).minimumScaleFactor(0.7)
             .fixedSize(horizontal: false, vertical: true)
             if display.dimmed, let fetched = snapshot.fetchedAt {
-                Text(
-                    L(
-                        "Данные: {0}",
-                        fetched.formatted(
-                            Calendar.current.isDate(fetched, inSameDayAs: now)
-                                ? .dateTime.hour().minute().locale(L10n.locale)
-                                : .dateTime.day().month(.twoDigits).hour().minute().locale(L10n.locale)))
-                )
-                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                Text(L("Данные: {0}", widgetQuotaDate(fetched, now: now)))
+                    .font(.system(size: 11)).foregroundStyle(ink).lineLimit(1).minimumScaleFactor(0.7)
             }
-        }.padding(14).foregroundStyle(.white).help(widgetQuotaExplanation(snapshot, now: now))
+        }.padding(14)
     }
 }
 
@@ -276,12 +351,15 @@ struct GlassMaterial: NSViewRepresentable {
 struct WidgetModelLimit: Equatable {
     let name: String
     let value: String
+    /// The remaining share behind `value`, for a meter; nil when it is unknown.
+    var remaining: Double? = nil
     static func lines(_ snapshot: UsageSnapshot, preferences: WidgetPreferences, now: Date) -> [WidgetModelLimit] {
         guard preferences.showModelLimits, snapshot.provider == .claude else { return [] }
         return (snapshot.modelQuotas ?? []).prefix(2).map { quota in
             let status = quota.status(now: now)
-            let value = status.remaining(of: quota.window).map { PercentText.format(Int($0.rounded())) + (status.isStale ? "*" : "") } ?? "—"
-            return WidgetModelLimit(name: quota.name, value: value)
+            let remaining = status.remaining(of: quota.window)
+            let value = remaining.map { PercentText.format(Int($0.rounded())) + (status.isStale ? "*" : "") } ?? "—"
+            return WidgetModelLimit(name: quota.name, value: value, remaining: remaining)
         }
     }
 }

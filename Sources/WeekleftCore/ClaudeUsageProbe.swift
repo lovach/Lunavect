@@ -177,7 +177,7 @@ public enum ClaudeUsageText {
         guard let weekly = try window(label: "Current week (all models)", minutes: 10080) else { throw UsageError.claudeUsageUnavailable }
         let fiveHour = try window(label: "Current session", minutes: 300)
         // Wait for the complete command, not a partially rendered weekly block.
-        guard lines.contains(where: { $0.contains("Esc to cancel") || $0.contains("Escape to cancel") }) else { throw UsageError.claudeUsageUnavailable }
+        guard lines.contains(where: ClaudeUsageText.hasFooter) else { throw UsageError.claudeUsageUnavailable }
         var modelQuotas: [ModelQuota] = []
         for label in lines where label.hasPrefix("Current week (") && label.hasSuffix(")") && label != "Current week (all models)" {
             let name = String(label.dropFirst("Current week (".count).dropLast())
@@ -459,9 +459,14 @@ extension ClaudeUsageText {
     static func refreshFailed(_ text: String) -> Bool {
         text.contains("Failed to load usage data") || text.contains("Could not refresh usage data")
     }
+    /// The footer of the command: "Esc to cancel" before 2.1.327, which draws /usage as a
+    /// tab of its settings panel ending "←/→ to switch · Esc to close" (seen 18.11.2026).
+    static func hasFooter(_ text: String) -> Bool {
+        ["Esc to cancel", "Escape to cancel", "Esc to close", "Escape to close"].contains(where: text.contains)
+    }
     /// The footer is drawn last; a loading indicator means more is coming.
     static func isDrawn(_ text: String) -> Bool {
-        guard text.contains("Esc to cancel") || text.contains("Escape to cancel") else { return false }
+        guard hasFooter(text) else { return false }
         return !text.components(separatedBy: .newlines).suffix(6).contains { $0.contains("Loading") }
     }
     static func awaitsReset(_ snapshot: UsageSnapshot) -> Bool {

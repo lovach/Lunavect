@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.0 — 2026-11-18
+
+### Sessions
+
+- **Island at the notch.** Sessions that work or wait for you show around the camera housing: working sessions on the left, sessions waiting for you (or finished answers) on the right. Hover to open the list with the week and five-hour limits and a timer per session; click a session to open it. On a screen without a notch the island appears only while there is work. Settings → Menu bar → Session status → **Island at the screen notch** turns it off.
+- **Answer permission requests from the island.** When a Claude Code session asks for permission, the island opens for a moment with the command and **Allow**, **Always** and **Deny**; the card then confirms what your click did. The request waits up to a minute. Without an answer, or when you click the session itself, Claude Code asks in its own dialog. To wait, Lunavect gives its permission hook 60 seconds instead of 3 in Claude Code's settings; sessions opened before that change keep asking in their own dialog until they restart.
+- **Answer the agent's questions from the island.** When Claude Code asks you a question with options, the island shows it with the options as buttons, one question at a time; where several may be picked, tick them and click **Done**. Claude Code gets your choice as if you had answered in its own dialog, which stays open meanwhile. To type your own answer, click **In session**. A question the island cannot show, or one left unanswered for a minute, stays in Claude Code's dialog.
+- A Claude Code session started in the terminal built into Claude (or Codex) counts as a terminal session. It used to count as a Claude Desktop task: after its tab closed it stayed **Permission needed** or **Thinking** for up to ten minutes, and a click reported that Claude had not provided a link. Now it leaves the list with its tab, and a click brings that app's window forward.
+- A session whose turn ended with background or workflow agents still running stays **In background** while those agents call tools. A pause for Claude Code monitors alone ends within 31 minutes: Claude Code stops a monitor at its deadline (30 minutes at most), and such a session used to stay **In background** for up to an hour. Each of their tool calls used to turn the row back into **Thinking**, so a long-finished turn showed a growing timer.
+- **Wakes at.** When a Claude session waits only for a timer it started in the background (`sleep 300`, or `sleep 300` followed by a check), the island and the panel show when it wakes, **Wakes at 15:42**, instead of **In background**. The pause now lasts until then and five minutes more: a short wait no longer keeps a session that never woke **In background** for an hour, and a wait longer than an hour no longer drops the session from the list. Any other work in flight may wake Claude sooner, so the row says **In background** as before.
+
+### Limits
+
+- Claude limits update again with Claude Code 2.1.327. That version shows `/usage` as a tab of its settings panel that ends with "Esc to close"; Lunavect waited for the earlier "Esc to cancel", so the limits stopped at the last value read and Settings said that the client did not respond in time.
+
+### Widgets
+
+- The medium limits widget with one provider has its own layout: the week as a large figure with its bar, and the five-hour window, model limit and plan end as tiles with small meters under it. Before, it stretched the small widget's rows across the width, with faint text on desktop glass and a bare calendar icon for the plan.
+- The small one-provider widget draws its secondary lines in the widget's own ink, which stays readable on glass.
+- Settings → Widgets no longer lists Xcode archives, exports and build folders, or the `__MACOSX` leftovers of an unpacked ZIP, as "another copy of Lunavect". After a macOS upgrade the system registers all of them again; they are not installed copies, and Lunavect keeps confirming its own widget registration.
+
+### Statistics
+
+- **When you work** labels the weekdays in the order they are counted. With the app in English on a Mac whose region starts the week on Monday, the labels started a day early, so Monday's hours read "Sun".
+- With one provider connected, the chart card counts **Days with work** (for example 4 / 7) instead of "Days with records". The old count included days Lunavect only watched and left out a day off with no session open, so an ordinary day without work read as a lost day.
+
 ## 0.2.8 — 2026-09-30
 
 ### Limits for running sessions
