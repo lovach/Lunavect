@@ -8,9 +8,9 @@
 Every agent session on your Mac with its live state, right in the menu bar,<br>
 next to both tools' weekly and five-hour limits with reset times.
 
-<a href="https://github.com/lovach/Lunavect/releases/download/v0.2.8/Lunavect-0.2.8.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
+<a href="https://github.com/lovach/Lunavect/releases/download/v0.3.0/Lunavect-0.3.0.dmg"><img src="docs/images/download-macos.svg" width="256" height="56" alt="Download Lunavect for macOS"></a>
 
-<sub>Version 0.2.8 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
+<sub>Version 0.3.0 · macOS 14 or later · Apple silicon and Intel · Free and open source</sub>
 
 <br>
 
@@ -38,7 +38,8 @@ next to both tools' weekly and five-hour limits with reset times.
 
 Every Claude Code and Codex task on your Mac in one panel, with its live state:<br>
 working, thinking, waiting for permission or input, or done.<br>
-Search, filter, pin and hide sessions. Live Terminal and iTerm2 sessions open in their own tab.
+Search, filter, pin and hide sessions. Live Terminal and iTerm2 sessions open in their own tab.<br>
+The island at the notch shows them too: allow a Claude Code request or answer its question with a click.
 
 <img src="docs/images/showcase/sessions.webp" width="760" alt="Three Lunavect session panels with Sessions and Tasks tabs: all nine tasks, a search for “bill” showing one Claude task, and the waiting filter showing the task that needs permission">
 
@@ -105,7 +106,7 @@ brew tap lovach/lunavect https://github.com/lovach/Lunavect
 brew install --cask lovach/lunavect/lunavect
 ```
 
-**Or download** [Lunavect-0.2.8.dmg](https://github.com/lovach/Lunavect/releases/download/v0.2.8/Lunavect-0.2.8.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
+**Or download** [Lunavect-0.3.0.dmg](https://github.com/lovach/Lunavect/releases/download/v0.3.0/Lunavect-0.3.0.dmg), open it and drag Lunavect to Applications. Every release is Developer ID signed and notarized by Apple, and updates arrive through Settings → Updates.
 
 Then choose **Connect Claude** or **Connect Codex**. Claude needs Claude Code CLI; Claude Desktop alone is not enough. Codex needs the official Codex app or CLI. Connect one provider or both. Sign-in stays with the official clients.
 
