@@ -90,6 +90,7 @@ enum StatusItemClick {
     init(environment: AppEnvironment) { self.environment = environment; super.init() }
     var menuBarAnimator: MenuBarAnimator?
     var menuBarLimits: MenuBarLimitsController?
+    var notchIsland: NotchIslandController?
     var window: NSWindow?
     var welcomeWindow: NSWindow?
     var monitorWindow: NSWindow?
@@ -192,17 +193,12 @@ enum StatusItemClick {
             }
             features.onControlAction = { [weak self] action, id in self?.controls.handle(action: action, controlID: id) }
             features.limitCutOff = { [weak self] session in self?.controls.limitCutOff(session) ?? (false, nil) }
-            features.onOpenSession = { [weak self] id in
-                Task { @MainActor in
-                    guard let self else { return }
-                    // A known row opens at once; a failure is reported on the panel.
-                    await self.sessionPanelState.openSession(id: id, rows: self.sessions.sessions,
-                                                             refresh: { await self.sessions.refresh() }) { row in
-                        try await SessionNavigation.open(row, resolver: self.store.clientResolver)
-                    }
-                }
-            }
+            features.onOpenSession = { [weak self] id in self?.openSession(id: id) }
             features.start()
+            let island = NotchIslandController(onOpen: { [weak self] id in self?.openSession(id: id) },
+                                               onOpenPanel: { [weak self] in self?.showSessions() })
+            island.start(sessions: sessions, store: store, appearance: menuBarAppearance)
+            notchIsland = island
             let registration = WidgetRegistration(defaults: environment.defaults, health: .live)
             widgetRegistration = registration
             registration.start()
@@ -245,6 +241,17 @@ enum StatusItemClick {
                 guard let self, !self.openedFromURL else { return }
                 if !self.environment.isPreview && WelcomeProgress.shouldPresent(defaults: self.environment.defaults) { self.showWelcome() }
                 else { self.showSessions() }
+            }
+        }
+    }
+    /// Notices and the island open a session the same way; a known row opens
+    /// at once and a failure is reported on the panel.
+    func openSession(id: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.sessionPanelState.openSession(id: id, rows: self.sessions.sessions,
+                                                     refresh: { await self.sessions.refresh() }) { row in
+                try await SessionNavigation.open(row, resolver: self.store.clientResolver)
             }
         }
     }

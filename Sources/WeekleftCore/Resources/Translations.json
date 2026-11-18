@@ -7075,5 +7075,33 @@
     "es": "de la semana",
     "fr": "de la semaine",
     "zh-Hans": "本周剩余"
+  },
+  "Остров у выреза экрана": {
+    "de": "Insel an der Display-Aussparung",
+    "en": "Island at the screen notch",
+    "es": "Isla en la muesca de la pantalla",
+    "fr": "Îlot à l’encoche de l’écran",
+    "zh-Hans": "屏幕刘海处的岛"
+  },
+  "Работающие и ждущие вас сессии видны у выреза. Наведите курсор, чтобы раскрыть список; щелчок открывает сессию. На экране без выреза остров появляется, только пока есть работа.": {
+    "de": "Sitzungen, die arbeiten oder auf Sie warten, erscheinen an der Aussparung. Bewegen Sie den Zeiger darauf, um die Liste zu öffnen; ein Klick öffnet die Sitzung. Auf einem Bildschirm ohne Aussparung erscheint die Insel nur, solange gearbeitet wird.",
+    "en": "Sessions that are working or waiting for you show at the notch. Hover to open the list; click a session to open it. On a screen without a notch, the island appears only while there is work.",
+    "es": "Las sesiones que trabajan o te esperan aparecen junto a la muesca. Pasa el puntero para abrir la lista; haz clic en una sesión para abrirla. En una pantalla sin muesca, la isla solo aparece mientras hay trabajo.",
+    "fr": "Les sessions qui travaillent ou vous attendent apparaissent près de l’encoche. Survolez-la pour ouvrir la liste ; cliquez sur une session pour l’ouvrir. Sur un écran sans encoche, l’îlot n’apparaît que pendant le travail.",
+    "zh-Hans": "正在工作或等待你的会话会显示在刘海旁。将指针移到上面可展开列表；点击会话即可打开。在没有刘海的屏幕上，只有在有工作时才会显示岛。"
+  },
+  "Нет сессий, которые работают или ждут вас": {
+    "de": "Keine Sitzung arbeitet oder wartet auf Sie",
+    "en": "No sessions are working or waiting for you",
+    "es": "Ninguna sesión trabaja ni te espera",
+    "fr": "Aucune session ne travaille ni ne vous attend",
+    "zh-Hans": "没有正在工作或等待你的会话"
+  },
+  "Ещё {0} в панели": {
+    "de": "{0} weitere im Panel",
+    "en": "{0} more in the panel",
+    "es": "{0} más en el panel",
+    "fr": "{0} de plus dans le panneau",
+    "zh-Hans": "面板中还有 {0} 个"
   }
 }

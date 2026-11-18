@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Sessions
+
+- **Island at the notch.** Sessions that work or wait for you show around the camera housing: working sessions on the left, sessions waiting for you (or finished answers) on the right. Hover to open the list with the week and five-hour limits and a timer per session; click a session to open it. On a screen without a notch the island appears only while there is work. Settings → Menu bar → Session status → **Island at the screen notch** turns it off.
+- A session whose turn ended with background or workflow agents still running stays **In background** while those agents call tools. Each of their tool calls used to turn the row back into **Thinking**, so a long-finished turn showed a growing timer.
+
 ### Widgets
 
 - The medium limits widget with one provider has its own layout: the week as a large figure with its bar, and the five-hour window, model limit and plan end as tiles with small meters under it. Before, it stretched the small widget's rows across the width, with faint text on desktop glass and a bare calendar icon for the plan.

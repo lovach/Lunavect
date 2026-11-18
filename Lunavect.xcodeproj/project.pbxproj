@@ -68,6 +68,7 @@
 		5E37DE0B55C3A1D6D3724602 /* Sessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F36C69FDA21D980CF78E95A /* Sessions.swift */; };
 		5E58321E4E045F3D9A977006 /* SubscriptionDatePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DBDBF6B699906DDE77585B /* SubscriptionDatePicker.swift */; };
 		5F4965034E44FD36CCC504AC /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00DE3C3478A69C3E7F7DF1C /* Models.swift */; };
+		60072E47C69D4980E3114690 /* NotchIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B25833EE70D59253473D1C4 /* NotchIsland.swift */; };
 		6184F66F91D8F4A65E8A1093 /* ActivityStatisticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36F2B5C53BA780AD42975FB /* ActivityStatisticsView.swift */; };
 		6323F319A0C94A1DBE9375DE /* SessionDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EDF1B51088BF74AB06D347B /* SessionDestination.swift */; };
 		65AA4A6F6C5C57D25F265900 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA6B2023A56E83F9F127F00A /* Localization.swift */; };
@@ -244,6 +245,7 @@
 		739640887B16506C6A5B8688 /* AppFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFeatures.swift; sourceTree = "<group>"; };
 		780039D8CA11672F3EB534B7 /* clawd-waving.gif */ = {isa = PBXFileReference; lastKnownFileType = image.gif; path = "clawd-waving.gif"; sourceTree = "<group>"; };
 		788A00B2932286D4969B2DAF /* LocalFileCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileCache.swift; sourceTree = "<group>"; };
+		7B25833EE70D59253473D1C4 /* NotchIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchIsland.swift; sourceTree = "<group>"; };
 		83BAADC66DA4CEA79BD50CFE /* HiddenSessionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenSessionsView.swift; sourceTree = "<group>"; };
 		83E87BA66A5F22FB4A99240D /* WeekleftWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekleftWidget.swift; sourceTree = "<group>"; };
 		8575633272066B60FA5691B1 /* SubscriptionCalendar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionCalendar.swift; sourceTree = "<group>"; };
@@ -450,6 +452,7 @@
 				0219A08FBDA0BC2CE1AA753D /* MenuBarAppearance.swift */,
 				ECAC781EC4BD9E685A603326 /* MenuBarLimits.swift */,
 				0359C5E77621B5ABEB05B9ED /* MenuBarScenes.swift */,
+				7B25833EE70D59253473D1C4 /* NotchIsland.swift */,
 				857A17CC8EF387BE4949E7A3 /* SessionControlService.swift */,
 				19AA01C46FAF93C7DBD5944B /* SessionControlViews.swift */,
 				B061050135D7E2DA0DA7E9A3 /* SessionInteractions.swift */,
@@ -887,6 +890,7 @@
 				559F689E384DD80303DB5031 /* MenuBarLimits.swift in Sources */,
 				5B9C99F54EE0C2AA3E637D65 /* MenuBarScenes.swift in Sources */,
 				EA166D92853F3D1040A15B16 /* Models.swift in Sources */,
+				60072E47C69D4980E3114690 /* NotchIsland.swift in Sources */,
 				2CF1CB795986898BC446C4FE /* Providers.swift in Sources */,
 				7BD77CECC31DCD7C3A8A9968 /* ReleaseConfiguration.swift in Sources */,
 				FC2052471D5D9C9DFCF07900 /* SessionArrangement.swift in Sources */,
