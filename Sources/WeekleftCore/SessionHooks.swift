@@ -94,6 +94,11 @@ public enum SessionHooks {
         }
     }
     static func marker(_ provider: ProviderID) -> String { "# lunavect-session-monitor:\(provider.rawValue)" }
+    /// Seconds Claude Code gives the helper. Events return at once; a Claude
+    /// permission request waits for the owner's answer in the island (owner's yes 18.11.2026).
+    public static func timeout(_ provider: ProviderID, event: String) -> Int {
+        provider == .claude && event == "PermissionRequest" ? PermissionBridge.hookTimeout : 3
+    }
     static func events(_ provider: ProviderID) -> [String] {
         ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd"] +
         (provider == .claude ? ["Notification", "PostToolUseFailure", "StopFailure", "PreCompact", "PostCompact", "SubagentStop"] : ["Interrupt"])
@@ -240,14 +245,15 @@ public enum SessionHooks {
         if let executable {
             let command = "\(quote(executable)) --session-hook \(provider.rawValue) \(marker(provider))"
             for event in events(provider) {
-                hooks[event, default: []].append(["hooks": [["type": "command", "command": command, "timeout": 3]]])
+                hooks[event, default: []].append(["hooks": [["type": "command", "command": command, "timeout": timeout(provider, event: event)]]])
             }
         }
         if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
         return root
     }
     /// Launch repair (owner decision 17): each Lunavect handler that names another
-    /// path is rewritten in place to `executable`. Events without a Lunavect handler
+    /// path is rewritten in place to `executable`, and a permission request's handler
+    /// gets the time to wait for the island (owner's yes 18.11.2026). Events without a Lunavect handler
     /// stay without one, foreign handlers and their order are untouched, and a
     /// duplicate Lunavect handler within one event is dropped.
     /// - Returns: whether the configuration changed.
@@ -272,6 +278,7 @@ public enum SessionHooks {
                         guard !seen else { continue }
                         seen = true
                         handler["command"] = desired; handler["type"] = "command"
+                        if event == "PermissionRequest" { handler["timeout"] = timeout(provider, event: event) }
                         updated.append(handler)
                     }
                     if !updated.isEmpty || handlers.isEmpty { group["hooks"] = updated; kept.append(group) }

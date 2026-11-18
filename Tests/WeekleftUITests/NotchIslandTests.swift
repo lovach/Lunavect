@@ -55,6 +55,25 @@ final class NotchIslandTests: XCTestCase {
         XCTAssertEqual(after.rows.map(\.id), order)
     }
 
+    func testPermissionRequestLeadsTheIslandEvenForAnUnknownSession() throws {
+        let now = Date()
+        var working = AgentSession(provider: .claude, sessionID: "run", title: "run", cwd: "/Users/fixture/project", client: .desktop,
+                                   phase: .running, updatedAt: now, observedAt: now, evidence: .hook)
+        working.turnStartedAt = now - 30
+        func request(_ session: String) throws -> PermissionPrompt {
+            try XCTUnwrap(PermissionPrompt(payload: ["session_id": session, "cwd": "/Users/fixture/Projects/shop", "hook_event_name": "PermissionRequest",
+                                                     "tool_name": "Bash", "tool_input": ["command": "npm test"]], now: now - 5))
+        }
+        let summary = IslandSummary.make([working], prompts: [try request("run"), try request("new")], now: now)
+        XCTAssertEqual(summary.rows.map(\.id), ["claude:run", "claude:new"])
+        XCTAssertEqual(summary.rows.map(\.title), ["run", "shop"], "An unknown session is named by its folder")
+        XCTAssertTrue(summary.rows.allSatisfy { $0.prompt != nil && $0.phase == .permission })
+        XCTAssertEqual([summary.working, summary.waiting], [0, 2])
+        let plain = IslandLayout.expanded(notch: CGSize(width: 185, height: 32), summary: IslandSummary.make([working], now: now), limits: 0)
+        let asking = IslandLayout.expanded(notch: CGSize(width: 185, height: 32), summary: summary, limits: 0)
+        XCTAssertEqual(asking.height - plain.height, IslandLayout.rowHeight + 2 * IslandLayout.promptHeight)
+    }
+
     func testClosedIslandHasEarsOnlyWithSomethingToShow() {
         let notch = CGSize(width: 185, height: 32)
         XCTAssertEqual(IslandLayout.compact(notch: notch, summary: IslandSummary()), notch)

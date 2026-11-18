@@ -7110,5 +7110,54 @@
     "es": "{0} ya funciona en la muesca: al pasar el puntero, su ventana y la isla se superponen. Cierra esa app o desactiva la isla aquí.",
     "fr": "{0} fonctionne déjà à l’encoche : au survol, sa fenêtre et l’îlot se chevauchent. Quittez cette app ou désactivez l’îlot ici.",
     "zh-Hans": "刘海处已在运行 {0}：指针悬停时，它的窗口会与岛重叠。请退出该应用，或在此关闭岛。"
+  },
+  "Разрешить": {
+    "de": "Erlauben",
+    "en": "Allow",
+    "es": "Permitir",
+    "fr": "Autoriser",
+    "zh-Hans": "允许"
+  },
+  "Всегда": {
+    "de": "Immer",
+    "en": "Always",
+    "es": "Siempre",
+    "fr": "Toujours",
+    "zh-Hans": "始终允许"
+  },
+  "Запретить": {
+    "de": "Ablehnen",
+    "en": "Deny",
+    "es": "Denegar",
+    "fr": "Refuser",
+    "zh-Hans": "拒绝"
+  },
+  "Разрешено": {
+    "de": "Erlaubt",
+    "en": "Allowed",
+    "es": "Permitido",
+    "fr": "Autorisé",
+    "zh-Hans": "已允许"
+  },
+  "Разрешено всегда": {
+    "de": "Immer erlaubt",
+    "en": "Always allowed",
+    "es": "Permitido siempre",
+    "fr": "Toujours autorisé",
+    "zh-Hans": "已始终允许"
+  },
+  "Запрещено": {
+    "de": "Abgelehnt",
+    "en": "Denied",
+    "es": "Denegado",
+    "fr": "Refusé",
+    "zh-Hans": "已拒绝"
+  },
+  "Запрос уже закрыт: ответьте в сессии": {
+    "de": "Die Anfrage ist bereits beendet: Antworten Sie in der Sitzung",
+    "en": "The request already closed: answer in the session",
+    "es": "La solicitud ya se cerró: responde en la sesión",
+    "fr": "La demande est déjà fermée : répondez dans la session",
+    "zh-Hans": "请求已关闭：请在会话中回答"
   }
 }

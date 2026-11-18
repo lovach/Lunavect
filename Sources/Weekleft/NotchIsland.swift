@@ -66,6 +66,8 @@ struct IslandRow: Identifiable, Equatable {
     let provider: ProviderID
     /// Where the row's clock starts: the turn while working, the request while waiting.
     let since: Date?
+    /// A permission request the owner can answer from the island.
+    var prompt: PermissionPrompt? = nil
     var waiting: Bool { phase == .permission || phase == .input }
 }
 
@@ -80,7 +82,8 @@ struct IslandSummary: Equatable {
     var hasSignal: Bool { working + waiting + ready > 0 }
     static let shownPhases: Set<SessionPhase> = [.permission, .input, .running, .failed, .ready]
 
-    static func make(_ sessions: [AgentSession], order: [String] = [], now: Date = Date()) -> IslandSummary {
+    static func make(_ sessions: [AgentSession], order: [String] = [], prompts: [PermissionPrompt] = [],
+                     now: Date = Date()) -> IslandSummary {
         let rank = Dictionary(order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
         let current = sessions.filter { $0.isCurrent(now: now) }
             .map { ($0, $0.effectivePhase(now: now)) }
@@ -98,9 +101,20 @@ struct IslandSummary: Equatable {
                              phase: phase, provider: session.provider,
                              since: phase == .running ? session.turnStartedAt : waiting ? session.updatedAt : nil)
         }
-        summary.working = current.filter { $0.1 == .running }.count
-        summary.waiting = current.filter { $0.1 == .permission || $0.1 == .input }.count
-        summary.ready = current.filter { $0.1 == .ready }.count
+        // A request waiting in the island leads, on its session's row or on its own
+        // row when the panel does not know the session yet.
+        for prompt in prompts.sorted(by: { $0.receivedAt < $1.receivedAt }) {
+            let existing = summary.rows.firstIndex { $0.id == prompt.rowID }
+            let title = existing.map { summary.rows[$0].title }
+                ?? (prompt.cwd.isEmpty ? L("Сессия Claude") : URL(fileURLWithPath: prompt.cwd).lastPathComponent)
+            let row = IslandRow(id: prompt.rowID, title: title, activity: SessionPhase.permission.title, phase: .permission,
+                                provider: .claude, since: prompt.receivedAt, prompt: prompt)
+            if let existing { summary.rows[existing] = row } else { summary.rows.append(row) }
+        }
+        summary.rows = summary.rows.filter { $0.prompt != nil } + summary.rows.filter { $0.prompt == nil }
+        summary.working = summary.rows.filter { $0.phase == .running }.count
+        summary.waiting = summary.rows.filter(\.waiting).count
+        summary.ready = summary.rows.filter { $0.phase == .ready }.count
         return summary
     }
 }
@@ -129,6 +143,8 @@ enum IslandLayout {
     static let rowHeight: CGFloat = 46
     static let limitsHeight: CGFloat = 24
     static let moreHeight: CGFloat = 26
+    /// The request line and its buttons under a waiting row.
+    static let promptHeight: CGFloat = 58
     static let maxRows = 6
     static let compactFlare: CGFloat = 6
     static let expandedFlare: CGFloat = 12
@@ -141,12 +157,20 @@ enum IslandLayout {
     static func expanded(notch: CGSize, summary: IslandSummary, limits: Int) -> CGSize {
         let rows = CGFloat(max(1, min(maxRows, summary.rows.count)))
         let more: CGFloat = summary.rows.count > maxRows ? moreHeight : 0
+        let prompts = CGFloat(summary.rows.prefix(maxRows).filter { $0.prompt != nil }.count)
         return CGSize(width: max(width, notch.width + 2 * ear),
-                      height: notch.height + 6 + (limits > 0 ? limitsHeight : 0) + rows * rowHeight + more + 10)
+                      height: notch.height + 6 + (limits > 0 ? limitsHeight : 0) + rows * rowHeight + prompts * promptHeight + more + 10)
     }
 }
 
+/// What an answer from the island did, shown on the card for a moment.
+struct IslandOutcome: Equatable {
+    let text: String
+    let delivered: Bool
+}
+
 @MainActor final class IslandState: ObservableObject {
+    @Published var outcomes: [UUID: IslandOutcome] = [:]
     @Published var summary = IslandSummary()
     @Published var limits: [IslandLimit] = []
     @Published var expanded = false
@@ -184,6 +208,7 @@ struct IslandView: View {
     @ObservedObject var state: IslandState
     var onOpen: (String) -> Void
     var onOpenPanel: () -> Void
+    var onAnswer: (UUID, PermissionBridge.Answer) -> Void = { _, _ in }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -257,7 +282,8 @@ struct IslandView: View {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     VStack(spacing: 0) {
                         ForEach(Array(rows.prefix(IslandLayout.maxRows))) { row in
-                            IslandRowView(row: row, now: context.date) { onOpen(row.id) }
+                            IslandRowView(row: row, now: context.date, open: { onOpen(row.id) }, answer: onAnswer,
+                                          outcome: row.prompt.flatMap { state.outcomes[$0.id] })
                         }
                     }
                 }
@@ -278,8 +304,39 @@ struct IslandRowView: View {
     let row: IslandRow
     let now: Date
     let open: () -> Void
+    var answer: (UUID, PermissionBridge.Answer) -> Void = { _, _ in }
+    var outcome: IslandOutcome? = nil
     @State private var hovering = false
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if let prompt = row.prompt { request(prompt) }
+        }
+    }
+    /// The tool and what it touches, then the three answers. The row above opens
+    /// the session and hands the request back to its own dialog.
+    private func request(_ prompt: PermissionPrompt) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(prompt.detail.isEmpty ? prompt.tool : prompt.tool + ": " + prompt.detail)
+                .font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1).truncationMode(.middle)
+            if let outcome {
+                Label(outcome.text, systemImage: outcome.delivered ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(outcome.delivered ? Color.green : Color.orange)
+                    .lineLimit(1).frame(height: 24)
+            } else {
+                HStack(spacing: 6) {
+                    IslandActionButton(title: L("Разрешить"), style: .primary) { answer(prompt.id, .allow) }
+                    if prompt.canAlways { IslandActionButton(title: L("Всегда"), style: .secondary) { answer(prompt.id, .always) } }
+                    IslandActionButton(title: L("Запретить"), style: .destructive) { answer(prompt.id, .deny) }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(.leading, 28).padding(.trailing, 10)
+        .frame(height: IslandLayout.promptHeight, alignment: .top)
+    }
+    private var header: some View {
         Button(action: open) {
             HStack(spacing: 10) {
                 Circle().fill(color).frame(width: 8, height: 8)
@@ -315,6 +372,22 @@ struct IslandRowView: View {
         guard let since = row.since else { return nil }
         let s = max(0, Int(now.timeIntervalSince(since)))
         return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+struct IslandActionButton: View {
+    enum Style { case primary, secondary, destructive }
+    let title: String
+    let style: Style
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(style == .primary ? Color.black : style == .destructive ? Color(red: 1, green: 0.47, blue: 0.44) : Color.white)
+                .padding(.horizontal, 12).frame(height: 24)
+                .background(Capsule().fill(style == .primary ? Color.white : Color.white.opacity(0.13)))
+                .contentShape(Capsule())
+        }.buttonStyle(.plain)
     }
 }
 
@@ -391,6 +464,10 @@ final class IslandHostingView: NSHostingView<IslandView> {
     private var rows: [AgentSession] = []
     /// Session ids in the order the island first saw them.
     private var order: [String] = []
+    private var server: PermissionBridgeServer?
+    private var prompts: [PermissionPrompt] = []
+    /// A new request opens the island for a moment without the pointer.
+    private var peekUntil: Date?
 
     init(onOpen: @escaping (String) -> Void, onOpenPanel: @escaping () -> Void) {
         self.onOpen = onOpen; self.onOpenPanel = onOpenPanel
@@ -418,6 +495,7 @@ final class IslandHostingView: NSHostingView<IslandView> {
         if on {
             if panel == nil { makePanel() }
             installMonitors()
+            startBridge()
             // Phases expire with time (a stale row turns unknown) without a new store value.
             refreshTimer?.invalidate()
             refreshTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
@@ -427,6 +505,7 @@ final class IslandHostingView: NSHostingView<IslandView> {
         } else {
             collapse()
             removeMonitors()
+            server?.stop(); server = nil; prompts = []
             refreshTimer?.invalidate(); refreshTimer = nil
             panel?.orderOut(nil)
         }
@@ -437,7 +516,7 @@ final class IslandHostingView: NSHostingView<IslandView> {
         order.removeAll { !present.contains($0) }
         let known = Set(order)
         order += rows.map(\.id).filter { !known.contains($0) }
-        let summary = IslandSummary.make(rows, order: order)
+        let summary = IslandSummary.make(rows, order: order, prompts: prompts)
         if summary != state.summary { state.summary = summary }
         layout()
     }
@@ -456,10 +535,58 @@ final class IslandHostingView: NSHostingView<IslandView> {
         panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         let view = IslandView(state: state,
-                              onOpen: { [weak self] id in self?.collapse(); self?.onOpen(id) },
-                              onOpenPanel: { [weak self] in self?.collapse(); self?.onOpenPanel() })
+                              onOpen: { [weak self] id in self?.open(rowID: id) },
+                              onOpenPanel: { [weak self] in self?.collapse(); self?.onOpenPanel() },
+                              onAnswer: { [weak self] id, answer in self?.answer(id, answer) })
         panel.contentView = IslandHostingView(rootView: view)
         self.panel = panel
+    }
+
+    private func startBridge() {
+        guard server == nil else { return }
+        let server = PermissionBridgeServer(
+            onPrompt: { [weak self] prompt in MainActor.assumeIsolated { self?.received(prompt) } },
+            onEnd: { [weak self] id in MainActor.assumeIsolated { self?.ended(id) } })
+        // Without the socket the helper returns at once and Claude Code asks in its dialog.
+        do { try server.start(); self.server = server } catch { self.server = nil }
+    }
+    private func received(_ prompt: PermissionPrompt) {
+        guard enabled else { return }
+        prompts.append(prompt)
+        update()
+        if !state.expanded { expand() }
+        peekUntil = Date().addingTimeInterval(8)
+    }
+    private func ended(_ id: UUID) {
+        // An answer's outcome stays on the card until its own timer removes it.
+        guard state.outcomes[id] == nil else { return }
+        prompts.removeAll { $0.id == id }
+        update()
+    }
+    func answer(_ id: UUID, _ answer: PermissionBridge.Answer) {
+        guard prompts.contains(where: { $0.id == id }), state.outcomes[id] == nil else { return }
+        guard answer != .ask else { server?.answer(id, .ask); ended(id); return }
+        let text = answer == .deny ? L("Запрещено") : answer == .always ? L("Разрешено всегда") : L("Разрешено")
+        server?.answer(id, answer) { [weak self] delivered in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Claude Code stopped waiting before the click: say so instead of a false tick.
+                self.state.outcomes[id] = IslandOutcome(text: delivered ? text : L("Запрос уже закрыт: ответьте в сессии"), delivered: delivered)
+                Timer.scheduledTimer(withTimeInterval: delivered ? 1.6 : 3, repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.state.outcomes[id] = nil
+                        self.ended(id)
+                    }
+                }
+            }
+        }
+    }
+    /// Opening a session hands its waiting request back to the session's own dialog.
+    private func open(rowID: String) {
+        for prompt in prompts where prompt.rowID == rowID { answer(prompt.id, .ask) }
+        collapse()
+        onOpen(rowID)
     }
 
     private func layout() {
@@ -514,8 +641,9 @@ final class IslandHostingView: NSHostingView<IslandView> {
         guard enabled else { return }
         let point = NSEvent.mouseLocation
         if state.expanded {
-            if let rect = expandedRect, rect.insetBy(dx: -8, dy: -8).contains(point) { cancelPending() }
-            else { schedule(expand: false, after: 0.25) }
+            if let rect = expandedRect, rect.insetBy(dx: -8, dy: -8).contains(point) { cancelPending(); peekUntil = nil }
+            else if let peekUntil, peekUntil > Date() { cancelPending() }
+            else { peekUntil = nil; schedule(expand: false, after: 0.25) }
         } else if let rect = compactRect, rect.contains(point) {
             schedule(expand: true, after: 0.12)
         } else { cancelPending() }
@@ -547,6 +675,7 @@ final class IslandHostingView: NSHostingView<IslandView> {
     }
     func collapse() {
         cancelPending()
+        peekUntil = nil
         trackTimer?.invalidate(); trackTimer = nil
         guard state.expanded else { return }
         state.expanded = false

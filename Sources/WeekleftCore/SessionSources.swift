@@ -526,6 +526,13 @@ enum SessionProcess {
         let parentPID: Int32
         let executable: String
     }
+    static func startDate(_ pid: Int32) -> Date? {
+        guard pid > 1 else { return nil }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout.size(ofValue: info))
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return Date(timeIntervalSince1970: Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000)
+    }
     static func runtimeProcess(_ pid: Int32) -> RuntimeProcess? {
         guard pid > 1 else { return nil }
         var info = proc_bsdinfo()
@@ -917,7 +924,8 @@ public extension SessionHooks {
         // Lifecycle tools never block, approve or inject context, except in a session the
         // user limited in Lunavect (owner decisions 30.09): there, near the limit the agent is
         // asked to wrap up and at the limit its next action is refused, with the reason; the
-        // user's own message lifts the stop.
+        // user's own message lifts the stop. A Claude permission request otherwise waits for
+        // the owner's answer in the island (owner's yes 18.11.2026); without one Claude Code asks.
         guard let data = readHookPayload(from: .standardInput) else { print("{}"); return }
         let env = ProcessInfo.processInfo.environment
         let ide = IDEProcessLocation.locate(parentPID: getppid(), provider: provider)
@@ -928,7 +936,17 @@ public extension SessionHooks {
         let backgroundRun = runtimePID.map { SessionProcess.isPrintRun(pid: $0) } ?? false
         try? capture(data, provider: provider, now: now, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide,
                      runtimePID: runtimePID, backgroundRun: backgroundRun)
-        print(SessionLimitFile.answer(payload: data))
+        let answer = SessionLimitFile.answer(payload: data)
+        let settingsChanged = provider == .claude ? (try? SessionHooks.configURL(.claude).resolvingSymlinksInPath()
+            .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate : nil
+        if provider == .claude, answer == "{}",
+           PermissionBridge.sessionSeesWait(processStart: runtimePID.flatMap(SessionProcess.startDate), settingsChanged: settingsChanged),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], PermissionBridge.waits(for: object),
+           let output = PermissionBridge.output(for: PermissionBridge.ask(payload: object), payload: object) {
+            print(output)
+            return
+        }
+        print(answer)
     }
 }
 
