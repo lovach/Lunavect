@@ -755,7 +755,14 @@ public struct SessionRecord: Codable, Sendable {
         if name == "SessionEnd" || name == "Interrupt" || (name == "SessionStart" && payload["source"] as? String != "compact") {
             record.session.backgroundWork = nil
         }
-        if name != "Stop" { record.session.awaitingBackground = nil }
+        // A pause for background work ends with the main conversation's own events.
+        // A background or workflow agent's events (its own agent_id) and dialog
+        // notices during the pause are that work going on: the row stays «В фоне»
+        // instead of turning back into «Думает» while the conversation waits.
+        let continuesBackgroundWait = previous?.session.awaitingBackground == true
+            && ((provider == .claude && !context.isEmpty && ["PreToolUse", "PostToolUse", "PostToolUseFailure"].contains(name))
+                || name == "Notification")
+        if name != "Stop" && !continuesBackgroundWait { record.session.awaitingBackground = nil }
         if name != "PreCompact" { record.session.compactionTrigger = nil }
         // Resuming or forking opens an existing task (decision 13): ready for work
         // before its first prompt. Only startup and /clear wait for real work.
@@ -769,7 +776,7 @@ public struct SessionRecord: Codable, Sendable {
         record.session.cwd = cwd; record.session.observedAt = now; record.session.updatedAt = now
         record.session.runtimeConfirmed = true
         if record.session.phase == .running && record.session.turnStartedAt == nil { record.session.turnStartedAt = now }
-        record.session.tool = name == "PreToolUse" && !tool.isEmpty ? tool : nil
+        record.session.tool = name == "PreToolUse" && !tool.isEmpty && !continuesBackgroundWait ? tool : nil
         if client != .unknown { record.session.client = client }
         return record
     }
