@@ -416,6 +416,7 @@ public enum SessionList {
                 }
                 if fresh && event.client != .unknown && row.client != .background && row.ideLocation == nil && row.terminalTTY == nil {
                     row.client = event.client
+                    if row.launchHost == nil { row.launchHost = event.launchHost }
                 }
                 // Claude's catalog knows only when a session started. Whichever
                 // source decides the phase, the last task event is its activity.

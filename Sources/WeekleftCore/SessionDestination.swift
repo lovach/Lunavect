@@ -60,9 +60,10 @@ public extension AgentSession {
     }
     /// A live CLI session is brought forward in its own terminal tab. A device
     /// recorded by a hook is evidence even when another source names the client.
+    /// A terminal named as a host without a route (Claude's or Codex's own) has no tab to search.
     var terminalFocusCandidate: Bool {
-        ideLocation == nil && client != .vscode && client != .jetbrains &&
-        !canLaunchTerminalSession && (client == .terminal || terminalTTY.map(TerminalLocation.valid) == true)
+        ideLocation == nil && client != .vscode && client != .jetbrains && !canLaunchTerminalSession &&
+            (terminalTTY.map(TerminalLocation.valid) == true || (client == .terminal && launchHost == nil))
     }
     /// A limits check run by hand is not opened at all (decision 28.09).
     var limitsCheckRefusal: SessionOpeningError? { isLimitsCheck == true ? .limitsCheck : nil }

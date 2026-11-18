@@ -415,6 +415,15 @@ final class TerminalLocationTests: XCTestCase {
         let desktop: Table = [40: proc(20, "/Applications/Codex.app/Contents/Resources/codex"),
                               20: proc(1, "/Applications/Codex.app/Contents/MacOS/Codex")]
         XCTAssertEqual(client(desktop), .desktop)
+        // Owner's report 18.11.2026: a CLI in Claude's built-in terminal stayed listed after its tab
+        // closed and asked Claude for a Desktop link it never had. Its own device makes it a terminal session.
+        let builtIn: Table = [40: proc(30, "/Users/u/.local/bin/claude", tty: tty), 30: proc(20, "/bin/zsh", tty: tty),
+                              20: proc(10, "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper"),
+                              10: proc(1, "/Applications/Claude.app/Contents/MacOS/Claude")]
+        XCTAssertEqual(client(builtIn, entrypoint: "cli"), .terminal)
+        let desktopTask: Table = [40: proc(10, "/Users/u/Library/Application Support/Claude/claude-code/2.1.326/a1/claude.app/Contents/MacOS/claude"),
+                                  10: proc(1, "/Applications/Claude.app/Contents/MacOS/Claude")]
+        XCTAssertEqual(client(desktopTask, entrypoint: "claude-desktop"), .desktop, "A Code tab task has no device of its own")
         let agent: Table = [40: proc(1, "/Users/u/.local/bin/codex")]
         XCTAssertEqual(client(agent), .unknown, "No terminal, no host: still unknown")
         // Audit 02 §5.11 (from WP-2): the Codex CLI bundled in a desktop app, run from

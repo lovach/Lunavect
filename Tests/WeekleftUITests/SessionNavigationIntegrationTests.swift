@@ -220,6 +220,23 @@ final class SessionNavigationIntegrationTests: XCTestCase {
         XCTAssertEqual(focused, 1)
     }
 
+    /// Owner's report 18.11.2026: a click on a session in Claude's built-in terminal showed
+    /// "Claude did not provide a link". Its tab cannot be selected, but Claude comes forward.
+    @MainActor func testSessionInClaudesBuiltInTerminalBringsClaudeForward() async throws {
+        let resolver = ClientExecutableResolver(discoverClaude: { XCTFail("Nothing is launched"); return nil })
+        var row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture", cwd: "/tmp",
+                               client: .terminal, phase: .permission, updatedAt: Date(), observedAt: Date(), evidence: .hook)
+        row.launchHost = .init(kind: .embeddedTerminal, name: "Claude")
+        var activated: [String] = []
+        try await SessionNavigation.open(row, resolver: resolver, focus: { _ in XCTFail("No Terminal tab is searched"); return false },
+                                         openIDE: { _ in XCTFail("No editor") }, activateHost: { activated.append($0); return true })
+        XCTAssertEqual(activated, ["Claude"])
+        do {
+            try await SessionNavigation.open(row, resolver: resolver, focus: { _ in false }, activateHost: { _ in false })
+            XCTFail("Claude is not running: the place is named")
+        } catch { XCTAssertEqual(error as? SessionOpeningError, .embeddedTerminal("Claude")) }
+    }
+
     @MainActor func testTerminalFocusFailureReachesThePanelWithoutLaunchingAnotherClient() async throws {
         let row = AgentSession(provider: .claude, sessionID: "01234567-89ab-cdef-0123-456789abcdef", title: "Fixture",
                                cwd: "/tmp", client: .terminal, phase: .running, updatedAt: Date(), observedAt: Date(), evidence: .hook)

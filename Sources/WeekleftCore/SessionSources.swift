@@ -816,7 +816,9 @@ enum SessionProcess {
             // A CLI binary bundled in an app's Resources (for example ChatGPT.app's
             // codex) says nothing about the host; its parent decides.
             let bundledCLI = name.contains("/Contents/Resources/")
-            if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return .desktop }
+            // The terminal built into Claude or Codex hosts a CLI on its own device: a terminal
+            // session that lives as long as its tab, not the app's task (owner's report 18.11.2026).
+            if !bundledCLI, ["/ChatGPT.app/", "/Codex.app/", "/Claude.app/"].contains(where: name.contains) { return outsideSession ? .terminal : .desktop }
             if !bundledCLI, let range = name.range(of: ".app/Contents/"),
                case let app = String(name[..<range.lowerBound]) + ".app", let identifier = bundle(app),
                let editor = SessionIDE.identify(bundleIdentifier: identifier, appPath: app, product: product) { return editor.client }
@@ -934,8 +936,11 @@ public extension SessionHooks {
         let terminal = client == .terminal ? SessionProcess.terminalLocation(parentPID: getppid(), termProgram: env["TERM_PROGRAM"] ?? "") : nil
         let runtimePID = provider == .claude ? SessionProcess.hookClientPID(startPID: getppid()) : nil
         let backgroundRun = runtimePID.map { SessionProcess.isPrintRun(pid: $0) } ?? false
+        // A terminal without a tab route (the one built into Claude or Codex, another app's)
+        // is named, so a click goes to that app instead of searching Terminal tabs.
+        let host = client == .terminal && terminal == nil && ide == nil ? runtimePID.flatMap { SessionProcess.launchHost(runtimePID: $0) } : nil
         try? capture(data, provider: provider, now: now, client: client, nestedClaudeRuntime: nested, terminal: terminal, ide: ide,
-                     runtimePID: runtimePID, backgroundRun: backgroundRun)
+                     launchHost: host, runtimePID: runtimePID, backgroundRun: backgroundRun)
         let answer = SessionLimitFile.answer(payload: data)
         let settingsChanged = provider == .claude ? (try? SessionHooks.configURL(.claude).resolvingSymlinksInPath()
             .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate : nil
