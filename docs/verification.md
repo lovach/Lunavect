@@ -1,8 +1,24 @@
 # Verification and compatibility
 
-The current public release is **Lunavect 0.2.8 (219)**. These records distinguish completed checks from unverified scenarios.
+The current public release is **Lunavect 0.3.0 (235)**. These records distinguish completed checks from unverified scenarios.
 
-[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.2.8)
+[Download and release notes](https://github.com/lovach/Lunavect/releases/tag/v0.3.0)
+
+## 0.3.0 release checks — November 18, 2026
+
+| Area | Result |
+| --- | --- |
+| Release source | Clean commit `c84c08a7d80e67ee28a4ef835703bf1189734573`, tagged `v0.3.0`, from [PR #53](https://github.com/lovach/Lunavect/pull/53). The archive and its distribution manifest name this commit with a clean tree; resource, helper-policy and provenance checks passed. |
+| Automated checks | The local check for this exact clean source passed: 1,295 Swift tests passed, 82 skipped and zero failures (1,377 total); 170 Python tests passed, one skipped and zero failures (171 total). Unsigned universal app/widget/helpers, the hook helper, resources, the built intent-resource test and build provenance passed. The PR's CI was still running when the release was published. |
+| Independent review | A separate reader checked the release notes against the changelog and the code, the four assets, their signatures and the published diff for private data or secrets before publication, and found nothing that had to change. |
+| Live checks | On installed signed builds with Claude Code 2.1.327: a permission request allowed from the island; an agent question answered from the island, where the session received the chosen options ("Allowed by PermissionRequest hook"), one of them a multiple choice; **Wakes at** for a background `sleep 150`, after which the session woke on time and turned **Response ready**; the `/usage` screen of 2.1.327 read in 4 seconds; a session in Claude's built-in terminal recorded as a terminal session. |
+| Distribution | Developer ID signed and Apple notarized, build 235. Anonymous downloads of all four release assets match the packaged SHA-256 digests. The DMG app and the ZIP app pass strict codesign, Gatekeeper and stapler checks and have universal arm64/x86_64 slices. |
+| Update signatures | The ZIP's signature verifies with the public key inside the app, the same key as in 0.2.8; a deliberately damaged ZIP is rejected. The latest public feed points to build 235 and the exact `v0.3.0` ZIP URL. |
+| Installation | The release Mac ran a local development build without an update feed, which Sparkle cannot update, so the app from the public ZIP was installed in its place with the install script. The installed 0.3.0 (235) passes Gatekeeper, its hook helper link points inside the installed copy, it records session events and reads limits. |
+| Editor companions | The exported app bundles VS Code companion 0.1.3 and JetBrains companion 0.1.2, unchanged since 0.2.7. |
+| Not checked live | A Sparkle update from an installed 0.2.8, Allow from the island in a Claude Desktop Code-tab session, and a click on a session in Claude's built-in terminal (unit tests only). |
+
+The 0.3.0 DMG SHA-256 is `1320621c44bd711b1ea133027e0dbe9d5cdd50d81d7b0531ed1bea9e7c09242f`.
 
 ## 0.2.8 release checks — September 30, 2026
 
