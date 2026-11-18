@@ -34,6 +34,42 @@ final class ClaudeUsageProbeTests: XCTestCase {
         XCTAssertEqual(result.fiveHour?.resetsAt, ISO8601DateFormatter().date(from: "2026-09-10T17:40:00Z"))
         XCTAssertEqual(result.weekly?.resetPrecision, .minute)
     }
+    /// The owner's Mac, 18.11.2026: Claude Code 2.1.327 draws /usage as a settings tab that ends
+    /// "Esc to close" and lists what used the limit. The probe waited for "Esc to cancel" until its
+    /// deadline, so limits stayed at 13:53 and Settings said the client did not respond in time.
+    func testUsageTabOfClaudeCode2_1_327() throws {
+        let screen = """
+        you: /usage
+        Settings  Status   Config   Usage   Stats
+        Session
+        Estimated cost: $0.0000
+        Usage: 0 input, 0 output, 0 cache read, 0 cache write
+        Current week (all models)
+        94% 94% used
+        Resets Nov 22 at 11pm (Europe/Vienna)
+        Current week (Fable)
+        100% 100% used
+        Resets Nov 22 at 11pm (Europe/Vienna)
+        What's contributing to your usage?
+        Approximate · sessions on this computer only
+        Scanning local sessions…
+        Usage credits
+        Usage credits are off · /usage-credits to turn them on
+        ←/→ to switch · Esc to closeLast 24h · shares overlap
+        76% Start fresh when you switch tasks · run /clear
+        Skills % of usage
+        /blueprint-album 2%
+        """
+        let now = ISO8601DateFormatter().date(from: "2026-11-18T13:55:00Z")!
+        let result = try ClaudeUsageText.parse(screen, now: now)
+        XCTAssertEqual(result.weekly?.remaining, 6)
+        XCTAssertEqual(result.weekly?.resetsAt, ISO8601DateFormatter().date(from: "2026-11-22T22:01:00Z"), "End of the shown minute (Q-05)")
+        XCTAssertNil(result.fiveHour, "No session block: the five-hour window stays unknown")
+        XCTAssertEqual(result.modelQuotas?.map(\.name), ["Fable"])
+        XCTAssertEqual(result.modelQuotas?.first?.window.remaining, 0)
+        XCTAssertTrue(ClaudeUsageText.isDrawn(screen), "The probe ends once the tab stops changing")
+        XCTAssertThrowsError(try ClaudeUsageText.parse(screen.replacingOccurrences(of: "Esc to close", with: ""), now: now))
+    }
     func testTerminalEscapesAndPartialRendersCannotInventQuota() throws {
         let ansi = "\u{1b}]0;Claude Code\u{07}\u{1b}[?25h\u{1b}[G" + text.replacingOccurrences(of: "\n", with: "\r\n") + "\u{1b}[3A"
         XCTAssertEqual(try ClaudeUsageText.parse(ansi, now: now).weekly?.remaining, 69)

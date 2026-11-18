@@ -9,6 +9,10 @@
 - A Claude Code session started in the terminal built into Claude (or Codex) counts as a terminal session. It used to count as a Claude Desktop task: after its tab closed it stayed **Permission needed** or **Thinking** for up to ten minutes, and a click reported that Claude had not provided a link. Now it leaves the list with its tab, and a click brings that app's window forward.
 - A session whose turn ended with background or workflow agents still running stays **In background** while those agents call tools. Each of their tool calls used to turn the row back into **Thinking**, so a long-finished turn showed a growing timer.
 
+### Limits
+
+- Claude limits update again with Claude Code 2.1.327. That version shows `/usage` as a tab of its settings panel that ends with "Esc to close"; Lunavect waited for the earlier "Esc to cancel", so the limits stopped at the last value read and Settings said that the client did not respond in time.
+
 ### Widgets
 
 - The medium limits widget with one provider has its own layout: the week as a large figure with its bar, and the five-hour window, model limit and plan end as tiles with small meters under it. Before, it stretched the small widget's rows across the width, with faint text on desktop glass and a bare calendar icon for the plan.
