@@ -28,8 +28,12 @@ struct IDEConnectionsView: View {
 
     static func resources() -> URL? {
         #if SWIFT_PACKAGE
-        // `.copy("Resources")` keeps the folder; resourceURL already points inside it.
-        return Bundle.module.bundleURL.appendingPathComponent("Resources/IDEConnectors")
+        // `.copy("Resources")` keeps the folder: at the root of a flat bundle (native
+        // SwiftPM builds) or inside Contents/Resources (the Xcode build system).
+        let bundle = Bundle.module
+        return [bundle.bundleURL.appendingPathComponent("Resources/IDEConnectors"),
+                bundle.resourceURL?.appendingPathComponent("Resources/IDEConnectors")]
+            .compactMap { $0 }.first { FileManager.default.fileExists(atPath: $0.path) }
         #else
         return Bundle.main.resourceURL?.appendingPathComponent("IDEConnectors")
         #endif
